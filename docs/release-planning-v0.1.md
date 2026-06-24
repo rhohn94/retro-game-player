@@ -193,8 +193,8 @@ Deferred to **v0.2** (see roadmap): ScreenScraper metadata (user API key); deepe
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.1 |
 |---|---|---|---|---|
 | `work/d1-architecture` (D1) | ☑ | ☑ | ☑ | ☑ |
-| `work/d2-vibrancy` (D2) | ☐ | ☐ | ☐ | ☐ |
-| `work/d3-aura-ux` (D3) | ☐ | ☐ | ☐ | ☐ |
+| `work/d2-vibrancy` (D2) | ☑ | ☑ | ☑ | ☑ |
+| `work/d3-aura-ux` (D3) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 0 — Scaffold
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.1 |
