@@ -1,0 +1,57 @@
+{
+  "schema-version": 4,
+  "name": "Grimoire",
+  "work-paradigm": {
+    "value": "Supervised"
+  },
+  "workflow-variant": {
+    "value": "Efficient"
+  },
+  "model-effort-profile": {
+    "value": "Medium"
+  },
+  "release-phase-model": {
+    "value": "Default"
+  },
+  "stealth-mode": {
+    "value": "off",
+    "acknowledged-risk": false
+  },
+  "project-manager": {
+    "max-parallel": { "value": 3 },
+    "overlap-policy": { "value": "balanced" },
+    "qa-gate": { "value": "block" }
+  },
+  "github-pr": {
+    "enabled": { "value": false },
+    "boundary": { "value": "version-to-dev" },
+    "merge-method": { "value": "merge" },
+    "review": {
+      "auto-dispatch": { "value": true },
+      "post-comments": { "value": "comment" }
+    }
+  },
+  "qa": {
+    "window-mode": { "value": "earliest-unverified" },
+    "window-size": { "value": 1 },
+    "verify-depth": { "value": "acceptance" },
+    "auto-file-findings": { "value": true }
+  },
+  "worktree-ports": {
+    "enabled": { "value": true },
+    "strategy": { "value": "os-assign" },
+    "range-start": { "value": 20000 },
+    "range-end": { "value": 29999 },
+    "env-var": { "value": "GRIMOIRE_APP_PORT" }
+  },
+  "iterate": {
+    "quota": { "XXL": 1, "XL": 3, "L": 5, "M": 10, "SM": 10, "XS": 20 },
+    "default-iterations": 1,
+    "min-issues-floor": 3,
+    "audit-agent": { "value": "dispatched" }
+  },
+  "mcp": {
+    "enabled": { "value": true },
+    "prefer-for-tracker": { "value": true }
+  }
+}

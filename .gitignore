@@ -1,0 +1,20 @@
+# Backups written by sync-from-source --apply
+.sync-backup/
+
+# Backups written by sync-from-upstream --apply (downstream projects)
+.scaffold-sync-backup/
+
+# macOS
+.DS_Store
+
+# Local-only integration marker (created deliberately in the integration worktree)
+.claude/integration-allow.local
+
+# Local-only Claude Code settings (per-machine permissions/overrides)
+.claude/settings.local.json
+
+# Migration helpers: backups and state written by migrate_roadmap_issues.py
+.claude/cache/
+
+# Pristine generation-source folder (populated at bootstrap/sync time; not committed)
+.grimoire-source/
