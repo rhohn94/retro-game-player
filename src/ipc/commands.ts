@@ -10,7 +10,7 @@
 export * from "./error";
 export * from "./health";
 // export * from "./library";     // W6/W13
-// export * from "./cores";       // W5/W16
+export * from "./cores"; // W5/W16
 // export * from "./launch";      // W7
 // export * from "./metadata";    // W8
 // export * from "./search";      // W9/W17

@@ -26,4 +26,5 @@ thiserror = "2"
 dirs = "5"                                                 # W4 (app-support path resolution)
 rusqlite = { version = "0.32", features = ["bundled"] }    # W3 (db)
 # image = "..."                                            # W10 (vibrancy blur)
-# reqwest = { version = "...", features = ["json"] }       # W5/W8/W12 (network)
+reqwest = { version = "0.12", features = ["blocking"] }    # W5/W8/W12 (network)
+zip = { version = "2", default-features = false, features = ["deflate"] } # W5 (core archive unzip)
