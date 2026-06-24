@@ -27,3 +27,4 @@ dirs = "5"                                                 # W4 (app-support pat
 rusqlite = { version = "0.32", features = ["bundled"] }    # W3 (db)
 # image = "..."                                            # W10 (vibrancy blur)
 # reqwest = { version = "...", features = ["json"] }       # W5/W8/W12 (network)
+tiny_http = "0.12"                                          # W11 (localhost fleet status server)

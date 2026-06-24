@@ -8,6 +8,7 @@
 
 pub mod health; // W1 — liveness stub (ping)
 // --- APPEND DOMAIN MODULE DECLARATIONS BELOW THIS LINE ---
+pub mod fleet; // W11 — get_fleet_status
 // pub mod library;     // W6/W13
 // pub mod cores;       // W5/W16
 // pub mod launch;      // W7
@@ -30,6 +31,7 @@ macro_rules! register_commands {
             // health (W1)
             $crate::commands::health::ping,
             // --- APPEND COMMAND PATHS BELOW THIS LINE (one per line) ---
+            $crate::commands::fleet::get_fleet_status, // W11
             // $crate::commands::library::scan_folder,
             // $crate::commands::library::list_games,
         ])

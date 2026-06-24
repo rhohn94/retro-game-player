@@ -6,6 +6,7 @@ pub mod commands;
 pub mod config;
 pub mod db; // W3 — SQLite persistence (handle, migrations, repos)
 pub mod error;
+pub mod fleet; // W11 — Fleet/Ensign: identity, manifest, status server
 pub mod telemetry;
 
 use tauri::Manager;
@@ -26,6 +27,13 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     app.manage(database);
 
     // --- APPEND FURTHER SETUP BLOCKS BELOW THIS LINE (W11) ---
+
+    // --- W11: Fleet/Ensign — identity, fleet-instance.json, localhost status server ---
+    let version = env!("CARGO_PKG_VERSION");
+    let version_dir = format!("v{version}"); // deployed layout uses v-prefixed dirs (§4.2)
+    let ensign = fleet::start(&paths, version, &version_dir)?;
+    app.manage(ensign);
+
     Ok(())
 }
 
