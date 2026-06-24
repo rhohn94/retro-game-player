@@ -89,6 +89,32 @@ impl SearchProvidersRepo<'_> {
         })
     }
 
+    /// Rename a provider (NotFound if absent; Conflict if new name already taken).
+    pub fn rename(&self, id: i64, name: &str) -> AppResult<()> {
+        self.db.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE search_providers SET name = ?1 WHERE id = ?2",
+                    params![name, id],
+                )
+                .map_err(map_sqlite)?;
+            require_affected(n)
+        })
+    }
+
+    /// Update the URL template for a provider (NotFound if absent).
+    pub fn set_url_template(&self, id: i64, url_template: &str) -> AppResult<()> {
+        self.db.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE search_providers SET url_template = ?1 WHERE id = ?2",
+                    params![url_template, id],
+                )
+                .map_err(map_sqlite)?;
+            require_affected(n)
+        })
+    }
+
     /// Toggle a provider's enabled flag (NotFound if absent).
     pub fn set_enabled(&self, id: i64, enabled: bool) -> AppResult<()> {
         self.db.with_conn(|c| {
