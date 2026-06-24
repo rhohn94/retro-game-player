@@ -1,0 +1,28 @@
+[package]
+name = "harmony"
+version = "0.1.0"
+description = "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher."
+authors = ["Harmony"]
+edition = "2021"
+
+# The library the binary calls into. `cdylib`/`staticlib` are required by the
+# mobile Tauri targets; `lib` lets unit tests link against the crate.
+[lib]
+name = "harmony_lib"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# SHARED (append-only): each backend work item adds the crates its domain needs
+# below. Keep one dependency per line, alphabetical, so parallel agents merge by
+# concatenation rather than colliding on a shared line.
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# --- APPEND DOMAIN DEPENDENCIES BELOW THIS LINE ---
+# rusqlite = { version = "...", features = ["bundled"] }   # W3 (db)
+# image = "..."                                            # W10 (vibrancy blur)
+# reqwest = { version = "...", features = ["json"] }       # W5/W8/W12 (network)

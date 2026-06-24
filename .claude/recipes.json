@@ -1,0 +1,29 @@
+{
+  "$comment": "Grimoire recipe targets for Harmony. W1 OWNS this file and seeds the base targets; later items only ADD targets (append a key), never edit an existing one — the integration master merges by key. Each target maps a stable name to the concrete project command (see CLAUDE.md Project commands).",
+  "targets": {
+    "build": {
+      "description": "Build the web bundle (CI-safe; full DMG build is `pnpm tauri build`).",
+      "command": "pnpm build"
+    },
+    "server": {
+      "description": "Run the Tauri dev shell (headful; not CI-safe).",
+      "command": "pnpm tauri dev"
+    },
+    "test": {
+      "description": "Run frontend (vitest) and backend (cargo) unit tests.",
+      "command": "pnpm test && cargo test --manifest-path src-tauri/Cargo.toml"
+    },
+    "lint": {
+      "description": "Lint frontend (eslint) and backend (clippy, warnings-as-errors).",
+      "command": "pnpm lint && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings"
+    },
+    "typecheck": {
+      "description": "Type-check frontend (tsc) and backend (cargo check).",
+      "command": "pnpm typecheck && cargo check --manifest-path src-tauri/Cargo.toml"
+    },
+    "smoke": {
+      "description": "CI-safe smoke: build the web bundle and cargo-check the Rust shell. The headful GUI screenshot smoke is W18's job.",
+      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml"
+    }
+  }
+}

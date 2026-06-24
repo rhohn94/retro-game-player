@@ -21,3 +21,12 @@
 
 # Transient sync-deps staging dir (cleaned per run)
 .sync-deps-staging/
+
+# Node / frontend build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Rust / Tauri build
+src-tauri/target/
+src-tauri/gen/
