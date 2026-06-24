@@ -1,120 +1,310 @@
 ---
-source: upstream
+source: submodule
 source-url: https://github.com/rhohn94/design-language
-source-sha: ""
-source-pin: ""
+source-sha: "PLACEHOLDER_SUBMODULE_SHA"  # W2 pins the real SHA
+source-pin: "v3.20"  # stable release channel; bare vX.Y.Z tags carry no assets
 adaptation-status: draft
 ---
 
-# UX Design Language
+# UX Design Language — Harmony
 
 > **Up:** [↑ UX](README.md)
 
-
-<!-- Project agent: this file is the per-project UX design-language authority.
-     It starts as a template stub. Fill each section for THIS project, then run
-     the `design-language-adapt` skill to pull and adapt the upstream source.
-     That skill governs how this file's front-matter and acceptance checklist
-     are consumed — read its SKILL.md before editing them. -->
+> **Status:** D3 deliverable. The project-specific Aura adaptation for Harmony
+> v0.1. Implements the **Aura-in-React seam** of the master contract
+> ([../architecture-design.md §5.2](../architecture-design.md)). The screen
+> inventory that consumes this language lives in
+> [../harmony-ux-design.md](../harmony-ux-design.md).
 
 ## Motivation
 
-<!-- Project agent: state in 2-4 sentences why THIS project needs an explicit UX
-     design language. What inconsistency or re-invention does it prevent? Who
-     reads this doc — designers, the authoring agent, reviewers? Keep it concrete
-     to this project; the cross-project rationale is already in the scaffolding
-     design doc and should not be restated here. -->
+Harmony is built by ~20 parallel work-item agents (W13 library, W14 controller,
+W15 settings, W16 cores, W17 search, …). Without a single, fixed visual language
+each would re-invent panels, focus rings, spacing, and theming, and the merged
+app would look incoherent. This doc fixes Harmony's adoption of the **Aura**
+design language: how Aura is vendored and imported, the brand-knob values, the
+anti-FOUC strategy, the archetype→screen map, and the documented friction of
+driving Aura's web components from React 19. Every UI agent reads this before
+building a screen.
 
 ## Scope
 
-<!-- Project agent: list what this project's design language covers (e.g. the
-     control set, views, and states the project actually ships) vs. what is
-     explicitly deferred (non-goals). Be honest about the long tail — the
-     `ux-demo` covers only the most relevant 2-5 controls/views, so anything
-     beyond that belongs under deferred here. -->
+**Covered:** the Aura source pin + submodule path + how `bindings/react` is
+imported; the 3-knob OKLCH brand values and dark surface tokens chosen for
+Harmony; the anti-FOUC head script; the Aura-archetype → Harmony-screen mapping;
+the Aura-in-React friction findings (ecosystem signal); and how Aura translucency
+cooperates with the native-vibrancy seam.
 
-## Design
+**Not covered:** per-screen layout sketches, controller-navigation maps, and
+Framer Motion transition choreography — those live in
+[../harmony-ux-design.md](../harmony-ux-design.md). Vibrancy config keys + the
+pre-blur pipeline live in `native-vibrancy-design.md` (D2, not yet merged).
 
-### Source
+---
 
-<!-- Project agent: record whether this project tracks `upstream` or runs in
-     strict-`local` mode (see the `source:` front-matter field above).
-       - `upstream`: `design-language-adapt` clones the `source-url` repo, freezes
-         it by `source-sha`, and surfaces diffs for selective review on re-runs.
-       - `local`: the clone step is skipped; this file's content is authoritative
-         and no `source-sha` is tracked.
+## 1. What Aura is
 
-     Front-matter field reference:
-       source-pin:  (optional) Specific upstream commit SHA to pin this
-                    adaptation to, instead of tracking HEAD. When set, the
-                    skill checks out that exact SHA from the cloned repo;
-                    `source-sha:` will equal this value after adaptation.
-                    Leave empty to track HEAD (default behaviour).
-       source-sha:  The upstream SHA actually used during the last adaptation.
-                    Written by the skill — do not edit by hand.
+Aura (`@aura-design/core`) is a web-component design system:
 
-     See the `design-language-adapt` skill for the full behaviour of each mode. -->
+- **`<aura-*>` custom elements** — `<aura-app>`, `<aura-card>`, `<aura-grid>`,
+  `<aura-button>`, `<aura-field>`, `<aura-list>`, `<aura-dialog>`, `<aura-tabs>`,
+  `<aura-nav>`, etc.
+- **BEM classes** for variants/modifiers (`aura-card aura-card--elevated`).
+- **A `css/aura.css` @layer barrel** — Aura styles live in CSS cascade layers so
+  app overrides can win deterministically by layer order.
+- **8 page archetypes** — ready-made full-page compositions (see §5).
+- **An official `bindings/react`** — typed React wrappers, hooks, and a
+  `jsx.d.ts` ambient declaration that types the custom elements for TSX.
 
-### Local design tokens
+Harmony uses Aura as its **only** design language. **No Tailwind.** Framer Motion
+handles transitions on top of Aura.
 
-<!-- Project agent: define this project's adapted design tokens. Translate the
-     upstream language into THIS project's stack — do not paste HTML/CSS into a
-     non-web project. Cover at least:
-       - Colors      — accent, surface, text, error/warning palettes
-       - Type        — families, scale, weights
-       - Spacing     — the spacing scale / unit
-       - Radius      — corner radii for controls and surfaces
-       - Motion      — easing and duration conventions, if any
-     Adapt where the upstream concept does not map cleanly; note the deviation. -->
+---
 
-### Component map
+## 2. How Harmony consumes Aura (source pin + submodule + import)
 
-<!-- Project agent: list which upstream components this project adapts, and to
-     what local control/widget. Start with the 3-5 most relevant components your
-     `ux-demo` will cover. One row per component, e.g. upstream "primary button"
-     -> this project's equivalent. Omit upstream components the project does not
-     use. Follow the verbatim-where-possible, adapt-where-necessary rule (see
-     the `design-language-adapt` skill). -->
+### 2.1 The known upstream gap (design-language#858)
 
-### Theme & components
+Aura's **v3.20 release asset bundle** ships `css/`, `js/`, `dist/`, and
+`templates/` — but it **does NOT include `bindings/react`**. The official React
+adapter exists only in the **repo tree** (and on unreleased `vX.Y.Z` tags). This
+is filed upstream as **design-language#858**. Consequently Harmony **cannot** get
+the React adapter from a package/asset install.
 
-This project's structured token and component tiers live in two companion files:
+### 2.2 Resolution — git submodule pin
 
-- [`theme.md`](theme.md) — design token scales (colour, spacing, type, radius, motion).
-  Status: `draft` (see the file's front-matter).
-- [`components.md`](components.md) — named component recipes referencing theme tokens.
-  Status: `draft` (see the file's front-matter).
+Harmony consumes Aura via a **git submodule pin** of `rhohn94/design-language`,
+so the full source tree — including `bindings/react` — is present in-repo.
 
-The prose adaptation above remains the human-readable authority. The tiers are
-machine-addressable companions: `ux-demo-build` reads `components.md` for which
-controls to build and `theme.md` for the values to apply. Edit `theme.md` to
-change token values; component recipes in `components.md` reference tokens by
-path and update automatically.
+- **Submodule path: `vendor/aura`** (chosen; stated here as the canonical path so
+  W2/W19 agree). Resolves to `…/design-language` checked out at the pinned SHA.
+- **Pinned ref:** `v3.20` is the **stable release channel**. Bare `v3.446`-style
+  tags carry **no assets** and are not used as the Harmony pin.
+- **Pinned SHA:** `PLACEHOLDER_SUBMODULE_SHA` — **W2 fills the real SHA** when it
+  adds the submodule; this doc's front-matter `source-sha` is updated in the same
+  change. W19 reconciles this submodule pin with the Dependency Channel /
+  `vendor.toml` (see [../dependency-channel-conformance.md](../dependency-channel-conformance.md)).
 
-<!-- Project agent: advance the `adaptation-status` fields in theme.md and
-     components.md to `adopted` after reviewing and completing the token values
-     and maps-to fields. Never auto-adopt — the user makes this call. -->
+```
+git submodule add https://github.com/rhohn94/design-language vendor/aura
+git -C vendor/aura checkout <PINNED_SHA on v3.20 channel>   # W2
+```
 
-## Adaptation acceptance
+### 2.3 Import strategy
 
-<!-- Project agent: this is the project-specific contract. Each item asserts "the
-     demo correctly shows X" against the adapted language; the user ticks a box
-     after reviewing the `ux-demo` and its screenshots under
-     `ux-demo/screenshots/`. Do NOT auto-tick these — the user marks them complete
-     after demo review. Map filenames 1:1 to items where practical. The
-     `ux-demo-build` skill produces the demo these items are reviewed against. -->
+Vite aliases let app code import the React adapter from the submodule tree:
 
-- [ ] <!-- e.g. the primary button uses the adapted accent colour -->
-- [ ] <!-- e.g. the error state uses the adapted error palette and warning iconography -->
-- [ ] <!-- e.g. the form-field stack uses the adapted spacing scale -->
+```ts
+// vite.config.ts  (W2 establishes the alias)
+resolve: {
+  alias: {
+    "@aura/react": fileURLToPath(new URL("./vendor/aura/bindings/react", import.meta.url)),
+    "@aura/css":   fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
+  },
+}
+```
+
+```ts
+// src/theme/AuraProvider.tsx  (D3/W2)
+import "@aura/css/aura.css";              // the @layer barrel
+import { AuraApp, AuraCard, AuraButton } from "@aura/react";
+```
+
+The `jsx.d.ts` from `vendor/aura/bindings/react` is added to `tsconfig`'s
+`include`/`types` so `<aura-*>` elements type-check in TSX.
+
+---
+
+## 3. Brand knobs — the 3-knob OKLCH theming
+
+Aura's brand is set by **three OKLCH custom properties**; everything else
+(hover, borders, focus rings, on-surface text) derives from them. Harmony's vibe
+is **cinematic, cover-art-forward, dark, premium** — a refined console dashboard
+where the artwork is the hero and chrome recedes.
+
+### 3.1 The three brand knobs
+
+```css
+:root,
+.theme-harmony-noir {            /* default named theme */
+  /* console-cyan primary: confident, electric, reads on near-black */
+  --aura-primary:     oklch(0.78 0.15 215);   /* ~ cyan-teal accent */
+  /* warm amber secondary: cover-art-friendly highlight / "play" energy */
+  --aura-secondary:   oklch(0.80 0.13 65);    /* ~ warm amber */
+  /* on-primary: near-black text/glyphs that sit ON the primary fill */
+  --aura-on-primary:  oklch(0.18 0.01 230);
+}
+```
+
+### 3.2 Dark surface tokens
+
+Layered near-black surfaces give depth without competing with cover art. All are
+defined as OKLCH so lightness steps are perceptually even.
+
+```css
+.theme-harmony-noir {
+  /* surfaces, darkest → raised */
+  --aura-bg:            oklch(0.16 0.012 250);   /* app backdrop (behind vibrancy) */
+  --aura-surface:       oklch(0.20 0.014 250);   /* cards / shelves base */
+  --aura-surface-raised:oklch(0.25 0.016 250);   /* hover / focused card */
+
+  /* text */
+  --aura-on-surface:        oklch(0.96 0.005 250);  /* primary text */
+  --aura-on-surface-muted:  oklch(0.72 0.01 250);   /* captions, system labels */
+
+  /* lines + focus */
+  --aura-border:    oklch(0.32 0.012 250);
+  --aura-focus:     var(--aura-primary);            /* focus ring uses brand cyan */
+
+  /* TRANSLUCENT panel fills — see §6 (cooperate with native vibrancy) */
+  --aura-panel-alpha:    oklch(0.20 0.014 250 / 0.62);
+  --aura-shelf-alpha:    oklch(0.18 0.012 250 / 0.48);
+}
+```
+
+### 3.3 Named themes
+
+Dark is the **default**. Additional named themes are selected by swapping the
+theme class on `<html>` (e.g. `theme-harmony-noir`, a lighter
+`theme-harmony-dusk`). Each named theme re-declares the three brand knobs +
+surface tokens; nothing else changes. The select lives in Settings → Appearance.
+
+---
+
+## 4. Anti-FOUC strategy
+
+Aura's dark default + named-theme select must be applied **before first paint**,
+or the user sees a flash of unthemed (light/transparent) content (FOUC) — which
+on a transparent-vibrancy window looks especially broken.
+
+A tiny **synchronous** head script sets the theme class on `<html>` from
+persisted settings (or the dark default) before the React bundle and Aura CSS
+load. It is inlined in `index.html` (not imported) so it runs first.
+
+```html
+<!-- index.html — runs before any CSS/JS bundle; D3, installed by main.tsx setup -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("harmony.theme") || "theme-harmony-noir";
+      document.documentElement.classList.add(t);
+      document.documentElement.style.colorScheme = "dark";
+    } catch (e) {
+      document.documentElement.classList.add("theme-harmony-noir");
+    }
+  })();
+</script>
+```
+
+`src/main.tsx` (architecture §1.1: "installs anti-FOUC theme (D3)") owns keeping
+`localStorage["harmony.theme"]` in sync with the persisted `Settings` value so
+the next cold start reads the correct theme. The script never blocks on IPC —
+it reads only `localStorage`, with the dark default as the catch-all.
+
+---
+
+## 5. Aura archetype → Harmony-screen map
+
+Aura ships **8 page archetypes**. Harmony's screens (architecture §1.1 screen
+map) bind to them as follows. Layout sketches + controller nav live in
+[../harmony-ux-design.md](../harmony-ux-design.md).
+
+| Harmony screen | Route | Aura archetype | Why |
+|---|---|---|---|
+| Library grid + hero | `/` | **Gallery / Media-grid** | cover-art tiles in an `<aura-grid>` under a hero backdrop |
+| Game detail | `/game/:id` | **Detail / Focus** | one hero subject + metadata column + primary action (Play) |
+| Settings | `/settings` | **Settings / Sectioned-form** | left section nav + `<aura-field>` form panes (folders/cores/controllers/providers/Familiar) |
+| Cores | `/cores` | **Management / Table-master-detail** | list of systems→cores with install/update/active actions |
+| File search | `/search` | **Search / Query-results** | query field + provider-grouped results list (links only) |
+| Controller hint bar | cross-cutting | **Shell / App-frame** (chrome region) | persistent `<aura-app>` footer/region for button hints |
+| Focus/hint overlay | cross-cutting | **Overlay / Dialog** | transient command-hint + spatial-nav focus layer |
+
+(Two archetypes — e.g. **Dashboard** and **Onboarding/Wizard** — are unused in
+v0.1 and reserved for later: a fleet/status dashboard and a first-run setup
+wizard. Recorded so later items know they are available.)
+
+---
+
+## 6. Translucency ↔ native-vibrancy cooperation
+
+Harmony's window is a **transparent-vibrancy** window (architecture §5.1, D2):
+macOS `NSVisualEffectView` paints the native blur **behind** the webview, and the
+web layer must paint on a **transparent** background so the blur shows through.
+
+**Rule:** Aura shelves/panels use **OKLCH-alpha** panel backgrounds
+(`--aura-panel-alpha`, `--aura-shelf-alpha` in §3.2) so the native vibrancy reads
+through them. There is **NO CSS `backdrop-filter`** anywhere — it is broken in a
+transparent WKWebView (Tauri #12804). The "frosted" look comes entirely from the
+**native** layer plus the Rust **pre-blurred-hero** handoff (`get_blurred_hero`,
+architecture §2.6), which `HeroBackdrop` crossfades in. App-layer CSS only
+controls the **alpha** of the surface fills, never a filter.
+
+The body/`<aura-app>` root therefore declares a transparent background; only
+cards, shelves, and the hint bar carry the semi-opaque OKLCH-alpha fills so
+content stays legible over arbitrary cover art while vibrancy still shows at the
+seams. Full vibrancy config + the transparent-webview CSS contract:
+`native-vibrancy-design.md` (D2).
+
+---
+
+## 7. Aura-in-React friction findings (ecosystem signal)
+
+Driving Aura's web components from React 19 surfaced real friction worth
+recording for the ecosystem:
+
+1. **`bindings/react` not in the release asset (design-language#858).** The
+   single biggest gap: the v3.20 asset bundle omits the React adapter, so a clean
+   package install yields custom elements with **no** typed wrappers, no hooks,
+   and no `jsx.d.ts`. Resolution: the **submodule pin** (§2). Without it, React
+   consumers must hand-write wrappers — exactly the duplication Aura's adapter
+   exists to prevent.
+
+2. **`events`/`class` vs `onChange`/`className`.** Aura custom elements emit DOM
+   **CustomEvents** and key off the **`class`** attribute. React's synthetic
+   `onChange` does **not** fire for them, and React reserves `className`. Code
+   must use the typed wrappers (which bridge to `addEventListener` + `class`) — or
+   `ref` + `addEventListener` by hand. Mixing React idioms onto raw `<aura-*>`
+   silently no-ops. This is the most common foot-gun for UI agents; the
+   `theme/` + `components/` wrappers exist to hide it.
+
+3. **Controlled-input mismatch.** Because the change event isn't React's, the
+   usual `value` + `onChange` controlled-component pattern doesn't apply directly
+   to `<aura-field>`. The wrappers expose a React-idiomatic `value`/`onValueChange`
+   surface and reconcile it to the element's property + CustomEvent internally.
+
+4. **SSR / hydration.** Custom elements are **client-only** in this app — Harmony
+   is a Tauri SPA (no SSR), so hydration mismatch isn't a runtime risk here. But
+   it is recorded as a portability caveat: `<aura-*>` elements are not defined
+   until the Aura bundle's `customElements.define` runs, so any server-rendered
+   markup would hydrate against undefined elements. For Harmony, importing the
+   Aura CSS/JS barrel at app entry (before `<App/>` mounts) is sufficient.
+
+5. **`@layer` ordering.** Aura's `css/aura.css` is a cascade-layer barrel. App
+   overrides must be authored in a layer declared **after** Aura's, or use the
+   provided override layer; otherwise specificity fights are unpredictable.
+   Recorded so UI agents place overrides correctly.
+
+6. **Type wiring.** The `jsx.d.ts` must be in `tsconfig` `include` for TSX to
+   accept `<aura-*>` tags; this is easy to miss when consuming from a submodule
+   path rather than `node_modules`.
+
+These findings are also surfaced upstream where applicable (#858) and feed W19's
+Dependency-Channel reconciliation.
+
+---
+
+## 8. Cross-links
+
+- Master contract / both seams: [../architecture-design.md §5.2](../architecture-design.md)
+- Screen inventory (consumer of this language): [../harmony-ux-design.md](../harmony-ux-design.md)
+- Native vibrancy seam (D2): `native-vibrancy-design.md`
+- Dependency Channel reconciliation (W19): [../dependency-channel-conformance.md](../dependency-channel-conformance.md)
+- Upstream Aura gap: design-language#858
 
 ## Open questions
 
-<!-- Project agent: unresolved decisions for this project's design language.
-     Resolve and prune as you go; delete this section if there are none. -->
-
-## Follow-ups
-
-<!-- Project agent: out-of-scope items deferred to a later branch or release —
-     e.g. controls the demo did not yet cover, or a theme layer on top of these
-     tokens. -->
+- Final pinned SHA on the `v3.20` channel — **W2** resolves and writes it here +
+  in front-matter.
+- Whether a light `theme-harmony-dusk` ships in v0.1 or defers to a later release.
+- Whether W19 mirrors the submodule into `vendor.toml` or keeps the submodule as
+  the source of truth (reconciliation owned by W19).
