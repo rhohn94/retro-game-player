@@ -1,0 +1,91 @@
+/*
+ * Harmony's Aura theme — the 3-knob OKLCH brand model + dark surface tokens,
+ * declared per named theme. Values mirror docs/design/ux/design-language.md §3
+ * exactly. Authored in an app-override cascade layer declared AFTER Aura's
+ * barrel (design-language.md §7.5) so these win deterministically over Aura's
+ * defaults without specificity fights.
+ *
+ * TRANSLUCENCY CONTRACT (design-language.md §6, architecture §5.1): the app-shell
+ * root paints on a TRANSPARENT background so the native NSVisualEffectView
+ * vibrancy shows through; only cards/shelves/the hint bar carry semi-opaque
+ * OKLCH-alpha fills. There is NO `backdrop-filter` anywhere (broken in a
+ * transparent WKWebView, Tauri #12804) — the frosted look is the native layer
+ * plus the Rust pre-blurred hero handoff.
+ */
+
+@layer harmony-theme;
+
+@layer harmony-theme {
+  /* Default named theme — also applied at :root so first paint is themed even
+     before the head script (defence in depth). Dark cinematic console vibe. */
+  :root,
+  .theme-harmony-noir {
+    /* ---- the three brand knobs ---- */
+    --aura-primary: oklch(0.78 0.15 215); /* console-cyan accent */
+    --aura-secondary: oklch(0.8 0.13 65); /* warm amber highlight */
+    --aura-on-primary: oklch(0.18 0.01 230); /* near-black on primary fill */
+
+    /* ---- dark surface tokens (darkest → raised) ---- */
+    --aura-bg: oklch(0.16 0.012 250); /* app backdrop (behind vibrancy) */
+    --aura-surface: oklch(0.2 0.014 250); /* cards / shelves base */
+    --aura-surface-raised: oklch(0.25 0.016 250); /* hover / focused card */
+
+    /* ---- text ---- */
+    --aura-on-surface: oklch(0.96 0.005 250);
+    --aura-on-surface-muted: oklch(0.72 0.01 250);
+
+    /* ---- lines + focus ---- */
+    --aura-border: oklch(0.32 0.012 250);
+    --aura-focus: var(--aura-primary);
+
+    /* ---- TRANSLUCENT panel fills (cooperate with native vibrancy) ---- */
+    --aura-panel-alpha: oklch(0.2 0.014 250 / 0.62);
+    --aura-shelf-alpha: oklch(0.18 0.012 250 / 0.48);
+
+    color-scheme: dark;
+  }
+
+  /* Optional lighter companion. Re-declares only the brand knobs + surfaces;
+     nothing else changes (design-language.md §3.3). */
+  .theme-harmony-dusk {
+    --aura-primary: oklch(0.6 0.13 215);
+    --aura-secondary: oklch(0.68 0.13 65);
+    --aura-on-primary: oklch(0.98 0.005 230);
+
+    --aura-bg: oklch(0.94 0.006 250);
+    --aura-surface: oklch(0.97 0.004 250);
+    --aura-surface-raised: oklch(0.99 0.003 250);
+
+    --aura-on-surface: oklch(0.22 0.01 250);
+    --aura-on-surface-muted: oklch(0.42 0.01 250);
+
+    --aura-border: oklch(0.82 0.008 250);
+    --aura-focus: var(--aura-primary);
+
+    --aura-panel-alpha: oklch(0.97 0.004 250 / 0.7);
+    --aura-shelf-alpha: oklch(0.95 0.004 250 / 0.55);
+
+    color-scheme: light;
+  }
+
+  /* App-shell root paints transparent so vibrancy reads through (NO filter). */
+  aura-app,
+  .harmony-shell {
+    background: transparent;
+    color: var(--aura-on-surface);
+  }
+
+  /* Translucent sidebar / shelves — OKLCH-alpha fills, no backdrop-filter. */
+  .harmony-sidebar {
+    background: var(--aura-shelf-alpha);
+    border-right: 1px solid var(--aura-border);
+    color: var(--aura-on-surface);
+  }
+
+  .harmony-panel,
+  aura-card {
+    background: var(--aura-panel-alpha);
+    border: 1px solid var(--aura-border);
+    color: var(--aura-on-surface);
+  }
+}

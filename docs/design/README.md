@@ -12,6 +12,7 @@
 | Document | Area |
 |---|---|
 | `architecture-design.md` | System architecture and subsystem map |
+| [dependency-channel-conformance.md](dependency-channel-conformance.md) | W19: Aura submodule ↔ Dependency Channel reconciliation — why Aura is vendored as a git submodule (not a release asset; design-language#858), the `vendor.toml`/`vendor.lock` `[submodules.aura]` truth + commented loud-fallback `[deps.aura]` stub, and the offline verification (engine `--check`/`--offline` clean + `git ls-tree` gitlink pin) |
 | [release-planning-workflow-design.md](release-planning-workflow-design.md) | Release-planning Workflow: agent-tiering cost model, batched-vs-fanout sizing, read-only safety contract, `.claude/workflows/` convention |
 | [onboarding-design.md](onboarding-design.md) | First-run onboarding interview, `.claude/grimoire-config.json` schema, sentinel lifecycle, `SKIP ONBOARDING` escape hatch |
 | [work-paradigm-design.md](work-paradigm-design.md) | Work Paradigm file-swap architecture: neutral naming, three content sets (Supervised/Weiss/Noir), installer + switch skill contract, content-diff map, config schema v1→v2 |
@@ -48,6 +49,7 @@
 | [ux/design-language.md](ux/design-language.md) | Per-project UX design language: source mode, local tokens, component map, adaptation acceptance |
 | [ux/theme.md](ux/theme.md) | Design token tier: color, typography, spacing, and surface tokens |
 | [ux/components.md](ux/components.md) | Component recipe tier: named component patterns referencing theme token paths |
+| [runtime-verification-design.md](runtime-verification-design.md) | Visual-inspection CLI (`gui-visual-inspection-cli`, W18) + CI-safe smoke: headless render of the built web UI to a PNG screenshot + DOM dump, `inspect`/`smoke` recipe targets, static fallback |
 
 > **See also** (scaffold-level, not per-feature): cross-cutting
 > [coding standards](../coding-standards.md) and

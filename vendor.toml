@@ -5,20 +5,64 @@
 # → atomic-replaces vendor/<dep>/ → writes vendor.lock. Build & runtime read
 # only the committed vendor/<dep>/ bytes; the network is touched at sync time.
 #
-# This stub declares NO active deps — add a [deps.<name>] block per dependency.
-# vendor.lock is auto-generated (do not hand-edit); commit both files plus the
-# vendored bytes under vendor/<dep>/.
+# This stub declares NO active [deps.*] — add a [deps.<name>] block per
+# release-vendored dependency. vendor.lock is auto-generated (do not hand-edit);
+# commit both files plus the vendored bytes under vendor/<dep>/.
 
 schema_version = 1
 
-# Example dependency (commented out — copy, uncomment, and edit per dep):
+# ─────────────────────────────────────────────────────────────────────────────
+# Aura (rhohn94/design-language) — vendored as a GIT SUBMODULE, not a release
+# asset. This is the documented W19 reconciliation; see
+# docs/design/dependency-channel-conformance.md.
+#
+# WHY NOT an active [deps.aura] block: the sync-deps engine's release-channel
+# model (VALID_KINDS = asset-bundle | vendored-crate | app-binary, with a
+# REQUIRED `artifact` archive name) cannot express a submodule. More to the
+# point, Aura's v3.20 release ASSET bundle omits `bindings/react` entirely
+# (upstream gap design-language#858) — the very tree Harmony needs — so there
+# is no asset to vendor. Harmony therefore consumes Aura from the submodule
+# SOURCE tree, pinned by SHA. The block below is the vendor-migrate "loud
+# fallback" form: fully commented, parses to ZERO active deps, nothing pinned
+# to a moving ref. The truthful pin lives in [submodules.aura] + .gitmodules +
+# the index gitlink.
 #
 # [deps.aura]
 # repo = "rhohn94/design-language"   # GitHub owner/repo of the producer
 # channel = "stable"                 # stable | beta (the producer's release channel)
-# version = "3.20.0"                 # exact pin; sync fetches this release tag
-# artifact = "aura-v3.20.0.tar.gz"   # primary release asset basename
+# version = "v3.20"                  # stable release channel (bare vX.Y.Z tags carry no assets)
 # dest = "vendor/aura"               # repo-relative vendored destination
+# kind = "asset-bundle"             # NOT VALID HERE — real mechanism is git-submodule (see [submodules.aura])
+# # artifact = <none>               # design-language#858: v3.20 asset omits bindings/react — no asset to pin
+# # resolved commit (content pin, not a moving ref): 83c50b3fa0014433abd0ce783ae5911b8a29f1d4
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Submodule-sourced dependencies (Dependency-Channel-adjacent; NOT read by the
+# sync-deps engine, which only consumes [deps.*]). Informational + offline-
+# verifiable: the pinned `sha` MUST equal the index gitlink for `path`
+# (`git ls-tree HEAD vendor/aura`) and the `.gitmodules` url MUST match `repo`.
+# A submodule `vendor-check` is `git submodule status <path>` carrying this sha
+# (see the conformance doc for the offline check procedure).
+
+[submodules.aura]
+repo = "rhohn94/design-language"
+url = "https://github.com/rhohn94/design-language"
+channel = "stable"                 # v3.20 release channel
+pin = "v3.20"                      # human-readable channel pin (W2)
+sha = "83c50b3fa0014433abd0ce783ae5911b8a29f1d4"  # pinned gitlink (index mode 160000)
+path = "vendor/aura"
+consumes = "bindings/react"        # the React adapter Harmony imports via @aura/react
+kind = "git-submodule"
+reason = "design-language#858 — v3.20 release asset omits bindings/react; consumed from the source tree"
+
+# Example release-vendored dependency (commented out — copy, uncomment, edit):
+#
+# [deps.example]
+# repo = "owner/repo"                # GitHub owner/repo of the producer
+# channel = "stable"                 # stable | beta (the producer's release channel)
+# version = "1.0.0"                  # exact pin; sync fetches this release tag
+# artifact = "example-v1.0.0.tar.gz" # primary release asset basename
+# dest = "vendor/example"            # repo-relative vendored destination
 # kind = "asset-bundle"             # asset-bundle | vendored-crate | app-binary
 # strip_components = 1               # optional, default 0 — leading path parts to drop
 # extract = ["css/", "fonts/"]       # optional subset allowlist

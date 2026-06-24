@@ -1,0 +1,72 @@
+// Typed wrappers for the `library` domain (W6/W13). Each function calls `invoke`
+// with the command name + camelCase args and resolves a typed return or throws a
+// typed AppError. DTOs mirror architecture-design.md §2.1.
+
+import { invoke } from "./invoke";
+
+/** A scanned/identified game row (mirrors Rust `GameDto`). */
+export interface Game {
+  id: number;
+  path: string;
+  system: string;
+  crc32: string | null;
+  md5: string | null;
+  cleanName: string;
+  datMatched: boolean;
+  coreHint: string | null;
+  artPath: string | null;
+  sizeBytes: number;
+  addedAt: number;
+}
+
+/** A configured content folder (mirrors Rust `ContentFolderDto`). */
+export interface ContentFolder {
+  id: number;
+  path: string;
+  enabled: boolean;
+  addedAt: number;
+}
+
+/** Summary returned by a folder scan / rescan (mirrors Rust `ScanReport`). */
+export interface ScanReport {
+  folderId: number;
+  scanned: number;
+  identified: number;
+  unidentified: number;
+  added: number;
+}
+
+/** Add a content folder to the library; returns the persisted row. */
+export function addContentFolder(path: string): Promise<ContentFolder> {
+  return invoke<ContentFolder>("add_content_folder", { path });
+}
+
+/** List every configured content folder. */
+export function listContentFolders(): Promise<ContentFolder[]> {
+  return invoke<ContentFolder[]>("list_content_folders");
+}
+
+/** Remove a content folder (cascades to its games). */
+export function removeContentFolder(id: number): Promise<void> {
+  return invoke<void>("remove_content_folder", { id });
+}
+
+/** Scan a single content folder by id; returns the scan summary. */
+export function scanFolder(id: number): Promise<ScanReport> {
+  return invoke<ScanReport>("scan_folder", { id });
+}
+
+/** Rescan every enabled content folder; returns a combined summary. */
+export function rescan(): Promise<ScanReport> {
+  return invoke<ScanReport>("rescan");
+}
+
+/** List games, optionally filtered by system. */
+export function listGames(system?: string): Promise<Game[]> {
+  return invoke<Game[]>("list_games", { system });
+}
+
+/** Fetch a single game by id. */
+export function getGame(id: number): Promise<Game> {
+  return invoke<Game>("get_game", { id });
+}

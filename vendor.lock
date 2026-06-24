@@ -1,4 +1,17 @@
 {
   "deps": {},
-  "schema_version": 1
+  "schema_version": 1,
+  "submodules": {
+    "aura": {
+      "channel": "stable",
+      "consumes": "bindings/react",
+      "kind": "git-submodule",
+      "path": "vendor/aura",
+      "pin": "v3.20",
+      "reason": "design-language#858 — v3.20 release asset omits bindings/react; consumed from the source tree",
+      "repo": "rhohn94/design-language",
+      "sha": "83c50b3fa0014433abd0ce783ae5911b8a29f1d4",
+      "url": "https://github.com/rhohn94/design-language"
+    }
+  }
 }

@@ -1,0 +1,270 @@
+/*
+ * Library feature styles (W13) — gallery grid, hero teaser/backdrop, detail.
+ *
+ * Authored in the `harmony-theme` override layer (declared after Aura's barrel,
+ * design-language.md §7.5) so these win without specificity fights. Shelves use
+ * the translucent --aura-*-alpha tokens so native vibrancy reads through; there
+ * is NO backdrop-filter (the soft hero is the backend's pre-blurred bitmap).
+ * Focus states are visible NOW so the screens are controller-navigation-ready
+ * before the W14 spatial-nav layer lands.
+ */
+
+@layer harmony-theme {
+  /* ---- shared ---- */
+  .harmony-muted {
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-notice {
+    display: block;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 10px;
+    color: var(--aura-on-surface);
+  }
+
+  /* Visible focus ring for every focusable library control (W13; W14 drives it). */
+  .harmony-tile:focus-visible,
+  .harmony-tab:focus-visible,
+  .harmony-detail__row:focus-visible {
+    outline: 2px solid var(--aura-focus);
+    outline-offset: 2px;
+  }
+
+  /* ---- hero backdrop (pre-blurred bitmap, NO css filter) ---- */
+  .harmony-hero-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .harmony-hero-backdrop__layer {
+    position: absolute;
+    inset: -5%;
+    background-size: cover;
+    background-position: center;
+    /* The bitmap is already blurred by the backend; we only scale + dim it. */
+    opacity: 0.55;
+  }
+
+  /* ---- library page ---- */
+  .harmony-library {
+    position: relative;
+    min-height: 100%;
+  }
+  .harmony-library__content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* hero teaser */
+  .harmony-hero {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+    border-radius: 16px;
+  }
+  .harmony-hero__cover {
+    width: 140px;
+    height: 196px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--aura-shelf-alpha);
+  }
+  .harmony-hero__cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .harmony-hero__cover-ph {
+    color: var(--aura-on-surface-muted);
+    font-size: 13px;
+  }
+  .harmony-hero__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: center;
+  }
+  .harmony-hero__title {
+    margin: 0;
+    font-size: 26px;
+  }
+  .harmony-hero__system {
+    margin: 0;
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-hero__play {
+    margin-top: 8px;
+    align-self: flex-start;
+  }
+
+  /* system filter tabs */
+  .harmony-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .harmony-tab {
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--aura-border);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface);
+    cursor: pointer;
+    font: inherit;
+  }
+  .harmony-tab--active {
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    border-color: var(--aura-primary);
+  }
+
+  /* gallery grid */
+  .harmony-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 16px;
+  }
+  .harmony-tile {
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 12px;
+    text-align: left;
+  }
+  .harmony-tile__card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 12px;
+    transition: transform 120ms ease;
+  }
+  .harmony-tile:hover .harmony-tile__card,
+  .harmony-tile:focus-visible .harmony-tile__card {
+    transform: translateY(-2px);
+  }
+  .harmony-tile__art {
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
+  }
+  .harmony-tile__placeholder {
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    font-size: 13px;
+  }
+  .harmony-tile__title {
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--aura-on-surface);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  /* ---- detail page ---- */
+  .harmony-detail {
+    position: relative;
+    min-height: 100%;
+  }
+  .harmony-detail__content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .harmony-detail__back {
+    align-self: flex-start;
+  }
+  .harmony-detail__body {
+    display: flex;
+    gap: 24px;
+  }
+  .harmony-detail__cover {
+    width: 220px;
+    height: 308px;
+    flex: 0 0 auto;
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .harmony-detail__cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .harmony-detail__cover-ph {
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-detail__info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .harmony-detail__title {
+    margin: 0;
+    font-size: 30px;
+  }
+  .harmony-detail__subtitle,
+  .harmony-detail__core {
+    margin: 0;
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-detail__actions {
+    display: flex;
+    gap: 12px;
+    margin: 12px 0;
+  }
+  .harmony-detail__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 8px;
+  }
+  .harmony-detail__row {
+    display: flex;
+    gap: 16px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--aura-shelf-alpha);
+  }
+  .harmony-detail__row-label {
+    flex: 0 0 80px;
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-detail__row-value {
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  /* Collapse springs/fades for reduced-motion users (motion conventions §0). */
+  @media (prefers-reduced-motion: reduce) {
+    .harmony-tile__card {
+      transition: none;
+    }
+  }
+}

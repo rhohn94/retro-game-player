@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Harmony</title>
+    <!-- Anti-FOUC (design-language.md §4): synchronous, runs before any CSS/JS
+         bundle so the theme class is on <html> before first paint. Reads only
+         localStorage; dark default is the catch-all. Keep in sync with the key
+         in src/theme/tokens.ts (THEME_STORAGE_KEY) + the default theme. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("harmony.theme") || "theme-harmony-noir";
+          document.documentElement.classList.add(t);
+          document.documentElement.style.colorScheme =
+            t === "theme-harmony-dusk" ? "light" : "dark";
+        } catch (e) {
+          document.documentElement.classList.add("theme-harmony-noir");
+          document.documentElement.style.colorScheme = "dark";
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

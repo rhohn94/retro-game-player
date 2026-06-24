@@ -1,0 +1,40 @@
+{
+  "$comment": "Grimoire recipe targets for Harmony. W1 OWNS this file and seeds the base targets; later items only ADD targets (append a key), never edit an existing one — the integration master merges by key. Each target maps a stable name to the concrete project command (see CLAUDE.md Project commands).",
+  "targets": {
+    "build": {
+      "description": "Build the web bundle (CI-safe; full DMG build is `pnpm tauri build`).",
+      "command": "pnpm build",
+      "implemented": true
+    },
+    "server": {
+      "description": "Run the Tauri dev shell (headful; not CI-safe).",
+      "command": "pnpm tauri dev",
+      "implemented": true
+    },
+    "test": {
+      "description": "Run frontend (vitest) and backend (cargo) unit tests.",
+      "command": "pnpm test && cargo test --manifest-path src-tauri/Cargo.toml",
+      "implemented": true
+    },
+    "lint": {
+      "description": "Lint frontend (eslint) and backend (clippy, warnings-as-errors).",
+      "command": "pnpm lint && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+      "implemented": true
+    },
+    "typecheck": {
+      "description": "Type-check frontend (tsc) and backend (cargo check).",
+      "command": "pnpm typecheck && cargo check --manifest-path src-tauri/Cargo.toml",
+      "implemented": true
+    },
+    "smoke": {
+      "description": "CI-safe smoke (extended by W18): build the web bundle, cargo-check the Rust shell, run the headless visual-inspection capture over the served UI, and assert the artifact exists. No GUI window, no RetroArch, no network.",
+      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml && node scripts/visual-inspect.mjs && test -f artifacts/visual-inspection/dom.html",
+      "implemented": true
+    },
+    "inspect": {
+      "description": "W18 visual-inspection CLI (gui-visual-inspection-cli): render the built web UI headlessly and capture a PNG screenshot + DOM dump to artifacts/visual-inspection/. Run `pnpm build` first; falls back to a static DOM dump if no headless browser is available, still producing an artifact and exiting 0.",
+      "command": "pnpm build && node scripts/visual-inspect.mjs",
+      "implemented": true
+    }
+  }
+}

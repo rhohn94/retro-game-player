@@ -1,0 +1,6 @@
+# pnpm settings. esbuild (used by vite/vitest) ships a postinstall that fetches
+# its native binary; allow only that build script to run.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

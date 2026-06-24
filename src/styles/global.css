@@ -1,0 +1,29 @@
+/*
+ * Global transparency contract (D2 §2 — native-vibrancy seam).
+ *
+ * The web layer MUST paint on a transparent background so the native
+ * NSVisualEffectView vibrancy shows through. `!important` is load-bearing: it
+ * defends against any reset / Aura base style (D3/W2) that would set an opaque
+ * background on these roots and occlude the vibrancy.
+ *
+ * PROHIBITION (D2 §3): never use `backdrop-filter: blur(...)` anywhere — it is
+ * broken in a transparent WKWebView. The blurred hero is pre-blurred in Rust
+ * (W10) and composited as a finished bitmap.
+ */
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#root {
+  min-height: 100vh;
+}

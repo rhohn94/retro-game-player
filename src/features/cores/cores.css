@@ -1,0 +1,25 @@
+/* cores.css — Cores Management screen styles (W16).
+   Uses only Aura CSS variables; no hardcoded colours. Translucent shelves via
+   --aura-surface-* so native vibrancy reads through (architecture §5.2). */
+
+/* Spinner keyframes (referenced by CoreRow's inline style). */
+@keyframes cores-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Focus ring for keyboard/controller nav on system list items. */
+.cores-page [role="option"]:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+
+/* Focus ring on action buttons. */
+.cores-page aura-button:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+
+/* Shelf row hover lift (pointer-optional affordance; does not break gamepad). */
+.cores-row:hover {
+  background: var(--aura-surface-3) !important;
+}
