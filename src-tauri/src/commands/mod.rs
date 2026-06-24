@@ -13,7 +13,7 @@ pub mod health; // W1 — liveness stub (ping)
 // pub mod launch;      // W7
 // pub mod metadata;    // W8
 // pub mod search;      // W9/W17
-// pub mod vibrancy;    // W10
+pub mod vibrancy;    // W10
 // pub mod fleet;       // W11
 // pub mod familiar;    // W12
 // pub mod settings;    // W4/W15
@@ -30,6 +30,7 @@ macro_rules! register_commands {
             // health (W1)
             $crate::commands::health::ping,
             // --- APPEND COMMAND PATHS BELOW THIS LINE (one per line) ---
+            $crate::commands::vibrancy::get_blurred_hero, // W10
             // $crate::commands::library::scan_folder,
             // $crate::commands::library::list_games,
         ])

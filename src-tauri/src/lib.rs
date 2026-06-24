@@ -4,6 +4,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod core; // W10+ — domain modules (vibrancy, …)
 pub mod db; // W3 — SQLite persistence (handle, migrations, repos)
 pub mod error;
 pub mod telemetry;
@@ -24,6 +25,10 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // --- W3: database (path comes from W4's resolver — reconciliation seam) ---
     let database = db::Db::open(&paths.db_file()?)?;
     app.manage(database);
+
+    // --- W10: expose Paths as Tauri state so commands::vibrancy can resolve
+    //          the blur-cache dir without re-resolving the app-support root. ---
+    app.manage(paths);
 
     // --- APPEND FURTHER SETUP BLOCKS BELOW THIS LINE (W11) ---
     Ok(())
