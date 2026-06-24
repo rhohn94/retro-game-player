@@ -54,7 +54,7 @@ by controller — with fleet identity and telemetry wired from day one.
 - ScreenScraper metadata (needs the user's own API key — deferred to v0.2).
 - Systems beyond NES / SNES / N64.
 
-Plan: *(link to `release-planning-v0.1.md` once the plan is agreed)*
+Plan: [`release-planning-v0.1.md`](release-planning-v0.1.md).
 
 ---
 
