@@ -50,6 +50,14 @@ impl From<std::io::Error> for AppError {
     }
 }
 
+/// Serde (de)serialization failures map to `Internal` — they signal a malformed
+/// config/telemetry payload or a code bug, not a user-facing IO/validation fault.
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        AppError::Internal(e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,5 +95,13 @@ mod tests {
         let io = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
         let app: AppError = io.into();
         assert!(matches!(app, AppError::Io(_)));
+    }
+
+    #[test]
+    fn serde_json_error_lifts_into_internal() {
+        let bad: serde_json::Error =
+            serde_json::from_str::<i32>("not json").expect_err("should fail");
+        let app: AppError = bad.into();
+        assert!(matches!(app, AppError::Internal(_)));
     }
 }
