@@ -48,6 +48,7 @@
 | [ux/design-language.md](ux/design-language.md) | Per-project UX design language: source mode, local tokens, component map, adaptation acceptance |
 | [ux/theme.md](ux/theme.md) | Design token tier: color, typography, spacing, and surface tokens |
 | [ux/components.md](ux/components.md) | Component recipe tier: named component patterns referencing theme token paths |
+| [runtime-verification-design.md](runtime-verification-design.md) | Visual-inspection CLI (`gui-visual-inspection-cli`, W18) + CI-safe smoke: headless render of the built web UI to a PNG screenshot + DOM dump, `inspect`/`smoke` recipe targets, static fallback |
 
 > **See also** (scaffold-level, not per-feature): cross-cutting
 > [coding standards](../coding-standards.md) and

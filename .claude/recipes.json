@@ -22,8 +22,14 @@
       "command": "pnpm typecheck && cargo check --manifest-path src-tauri/Cargo.toml"
     },
     "smoke": {
-      "description": "CI-safe smoke: build the web bundle and cargo-check the Rust shell. The headful GUI screenshot smoke is W18's job.",
-      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml"
+      "description": "CI-safe smoke (extended by W18): build the web bundle, cargo-check the Rust shell, run the headless visual-inspection capture over the served UI, and assert the artifact exists. No GUI window, no RetroArch, no network.",
+      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml && node scripts/visual-inspect.mjs && test -f artifacts/visual-inspection/dom.html",
+      "implemented": true
+    },
+    "inspect": {
+      "description": "W18 visual-inspection CLI (gui-visual-inspection-cli): render the built web UI headlessly and capture a PNG screenshot + DOM dump to artifacts/visual-inspection/. Run `pnpm build` first; falls back to a static DOM dump if no headless browser is available, still producing an artifact and exiting 0.",
+      "command": "pnpm build && node scripts/visual-inspect.mjs",
+      "implemented": true
     }
   }
 }
