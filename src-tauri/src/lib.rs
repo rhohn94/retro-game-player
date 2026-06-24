@@ -27,7 +27,16 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     let database = db::Db::open(&paths.db_file()?)?;
     app.manage(database);
 
-    // --- APPEND FURTHER SETUP BLOCKS BELOW THIS LINE (W11) ---
+    // --- W11: Fleet/Ensign identity, manifest, localhost status server ---
+    // (borrows `paths` before W10 moves it into managed state below).
+    let version = env!("CARGO_PKG_VERSION");
+    let version_dir = format!("v{version}");
+    let ensign = fleet::start(&paths, version, &version_dir)?;
+    app.manage(ensign);
+
+    // --- W10: share the resolved Paths for on-demand blurred-hero generation ---
+    app.manage(paths);
+
     Ok(())
 }
 
