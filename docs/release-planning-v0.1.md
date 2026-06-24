@@ -219,11 +219,11 @@ Deferred to **v0.2** (see roadmap): ScreenScraper metadata (user API key); deepe
 ### Pass 2 — Frontend
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.1 |
 |---|---|---|---|---|
-| `work/w13-library-ui` (W13) | ☐ | ☐ | ☐ | ☐ |
-| `work/w14-controller` (W14) | ☐ | ☐ | ☐ | ☐ |
-| `work/w15-settings` (W15) | ☐ | ☐ | ☐ | ☐ |
-| `work/w16-cores-ui` (W16) | ☐ | ☐ | ☐ | ☐ |
-| `work/w17-search-ui` (W17) | ☐ | ☐ | ☐ | ☐ |
+| `work/w13-library-ui` (W13) | ☑ | ☑ | ☑ | ☑ |
+| `work/w14-controller` (W14) | ☑ | ☑ | ☑ | ☑ |
+| `work/w15-settings` (W15) | ☑ | ☑ | ☑ | ☑ |
+| `work/w16-cores-ui` (W16) | ☑ | ☑ | ☑ | ☑ |
+| `work/w17-search-ui` (W17) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3 — Integrate / verify / ship
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.1 |
