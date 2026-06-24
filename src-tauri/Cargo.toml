@@ -24,6 +24,10 @@ serde_json = "1"
 thiserror = "2"
 # --- APPEND DOMAIN DEPENDENCIES BELOW THIS LINE ---
 dirs = "5"                                                 # W4 (app-support path resolution)
+percent-encoding = "2"                                     # W8 (CDN URL encoding)
+reqwest = { version = "0.12", features = ["json"] }        # W8 (CDN client; W5/W12 also need)
 rusqlite = { version = "0.32", features = ["bundled"] }    # W3 (db)
 # image = "..."                                            # W10 (vibrancy blur)
-# reqwest = { version = "...", features = ["json"] }       # W5/W8/W12 (network)
+
+[dev-dependencies]
+tempfile = "3"                                             # W8 (test helpers)

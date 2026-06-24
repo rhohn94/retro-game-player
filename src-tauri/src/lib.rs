@@ -4,6 +4,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod core; // W8+ — domain logic (pure, Tauri-free)
 pub mod db; // W3 — SQLite persistence (handle, migrations, repos)
 pub mod error;
 pub mod telemetry;
