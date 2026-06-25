@@ -108,6 +108,13 @@ predicates itself — that is your job as the agent.
 
 ### Advancing `framework-version`
 
+> **`framework-version` ≠ `manifest-version`.** `framework-version` is the
+> upstream **release string** (e.g. `"v3.42"`) and is what you write here.
+> `manifest-version` is a bare integer counter at the top of
+> `feature-manifest.md` used only to detect that the manifest itself changed —
+> never copy it into `framework-version`. Writing the integer (e.g. `51`) into
+> `framework-version` is a bug.
+
 After the adopt loop completes without errors:
 
 1. Determine the upstream's current version (e.g. from the manifest's highest

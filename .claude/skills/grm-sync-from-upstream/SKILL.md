@@ -135,6 +135,40 @@ If a manifest step reads or writes user data that existed before the sync, it
 is **migration** — never merge it into `adopt`. Migration is always offered
 separately, after adoption completes, with a backup before any data moves.
 
+## Step 4.55 — Complete the grm- skill namespacing (remove bare-named survivors)
+
+The file-walk **adds** the upstream `grm-*` skills but never deletes the old
+bare-named dirs (the sync is non-destructive). A project that predates v3.42
+therefore ends up holding BOTH `iterate/` and `grm-iterate/` after `--apply`,
+and its sessions keep surfacing the stale bare names. Complete the cutover here.
+This deterministic check is the **authority** — do not rely on the
+`skill-namespacing` feature-manifest detect alone, which can read a stale
+pre-rename manifest at the old `sync-from-upstream/` path and silently skip:
+
+```bash
+ls .claude/skills/ | grep -vE '^(grm-|README|_)' || echo "(none — cutover complete)"
+```
+
+If any survivor is listed, preview then **offer** the namespacing migrate
+(**NEVER auto-run** — it archives + removes user-referenceable dirs and rewrites
+references):
+
+```bash
+python3 .claude/skills/grm-sync-from-upstream/grm_namespacing.py --root . --dry-run
+```
+
+- **Noir:** offer once with a single confirmation, then run `--apply`.
+- **Supervised / Weiss:** offer per the same prompt; on No, re-offer next sync.
+
+`--apply` archives each stale dir to `.grimoire-archive/grm-namespacing-<ts>/`,
+removes it (the synced `grm-*` copy stays authoritative — it never nests
+`grm-<name>/<name>/`), and rewrites references per the two-tier rule. Re-run the
+`ls` check after; it must report none. Then refresh `.grimoire-source/` (next
+step) so the pristine source reflects the cleaned tree.
+
+**Under Stealth Mode:** suppress the offer (skill writes must not reach source
+control); leave survivors untouched.
+
 ## Step 4.6 — Refresh `.grimoire-source/`
 
 After a clean `--apply` (zero unresolved CONFLICT files), refresh the pristine

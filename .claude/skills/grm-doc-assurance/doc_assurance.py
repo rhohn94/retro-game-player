@@ -82,10 +82,31 @@ import os, re, sys, json, glob
 
 CHECKS = [
     "flavor-parity", "design-layout", "links", "docs-map",
-    "release-consistency", "shipped-pointers", "skill-budget",
-    "relative-links", "hierarchy", "lean-index", "monolith-cap",
-    "description-cap", "anti-patterns",
+    "release-consistency", "manifest-detect-hygiene", "shipped-pointers",
+    "skill-budget", "relative-links", "hierarchy", "lean-index",
+    "monolith-cap", "description-cap", "anti-patterns",
 ]
+
+# Mirror of build_distributables.py EXCLUDED_PATH_PREFIXES + sync-from-upstream.sh
+# is_excluded() — the v3.39 "Bulkhead" framework-internal doc carve-out. A path
+# under any of these prefixes is NEVER delivered to a consumer (excluded from both
+# the sync walk and the distributable), so a feature-manifest DETECT predicate may
+# not depend on one — it could never pass on a consumer. Keep in sync with those two.
+MANIFEST_EXCLUDED_PREFIXES = (
+    "docs/grimoire/design/",
+    "docs/grimoire/feature-playbook-validation.md",
+    "docs/grimoire/issue-tracker-cost-spike.md",
+    "docs/grimoire/issue-tracker-cost-validation.md",
+    "docs/grimoire/sync-flow-audit.md",
+    "docs/grimoire/docs-organization-design.md",
+    "docs/grimoire/maintaining-grimoire.md",
+    "docs/grimoire/integration-workflow.md",
+    "docs/grimoire/version-design.md",
+    "docs/grimoire/qa-ledger.md",
+    "docs/grimoire/execution-profile-spike-s1.md",
+    "docs/grimoire/token-efficiency-",
+    "docs/grimoire/release-planning-",
+)
 
 # v1.29 context-efficiency budgets (bytes).
 SKILL_BUDGET = 12_000
@@ -733,6 +754,34 @@ def check_release_consistency(root):
         newest = max(hist, key=lambda s: tuple(map(int, s.split("."))))
         if fw and tuple(map(int, fw.split("."))) < tuple(map(int, newest.split("."))):
             findings.append(f"framework-version {fw} < newest shipped v{newest}")
+    return findings
+
+
+# ── Check 5b: feature-manifest detect-predicate hygiene (#135) ──────
+def check_manifest_detect_hygiene(root):
+    """A feature-manifest DETECT predicate must reference only artifacts that
+    are actually distributed to a consumer (skills, scripts, config). It must
+    not depend on a sync/build-excluded framework-internal doc (the v3.39
+    Bulkhead) — that path is never delivered, so the detect can never pass on a
+    consumer and the adoption is silently skipped every sync. Only the detect
+    column is scanned; summary/adopt prose may cite an internal design doc."""
+    findings = []
+    mani = f"{root}/.claude/skills/grm-sync-from-upstream/feature-manifest.md"
+    if not os.path.exists(mani):
+        return findings
+    for ln in open(mani).read().splitlines():
+        if not ln.startswith("| `"):
+            continue
+        cells = [c.strip() for c in ln.split("|")]
+        if len(cells) < 7:
+            continue
+        fid, detect = cells[1], cells[4]
+        for pref in MANIFEST_EXCLUDED_PREFIXES:
+            if pref in detect:
+                findings.append(
+                    f"feature-manifest {fid}: detect references sync-excluded "
+                    f"path '{pref}' — detect on a distributed artifact instead "
+                    f"(it can never pass on a consumer)")
     return findings
 
 
@@ -1636,6 +1685,7 @@ def main():
         elif c == "links":               f = check_links(root)
         elif c == "docs-map":            f = check_docs_map(root, write=write)
         elif c == "release-consistency": f = check_release_consistency(root)
+        elif c == "manifest-detect-hygiene": f = check_manifest_detect_hygiene(root)
         elif c == "shipped-pointers":    f = check_shipped_pointers(root)
         elif c == "skill-budget":        f = check_skill_budget(root)
         elif c == "lean-index":          f = check_lean_index(root)
