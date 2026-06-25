@@ -1,0 +1,61 @@
+{
+    "permissions": {
+        "allow": [
+            "mcp__grimoire-issue-tracker__create_issue",
+            "mcp__grimoire-issue-tracker__comment_issue",
+            "mcp__grimoire-issue-tracker__update_issue",
+            "mcp__grimoire-issue-tracker__close_issue",
+            "mcp__grimoire-issue-tracker__label_issue",
+            "mcp__grimoire-issue-tracker__ensure_label"
+        ]
+    },
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "Edit|Write|NotebookEdit|Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-guard.sh"
+                    }
+                ]
+            },
+            {
+                "matcher": "Edit|Write",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/release-plan-guard.sh"
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/protected-branch-guard.sh"
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/push-guard.sh"
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stealth-guard.sh"
+                    }
+                ]
+            }
+        ]
+    }
+}
