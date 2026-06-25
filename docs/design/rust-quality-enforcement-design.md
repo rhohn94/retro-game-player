@@ -7,7 +7,7 @@
 > program. Deepens how Grimoire enforces Rust code quality in *managed
 > projects* — clippy, rustfmt, cognitive-complexity, module structure, and
 > unused-dependency hygiene — wiring deterministic checks into the existing
-> `code-health` scan, the `coding-practices-audit` surface, and the v1.26
+> `grm-code-health` scan, the `grm-coding-practices-audit` surface, and the v1.26
 > merge-gate dials. No new top-level skill: the framework prefers extending the
 > data-driven surfaces (audit-hints + recipe `lint` target) over adding skills.
 
@@ -15,9 +15,9 @@
 
 Rust is a large slice of the projects Grimoire scaffolds, yet the framework's
 Rust enforcement is uneven. `docs/coding-standards/rust.md` carries strong prose
-guidance but only four audit-hints, so `coding-practices-audit` (which assembles
+guidance but only four audit-hints, so `grm-coding-practices-audit` (which assembles
 its checklist *only* from hints) covers a fraction of the written standard.
-`code-health` lists Rust tools but never pins the exact invocations, and nothing
+`grm-code-health` lists Rust tools but never pins the exact invocations, and nothing
 ties `cargo clippy -D warnings` / `rustfmt --check` / `cargo machete` to the
 merge boundary. The result: a managed Rust project can drift on formatting,
 accrue clippy debt, grow cognitively-complex functions, and carry dead
@@ -29,16 +29,16 @@ dependencies without any Grimoire gate noticing.
   unused-deps) with exact invocations, surfaced through the recipe `lint`
   target so every consumer drives it by one stable name.
 - **Audit-hint parity**: every enforceable rule in [rust.md](../coding-standards/rust.md) carries an
-  `audit:` hint, so `coding-practices-audit` covers the whole written standard,
+  `audit:` hint, so `grm-coding-practices-audit` covers the whole written standard,
   not a quarter of it.
-- A **complexity & module-size** dimension for Rust in `code-health` (clippy
+- A **complexity & module-size** dimension for Rust in `grm-code-health` (clippy
   `cognitive_complexity`, function/module line budgets) with baseline delta.
 - Folds into the existing v1.26 `code-quality` dials at the merge gate — no new
   config cluster, no new default strictness.
 
 ## Non-goals
 
-- A new standalone skill (extend `code-health` + `coding-practices-audit`).
+- A new standalone skill (extend `grm-code-health` + `grm-coding-practices-audit`).
 - Imposing clippy-pedantic or a complexity ceiling by default — defaults stay
   warn-not-block; projects opt into `-D warnings` and thresholds.
 - Auto-fixing (`cargo clippy --fix` / `cargo fmt`) inside a gate — report and
@@ -66,15 +66,15 @@ first hard failure (format/lint) while collecting warn-level findings
 ### 2. Audit-hint parity in [rust.md](../coding-standards/rust.md)
 
 Every normative rule in [rust.md](../coding-standards/rust.md) gains an `audit: id=… check=… severity=…
-applies="rust"` marker. `coding-practices-audit` greps these and builds its
+applies="rust"` marker. `grm-coding-practices-audit` greps these and builds its
 checklist, so the audit surface grows with the doc and needs no skill change
 (the data-driven contract from `coding-practices-audit-design.md`). New hints
 cover module/function size, re-export discipline, `thiserror`/`anyhow` split,
 cognitive complexity, rustfmt-check, and dependency pruning.
 
-### 3. `code-health` Rust complexity dimension
+### 3. `grm-code-health` Rust complexity dimension
 
-`code-health` Section B (complexity + maintainability) pins the Rust path to
+`grm-code-health` Section B (complexity + maintainability) pins the Rust path to
 clippy's `cognitive_complexity` lint plus a function-length and module-length
 budget, recorded in the baseline cache for delta reporting. Section A
 (dead-code + duplication) pins `cargo machete` for unused deps and the
@@ -82,7 +82,7 @@ budget, recorded in the baseline cache for delta reporting. Section A
 
 ### 4. Merge-gate integration
 
-No new dial. `release-phase-merge` already consults the v1.26 `code-quality`
+No new dial. `grm-release-phase-merge` already consults the v1.26 `code-quality`
 dials; the Rust `lint` recipe and the `code-health --gate` pass become the
 concrete checks those dials govern for Rust projects. `audit-gate: warn`
 (default) reports; `block` stops the merge.
@@ -100,10 +100,10 @@ plan's self-consistency section.
 ## Validation / Idempotency
 
 - **Audit-hint parity** is checkable: `grep -c 'audit: id=' rust.md` rose from 4
-  to 13, and `coding-practices-audit` picks every new hint up with no skill
+  to 13, and `grm-coding-practices-audit` picks every new hint up with no skill
   change (data-driven contract).
 - **Idempotent docs**: re-running the standards edits is a no-op; the recipe
-  `lint` contract is declarative. `doc-assurance` must report **no new**
+  `lint` contract is declarative. `grm-doc-assurance` must report **no new**
   flavor-parity, link, or house-layout findings attributable to this release
   (pre-existing findings are out of scope and tracked separately).
 - **Flavor parity**: [rust.md](../coding-standards/rust.md) and this design doc are byte-identical across
@@ -112,5 +112,5 @@ plan's self-consistency section.
 ## Flavor parity
 
 [rust.md](../coding-standards/rust.md) and the standards docs are mirrored to `copilot/`. The recipe
-contract is documented identically. `code-health` is Claude-Code-only tooling
+contract is documented identically. `grm-code-health` is Claude-Code-only tooling
 prose; the copilot mirror carries the same guidance in its standards docs.

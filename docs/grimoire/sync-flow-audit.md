@@ -128,7 +128,7 @@ The upstream `claude-code/.claude/paradigms/` subtree (18 files across
 `supervised/`, `weiss/`, `noir/`) is walked by the sync script. A downstream
 project's active paradigm content (`integration-master/SKILL.md`,
 `CLAUDE-agent-role.md`, etc.) is installed from `paradigms/<active>/` into live
-paths by `work-paradigm-switch`. If the user has customized their active paradigm
+paths by `grm-work-paradigm-switch`. If the user has customized their active paradigm
 content, a sync could offer `MERGED` or `CONFLICT` against their live files — but
 those live files are not in `paradigms/`; they're in their install locations.
 
@@ -136,10 +136,10 @@ The `paradigms/` directory files themselves are rarely customized per-project (t
 are framework-managed), so an `UPDATE` or `NEW` there is generally safe. However:
 
 1. There is no documentation in SKILL.md warning that paradigm files will be
-   synced and that `work-paradigm-switch` should be re-run afterward to re-install
+   synced and that `grm-work-paradigm-switch` should be re-run afterward to re-install
    the active paradigm into live paths.
 2. D1 should note that a feature manifest entry for a new paradigm addition
-   requires a post-sync `work-paradigm-switch` step in the adoption playbook.
+   requires a post-sync `grm-work-paradigm-switch` step in the adoption playbook.
 
 **Not fixed here** — add a note to SKILL.md Step 4 (Resolve and re-specialize)
 in a D1 or D2 pass.
@@ -156,9 +156,9 @@ that has no `CLAUDE.md` (unlikely — most will), it arrives as `NEW`. It IS the
 generic scaffold template, so arriving as NEW is not wrong per se. However:
 
 - SKILL.md Step 4 mentions re-specializing NEW generic files using
-  `workflow-bootstrap`, but doesn't call out that `CLAUDE.md` itself requires
+  `grm-workflow-bootstrap`, but doesn't call out that `CLAUDE.md` itself requires
   the most invasive re-specialization of any file.
-- The `.claude/skills/workflow-bootstrap/golden/CLAUDE.md` also exists inside
+- The `.claude/skills/grm-workflow-bootstrap/golden/CLAUDE.md` also exists inside
   the skill subtree and would also appear as `NEW` (different path), creating two
   competing CLAUDE.md candidates.
 
@@ -184,7 +184,7 @@ The script uses `find . -type f | sort` from `$FLAVOR_DIR`, so it covers
 | `.claude/paradigms/**` | YES | Synced; see Finding 3. |
 | `.claude/grimoire-config.json` | YES | Not excluded; see Finding 2. |
 | `.claude/push-allowlist` | YES | Synced. |
-| `.claude/skills/workflow-bootstrap/golden/**` | YES | Golden copies are part of the flavor subtree and will be walked. For downstream projects that have `workflow-bootstrap/golden/`, this means golden copies stay in sync with upstream — generally correct. |
+| `.claude/skills/grm-workflow-bootstrap/golden/**` | YES | Golden copies are part of the flavor subtree and will be walked. For downstream projects that have `workflow-bootstrap/golden/`, this means golden copies stay in sync with upstream — generally correct. |
 | `docs/*.md` (structural) | YES | `docs/integration-workflow.md`, `docs/version-design.md` etc. all synced. `docs/roadmap.md` and `docs/design/README.md` are excluded. |
 | `CLAUDE.md` (flavor root) | YES (gap — not excluded) | See Finding 4. |
 | `README.md` | NO | Correctly excluded. |
@@ -200,7 +200,7 @@ The script uses `find . -type f | sort` from `$FLAVOR_DIR`, so it covers
    a surgical write, not a wholesale sync.
 
 3. **Document paradigm-file sync consequence** (Finding 3): SKILL.md Step 4
-   should note that if paradigm files were `UPDATE`d, run `work-paradigm-switch`
+   should note that if paradigm files were `UPDATE`d, run `grm-work-paradigm-switch`
    to re-install the active paradigm into live paths. F3 github-issues playbook
    and future playbooks should include this step if paradigm files changed.
 

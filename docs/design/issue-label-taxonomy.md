@@ -40,7 +40,7 @@ Drives: model/effort at dispatch.
 | `size:xl` | > 200K tokens | Major system-wide change |
 
 **Assignment rule:** always assign a size label at triage. Use the token-band estimates
-from `release-planning` skill output. Default to `size:m` when size is unknown.
+from `grm-release-planning` skill output. Default to `size:m` when size is unknown.
 
 ## Complexity dimension (model tier)
 

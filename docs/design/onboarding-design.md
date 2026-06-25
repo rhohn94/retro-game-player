@@ -6,7 +6,7 @@
 ## Motivation
 
 A freshly copied Grimoire scaffold is inert until the user runs
-`repo-init` / `workflow-bootstrap`. Without a reliable trigger the user
+`grm-repo-init` / `grm-workflow-bootstrap`. Without a reliable trigger the user
 may skip initialization entirely, leaving placeholders unfilled and
 interview config absent. v1.5 closes that gap: a removable sentinel fires
 on the user's *first* prompt, routing them into initialization, and an
@@ -24,14 +24,14 @@ is **`.claude/grimoire-config.json`**.
 
 **Covers:**
 - First-run onboarding interview: prompt flow and order, hand-off to
-  `repo-init` / `workflow-bootstrap`.
+  `grm-repo-init` / `grm-workflow-bootstrap`.
 - Project-config surface: `.claude/grimoire-config.json` versioned schema
   with field types, enums, and `in-development` semantics.
 - Sentinel-trigger lifecycle: location recommendation, detection, and
   idempotent removal.
 - `SKIP ONBOARDING` escape hatch: detection, inference rules, defaults,
   non-interactive bootstrap, sentinel removal.
-- Decision: interview as a new skill vs. a `repo-init` extension (shapes A3).
+- Decision: interview as a new skill vs. a `grm-repo-init` extension (shapes A3).
 - **(v1.8 extension)** Three onboarding-lifecycle flows that Phase-2 items
   implement: the onboarding → first-release-planning bridge (§6 / F1), the
   git-repo-init prerequisite (§7 / F4), and framework-required baseline
@@ -65,7 +65,7 @@ contains the literal text `SKIP ONBOARDING` (see §4).
 
 After the sentinel fires, the interview proceeds in the order below. The
 sentinel is removed **at the end of the interview**, after
-`workflow-bootstrap` completes, as its last idempotent step (§3).
+`grm-workflow-bootstrap` completes, as its last idempotent step (§3).
 
 #### 1.2 Interview prompt order
 
@@ -77,14 +77,14 @@ one exists; the user can accept with a single keypress.
 |------|----------|-------|
 | 1 | **Project name** — "What is the name of your project?" | Default: directory name; no fallback to `Grimoire` (that is the scaffolding's name, not the adopter's project). |
 | 2 | **Work paradigm** *(preview)* — "Choose your Work Paradigm (preview — not yet active): Supervised / Autonomous / Collaborative." | Default: `Supervised`. Show preview label prominently. Explain one-liner: Supervised = user-confirms; Autonomous = agent-led; Collaborative = user-led design. |
-| 3 | **Execution strategy** *(active, v1.11)* — "Choose your execution strategy (how work is dispatched — independent of paradigm and profile): Fast / Efficient / Cheap-Slow." | **Active choice** (`workflow-variant` graduated in v1.11/E1 — the execution-strategy dial). Default: `Efficient`. Frame via the speed/quality/cost triangle: Fast = speed (max parallel fan-out); Efficient = balanced; Cheap-Slow = cost (low fan-out + small batches, pairs with a cheap profile). Accept legacy `Careful-Serial` → migrated to `Cheap-Slow`. Written active (no `in-development`) and activated via `workflow-variant-switch`. **Independent dial** — never derived from Step 2 or Step 5. |
-| 4 | **GUI presence** — "Does this project have (or will have) a user interface? Yes / Not yet / No (headless)." | Feeds `workflow-bootstrap` step 3 question 9; pass the answer through to avoid re-asking. |
-| 5 | **Model/effort profile** *(active)* — "Choose your cost posture: Medium / High Effort / Efficient / Low Effort / Eco/Budget / Autonomous." | **Active choice** (`model-effort-profile` graduated in v1.10/P1). Default **`Medium`** for every paradigm — the dial is **independent**, never derived from the paradigm (Step 2) or execution strategy (Step 3). At most a one-line non-binding hint (e.g. "Noir teams often pick Autonomous + Cheap-Slow, but any combination is valid"). Written active (no `in-development`) and activated via `model-effort-profile-switch`. |
-| 6 | **Issue tracker** *(active, v1.12)* — "Choose your issue tracker: Roadmap (default) — issues live in `docs/roadmap.md` `## Backlog`; or GitHub — issues live in a GitHub Issues repo." | **Active choice** (`issue-tracker` block added in v1.12/I2). Default: `roadmap` (zero network, no config written — absence is the forward-compat default). If `github`: ask for `owner/repo`; optionally a second external repo for a two-tracker setup. Written as the `issue-tracker` block in config; activated via §3.4 (`issue-tracker-switch`, pure-data write — no file-swap). **Independent** — never derived from any other dial. If roadmap default selected: block is omitted from config. Full interview flow: `issue-tracker-design.md §9`. |
+| 3 | **Execution strategy** *(active, v1.11)* — "Choose your execution strategy (how work is dispatched — independent of paradigm and profile): Fast / Efficient / Cheap-Slow." | **Active choice** (`workflow-variant` graduated in v1.11/E1 — the execution-strategy dial). Default: `Efficient`. Frame via the speed/quality/cost triangle: Fast = speed (max parallel fan-out); Efficient = balanced; Cheap-Slow = cost (low fan-out + small batches, pairs with a cheap profile). Accept legacy `Careful-Serial` → migrated to `Cheap-Slow`. Written active (no `in-development`) and activated via `grm-workflow-variant-switch`. **Independent dial** — never derived from Step 2 or Step 5. |
+| 4 | **GUI presence** — "Does this project have (or will have) a user interface? Yes / Not yet / No (headless)." | Feeds `grm-workflow-bootstrap` step 3 question 9; pass the answer through to avoid re-asking. |
+| 5 | **Model/effort profile** *(active)* — "Choose your cost posture: Medium / High Effort / Efficient / Low Effort / Eco/Budget / Autonomous." | **Active choice** (`model-effort-profile` graduated in v1.10/P1). Default **`Medium`** for every paradigm — the dial is **independent**, never derived from the paradigm (Step 2) or execution strategy (Step 3). At most a one-line non-binding hint (e.g. "Noir teams often pick Autonomous + Cheap-Slow, but any combination is valid"). Written active (no `in-development`) and activated via `grm-model-effort-profile-switch`. |
+| 6 | **Issue tracker** *(active, v1.12)* — "Choose your issue tracker: Roadmap (default) — issues live in `docs/roadmap.md` `## Backlog`; or GitHub — issues live in a GitHub Issues repo." | **Active choice** (`grm-issue-tracker` block added in v1.12/I2). Default: `roadmap` (zero network, no config written — absence is the forward-compat default). If `github`: ask for `owner/repo`; optionally a second external repo for a two-tracker setup. Written as the `grm-issue-tracker` block in config; activated via §3.4 (`grm-issue-tracker-switch`, pure-data write — no file-swap). **Independent** — never derived from any other dial. If roadmap default selected: block is omitted from config. Full interview flow: `issue-tracker-design.md §9`. |
 
 Step 2 must clearly state that the selected value is **"preview — not yet
 active"** for the *capture-only* sense it historically had; in current reality
-(v1.6+) the paradigm activates immediately via `work-paradigm-switch`. Steps 3
+(v1.6+) the paradigm activates immediately via `grm-work-paradigm-switch`. Steps 3
 and 5 are both **active** choices that take effect immediately: the integration
 master reads `workflow-variant.value` live at dispatch (Step 3), and the
 resolver reads `model-effort-profile.value` live at every work-item dispatch
@@ -101,7 +101,7 @@ default for every paradigm is `Medium`, and the user freely picks any profile.
 This makes the §A orthogonality contract of [execution-profiles-design.md](execution-profiles-design.md)
 operational at the onboarding seam: no onboarding step writes one dial's value
 as a function of another's. The full triangle/matrix lives in
-[execution-profiles-design.md](execution-profiles-design.md) (§A/§B/§F). The `issue-tracker` block (Step 6)
+[execution-profiles-design.md](execution-profiles-design.md) (§A/§B/§F). The `grm-issue-tracker` block (Step 6)
 is orthogonal to all three dials: any combination is valid (see §2.5).
 
 #### 1.3 Hand-off sequence
@@ -109,20 +109,20 @@ is orthogonal to all three dials: any combination is valid (see §2.5).
 After collecting answers from steps 1–5:
 
 1. Write `.claude/grimoire-config.json` (§2).
-2. Activate the selected paradigm via `work-paradigm-switch`.
+2. Activate the selected paradigm via `grm-work-paradigm-switch`.
 3. Activate the selected model/effort profile via
-   `model-effort-profile-switch` (pure-data write; no file-swap).
-4. Activate the selected execution strategy via `workflow-variant-switch`
+   `grm-model-effort-profile-switch` (pure-data write; no file-swap).
+4. Activate the selected execution strategy via `grm-workflow-variant-switch`
    (pure-data write; no file-swap — same shape as step 3).
-4a. Activate the issue tracker via `issue-tracker-switch` (pure-data
+4a. Activate the issue tracker via `grm-issue-tracker-switch` (pure-data
    config write; no file-swap — only if a non-roadmap provider was
    selected in Step 6; skip entirely if roadmap default). See §3.4 in
    `issue-tracker-design.md §9.4`.
-5. Call `repo-init` to stand up the branch model and guards (if not
+5. Call `grm-repo-init` to stand up the branch model and guards (if not
    already initialized — detect via `git branch` output; skip if
    `main` + `dev` already exist).
-6. Call `workflow-bootstrap`. Pass the GUI-presence answer (step 4) so
-   `workflow-bootstrap` skips its own GUI question and uses the captured
+6. Call `grm-workflow-bootstrap`. Pass the GUI-presence answer (step 4) so
+   `grm-workflow-bootstrap` skips its own GUI question and uses the captured
    answer.
 7. Remove the sentinel (§3, idempotent).
 8. Confirm completion to the user: "Onboarding complete. Your project
@@ -182,7 +182,7 @@ re-interviewing the user.
 > default/absent → `Medium`. It shipped previewed in v1.9 (`{ value,
 > in-development }`) and **graduated to active in v1.10 (P1)** by dropping the
 > `in-development` flag — onboarding now writes it as a real, active choice
-> (`{ value }`) and activates it via `model-effort-profile-switch` (§1.3 step 3;
+> (`{ value }`) and activates it via `grm-model-effort-profile-switch` (§1.3 step 3;
 > the `Autonomous` profile is the recommended default under Noir). Both later
 > bumps preserve forward-compat: an older config is read identically to one with
 > the field at its default.
@@ -206,9 +206,9 @@ re-interviewing the user.
   outside its expected set (defensive read). This allows schema-version 1
   configs to survive future schema additions without re-onboarding.
 
-#### 2.5 `issue-tracker` config block (v1.12 / I2)
+#### 2.5 `grm-issue-tracker` config block (v1.12 / I2)
 
-The `issue-tracker` block is a **fourth independent config entry**, added as a
+The `grm-issue-tracker` block is a **fourth independent config entry**, added as a
 peer of the three existing dials. It is **optional** — absence is the
 forward-compat default (a single `roadmap` tracker synthesized by the
 abstraction; zero behavioural change for existing projects). Schema-version
@@ -245,7 +245,7 @@ stays at **3** (no bump, following the v1.10/v1.11 graduation precedent).
 no explicit match. Must refer to a name in `trackers`.
 
 **Absent block (synthesized roadmap default):** when the config has no
-`issue-tracker` key, the abstraction synthesizes a single `roadmap` tracker
+`grm-issue-tracker` key, the abstraction synthesizes a single `roadmap` tracker
 named `"default"` — identical to the explicit default. Old configs and roadmap-
 only projects need zero changes.
 
@@ -410,7 +410,7 @@ first."
 #### 3.5 Removal
 
 The sentinel line is removed as the **final step** of onboarding (both
-interactive and SKIP paths), after `workflow-bootstrap` completes:
+interactive and SKIP paths), after `grm-workflow-bootstrap` completes:
 
 ```bash
 # Remove line 1 if and only if it is the sentinel
@@ -457,26 +457,26 @@ first prompt and applies these inference rules in order:
 | `work-paradigm.value` | Look for one of `Supervised`, `Autonomous`, `Collaborative` (case-insensitive) anywhere in the prompt. Take the first match. | `"Supervised"` |
 | `workflow-variant.value` | Look for one of `Fast`, `Efficient`, `Cheap-Slow` (case-insensitive; also legacy `Careful-Serial` → migrated to `Cheap-Slow`) anywhere in the prompt. Take the first match. Independent of paradigm — never derived from it. Written active (no `in-development`). | `"Efficient"` |
 | `model-effort-profile.value` | Look for one of `Medium`, `High Effort`, `Low Effort`, `Efficient`, `Autonomous`, `Eco/Budget` (case-insensitive; `noir` → `Autonomous`). If none matched → `Medium`. Independent of paradigm — never derived from it. Written active (no `in-development`). | `"Medium"` |
-| `work-paradigm.in-development` | Written `true` here (pre-activation), then dropped by `work-paradigm-switch`. | `true` |
+| `work-paradigm.in-development` | Written `true` here (pre-activation), then dropped by `grm-work-paradigm-switch`. | `true` |
 | GUI presence | Look for `GUI`, `ui`, `interface`, `web`, `app`, `frontend` (case-insensitive) in the prompt → `yes`. Look for `headless`, `CLI`, `api` → `no`. Otherwise → `not yet`. | `"not yet"` |
-| `issue-tracker` block | Look for `github` (case-insensitive) in the prompt → write the block with `provider: "github"` and capture `owner/repo` adjacent to the `github` keyword. Look for `internal` + `external` both present → dual-tracker config. If only `roadmap` or no tracker keyword: **omit the block** entirely (absence is the forward-compat default). Full inference rules: `issue-tracker-design.md §9.2`. | block absent (roadmap default) |
+| `grm-issue-tracker` block | Look for `github` (case-insensitive) in the prompt → write the block with `provider: "github"` and capture `owner/repo` adjacent to the `github` keyword. Look for `internal` + `external` both present → dual-tracker config. If only `roadmap` or no tracker keyword: **omit the block** entirely (absence is the forward-compat default). Full inference rules: `issue-tracker-design.md §9.2`. | block absent (roadmap default) |
 
 #### 4.4 Non-interactive bootstrap sequence
 
 1. Apply inference rules to produce a config object.
 2. Write `.claude/grimoire-config.json` (§2).
-3. Activate the inferred paradigm (`work-paradigm-switch`), the inferred
-   model/effort profile (`model-effort-profile-switch`, default `Medium`), the
-   inferred execution strategy (`workflow-variant-switch`, default `Efficient`),
+3. Activate the inferred paradigm (`grm-work-paradigm-switch`), the inferred
+   model/effort profile (`grm-model-effort-profile-switch`, default `Medium`), the
+   inferred execution strategy (`grm-workflow-variant-switch`, default `Efficient`),
    and — if a non-roadmap tracker was inferred — the issue tracker
-   (`issue-tracker-switch`) — four independent activations, none derived from
-   another. If roadmap default: skip `issue-tracker-switch` (absence is the
+   (`grm-issue-tracker-switch`) — four independent activations, none derived from
+   another. If roadmap default: skip `grm-issue-tracker-switch` (absence is the
    forward-compat default).
-4. Call `repo-init` (skip if already initialized — same check as §1.3
+4. Call `grm-repo-init` (skip if already initialized — same check as §1.3
    step 2).
-5. Call `workflow-bootstrap` in non-interactive mode: pass the inferred
+5. Call `grm-workflow-bootstrap` in non-interactive mode: pass the inferred
    GUI-presence answer and suppress `AskUserQuestion` calls for fields
-   already covered by grimoire-config.json. Remaining `workflow-bootstrap`
+   already covered by grimoire-config.json. Remaining `grm-workflow-bootstrap`
    interview questions (test/build/release commands, doc-location map,
    etc.) still require answers; prompt for only those.
 6. Remove the sentinel (idempotent — §3.5).
@@ -492,40 +492,40 @@ no special-case removal logic.
 
 ---
 
-### 5. Decision: interview as a new skill or a `repo-init` extension
+### 5. Decision: interview as a new skill or a `grm-repo-init` extension
 
 **Decision: implement the onboarding interview as a NEW skill.**
 
-Name: `onboarding` (or `grimoire-init` — to be confirmed by A3's author).
+Name: `grm-onboarding` (or `grimoire-init` — to be confirmed by A3's author).
 
 **Rationale:**
 
-1. **Single-responsibility.** `repo-init` initializes the git branch model
+1. **Single-responsibility.** `grm-repo-init` initializes the git branch model
    and guards. Adding interview logic and config-file authoring to it
    conflates two concerns: version-control setup vs. project-preference
    capture. These are separable and will evolve independently.
 
 2. **Invocation surface.** The sentinel trigger must call a discrete,
    nameable unit. A new skill gives A2 a clean, stable call target
-   (`onboarding` skill) without coupling the sentinel to `repo-init`'s
+   (`grm-onboarding` skill) without coupling the sentinel to `grm-repo-init`'s
    internals.
 
-3. **`repo-init` composability.** The new skill calls `repo-init` as a
-   sub-step (§1.3 step 2). This preserves `repo-init`'s standalone use for
+3. **`grm-repo-init` composability.** The new skill calls `grm-repo-init` as a
+   sub-step (§1.3 step 2). This preserves `grm-repo-init`'s standalone use for
    projects that skip onboarding or re-run git setup independently.
 
 4. **Future extensibility.** If the interview grows (e.g. additional
    paradigm questions in a future release), the new skill absorbs changes
-   without touching `repo-init`.
+   without touching `grm-repo-init`.
 
-5. **`workflow-bootstrap` composability.** The new skill calls
-   `workflow-bootstrap` as a sub-step (§1.3 step 3), passing the captured
-   GUI-presence answer. This avoids duplication: `workflow-bootstrap`
-   retains its own standalone use, and the onboarding skill orchestrates
+5. **`grm-workflow-bootstrap` composability.** The new skill calls
+   `grm-workflow-bootstrap` as a sub-step (§1.3 step 3), passing the captured
+   GUI-presence answer. This avoids duplication: `grm-workflow-bootstrap`
+   retains its own standalone use, and the grm-onboarding skill orchestrates
    both.
 
-**Shapes A3:** A3 must create a new `onboarding` skill (not extend
-`repo-init`) and wire it as the sentinel's call target.
+**Shapes A3:** A3 must create a new `grm-onboarding` skill (not extend
+`grm-repo-init`) and wire it as the sentinel's call target.
 
 ---
 
@@ -544,14 +544,14 @@ git-repo-init prerequisite (§7 / F4)          ← BEFORE repo-init
   → first-release-planning bridge (§6 / F1)   ← plans FROM the seeded roadmap
 ```
 
-The ordering is load-bearing: **F4 runs first** (you cannot run `repo-init`'s
+The ordering is load-bearing: **F4 runs first** (you cannot run `grm-repo-init`'s
 branch model without a repo); **F3 seeds the roadmap** that **F1 then plans
 from**. F1 must not propose a first release before F3 has populated the
 framework-required baseline, or the first plan will omit the capabilities
 that make the project self-verifiable. This matches the release-planning
 order recorded in `docs/release-planning-v1.8.md` §4 Track A (F4 → F1 → F3);
 note that F1 and F3 land in that branch order for merge-conflict reasons, but
-their *runtime* order inside the onboarding skill is F3-then-F1 as shown
+their *runtime* order inside the grm-onboarding skill is F3-then-F1 as shown
 above. The implementation must place the F3 seeding step before the F1 bridge
 step in the skill body regardless of merge order.
 
@@ -570,17 +570,17 @@ directly into *first-release planning* rather than idling.
 
 #### 6.2 Where it hooks into the flow
 
-The bridge is a **new final phase of the `onboarding` skill**, appended after
+The bridge is a **new final phase of the `grm-onboarding` skill**, appended after
 the existing steps. The full onboarding sequence becomes:
 
 1. Git-repo-init prerequisite (§7).
 2. Write `.claude/grimoire-config.json` (§3).
-3. Activate the selected paradigm — `work-paradigm-switch` (§3.1).
-4. Activate the selected model/effort profile — `model-effort-profile-switch`
+3. Activate the selected paradigm — `grm-work-paradigm-switch` (§3.1).
+4. Activate the selected model/effort profile — `grm-model-effort-profile-switch`
    (§3.2; default `Medium`, independent of paradigm).
-5. Activate the selected execution strategy — `workflow-variant-switch` (§3.3;
+5. Activate the selected execution strategy — `grm-workflow-variant-switch` (§3.3;
    default `Efficient`, independent of paradigm and profile).
-6. `repo-init` → `workflow-bootstrap` (§4).
+6. `grm-repo-init` → `grm-workflow-bootstrap` (§4).
 7. Remove the sentinel (§5).
 8. **Baseline-roadmap seeding (§8 / F3).**
 9. **First-release-planning bridge (this section / F1).**
@@ -588,10 +588,10 @@ the existing steps. The full onboarding sequence becomes:
 The bridge is the *last* onboarding step, so the project is fully initialized
 (branch model, guards, paradigm content, seeded roadmap) before any planning
 begins. It reuses the existing release skills rather than re-implementing
-planning: `release-planning` (propose work items from the roadmap),
-`release-agreement` (lock the plan, write `docs/release-planning-v{X.Y}.md`,
+planning: `grm-release-planning` (propose work items from the roadmap),
+`grm-release-agreement` (lock the plan, write `docs/release-planning-v{X.Y}.md`,
 cut `version/{X.Y}`). The integration master role described in
-`.claude/skills/integration-master/SKILL.md` owns this phase.
+`.claude/skills/grm-integration-master/SKILL.md` owns this phase.
 
 #### 6.3 Paradigm-conditional behaviour
 
@@ -600,8 +600,8 @@ schema-version 2):
 
 | Paradigm | Bridge behaviour |
 |----------|------------------|
-| **Noir** (Autonomous) | **Auto-kick-off.** The integration master proposes an initial roadmap direction, runs `release-planning`, locks a first plan (`v0.1` or `v1.0`) via `release-agreement`, and cuts `version/{X.Y}` — all *before* any building, without per-step user confirmation. The user reviews the locked plan as a milestone, consistent with the Noir posture in [work-paradigm-design.md](work-paradigm-design.md) §(paradigm matrix). |
-| **Supervised** (default) | **Prompt-offer.** Onboarding asks (one `AskUserQuestion`): "Setup is complete. Would you like me to draft and lock a first release plan now, or stop here?" Only on an affirmative answer does it run the same `release-planning` → `release-agreement` → cut-`version/{X.Y}` sequence, each step still surfacing its normal Supervised confirmation. |
+| **Noir** (Autonomous) | **Auto-kick-off.** The integration master proposes an initial roadmap direction, runs `grm-release-planning`, locks a first plan (`v0.1` or `v1.0`) via `grm-release-agreement`, and cuts `version/{X.Y}` — all *before* any building, without per-step user confirmation. The user reviews the locked plan as a milestone, consistent with the Noir posture in [work-paradigm-design.md](work-paradigm-design.md) §(paradigm matrix). |
+| **Supervised** (default) | **Prompt-offer.** Onboarding asks (one `AskUserQuestion`): "Setup is complete. Would you like me to draft and lock a first release plan now, or stop here?" Only on an affirmative answer does it run the same `grm-release-planning` → `grm-release-agreement` → cut-`version/{X.Y}` sequence, each step still surfacing its normal Supervised confirmation. |
 | **Weiss** (Collaborative) | **Prompt-offer**, same as Supervised, but framed as user-led: the agent offers to *assist* with first-release planning; the user drives the roadmap and scope decisions. |
 
 The version label for the first plan (`v0.1` vs `v1.0`) is itself a planning
@@ -620,7 +620,7 @@ inferred paradigm:
 - If the inferred paradigm is **Supervised** or **Weiss**, the bridge is a
   **no-op** under `SKIP ONBOARDING` — there is no interactive session to
   prompt-offer into. Onboarding stops after seeding the roadmap (§8) and
-  prints a one-line pointer: "Run `release-planning` when you're ready to
+  prints a one-line pointer: "Run `grm-release-planning` when you're ready to
   scope your first release." This keeps `SKIP ONBOARDING` fully
   non-interactive for the non-autonomous paradigms while still delivering the
   autonomous end-to-end path for Noir.
@@ -633,8 +633,8 @@ doc currently reflects pre-v1.6/v1.7 reality. The required corrections are:
 
 | Stale | Correct (current reality) |
 |-------|---------------------------|
-| `schema-version: 1` examples | `schema-version: 2` (paradigm now active; see §6 of the `onboarding` skill / [work-paradigm-design.md](work-paradigm-design.md) §migration) |
-| Work paradigm shown as "preview — not yet active" | Paradigm is **active** at onboarding (`work-paradigm-switch` runs in §3.1) |
+| `schema-version: 1` examples | `schema-version: 2` (paradigm now active; see §6 of the `grm-onboarding` skill / [work-paradigm-design.md](work-paradigm-design.md) §migration) |
+| Work paradigm shown as "preview — not yet active" | Paradigm is **active** at onboarding (`grm-work-paradigm-switch` runs in §3.1) |
 | Workflow variants `Efficient / Fast / Cheap` | `Efficient / Fast / Careful-Serial` (the `Cheap` variant was renamed `Careful-Serial`; see [write-capable-workflow-design.md](write-capable-workflow-design.md)) |
 | Paradigm names `Autonomous / Collaborative` | Canonical `Supervised / Weiss / Noir` (with `Autonomous`→`Noir`, `Collaborative`→`Weiss` accepted only as input aliases) |
 
@@ -646,39 +646,39 @@ design records the canonical target strings.
 
 F1 edits, canonical-first (`claude-code/` → root → `copilot/`):
 
-- `.claude/skills/onboarding/SKILL.md` — add the §6.2 bridge phase (step 7),
+- `.claude/skills/grm-onboarding/SKILL.md` — add the §6.2 bridge phase (step 7),
   the §6.3 paradigm-conditional table, and the §6.4 `SKIP ONBOARDING`
-  behaviour; reference `release-planning` / `release-agreement` /
-  `integration-master` as the planning machinery (do not duplicate their
+  behaviour; reference `grm-release-planning` / `grm-release-agreement` /
+  `grm-integration-master` as the planning machinery (do not duplicate their
   logic).
 - `docs/quickstart.md` — the §6.5 stale-language corrections.
 - `docs/features.md` — same stale-language audit; correct if present.
 - Mirror all of the above across flavors (`copilot/` equivalents) per the
   canonical-first rule in `CLAUDE.md`.
 
-The release skills themselves (`release-planning`, `release-agreement`) are
+The release skills themselves (`grm-release-planning`, `grm-release-agreement`) are
 **not** edited by F1 — the bridge calls them as-is.
 
-#### 6.7 Forward-compat note: `issue-tracker` block (v1.12 / I2)
+#### 6.7 Forward-compat note: `grm-issue-tracker` block (v1.12 / I2)
 
-The `issue-tracker` block (§2.5) is a pure-data, optional, additive config
+The `grm-issue-tracker` block (§2.5) is a pure-data, optional, additive config
 entry. It does not affect `schema-version` (stays at 3) and does not require
 any code change in the onboarding flow itself — the bridge, the SKIP path, and
 the interview hand-off (§1.3) all remain unchanged. Forward-compat rules:
 
-- **Old configs without the block** (schema-version 3, no `issue-tracker` key)
+- **Old configs without the block** (schema-version 3, no `grm-issue-tracker` key)
   continue to work identically. The abstraction synthesizes the roadmap default.
   No re-onboarding or migration needed.
-- **Onboarding captures the block at Step 6** (gated on I3 — the `onboarding`
+- **Onboarding captures the block at Step 6** (gated on I3 — the `grm-onboarding`
   SKILL.md update). Until I3 lands, new projects that want GitHub Issues may
-  write the block manually or via `issue-tracker-switch`; the absence default
+  write the block manually or via `grm-issue-tracker-switch`; the absence default
   is safe.
-- **The `issue-tracker` block is orthogonal to all three dials.** Any
+- **The `grm-issue-tracker` block is orthogonal to all three dials.** Any
   `work-paradigm` × `workflow-variant` × `model-effort-profile` combination
   is valid with any tracker config. Neither the bridge (§6.2) nor the
   SKIP-path inference (§6.4) reads or derives a tracker value from a dial
   value (or vice versa).
-- **The roadmap backend stays the zero-network default.** Absent `issue-tracker`
+- **The roadmap backend stays the zero-network default.** Absent `grm-issue-tracker`
   block ≡ `roadmap` tracker. The bridge's first-release planning (§6.2) reads
   `docs/roadmap.md` for narrative scope regardless of which tracker is
   configured; this is unchanged.
@@ -693,40 +693,40 @@ the interview hand-off (§1.3) all remain unchanged. Forward-compat rules:
 
 #### 7.1 Problem
 
-`repo-init` (§4.1) assumes a git repository already exists — it runs the
+`grm-repo-init` (§4.1) assumes a git repository already exists — it runs the
 branch model (`git init -b main` notwithstanding, its `main`/`dev`/`version`
 structure presupposes a repo and a working tree under version control). A
 Grimoire scaffold copied into a *non-git* directory (e.g. an unzipped
 template, a plain folder) has no repo, so the very first protected-branch /
 worktree operation has nothing to stand on. Onboarding must guarantee a repo
-exists before `repo-init` runs.
+exists before `grm-repo-init` runs.
 
 #### 7.2 Ownership decision
 
-**Decision: onboarding owns detection + confirmation + `git init`; `repo-init`
+**Decision: onboarding owns detection + confirmation + `git init`; `grm-repo-init`
 stays focused on the branch model but adds a fail-soft guard.**
 
 Rationale:
 
 1. **Onboarding is the lifecycle orchestrator.** It already sequences
-   config-write → paradigm-activate → `repo-init` → `workflow-bootstrap`
+   config-write → paradigm-activate → `grm-repo-init` → `grm-workflow-bootstrap`
    (§1.3 / §4). The "does a repo exist?" question is a lifecycle precondition,
    not a branch-model concern, so it belongs at the orchestration layer.
-2. **`repo-init` stays single-responsibility.** Per §5's rationale, `repo-init`
+2. **`grm-repo-init` stays single-responsibility.** Per §5's rationale, `grm-repo-init`
    owns the *branch model* and guards. Folding repo *creation* and the
    user-confirmation UX into it would re-conflate concerns the original design
    deliberately split.
-3. **Defence in depth.** `repo-init` is still independently invocable (a user
-   can run it directly outside onboarding). So `repo-init` adds a **fail-soft
+3. **Defence in depth.** `grm-repo-init` is still independently invocable (a user
+   can run it directly outside onboarding). So `grm-repo-init` adds a **fail-soft
    guard**: if it detects no git repo (`git rev-parse --is-inside-work-tree`
    fails), it does *not* silently `git init` and proceed — it stops with a
-   clear message ("No git repository found. Run the `onboarding` skill, or
-   `git init` first, then re-run `repo-init`.") and exits without mutating
-   anything. This prevents a half-initialized repo when `repo-init` is called
+   clear message ("No git repository found. Run the `grm-onboarding` skill, or
+   `git init` first, then re-run `grm-repo-init`.") and exits without mutating
+   anything. This prevents a half-initialized repo when `grm-repo-init` is called
    standalone in a non-git dir, while keeping repo *creation* owned by
    onboarding.
 
-So: onboarding creates the repo; `repo-init` *requires* one and refuses to
+So: onboarding creates the repo; `grm-repo-init` *requires* one and refuses to
 proceed without it.
 
 #### 7.3 Detection + bootstrap procedure (onboarding)
@@ -746,25 +746,25 @@ everything because the config file and later commits must live inside a repo.
      implied consent to non-interactive setup, *but still announce it*: log
      "No git repo found; initializing one (SKIP ONBOARDING implies consent)."
 3. **Bootstrap the repo.**
-   - `git init -b main` (mirror `repo-init`'s default-branch choice so the two
-     agree; `repo-init` then builds `dev` / `version/*` off this `main`).
+   - `git init -b main` (mirror `grm-repo-init`'s default-branch choice so the two
+     agree; `grm-repo-init` then builds `dev` / `version/*` off this `main`).
    - Stage the scaffold and make the **initial commit** — one sentence, no
      `Co-Authored-By` trailer (commit discipline, §Commits in `CLAUDE.md` /
-     `repo-init`). Message e.g. `chore: initial Grimoire scaffold`.
-   - Do **not** create `dev` / `version/*` here — that is `repo-init`'s job.
+     `grm-repo-init`). Message e.g. `chore: initial Grimoire scaffold`.
+   - Do **not** create `dev` / `version/*` here — that is `grm-repo-init`'s job.
      Onboarding produces only "a repo on `main` with one commit".
-4. Continue to §3 (write config), then §4 calls `repo-init`, whose §7.2
+4. Continue to §3 (write config), then §4 calls `grm-repo-init`, whose §7.2
    fail-soft guard now passes because the repo exists.
 
 #### 7.4 Idempotent already-a-repo case
 
 If §7.3 step 1 detects an existing repo, onboarding **skips init entirely** —
 no second `git init`, no extra commit, no confirmation prompt. This mirrors
-the existing idempotent `repo-init`-skip in §4.1 (skip when `main`+`dev`
+the existing idempotent `grm-repo-init`-skip in §4.1 (skip when `main`+`dev`
 already exist) and the sentinel-removal idempotency in §3.5: re-running
 onboarding on an already-initialized project is always safe. A repo with
 commits but without the Grimoire branch model is *not* re-initialized by
-onboarding; `repo-init` (called in §4) brings up `dev` / `version/*` if
+onboarding; `grm-repo-init` (called in §4) brings up `dev` / `version/*` if
 missing.
 
 #### 7.5 User-confirmation requirement
@@ -787,12 +787,12 @@ Both onboarding entry points run §7 as their first step:
 
 F4 edits, canonical-first:
 
-- `.claude/skills/onboarding/SKILL.md` — add §7.3 as the new first step of
+- `.claude/skills/grm-onboarding/SKILL.md` — add §7.3 as the new first step of
   both paths (§1 and §2); document the §7.4 idempotent skip and §7.5
   confirmation rule.
-- `.claude/skills/repo-init/SKILL.md` — add the §7.2 fail-soft guard
+- `.claude/skills/grm-repo-init/SKILL.md` — add the §7.2 fail-soft guard
   (detect-no-repo → stop with guidance, mutate nothing) near the top of the
-  Initialization procedure; note in Anti-patterns that `repo-init` no longer
+  Initialization procedure; note in Anti-patterns that `grm-repo-init` no longer
   creates a repo from nothing.
 - Mirror across flavors (`copilot/` equivalents) per `CLAUDE.md`.
 
@@ -815,13 +815,13 @@ bridge) and cannot be silently dropped during scope-trimming.
 #### 8.2 Source format and location
 
 **Decision: a versioned Markdown data file shipped with the framework at
-`.claude/skills/onboarding/baseline-requirements.md`.**
+`.claude/skills/grm-onboarding/baseline-requirements.md`.**
 
 Justification:
 
-1. **Co-located with its only consumer.** The `onboarding` skill is the sole
+1. **Co-located with its only consumer.** The `grm-onboarding` skill is the sole
    reader; keeping the source list as a sibling of `SKILL.md` makes the
-   contract obvious and keeps the skill self-contained for `workflow-bootstrap`
+   contract obvious and keeps the skill self-contained for `grm-workflow-bootstrap`
    golden/restore.
 2. **Markdown over JSON.** The entries are human-authored, human-reviewed
    prose-plus-table content (capability name, rationale, shape condition,
@@ -831,13 +831,13 @@ Justification:
    (a versioned heading + the §8.4 table), not as a machine-parsed schema, so
    Markdown loses nothing here.
 3. **Versioned.** The file carries a `baseline-version: N` front-matter / first
-   line so the seeding step (and any future re-seed / `sync-from-upstream`
+   line so the seeding step (and any future re-seed / `grm-sync-from-upstream`
    reconciliation) can detect which baseline a project was seeded from and
    apply additive updates without duplicating already-seeded rows. Bump the
    version whenever an entry is added or its shape condition changes.
 
 The file is **maintained** in `claude-code/` (canonical), mirrored to root and
-`copilot/`, and is part of the `workflow-bootstrap` golden baseline so it
+`copilot/`, and is part of the `grm-workflow-bootstrap` golden baseline so it
 restores with the skill set.
 
 #### 8.3 What "seed into roadmap.md" means
@@ -845,7 +845,7 @@ restores with the skill set.
 Onboarding appends the shape-applicable baseline rows to the project's
 `docs/roadmap.md`, each tagged **`framework-required`** (see §8.5). The seeding
 reads the active project shape — derived from the GUI-presence answer (§1 step
-4 / §2 inference) plus the test/build commands captured by `workflow-bootstrap`
+4 / §2 inference) plus the test/build commands captured by `grm-workflow-bootstrap`
 — selects the matching rows from §8.4, and writes them. Seeding is **additive
 and idempotent**: a row already present (matched by its stable capability key)
 is not duplicated on a re-run; the `baseline-version` line lets a later run add
@@ -884,8 +884,8 @@ suffixed with a `[framework-required]` tag:
 - Visual-inspection CLI (headless screenshot / render-to-file / scene dump) [framework-required]  <!-- GUI -->
 ```
 
-The `[framework-required]` tag is the contract `release-planning` /
-`release-agreement` honour: these rows may be *scheduled* into a version but
+The `[framework-required]` tag is the contract `grm-release-planning` /
+`grm-release-agreement` honour: these rows may be *scheduled* into a version but
 must not be *removed* during scope-trimming. The HTML comment records the
 `baseline-version` for idempotent re-seeds and is distinct from the user's own
 roadmap items (which live under their normal headings, untagged).
@@ -895,13 +895,13 @@ roadmap items (which live under their normal headings, untagged).
 The GUI row does not duplicate the UX-design-language workflow — it
 **cross-references** it. The visual-inspection CLI is the *agent-facing*
 verification surface; the *design* surface is owned by
-`design-language-adapt` (→ `docs/design/ux/design-language.md`) and
-`ux-demo-build` (→ `ux-demo/`), as set up by `repo-init` §6. The seeded GUI
-roadmap line therefore notes: "see UX tier (`design-language-adapt`,
-`ux-demo-build`)" so first-release planning (§6) schedules the
+`grm-design-language-adapt` (→ `docs/design/ux/design-language.md`) and
+`grm-ux-demo-build` (→ `ux-demo/`), as set up by `grm-repo-init` §6. The seeded GUI
+roadmap line therefore notes: "see UX tier (`grm-design-language-adapt`,
+`grm-ux-demo-build`)" so first-release planning (§6) schedules the
 visual-inspection capability *alongside* the existing UX deferral/adaptation
 rows rather than treating them as unrelated. For a GUI-deferred project,
-`repo-init` already adds a `## Backlog` UX row; the §8 GUI baseline row
+`grm-repo-init` already adds a `## Backlog` UX row; the §8 GUI baseline row
 complements it (verification surface) without colliding.
 
 #### 8.7 Ordering relative to the bridge (F3 seeds, then F1 plans)
@@ -909,27 +909,27 @@ complements it (verification surface) without colliding.
 §8 seeding runs at onboarding step 6 — **after** the project is initialized
 and **before** the §6 first-release-planning bridge (step 7). This is the
 load-bearing order from the §"v1.8 onboarding-lifecycle extension" preamble:
-F3 populates the framework-required rows so F1's `release-planning` proposal
+F3 populates the framework-required rows so F1's `grm-release-planning` proposal
 includes them in the very first plan. F1 must not run before F3.
 
 #### 8.8 Implementation targets (F3 contract)
 
 F3 edits / adds, canonical-first:
 
-- **New file** `.claude/skills/onboarding/baseline-requirements.md` — the
+- **New file** `.claude/skills/grm-onboarding/baseline-requirements.md` — the
   versioned source list (§8.2) encoding the §8.4 table.
-- `.claude/skills/onboarding/SKILL.md` — add the §8.3 seeding step as
+- `.claude/skills/grm-onboarding/SKILL.md` — add the §8.3 seeding step as
   onboarding step 6 (after sentinel removal, before the §6 bridge); document
   the §8.5 tagging and §8.7 ordering.
 - `docs/roadmap.md` **template/seed logic** — the skill writes the
   `## Framework-required (baseline)` section per §8.5 into the *adopting
   project's* roadmap (this is skill behaviour; it does not edit
   agentic-scaffolding's own [roadmap.md](../roadmap.md)).
-- `workflow-bootstrap` golden/manifest — include the new
+- `grm-workflow-bootstrap` golden/manifest — include the new
   `baseline-requirements.md` so it restores with the skill set.
 - Mirror across flavors (`copilot/` equivalents) per `CLAUDE.md`.
 
-F3 lands **after** F1 in branch order (shared `onboarding` skill, serialized
+F3 lands **after** F1 in branch order (shared `grm-onboarding` skill, serialized
 to avoid conflicts) but its seeding step executes *before* the bridge at
 runtime (§8.7).
 
@@ -940,7 +940,7 @@ runtime (§8.7).
 - [ ] Design doc exists at `claude-code/docs/design/onboarding-design.md`
       and is listed in `claude-code/docs/design/README.md`.
 - [ ] Interview prompt order is enumerated (steps 1–4 in §1.2).
-- [ ] Hand-off sequence to `repo-init` and `workflow-bootstrap` is fully
+- [ ] Hand-off sequence to `grm-repo-init` and `grm-workflow-bootstrap` is fully
       specified (§1.3).
 - [ ] `.claude/grimoire-config.json` schema is fully specified: field
       names, types, enums, `schema-version` marker, and `in-development`
@@ -965,7 +965,7 @@ runtime (§8.7).
       paradigm-conditional auto-vs-offer behaviour, `SKIP ONBOARDING`
       interaction, stale-[quickstart.md](../quickstart.md) corrections, F1 targets (§6).
 - [ ] **(v1.8)** Git-repo-init prerequisite specified: ownership decision
-      (onboarding inits; `repo-init` fail-soft guard), confirm-before-init,
+      (onboarding inits; `grm-repo-init` fail-soft guard), confirm-before-init,
       idempotent already-a-repo skip, both paths, F4 targets (§7).
 - [ ] **(v1.8)** Baseline-roadmap seeding specified: source format+location
       (`baseline-requirements.md`, versioned Markdown), per-shape conditional
@@ -983,9 +983,9 @@ runtime (§8.7).
 ## Follow-ups
 
 - A2: implement the sentinel (top-of-CLAUDE.md line) and the detection
-  instruction in the shipped `CLAUDE.md`. Wire into `workflow-bootstrap`
+  instruction in the shipped `CLAUDE.md`. Wire into `grm-workflow-bootstrap`
   golden/manifest so it is restorable.
-- A3: implement the `onboarding` skill per §1–§4 and the schema per §2.
+- A3: implement the `grm-onboarding` skill per §1–§4 and the schema per §2.
   Wire as the sentinel's call target per §5.
 - Future (Work Paradigm release): when Work Paradigm is implemented, read
   `work-paradigm.value` from the config without re-interviewing; remove
@@ -993,16 +993,16 @@ runtime (§8.7).
 - **Done (v1.11 / E1, E3, E4):** `workflow-variant` graduated to the active
   **execution-strategy** dial (`{Fast, Efficient, Cheap-Slow}`, default
   `Efficient`); onboarding captures it as an independent Step 3 and activates it
-  via `workflow-variant-switch` (§1.3 step 4 / §3.3). The v1.10 Noir →
+  via `grm-workflow-variant-switch` (§1.3 step 4 / §3.3). The v1.10 Noir →
   `Autonomous` profile coupling was softened to a non-binding hint (E3); the
   three dials are now independently selectable (§1.2). See
   [execution-profiles-design.md](execution-profiles-design.md).
 - **F4 (v1.8):** implement the git-repo-init prerequisite per §7 — onboarding
-  detect+confirm+`git init`+initial commit; `repo-init` fail-soft guard.
+  detect+confirm+`git init`+initial commit; `grm-repo-init` fail-soft guard.
   Lands first in Track A.
 - **F1 (v1.8):** implement the first-release-planning bridge per §6 (Noir
   auto / Supervised+Weiss offer) plus the §6.5 [quickstart.md](../quickstart.md)/[features.md](../features.md)
   stale-language fix. Lands after F4.
 - **F3 (v1.8):** add `baseline-requirements.md` and the §8 seeding step;
-  wire into the `workflow-bootstrap` golden. Lands after F1; seeds before the
+  wire into the `grm-workflow-bootstrap` golden. Lands after F1; seeds before the
   §6 bridge runs (§8.7).

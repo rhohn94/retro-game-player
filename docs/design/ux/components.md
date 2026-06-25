@@ -18,7 +18,7 @@ adaptation-status: draft   # draft | ready-for-review | adopted  (user-controlle
 > [theme.md](theme.md) to change token values; recipes here reference tokens by path and
 > update automatically across a re-theme.
 >
-> Produced by the `design-language-adapt` skill as a draft. The user fills in
+> Produced by the `grm-design-language-adapt` skill as a draft. The user fills in
 > `maps-to` project-native controls and advances `adaptation-status` to
 > `adopted` when satisfied. **Never auto-adopt.**
 
@@ -73,7 +73,7 @@ components:
 
 > **Notes for the adapting agent:**
 > - Set `maps-to` to the project-native control the `ux-demo` must use. This
->   is required for `ux-demo-build` to enforce stack purity.
+>   is required for `grm-ux-demo-build` to enforce stack purity.
 > - Add / remove entries to match the project's actual component set. The three
 >   examples above are a starting point, not a mandate.
 > - Do **not** write raw hex, pixel, or magic-number values — use `theme.*`
@@ -97,7 +97,7 @@ Each component entry:
 
 1. **No raw values** — every value in `tokens` or `states` is a `theme.*`
    reference or a documented transform.
-2. **`maps-to` drives `ux-demo-build`** — leave as `TODO` if unknown; the
+2. **`maps-to` drives `grm-ux-demo-build`** — leave as `TODO` if unknown; the
    demo will skip the component until it is filled in.
 3. **`source-sha:` is NOT tracked here** — this file derives from the same
    upstream SHA recorded in [design-language.md](design-language.md). Do not add a separate SHA.

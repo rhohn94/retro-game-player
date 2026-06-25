@@ -160,7 +160,7 @@ When a scheduled wakeup fires, the woken master session:
    step 4); if still blocked, re-defer (schedule the next wakeup) and exit.
 3. **Re-establishes release context** from the checkpoint and **continues the
    release from the recorded point** — resumes the normal Noir pipeline
-   (`release-phase` → `release-agent-tracker` → `release-phase-merge`).
+   (`grm-release-phase` → `grm-release-agent-tracker` → `grm-release-phase-merge`).
 
 This is the feasible, robust resume cost-governance §E.2 described: *checkpoint
 to a known-good release state, then rely on scheduled re-entry* — not
@@ -170,7 +170,7 @@ in-flight-generation pause/resume.
 
 **Critical invariant.** A scheduled wakeup resuming a Noir run does **not** lift
 the push gate. When the resumed master reaches a push-ready point
-(`project-release` produced `dev` + `main` + tag), it still hits the normal
+(`grm-project-release` produced `dev` + `main` + tag), it still hits the normal
 stop condition (`integration-master-SKILL.md` §Stop conditions #3) and **stops,
 proposing the push and waiting**. The wakeup engine moves *work*, never the
 *landing gate*. The only thing that lifts the push gate is the **explicit
@@ -298,7 +298,7 @@ Reasoning, not assumption: a scheduled routine **is a Claude Code agent run** �
 it spins up a session, loads context, calls tools, and emits output, exactly
 like an interactive or `spawn_task` session. Every message in that run carries
 the same `usage` token classes (`input`, `output`, `cache_read`,
-`cache_creation`) that the `token-measure` skill reads from `.jsonl`
+`cache_creation`) that the `grm-token-measure` skill reads from `.jsonl`
 transcripts (cost-governance §E.1). **There is no free scheduled tier** — the
 agent thinks, therefore it bills. The relevant nuances:
 
@@ -343,8 +343,8 @@ gate and §2):
    filing non-blocking findings to the tracker. Token cost scales with diff
    size — cap it to "changes since yesterday" to keep it cheap.
 4. **Design-doc / golden drift detection.** Daily diff of live skills/hooks
-   vs. the `workflow-bootstrap` golden baseline and of design docs vs. the
-   features they describe (cf. `install-doctor`'s DRIFTED audit). Reports drift
+   vs. the `grm-workflow-bootstrap` golden baseline and of design docs vs. the
+   features they describe (cf. `grm-install-doctor`'s DRIFTED audit). Reports drift
    as issues; read-only; cheap and high-leverage for a dogfooding repo.
 5. **Backlog grooming via Triager / Reporter.** A periodic (weekly more than
    daily) grooming pass — dedupe, label, prioritize, close stale items — driven

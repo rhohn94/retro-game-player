@@ -7,7 +7,7 @@ launcher that manages libretro cores and a local game library with cover art and
 metadata, and runs content by orchestrating RetroArch. It ships **no** game
 content — it scans folders the user provides. One `## vX.Y` section per planned
 release; the integration master uses this file as the primary input to
-`release-planning`.
+`grm-release-planning`.
 
 ---
 
@@ -45,7 +45,7 @@ by controller — with fleet identity and telemetry wired from day one.
   symlink) so Mission Control's Fleet pillar can reconcile this app.
 - **Telemetry:** `run.json` wired.
 - **Dependency Channel:** `vendor.toml` populated (Aura + shared crates), synced
-  via `sync-deps` / `vendor-migrate`.
+  via `grm-sync-deps` / `grm-vendor-migrate`.
 - **Ship:** GitHub Release cut for v0.1 (`gh release create` path on).
 
 **Non-goals for v0.1:**
@@ -94,14 +94,14 @@ removed during scope-trimming.
 - Runnable test command [framework-required] <!-- key: test-command -->
 - Smoke/build command [framework-required] <!-- key: smoke-build-command -->
 - Non-interactive launch path [framework-required] <!-- key: non-interactive-launch -->
-- Visual-inspection CLI (headless screenshot / render-to-file / DOM-or-scene dump / automation endpoint) — see UX tier (`design-language-adapt`, `ux-demo-build`) [framework-required] <!-- key: gui-visual-inspection-cli, shape: GUI -->
+- Visual-inspection CLI (headless screenshot / render-to-file / DOM-or-scene dump / automation endpoint) — see UX tier (`grm-design-language-adapt`, `grm-ux-demo-build`) [framework-required] <!-- key: gui-visual-inspection-cli, shape: GUI -->
 
 ---
 
 ## Issues
 
 Issues are tracked in **GitHub** (`rhohn94/harmony`, configured via the
-`issue-tracker` block in `.claude/grimoire-config.json`). The GitHub repo must
+`grm-issue-tracker` block in `.claude/grimoire-config.json`). The GitHub repo must
 be created and pushed before issue operations resolve; until then this roadmap
 is the canonical visible state. Manage trackers with `issue-tracker-switch list`.
 

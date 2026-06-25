@@ -17,9 +17,9 @@ duplicated code (DRY)"), and the v1.27 audit-hint coverage table lists a
 "Duplication (DRY)" row. But the *enforcement* is thin and partly fictional:
 
 - [coding-standards.md](../coding-standards.md) carries **no** `audit:` hint for duplication, so
-  `coding-practices-audit` never actually checks it cross-language — yet the
+  `grm-coding-practices-audit` never actually checks it cross-language — yet the
   coverage table asserts one hint exists. The doc contradicts itself.
-- `code-health` reports duplication (`jscpd`) but treats it as informational;
+- `grm-code-health` reports duplication (`jscpd`) but treats it as informational;
   there is no remediation path connecting a found duplicate to the framework's
   existing reuse machinery (the **component-registry**).
 
@@ -33,7 +33,7 @@ informational nudge, and the standards doc miscounts its own coverage.
 - A **DRY remediation path**: when a cross-file duplicate is found, the guidance
   routes to *extract a shared unit → register it in the component-registry* so
   reuse is discoverable, not re-duplicated.
-- Promote duplication to a **first-class `code-health` gate dimension** — a
+- Promote duplication to a **first-class `grm-code-health` gate dimension** — a
   cross-file duplication threshold that the v1.26 `code-quality` dials can warn
   or block on, alongside the existing dead-code/complexity gates.
 
@@ -66,13 +66,13 @@ A new *DRY & duplication remediation* subsection states the resolution ladder:
    (the OO + base-class guidance already in the doc).
 2. **Generalize** it so it carries no caller-specific values (the architecture
    *genericity* rule).
-3. **Register** the extracted unit via the **`component-registry`** so the next
+3. **Register** the extracted unit via the **`grm-component-registry`** so the next
    consumer finds it instead of re-duplicating — closing the loop between
    "duplication found" and "reuse made discoverable."
 
 ### 3. First-class duplication gate in code-health
 
-`code-health` Section A already runs `jscpd`. This release pins it as a
+`grm-code-health` Section A already runs `jscpd`. This release pins it as a
 **gate-able** dimension: a configurable duplication threshold (block size ×
 site count) whose breach the v1.26 `audit-gate` dial treats as warn/block, and a
 report line that names the *remediation* (lift + register) rather than only the
@@ -92,13 +92,13 @@ sites. No new dial; the existing `audit-gate` governs it.
 
 - `grep 'dry-no-duplication' docs/coding-standards.md` → present; the coverage
   table's duplication row now resolves to a real hint.
-- `coding-practices-audit` picks the new hint up with no skill change.
+- `grm-coding-practices-audit` picks the new hint up with no skill change.
 - Edits are declarative/idempotent; re-running is a no-op.
-- `doc-assurance` reports no new flavor-parity / link / house-layout findings.
+- `grm-doc-assurance` reports no new flavor-parity / link / house-layout findings.
 
 ## Flavor parity
 
-[coding-standards.md](../coding-standards.md), this design doc, and the `code-health` prose are mirrored
+[coding-standards.md](../coding-standards.md), this design doc, and the `grm-code-health` prose are mirrored
 to `claude-code/` and `copilot/` (code-health prose Claude-Code-only; copilot
-carries the standards). The remediation ladder cites `component-registry`, which
+carries the standards). The remediation ladder cites `grm-component-registry`, which
 exists in both flavors.

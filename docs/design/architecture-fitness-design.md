@@ -7,14 +7,14 @@
 > code-quality** program. Adds *deterministic* architecture enforcement —
 > machine-readable fitness functions for dependency-direction, layering, and
 > module-boundary rules — on top of the existing agent-driven audit-hints in
-> [architecture-guidelines.md](../architecture-guidelines.md). Introduces a focused `architecture-audit` skill
+> [architecture-guidelines.md](../architecture-guidelines.md). Introduces a focused `grm-architecture-audit` skill
 > and a declarative `.claude/architecture-rules.json` rule format.
 
 ## Motivation
 
 [architecture-guidelines.md](../architecture-guidelines.md) carries strong prose plus four `audit:` hints
 (decoupled fe/be, modularity, genericity, layer-separation), and
-`coding-practices-audit` reasons over them. But that pass is **agent-driven and
+`grm-coding-practices-audit` reasons over them. But that pass is **agent-driven and
 narrative** — it cannot mechanically prove "the view layer never imports the
 persistence layer" or "no dependency cycle exists between modules." Architecture
 drift (a controller importing the store, a cycle between subsystems, a utility
@@ -27,7 +27,7 @@ deterministically. Grimoire has no such mechanism today.
 - A declarative **`.claude/architecture-rules.json`** describing the project's
   layers, allowed dependency edges, and forbidden imports — machine-readable,
   reviewable without executing.
-- A focused **`architecture-audit`** skill that evaluates those rules as fitness
+- A focused **`grm-architecture-audit`** skill that evaluates those rules as fitness
   functions against the project's import statements and reports each violation
   (`file:line — rule`), with an optional gate reusing the v1.26 `code-quality`
   dials.
@@ -41,7 +41,7 @@ deterministically. Grimoire has no such mechanism today.
 
 - A language-specific AST/type-graph analyzer — fitness functions are evaluated
   over import/use statements via language-appropriate greps, not a compiler.
-- Replacing `coding-practices-audit` — this is the deterministic complement to
+- Replacing `grm-coding-practices-audit` — this is the deterministic complement to
   its narrative architecture pass.
 - Auto-fixing violations or rewriting imports.
 - Mandating a layering for every project — the rules file is opt-in per project.
@@ -77,7 +77,7 @@ Rules are **data**, read without execution (the
 `recipes.json`/audit-hint philosophy). `allowed-edges` is an allow-list:
 a presentation→persistence import is a violation because that edge is absent.
 
-### 2. The `architecture-audit` skill
+### 2. The `grm-architecture-audit` skill
 
 Steps: (1) read `.claude/architecture-rules.json` — if absent, report
 "no rules declared" and exit clean; (2) for each source file, resolve its layer
@@ -96,8 +96,8 @@ edits source.
 - `arch-public-surface` — modules expose a public surface; internals stay
   private (counterpart: the `no-internal-reach` forbidden-import).
 
-So the narrative pass (`coding-practices-audit`) and the deterministic pass
-(`architecture-audit`) cite the same rule vocabulary.
+So the narrative pass (`grm-coding-practices-audit`) and the deterministic pass
+(`grm-architecture-audit`) cite the same rule vocabulary.
 
 ### 4. Merge-gate integration
 
@@ -111,7 +111,7 @@ No new dial. `architecture-audit --gate` consults the existing v1.26
   structure, re-export discipline). Confirmed consistent — the Rust doc is the
   language-specific realization the guidelines explicitly ask sub-docs to
   provide. No contradiction.
-- `coding-practices-audit` (narrative) vs `architecture-audit` (deterministic)
+- `grm-coding-practices-audit` (narrative) vs `grm-architecture-audit` (deterministic)
   could be read as overlapping. Resolved by scoping: the design and both skills'
   descriptions state the narrative-vs-deterministic split explicitly, so they
   complement rather than duplicate.
@@ -122,11 +122,11 @@ No new dial. `architecture-audit --gate` consults the existing v1.26
 - A declared ruleset is evaluated deterministically: same source + same rules →
   same violation list (idempotent, order-stable).
 - `grep -c 'audit: id=' architecture-guidelines.md` rises from 4 to 6.
-- `doc-assurance` reports no new flavor-parity / link / house-layout findings.
+- `grm-doc-assurance` reports no new flavor-parity / link / house-layout findings.
 
 ## Flavor parity
 
-[architecture-guidelines.md](../architecture-guidelines.md), this design doc, and the `architecture-audit`
-skill are mirrored: root + `claude-code/.claude/skills/architecture-audit/` +
+[architecture-guidelines.md](../architecture-guidelines.md), this design doc, and the `grm-architecture-audit`
+skill are mirrored: root + `claude-code/.claude/skills/grm-architecture-audit/` +
 `copilot/.github/prompts/architecture-audit.prompt.md`. The rules-file format is
 identical across flavors.

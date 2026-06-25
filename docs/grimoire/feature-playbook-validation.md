@@ -100,28 +100,28 @@ name (`{High Effort, Low Effort, Medium, Efficient, Autonomous, Eco-Budget}`).
 Adopt steps were not executed (that would mutate config). Instead, the referenced
 skills were verified to exist and to be explicitly idempotent.
 
-### 3.1 `github-issues` — adopt skill: `issue-tracker-switch`
+### 3.1 `github-issues` — adopt skill: `grm-issue-tracker-switch`
 
-- **File:** `.claude/skills/issue-tracker-switch/SKILL.md` + `issue_tracker_switch.py`
+- **File:** `.claude/skills/grm-issue-tracker-switch/SKILL.md` + `issue_tracker_switch.py`
 - **Idempotency:** SKILL.md description reads "Idempotent — exits early if
   already in the requested state."
 - **Adopt step validity:** calls `issue-tracker-switch set github <owner/repo>`;
   skill is present and correct.
 
-### 3.2 `execution-strategy` — adopt skill: `workflow-variant-switch`
+### 3.2 `execution-strategy` — adopt skill: `grm-workflow-variant-switch`
 
-- **File:** `.claude/skills/workflow-variant-switch/SKILL.md`
+- **File:** `.claude/skills/grm-workflow-variant-switch/SKILL.md`
 - **Idempotency:** SKILL.md description reads "Idempotent — exits early if the
   requested strategy is already active."
-- **Adopt step validity:** calls `workflow-variant-switch` with chosen value;
+- **Adopt step validity:** calls `grm-workflow-variant-switch` with chosen value;
   skill is present and correct.
 
-### 3.3 `model-effort-profile` — adopt skill: `model-effort-profile-switch`
+### 3.3 `model-effort-profile` — adopt skill: `grm-model-effort-profile-switch`
 
-- **File:** `.claude/skills/model-effort-profile-switch/SKILL.md`
+- **File:** `.claude/skills/grm-model-effort-profile-switch/SKILL.md`
 - **Idempotency:** SKILL.md description reads "Idempotent — exits early if the
   requested profile is already active."
-- **Adopt step validity:** calls `model-effort-profile-switch` with chosen value;
+- **Adopt step validity:** calls `grm-model-effort-profile-switch` with chosen value;
   skill is present and correct.
 
 ---

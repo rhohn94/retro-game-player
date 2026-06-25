@@ -103,12 +103,12 @@ SQL in services or domain objects leaking into controllers.
 
 These two rules have a **deterministic** counterpart: declare the project's
 layers and allowed dependency edges in `.claude/architecture-rules.json` and run
-the **`architecture-audit`** skill to check them as fitness functions over the
+the **`grm-architecture-audit`** skill to check them as fitness functions over the
 import graph. See `docs/design/architecture-fitness-design.md`.
 
 ## Modularization metrics
 
-Modularity is a measurable quantity, not just a principle. `code-health`
+Modularity is a measurable quantity, not just a principle. `grm-code-health`
 Section B reports, per module (directory/package), afferent coupling (Ca, how
 many modules depend on it), efferent coupling (Ce, how many it depends on),
 instability `I = Ce/(Ca+Ce)`, and module size. Use them to steer structure:
@@ -139,7 +139,7 @@ See `docs/design/modularization-metrics-design.md`.
 
 ## When to write a design doc
 - Any new feature / subsystem gets a `docs/design/{feature}-design.md` before
-  implementation — use the **`design-doc-scaffold`** skill.
+  implementation — use the **`grm-design-doc-scaffold`** skill.
 
 ---
 

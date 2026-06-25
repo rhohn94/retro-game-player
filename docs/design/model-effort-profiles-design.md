@@ -7,8 +7,8 @@
 
 Every spawned work-item session runs at some `model`/`effort` tier. Today that
 tier is chosen from a **single hard-coded table** that lives in two places — the
-`repo-reference` skill (the canonical *size/complexity → model + effort* lookup)
-and a duplicated copy in `release-phase` Step 3. There is exactly one
+`grm-repo-reference` skill (the canonical *size/complexity → model + effort* lookup)
+and a duplicated copy in `grm-release-phase` Step 3. There is exactly one
 distribution baked in, and a project that wants a different cost posture (e.g.
 "never spend Opus" for a budget run, or "lean on high effort everywhere" for a
 gnarly architecture release) must hand-edit the table in place — a change that is
@@ -43,8 +43,8 @@ that dial **selectable** rather than hand-edited:
 - Config schema change: a `model-effort-profile` field in
   `.claude/grimoire-config.json`, mirroring `workflow-variant` (accepted values,
   defaulting, `in-development` forward-compat, schema-version handling).
-- The resolution mechanism every referencing skill uses (`release-phase` Step 3,
-  `repo-reference`) — a single lookup, no per-skill table edits.
+- The resolution mechanism every referencing skill uses (`grm-release-phase` Step 3,
+  `grm-repo-reference`) — a single lookup, no per-skill table edits.
 - Where the profile preference is captured (onboarding — an active choice as of
   v1.10/P3; an **independent** dial defaulting to `Medium` for every paradigm
   since v1.11/E3 decoupled the dials — see E7.6 and
@@ -54,7 +54,7 @@ that dial **selectable** rather than hand-edited:
 
 - The exact format and placement of the `[model/effort]` tag in every spawned
   task name, and how it derives from the active profile (E7).
-- Which skills/docs change to emit the tag (`release-phase` task assignment +
+- Which skills/docs change to emit the tag (`grm-release-phase` task assignment +
   chip generation).
 
 **Does not cover (non-goals):**
@@ -82,8 +82,8 @@ The status quo is one table, two copies, edited in place:
 
 | Today | Problem |
 |---|---|
-| Canonical table in `repo-reference` SKILL.md (`work type → model/effort`) | Phrased by *work type*, not by a band that release-phase can mechanically resolve from a token estimate. |
-| Duplicated table in `release-phase` Step 3 (`est. tokens → model/effort`) | Two sources of truth that can drift. |
+| Canonical table in `grm-repo-reference` SKILL.md (`work type → model/effort`) | Phrased by *work type*, not by a band that release-phase can mechanically resolve from a token estimate. |
+| Duplicated table in `grm-release-phase` Step 3 (`est. tokens → model/effort`) | Two sources of truth that can drift. |
 | Editing posture = hand-edit the table | No named, reviewable, swappable "distribution"; no record of *which* posture a project chose. |
 
 E7 replaces "one hard-coded table edited in place" with "one **profile
@@ -104,10 +104,10 @@ profile-invariant; only the *model+effort each band maps to* changes per profile
 | **large** | > 80 K est. tokens; cross-cutting implementation |
 | **review** | any planning, code review, security review, architecture/design analysis (regardless of token estimate) |
 
-> The current `repo-reference` "work type" rows map onto these bands:
+> The current `grm-repo-reference` "work type" rows map onto these bands:
 > read-only/mechanical → **trivial**; implementation/mid-complexity →
 > **small**/**medium**; planning/review/architecture → **review**. The two
-> UX rows (`design-language-adapt`, `ux-demo-build`) are special-cased pins
+> UX rows (`grm-design-language-adapt`, `grm-ux-demo-build`) are special-cased pins
 > (see E7.5) and resolve outside the band axis.
 
 #### E7.3 The five starter profiles
@@ -166,7 +166,7 @@ Posture summary (the intent each profile encodes):
 
 #### E7.4 The profile registry (one resolvable location)
 
-The canonical table moves out of prose-in-`repo-reference` into a single
+The canonical table moves out of prose-in-`grm-repo-reference` into a single
 machine-resolvable registry, the **profile registry**, at:
 
 ```
@@ -196,15 +196,15 @@ Shape (the five starters ship here; the file is the one source of truth):
 }
 ```
 
-`repo-reference` SKILL.md stops embedding the literal table; instead it
+`grm-repo-reference` SKILL.md stops embedding the literal table; instead it
 *documents the bands and the five profiles* and points at this registry +
-the active-profile config field as the source of truth. (`repo-reference`
+the active-profile config field as the source of truth. (`grm-repo-reference`
 remains the human-readable orientation doc; the registry is the data.)
 
 #### E7.5 The resolver (what skills call)
 
-A single resolution procedure, used identically by `release-phase` Step 3 and by
-any agent consulting `repo-reference`:
+A single resolution procedure, used identically by `grm-release-phase` Step 3 and by
+any agent consulting `grm-repo-reference`:
 
 1. Read `model-effort-profile.value` from `.claude/grimoire-config.json`
    (E7.6). If absent/unset → use the registry's `default-profile` (`Medium`).
@@ -214,8 +214,8 @@ any agent consulting `repo-reference`:
 3. Classify the work item into a **band** (E7.2) from its token estimate +
    design/review flag.
 4. Return `profiles[<active>][<band>]` → the `{model, effort}` pair.
-5. **UX pins (special-case, profile-invariant):** `design-language-adapt`
-   resolves to `sonnet`/`medium` and `ux-demo-build` to `sonnet`/`high`
+5. **UX pins (special-case, profile-invariant):** `grm-design-language-adapt`
+   resolves to `sonnet`/`medium` and `grm-ux-demo-build` to `sonnet`/`high`
    regardless of active profile — these are fixed by the skills, not the band
    axis, and the resolver returns them directly when the item is one of those
    skills. (Documented as today; unchanged by E7.)
@@ -229,14 +229,14 @@ registry-only edit; **zero per-skill changes**.
 The profile is captured at **onboarding as a real, active choice** (no longer a
 preview field). The field shipped previewed in v1.9 (`in-development: true`),
 graduated to active in v1.10 (P1, the switch skill + resolver), and is wired
-into the onboarding interview in v1.10 (P3). The `onboarding` interview adds a
+into the onboarding interview in v1.10 (P3). The `grm-onboarding` interview adds a
 question — Step 5, "Choose your model/effort profile (cost posture)" — offering
 the six registry profiles (`Medium`, `High Effort`, `Low Effort`, `Efficient`,
 `Autonomous`, `Eco/Budget`) with one-line postures. The chosen value is written
 **active** (`{ value }`, no `in-development` key) to
 `.claude/grimoire-config.json`, and onboarding immediately activates it by
-calling `model-effort-profile-switch` (post-config-write, mirroring the §3.1
-`work-paradigm-switch` invocation). There is no file-swap — the profile is pure
+calling `grm-model-effort-profile-switch` (post-config-write, mirroring the §3.1
+`grm-work-paradigm-switch` invocation). There is no file-swap — the profile is pure
 data the resolver (E7.5) reads live, so writing the validated field *is* the
 activation.
 
@@ -265,14 +265,14 @@ triangle/matrix and the orthogonality contract live in
 [`execution-profiles-design.md`](execution-profiles-design.md) (§A/§B/§F).
 
 Switching the active profile after onboarding uses the same
-`model-effort-profile-switch` skill — it validates the value against the
+`grm-model-effort-profile-switch` skill — it validates the value against the
 registry and writes the config field; the resolver then reads it live.
 
 ### E8 — Model + effort in task names
 
 #### E8.1 Problem framing
 
-`spawn_task` cannot set the spawned session's model (`release-phase` Step 3 says
+`spawn_task` cannot set the spawned session's model (`grm-release-phase` Step 3 says
 so explicitly). The recommended tier is therefore communicated only in prose
 inside the chip prompt, where it is easy to miss and impossible to scan across a
 batch. Carrying the resolved tier **in the visible task name** makes it
@@ -312,10 +312,10 @@ before E7 activation.
 
 | Surface | Change |
 |---|---|
-| `release-phase` SKILL.md Step 3 | Replace the embedded `est. tokens → model/effort` table with a call to the E7 resolver (E7.5); state that the resolved tier is rendered into the task name per E8.2. |
-| `release-phase` SKILL.md Step 5 (chip generation) | Change the `title` template from `{ITEM-ID}: {short title} — set model {model}/{effort}` to `[{model}/{effort}] {ITEM-ID}: {short title}`; keep the prose "set this model/effort in your session" line in the prompt body. |
-| `release-phase` SKILL.md Anti-patterns | Update "forgetting to name the recommended model in the chip" to reference the leading tag. |
-| `repo-reference` SKILL.md | Replace the literal subagent table with the band definitions + the five-profile summary + a pointer to the registry and the active-profile config field (E7.4). |
+| `grm-release-phase` SKILL.md Step 3 | Replace the embedded `est. tokens → model/effort` table with a call to the E7 resolver (E7.5); state that the resolved tier is rendered into the task name per E8.2. |
+| `grm-release-phase` SKILL.md Step 5 (chip generation) | Change the `title` template from `{ITEM-ID}: {short title} — set model {model}/{effort}` to `[{model}/{effort}] {ITEM-ID}: {short title}`; keep the prose "set this model/effort in your session" line in the prompt body. |
+| `grm-release-phase` SKILL.md Anti-patterns | Update "forgetting to name the recommended model in the chip" to reference the leading tag. |
+| `grm-repo-reference` SKILL.md | Replace the literal subagent table with the band definitions + the five-profile summary + a pointer to the registry and the active-profile config field (E7.4). |
 
 ---
 
@@ -364,8 +364,8 @@ flag (see §5.6). The two shapes:
   **Graduation (v1.10, P1) drops `in-development` only and does NOT bump the
   version** — the field already lives at schema-version 3; activation is a
   flag-removal, not a structural change (see §5.6). The
-  `model-effort-profile-switch` skill performs that flag-drop and writes the
-  validated value, the same migration shape `work-paradigm-switch` uses (minus
+  `grm-model-effort-profile-switch` skill performs that flag-drop and writes the
+  validated value, the same migration shape `grm-work-paradigm-switch` uses (minus
   the file-swap — the profile is pure data).
 - The registry file `.claude/model-effort-profiles.json` carries its **own**
   independent `schema-version` (starts at `1`) so the profile *data* can evolve
@@ -373,7 +373,7 @@ flag (see §5.6). The two shapes:
 
 ### Bootstrap / golden
 
-`workflow-bootstrap` (and the golden baseline) must ship
+`grm-workflow-bootstrap` (and the golden baseline) must ship
 `.claude/model-effort-profiles.json` as a framework file so a fresh or restored
 scaffold has the five starters. This is paradigm-invariant (the registry is the
 same across Supervised/Weiss/Noir). Implementation-owned, flagged in Follow-ups.
@@ -392,8 +392,8 @@ effect — the resolver hard-defaulted to `Medium`). v1.10's **P1** graduates it
 |---|---|---|
 | `model-effort-profile.in-development` | `true` | **dropped** (absent) |
 | `schema-version` | `3` | `3` (**unchanged** — the add already bumped it in v1.9; graduation is a flag-drop, not a structural change) |
-| Resolver behaviour | preview / hard-defaults to `Medium` | **active** — `release-phase` Step 3 resolves dispatch `{model, effort}` live through the active profile (`repo-reference` §The resolver) |
-| Switch mechanism | "config edit suffices" (Follow-up) | **`model-effort-profile-switch` skill** — validates against the registry, idempotent, drops any legacy `in-development`, writes the value (no file-swap; the resolver reads config live) |
+| Resolver behaviour | preview / hard-defaults to `Medium` | **active** — `grm-release-phase` Step 3 resolves dispatch `{model, effort}` live through the active profile (`grm-repo-reference` §The resolver) |
+| Switch mechanism | "config edit suffices" (Follow-up) | **`grm-model-effort-profile-switch` skill** — validates against the registry, idempotent, drops any legacy `in-development`, writes the value (no file-swap; the resolver reads config live) |
 
 **Behaviour unchanged for default users.** The default profile is `Medium`, whose
 band × tier matrix (E7.3) is *exactly* today's table: trivial → haiku/low,
@@ -416,10 +416,10 @@ warranted and forward-compat is preserved (a reader that still sees
 
 - **P2** adds an `Autonomous` profile — a registry-only edit
   (`.claude/model-effort-profiles.json` `profiles` key) + an alias row in
-  `model-effort-profile-switch` §1; no resolver change.
+  `grm-model-effort-profile-switch` §1; no resolver change.
 - **P3** wires onboarding to capture/activate the profile — it can call
-  `model-effort-profile-switch` post-config-write (same shape as onboarding
-  calling `work-paradigm-switch`).
+  `grm-model-effort-profile-switch` post-config-write (same shape as onboarding
+  calling `grm-work-paradigm-switch`).
 - **P4** adds a `workflow-overrides` block — an additive registry/config
   extension consumed by the resolver; the single-resolver seam (E7.5) is the
   insertion point.
@@ -431,27 +431,27 @@ warranted and forward-compat is preserved (a reader that still sees
 - [ ] Design doc exists at `docs/design/model-effort-profiles-design.md` and is
       indexed in `docs/design/README.md`.
 - [ ] The complexity-band axis is defined (trivial/small/medium/large/review)
-      with triggers, and the current `repo-reference` work-types are mapped onto
+      with triggers, and the current `grm-repo-reference` work-types are mapped onto
       it (E7.2).
 - [ ] All five starter profiles are specified as a complete band × profile matrix
       (E7.3), with Medium == today's behaviour.
 - [ ] The profile registry location, shape, and "one source of truth" role are
-      specified; `repo-reference`'s literal table is shown being replaced by a
+      specified; `grm-repo-reference`'s literal table is shown being replaced by a
       pointer (E7.4).
-- [ ] A single resolver procedure is specified that `release-phase` Step 3 and
-      `repo-reference` both use, with default/missing-profile fallback and the UX
+- [ ] A single resolver procedure is specified that `grm-release-phase` Step 3 and
+      `grm-repo-reference` both use, with default/missing-profile fallback and the UX
       pins special-cased (E7.5) — with NO per-skill band→tier table remaining.
 - [x] The onboarding capture is specified (E7.6) — an active choice, an
       **independent** dial defaulting to `Medium` for every paradigm (v1.11/E3
       decoupled it; the former Noir → `Autonomous` recommendation is now a
-      non-binding hint), activated via `model-effort-profile-switch` (wired in
+      non-binding hint), activated via `grm-model-effort-profile-switch` (wired in
       v1.10/P3).
 - [ ] The task-name tag format `[<model>/<effort>] <ITEM-ID>: <title>` is
       specified, leading-placement, with `inherit` rendered literally (E8.2).
 - [ ] The tag is shown deriving solely from the E7 resolver, well-defined even
       pre-activation (E8.3).
-- [ ] The exact `release-phase` Step 3 / Step 5 / Anti-pattern edits and the
-      `repo-reference` edit are enumerated (E8.4).
+- [ ] The exact `grm-release-phase` Step 3 / Step 5 / Anti-pattern edits and the
+      `grm-repo-reference` edit are enumerated (E8.4).
 - [ ] Config schema impact is specified: new `model-effort-profile` field,
       `in-development` lifecycle, defaulting, schema-version 2→3, registry's own
       version, bootstrap/golden ship (Config schema impact §).
@@ -469,7 +469,7 @@ warranted and forward-compat is preserved (a reader that still sees
   decide — current recommendation: no config surface, manual chip edit suffices,
   to keep the resolver single-input.
 - **Band thresholds vs. the existing two-table phrasing.** E7.2 introduces
-  explicit kEst-token boundaries (15/40/80). The current `release-phase` table
+  explicit kEst-token boundaries (15/40/80). The current `grm-release-phase` table
   uses only 15 K / 80 K (no 40 K split). The E7 agent should confirm the 40 K
   small/medium split is wanted, or collapse small+medium if it adds no value for
   the five starters (note: in Medium they resolve identically, so the split is
@@ -478,14 +478,14 @@ warranted and forward-compat is preserved (a reader that still sees
 ## Follow-ups
 
 - **E7 (implementation):** create `.claude/model-effort-profiles.json` with the
-  five starters; implement the resolver; rewrite `repo-reference` to point at the
+  five starters; implement the resolver; rewrite `grm-repo-reference` to point at the
   registry; add the `model-effort-profile` config field + onboarding preview
   question; wire bootstrap/golden to ship the registry.
-- **E8 (implementation):** edit `release-phase` Step 3/Step 5/Anti-patterns to
+- **E8 (implementation):** edit `grm-release-phase` Step 3/Step 5/Anti-patterns to
   resolve via E7 and render the leading `[model/effort]` tag in every spawned
   task name.
-- **`model-effort-profile-switch` skill:** ✅ **shipped at v1.10 (P1)** — a
-  dedicated switch skill (like `work-paradigm-switch`) that validates the value
+- **`grm-model-effort-profile-switch` skill:** ✅ **shipped at v1.10 (P1)** — a
+  dedicated switch skill (like `grm-work-paradigm-switch`) that validates the value
   against the registry and drops `in-development`. It does **not** bump
   schema-version (the field already lives at v3; graduation is a flag-drop — see
   §5.6) and performs **no file-swap** (the resolver reads the field live). The

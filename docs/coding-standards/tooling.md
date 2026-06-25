@@ -1,13 +1,13 @@
 # Deterministic tooling tier
 
 > Authority for the linter/formatter + pre-commit layer a managed project ships
-> with (v1.27). Complements the agent-driven `coding-practices-audit` with fast,
+> with (v1.27). Complements the agent-driven `grm-coding-practices-audit` with fast,
 > deterministic, CI-runnable tools. Design:
 > [`design/managed-project-tooling-design.md`](../design/managed-project-tooling-design.md).
 
 ## Single source of truth
 
-Each command is defined **once** (captured at `workflow-bootstrap`) and reused by
+Each command is defined **once** (captured at `grm-workflow-bootstrap`) and reused by
 the pre-commit hook, the v1.26 merge gate, and CI:
 
 | Command | Placeholder | Captured at |
@@ -29,7 +29,7 @@ A blank answer leaves that gate off (the v1.26 `code-quality` dials default safe
 | Go | `go vet` / `staticcheck` | `gofmt` |
 
 Quick-start templates ship a matching config file in their `files/` tree, so a
-scaffolded project lints and formats from day one. `quick-start-template` drops
+scaffolded project lints and formats from day one. `grm-quick-start-template` drops
 the config in on apply.
 
 ## Pre-commit (opt-in)
@@ -59,9 +59,9 @@ repos:
 
 ## Relationship to the other quality skills
 
-- `dependency-audit` — vulnerability/advisory scan (not a linter; separate cadence).
-- `code-health` — dead code + duplication + complexity trend.
-- `coding-practices-audit` — agent-driven, hint-keyed adherence (nuance the linters
+- `grm-dependency-audit` — vulnerability/advisory scan (not a linter; separate cadence).
+- `grm-code-health` — dead code + duplication + complexity trend.
+- `grm-coding-practices-audit` — agent-driven, hint-keyed adherence (nuance the linters
   can't express).
 
 The deterministic tier catches mechanical issues cheaply; the agent audit catches

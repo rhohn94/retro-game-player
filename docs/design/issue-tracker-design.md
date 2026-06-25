@@ -35,10 +35,10 @@ drive every cost decision here.
 - Multi-tracker config block: N named trackers, audience routing, default-for-filing.
 - Visibility model (same-repo / separate-repo / multiple-repo topologies) from R1
   §4.
-- `feedback-to-issue` skill (FI1): freeform → normalized Issue → filed.
+- `grm-feedback-to-issue` skill (FI1): freeform → normalized Issue → filed.
 - Reporter agent (RP1/RP2): own-session wrapper around FI1.
-- Onboarding Step 6 + §3.4 activation via `issue-tracker-switch`.
-- `issue-tracker-switch` skill.
+- Onboarding Step 6 + §3.4 activation via `grm-issue-tracker-switch`.
+- `grm-issue-tracker-switch` skill.
 - All-consumer migration plan (M1).
 - Composition with existing dials.
 
@@ -71,7 +71,7 @@ and how do we know it is done (Acceptance Criteria).
 
 **Enforcement points:**
 
-- **Filing** (`feedback-to-issue` §0, `reporter/SKILL.md` §0): the filing agent
+- **Filing** (`grm-feedback-to-issue` §0, `reporter/SKILL.md` §0): the filing agent
   must compose all three sections before calling `create`. A missing section
   means the issue is not ready to file; escalate to the Researcher role rather
   than filing a stub.
@@ -95,7 +95,7 @@ read [roadmap.md](../roadmap.md) directly.
 ### 1.2 Roadmap-default zero-behavioural-change
 
 The config default is a **single `roadmap` tracker**. A project that never
-touches `issue-tracker` config behaves exactly as today: backlog reads and
+touches `grm-issue-tracker` config behaves exactly as today: backlog reads and
 writes go to `docs/roadmap.md`. No network, no new tokens.
 
 ### 1.3 GitHub default external backend
@@ -350,7 +350,7 @@ used as a safe fallback for single-agent sessions.
 
 ## 5. Multi-Tracker Config & Routing
 
-### 5.1 `issue-tracker` config block
+### 5.1 `grm-issue-tracker` config block
 
 The block is added to `.claude/grimoire-config.json` as a peer of the three
 existing dials. It is **optional** — absence means "use the roadmap default",
@@ -359,7 +359,7 @@ unchanged; no schema bump).
 
 **Design decision: no schema bump.** Following the v1.10/v1.11 graduation
 precedent (model-effort-profile, workflow-variant graduated without bumping
-schema-version), the `issue-tracker` block is pure-data that the abstraction
+schema-version), the `grm-issue-tracker` block is pure-data that the abstraction
 reads live. The `schema-version` stays at 3. Old configs without the block
 behave identically to today.
 
@@ -428,9 +428,9 @@ to `"default"` which always refers to the first tracker (by convention the
 }
 ```
 
-### 5.2 Absent `issue-tracker` block
+### 5.2 Absent `grm-issue-tracker` block
 
-If the config has no `issue-tracker` key, the abstraction synthesizes:
+If the config has no `grm-issue-tracker` key, the abstraction synthesizes:
 
 ```json
 {
@@ -455,7 +455,7 @@ need zero config changes.
 3. **Default-for-filing** — fall through to `config.issue-tracker.default-for-filing`.
 
 **Design decision:** audience-match before default ensures that
-`feedback-to-issue` can route to the right tracker by setting `audience:
+`grm-feedback-to-issue` can route to the right tracker by setting `audience:
 "external"` without knowing the tracker name. This decouples FI1 from the
 topology.
 
@@ -509,7 +509,7 @@ re-query once the snapshot is populated.
 
 ---
 
-## 7. `feedback-to-issue` Skill (FI1)
+## 7. `grm-feedback-to-issue` Skill (FI1)
 
 ### 7.1 Purpose
 
@@ -651,7 +651,7 @@ other steps.
 >     GitHub repo and `gh` authentication.
 >
 > You can configure multiple trackers (e.g. internal + external) later with
-> `issue-tracker-switch`."
+> `grm-issue-tracker-switch`."
 
 **Accepted values:** `roadmap`, `github` (case-insensitive). Default: `roadmap`.
 
@@ -685,24 +685,24 @@ This produces a two-tracker config (§5.1 example).
 
 After the interview (or inference):
 
-- **roadmap default (no `github` keyword):** do not write `issue-tracker` to
+- **roadmap default (no `github` keyword):** do not write `grm-issue-tracker` to
   config at all — absence is the forward-compat default (§5.2). This keeps
   existing configs clean.
-- **GitHub single tracker:** write the `issue-tracker` block with one entry
+- **GitHub single tracker:** write the `grm-issue-tracker` block with one entry
   (`provider: "github"`, captured `repo`).
-- **GitHub dual tracker:** write the `issue-tracker` block with two entries
+- **GitHub dual tracker:** write the `grm-issue-tracker` block with two entries
   (internal + external audiences, each with their captured repo).
 
 ### 9.4 §3.4 — Activate the issue tracker
 
 **Immediately after** writing config (§3), and after §3.3 (execution strategy),
-run `issue-tracker-switch` with the captured provider and tracker list.
+run `grm-issue-tracker-switch` with the captured provider and tracker list.
 
 This mirrors §3.1–§3.3 exactly:
 - **No file-swap.** The issue tracker is pure data; the abstraction reads config
   live. Writing the config is the activation.
 - **Idempotent.** If the value is already active, the skill exits early.
-- **If the block is absent** (roadmap default, no config written): `issue-tracker-switch`
+- **If the block is absent** (roadmap default, no config written): `grm-issue-tracker-switch`
   is not called — there is nothing to activate. The abstraction's §5.2 fallback
   provides the default.
 
@@ -729,11 +729,11 @@ The updated lifecycle order is:
 
 ---
 
-## 10. `issue-tracker-switch` Skill
+## 10. `grm-issue-tracker-switch` Skill
 
 ### 10.1 Purpose
 
-Set or update the `issue-tracker` block in `.claude/grimoire-config.json`.
+Set or update the `grm-issue-tracker` block in `.claude/grimoire-config.json`.
 Supports four sub-commands: `set`, `add`, `remove`, `list`. Validates all
 inputs, is idempotent, performs no file-swap (pure-data write).
 
@@ -741,7 +741,7 @@ inputs, is idempotent, performs no file-swap (pure-data write).
 
 **`set <provider> [repo] [--name <name>] [--audience <audience>]`**
 
-Replace the entire `issue-tracker` block with a single tracker. This is the
+Replace the entire `grm-issue-tracker` block with a single tracker. This is the
 common onboarding path and the "switch to GitHub" user command.
 
 Example: `issue-tracker-switch set github acme/issues`
@@ -771,7 +771,7 @@ only one tracker remains (cannot remove the last tracker).
 
 **`list`**
 
-Print the current `issue-tracker` config in a human-readable table. No writes.
+Print the current `grm-issue-tracker` config in a human-readable table. No writes.
 
 ### 10.3 Validation
 
@@ -791,7 +791,7 @@ Print the current `issue-tracker` config in a human-readable table. No writes.
 
 ### 10.5 Config write contract
 
-Reads the current config, applies the minimal change to `issue-tracker`, writes
+Reads the current config, applies the minimal change to `grm-issue-tracker`, writes
 back. **All other fields (`schema-version`, `work-paradigm`, etc.) are left
 unchanged.** Schema-version stays at 3.
 
@@ -807,17 +807,17 @@ backlog items that are trackable units of work) move to the configured tracker
 when one is non-roadmap. Each consumer below is updated to call the abstraction
 instead of reading/writing [roadmap.md](../roadmap.md) directly for issue purposes.
 
-**Key distinction:** `release-planning` reads the roadmap for its *narrative*
+**Key distinction:** `grm-release-planning` reads the roadmap for its *narrative*
 (what's in scope, what's in the backlog as future candidates). It does **not**
 read issues from the tracker for planning purposes. Issues are separate from the
-roadmap narrative. M1 does not change what `release-planning` reads — it changes
+roadmap narrative. M1 does not change what `grm-release-planning` reads — it changes
 where *issue filing* goes.
 
 > **v3.26 promotion (WEB-6):** The M1 advisory tracker read described in §11.2
 > has been **narrowly promoted to mandatory** for one issue class: open issues
-> carrying the `Grimoire-Requirement` label. As of v3.26, `release-planning`
+> carrying the `Grimoire-Requirement` label. As of v3.26, `grm-release-planning`
 > Step 2 MUST run
-> `python3 .claude/skills/issue-tracker/issue_tracker.py list --state open --labels Grimoire-Requirement`
+> `python3 .claude/skills/grm-issue-tracker/issue_tracker.py list --state open --labels Grimoire-Requirement`
 > and Step 3 surfaces those issues as **origin-D (framework-required tracker
 > issues)**, never optional context. The general advisory read for unlabelled
 > issues is **unchanged** — this is a promotion of a narrow class, not a
@@ -828,29 +828,29 @@ where *issue filing* goes.
 
 | Consumer | Current behaviour | Migration change | Priority |
 |---|---|---|---|
-| `release-planning` skill | Reads `## Backlog` for future candidates | Reads `## Backlog` for narrative candidates (unchanged). Additionally reads from configured tracker for open issues count/summary. | Low (narrative read unchanged; tracker read is additive) |
-| `release-agreement` skill | No direct Backlog write | No change needed | None |
-| `release-phase-merge` skill | May file follow-up issues via `spawn_task` "flag an out-of-scope issue" pattern | Replace inline `spawn_task` issue-flagging with `spawn_task` Reporter invocation | Medium |
-| `release-agent-tracker` skill | Writes status to `release-planning-v{X.Y}.md` ledger (not Backlog) | No change (ledger ≠ issues) | None |
-| `spawn_task` issue-flagging pattern | `spawn_task` with "flag an out-of-scope issue" prompt that suggests adding to roadmap Backlog | Update suggested text: file via `feedback-to-issue` instead of editing roadmap.md | Medium |
+| `grm-release-planning` skill | Reads `## Backlog` for future candidates | Reads `## Backlog` for narrative candidates (unchanged). Additionally reads from configured tracker for open issues count/summary. | Low (narrative read unchanged; tracker read is additive) |
+| `grm-release-agreement` skill | No direct Backlog write | No change needed | None |
+| `grm-release-phase-merge` skill | May file follow-up issues via `spawn_task` "flag an out-of-scope issue" pattern | Replace inline `spawn_task` issue-flagging with `spawn_task` Reporter invocation | Medium |
+| `grm-release-agent-tracker` skill | Writes status to `release-planning-v{X.Y}.md` ledger (not Backlog) | No change (ledger ≠ issues) | None |
+| `spawn_task` issue-flagging pattern | `spawn_task` with "flag an out-of-scope issue" prompt that suggests adding to roadmap Backlog | Update suggested text: file via `grm-feedback-to-issue` instead of editing roadmap.md | Medium |
 | Integration master filing | Ad-hoc filing of discovered issues as Backlog bullets | File via Reporter (`spawn_task` Reporter invocation) | High |
-| `ux-demo-build` skill | May append UX issues to Backlog | File via `feedback-to-issue` instead | Low |
-| `hard-reset` skill | Archives `docs/roadmap.md` including Backlog | Archive is unchanged (file-level); no issue-tracker reset (tracker is external) | Low (document this) |
-| `repo-init` skill | Seeds initial `## Backlog` section | Add a note: if `issue-tracker` config exists with a non-roadmap provider, skip seeding `## Backlog` (or seed it as a stub: "Issues tracked in <provider>") | Medium |
-| `sync-from-source` skill | Mentions Backlog in sync notes | Update mentions to refer to "the configured issue tracker" generically | Low |
-| `onboarding` skill | No direct Backlog write | Gets new Step 6 + §3.4 (§9 above) | High (gated on I2/I3) |
+| `grm-ux-demo-build` skill | May append UX issues to Backlog | File via `grm-feedback-to-issue` instead | Low |
+| `grm-hard-reset` skill | Archives `docs/roadmap.md` including Backlog | Archive is unchanged (file-level); no issue-tracker reset (tracker is external) | Low (document this) |
+| `grm-repo-init` skill | Seeds initial `## Backlog` section | Add a note: if `grm-issue-tracker` config exists with a non-roadmap provider, skip seeding `## Backlog` (or seed it as a stub: "Issues tracked in <provider>") | Medium |
+| `grm-sync-from-source` skill | Mentions Backlog in sync notes | Update mentions to refer to "the configured issue tracker" generically | Low |
+| `grm-onboarding` skill | No direct Backlog write | Gets new Step 6 + §3.4 (§9 above) | High (gated on I2/I3) |
 
 ### 11.3 Serialize order for M1 branch
 
 M1 edits many files. To minimize conflicts, serialize edits in this order:
 
 1. [integration-workflow.md](../integration-workflow.md) (Reporter taxonomy docs, referenced by RP2)
-2. `.claude/skills/integration-master/SKILL.md` (Reporter spawn pattern)
-3. `.claude/skills/release-phase-merge/SKILL.md`
+2. `.claude/skills/grm-integration-master/SKILL.md` (Reporter spawn pattern)
+3. `.claude/skills/grm-release-phase-merge/SKILL.md`
 4. `spawn_task` issue-flagging documentation (cross-skill pattern update)
-5. `.claude/skills/repo-init/SKILL.md`
-6. `.claude/skills/ux-demo-build/SKILL.md`
-7. `.claude/skills/sync-from-source/SKILL.md`
+5. `.claude/skills/grm-repo-init/SKILL.md`
+6. `.claude/skills/grm-ux-demo-build/SKILL.md`
+7. `.claude/skills/grm-sync-from-source/SKILL.md`
 8. `docs/integration-workflow.md` (final — accumulates Reporter + M1 notes)
 
 ---
@@ -859,7 +859,7 @@ M1 edits many files. To minimize conflicts, serialize edits in this order:
 
 ### 12.1 Orthogonality
 
-The `issue-tracker` block is a **fourth independent config entry**, not a dial
+The `grm-issue-tracker` block is a **fourth independent config entry**, not a dial
 in the speed/quality/cost triangle sense. It does not interact with `work-paradigm`,
 `workflow-variant`, or `model-effort-profile`. Any combination is valid:
 
@@ -886,8 +886,8 @@ but does not auto-file.
 
 ### 12.3 Workflow interaction
 
-The `issue-tracker` abstraction is not a Workflow. It is called from within
-skills and agent sessions. Read-capable Workflows (e.g. `release-planning`
+The `grm-issue-tracker` abstraction is not a Workflow. It is called from within
+skills and agent sessions. Read-capable Workflows (e.g. `grm-release-planning`
 Workflow) may call `list()` via the abstraction for the additive issue-count
 summary (§11.2) without triggering network calls if the roadmap backend is
 active — the roadmap backend reads from the working tree, which is already in
@@ -940,17 +940,17 @@ not designed here.
       single-tracker `list()` reads only that tracker's cache entry.
 - [ ] Create routing: explicit name → audience match → default-for-filing
       (first match wins).
-- [ ] Absent `issue-tracker` config is treated identically to a single `roadmap`
+- [ ] Absent `grm-issue-tracker` config is treated identically to a single `roadmap`
       tracker named `"default"`.
 - [ ] `issue-tracker-switch set roadmap` with no repo produces a clean roadmap
       config and does not write `repo` to the block.
-- [ ] `feedback-to-issue` filed issue appears in the tracker within the same
+- [ ] `grm-feedback-to-issue` filed issue appears in the tracker within the same
       session; the cache is refreshed.
 - [ ] Reporter is spawnable from integration master, produces a filed issue,
       and makes no git commits.
 - [ ] Onboarding Step 6 defaults to `roadmap`; selecting `github` prompts for
       repo; a two-repo setup produces a dual-tracker config.
-- [ ] Schema-version stays at 3 throughout; old configs without `issue-tracker`
+- [ ] Schema-version stays at 3 throughout; old configs without `grm-issue-tracker`
       continue to work.
 - [ ] All M1 consumers route issue filing through the abstraction; no skill
       directly appends Backlog bullets (except the `roadmap` backend itself).
@@ -1042,18 +1042,18 @@ the default, backward-compatible behavior.
 
 ```bash
 # Create an Epic
-python3 .claude/skills/issue-tracker/issue_tracker.py create \
+python3 .claude/skills/grm-issue-tracker/issue_tracker.py create \
   --title "Unify auth system" --body "..." --issue-type epic
 
 # Create a child issue linked to the Epic
-python3 .claude/skills/issue-tracker/issue_tracker.py create \
+python3 .claude/skills/grm-issue-tracker/issue_tracker.py create \
   --title "Migrate OAuth flow" --body "..." --parent-epic-id "unify-epic-epic"
 
 # List only Epics
-python3 .claude/skills/issue-tracker/issue_tracker.py list --issue-type epic
+python3 .claude/skills/grm-issue-tracker/issue_tracker.py list --issue-type epic
 
 # List only plain issues (exclude Epics)
-python3 .claude/skills/issue-tracker/issue_tracker.py list --issue-type issue
+python3 .claude/skills/grm-issue-tracker/issue_tracker.py list --issue-type issue
 ```
 
 ---
@@ -1101,13 +1101,13 @@ added in `docs/design/issue-label-taxonomy.md` §Protected framework labels).
 - **Audience:** always `internal`.
 - **Priority:** always `p1-high` or higher — never downgraded.
 - **Planning origin:** issues carrying this label are **mandatory, always-
-  prioritized origin-D inputs** for `release-planning` (the §11.1 advisory
+  prioritized origin-D inputs** for `grm-release-planning` (the §11.1 advisory
   read, narrowly promoted to mandatory for this class — `web-app-support-design.md`
   §6.1). They may be scheduled across versions but must **never be silently
   dropped** from planning (§6.2 never-trim rule, implemented by WEB-6).
 - **Triager carve-outs** (see `triager/SKILL.md` §9): the Triager must never
   remove the label, stale-close, or downgrade a tagged issue.
-- **`feedback-to-issue` closed vocabulary** (see `feedback-to-issue/SKILL.md`
+- **`grm-feedback-to-issue` closed vocabulary** (see `feedback-to-issue/SKILL.md`
   §9): the label is admitted as a valid `labels` value; only applied when the
   caller explicitly requests it (not inferred from feedback text).
 

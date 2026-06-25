@@ -74,7 +74,7 @@ Every file physically present under `claude-code/docs/` today, classified:
 > **Note on `version-history.md` / `release-planning-v*.md`:** the v1.17
 > release-plan prose lists these among operator-facing docs, but in the
 > shipped `claude-code/` copy neither file is physically present — both are
-> *project-local* (created at runtime by `release-agreement` / the release
+> *project-local* (created at runtime by `grm-release-agreement` / the release
 > flow), not part of the shipped scaffold. They therefore have no row to move
 > here. `release-planning-v*.md` is additionally path-locked (§4 below);
 > `version-history.md` is operator-facing and would stay at `docs/` top level
@@ -94,16 +94,16 @@ git mv docs/sync-flow-audit.md             docs/grimoire/sync-flow-audit.md
 
 **[integration-workflow.md](../integration-workflow.md) is special — it is paradigm-managed.** Its active
 copy at `docs/integration-workflow.md` is *written by the
-`work-paradigm-switch` skill* from a per-paradigm source
+`grm-work-paradigm-switch` skill* from a per-paradigm source
 (`.claude/paradigms/<slug>/integration-workflow.md`). Moving the active target
 to `docs/grimoire/integration-workflow.md` therefore additionally requires:
 
-1. **Update the `work-paradigm-switch` install-map target.** In
+1. **Update the `grm-work-paradigm-switch` install-map target.** In
    `work-paradigm-switch/SKILL.md` §2 and §4.4 the target path
    `docs/integration-workflow.md` must become
    `docs/grimoire/integration-workflow.md` (two occurrences: the install-map
    row and the §4.4 prose). The same edit applies to the golden copy
-   `.claude/skills/workflow-bootstrap/golden/skills/work-paradigm-switch/SKILL.md`.
+   `.claude/skills/grm-workflow-bootstrap/golden/skills/grm-work-paradigm-switch/SKILL.md`.
 2. **Update every paradigm source's internal `docs/integration-workflow.md`
    reference.** The three paradigm source [integration-workflow.md](../integration-workflow.md) files do
    not self-reference, but the *sibling* paradigm sources
@@ -119,8 +119,8 @@ These paradigm edits are part of C1's scope and are itemized in §3.
 
 Grep of `claude-code/` for each moved filename. Counts are **occurrence**
 counts (a file may reference a name more than once). Golden mirrors under
-`.claude/skills/workflow-bootstrap/golden/` are listed separately because C1
-must update them too (or re-snapshot via `workflow-snapshot` after the live
+`.claude/skills/grm-workflow-bootstrap/golden/` are listed separately because C1
+must update them too (or re-snapshot via `grm-workflow-snapshot` after the live
 edits — C1's call, but the bytes must end up consistent).
 
 #### [integration-workflow.md](../integration-workflow.md) — by far the largest blast radius
@@ -141,19 +141,19 @@ edits — C1's call, but the bytes must end up consistent).
 | `.claude/paradigms/weiss/integration-master-SKILL.md` | 1 |
 | `.claude/paradigms/weiss/integration-workflow.md` | 1 |
 | `.claude/paradigms/weiss/release-phase-merge-SKILL.md` | 2 |
-| `.claude/skills/hard-reset/SKILL.md` | 1 |
-| `.claude/skills/integration-master/SKILL.md` | 3 |
-| `.claude/skills/onboarding/SKILL.md` | 1 |
-| `.claude/skills/project-release/SKILL.md` | 1 |
-| `.claude/skills/release-phase-merge/SKILL.md` | 3 |
-| `.claude/skills/release-phase/SKILL.md` | 1 |
-| `.claude/skills/release-planning/SKILL.md` | 1 |
-| `.claude/skills/repo-init/SKILL.md` | 1 |
-| `.claude/skills/reporter/SKILL.md` | 1 |
-| `.claude/skills/sync-from-source/sync-from-source.sh` | 1 |
-| `.claude/skills/work-paradigm-switch/SKILL.md` | 4 |
-| `.claude/skills/workflow-bootstrap/SKILL.md` | 1 |
-| `.claude/skills/workflow-bootstrap/manifest.md` | 2 |
+| `.claude/skills/grm-hard-reset/SKILL.md` | 1 |
+| `.claude/skills/grm-integration-master/SKILL.md` | 3 |
+| `.claude/skills/grm-onboarding/SKILL.md` | 1 |
+| `.claude/skills/grm-project-release/SKILL.md` | 1 |
+| `.claude/skills/grm-release-phase-merge/SKILL.md` | 3 |
+| `.claude/skills/grm-release-phase/SKILL.md` | 1 |
+| `.claude/skills/grm-release-planning/SKILL.md` | 1 |
+| `.claude/skills/grm-repo-init/SKILL.md` | 1 |
+| `.claude/skills/grm-reporter/SKILL.md` | 1 |
+| `.claude/skills/grm-sync-from-source/sync-from-source.sh` | 1 |
+| `.claude/skills/grm-work-paradigm-switch/SKILL.md` | 4 |
+| `.claude/skills/grm-workflow-bootstrap/SKILL.md` | 1 |
+| `.claude/skills/grm-workflow-bootstrap/manifest.md` | 2 |
 | `CLAUDE.md` | 4 |
 | `README.md` | 2 |
 | `docs/design/issue-tracker-design.md` | 2 |
@@ -166,9 +166,9 @@ workflow-bootstrap/golden/...` path that shadows a live file above —
 `golden/CLAUDE.md`, `golden/hooks/protected-branch-guard.sh`,
 `golden/hooks/worktree-guard.sh`, the three `golden/paradigms/<slug>/
 integration-workflow.md` sources plus their sibling paradigm files, and the
-`golden/skills/...` copies of `hard-reset`, `integration-master`, `onboarding`,
-`project-release`, `release-phase`, `release-phase-merge`, `release-planning`,
-`repo-init`, `reporter`, `work-paradigm-switch`, and `issue-tracker`.
+`golden/skills/...` copies of `grm-hard-reset`, `grm-integration-master`, `grm-onboarding`,
+`grm-project-release`, `grm-release-phase`, `grm-release-phase-merge`, `grm-release-planning`,
+`grm-repo-init`, `grm-reporter`, `grm-work-paradigm-switch`, and `grm-issue-tracker`.
 
 > **Distinguish two kinds of [integration-workflow.md](../integration-workflow.md) string.** (a) References
 > to the **active doc path** `docs/integration-workflow.md` → these repoint to
@@ -177,7 +177,7 @@ integration-workflow.md` sources plus their sibling paradigm files, and the
 > install-map *source*) → the source filename does **not** change; only the
 > install *target* changes. C1 must read each hit in context, not blanket
 > sed, because both strings share the [integration-workflow.md](../integration-workflow.md) basename. The
-> `work-paradigm-switch` install map is the one place both appear together.
+> `grm-work-paradigm-switch` install map is the one place both appear together.
 
 #### [feature-playbook-validation.md](feature-playbook-validation.md)
 
@@ -188,8 +188,8 @@ integration-workflow.md` sources plus their sibling paradigm files, and the
 
 | File | Note |
 |---|---|
-| `.claude/skills/issue-tracker/SKILL.md` | live |
-| `.claude/skills/workflow-bootstrap/golden/skills/issue-tracker/SKILL.md` | golden mirror |
+| `.claude/skills/grm-issue-tracker/SKILL.md` | live |
+| `.claude/skills/grm-workflow-bootstrap/golden/skills/grm-issue-tracker/SKILL.md` | golden mirror |
 | `docs/design/issue-tracker-design.md` | shared design doc → repoint to `docs/grimoire/...` |
 | `docs/issue-tracker-cost-validation.md` | itself moving — relative reference stays intra-`grimoire/` |
 
@@ -225,9 +225,9 @@ independent places that would all have to change atomically and re-baseline:
   of an `status: agreed` plan. The guard reads the basename pattern
   `release-planning-v*.md`; relocating the directory would silently disarm
   scope protection until the hook is updated.
-- **`release-agreement`** writes `docs/release-planning-v{X.Y}.md` as its
+- **`grm-release-agreement`** writes `docs/release-planning-v{X.Y}.md` as its
   create path.
-- **`release-planning` / `release-phase-merge` / `ledger-tick`** read and
+- **`grm-release-planning` / `grm-release-phase-merge` / `grm-ledger-tick`** read and
   tick §5 of that same hard-coded path.
 
 Moving it is a coordinated change across a guard hook plus the entire release
@@ -239,8 +239,8 @@ Decision: **path-locked, no move this version.**
 
 #### Problem it solves
 
-Doc-generating skills (`source-to-design-docs`, `design-doc-scaffold`,
-`design-language-adapt`) read existing skills/docs as *input* to synthesize new
+Doc-generating skills (`grm-source-to-design-docs`, `grm-design-doc-scaffold`,
+`grm-design-language-adapt`) read existing skills/docs as *input* to synthesize new
 docs. Today they read the **live** working tree — which may be mid-edit,
 partially migrated (e.g. during this very reorg), or carrying a project's local
 customizations. That makes generated output non-reproducible and lets in-flight
@@ -265,21 +265,21 @@ resolve an input by its normal relative path under the source root.
 
 **Consumers (read-only):**
 
-- **`source-to-design-docs`** — reads the pristine skill/doc set to synthesize
+- **`grm-source-to-design-docs`** — reads the pristine skill/doc set to synthesize
   `docs/design/` structure for an existing project, instead of reading a
   possibly-dirty live tree.
-- **`design-doc-scaffold`** — reads the pristine house-layout/section sources
+- **`grm-design-doc-scaffold`** — reads the pristine house-layout/section sources
   when scaffolding a new `docs/design/{feature}-design.md`.
-- **`design-language-adapt`** — reads the pristine design-language source when
+- **`grm-design-language-adapt`** — reads the pristine design-language source when
   producing the per-project `docs/design/ux/design-language.md` adaptation.
 
 All consumers treat `.grimoire-source/` as **read-only**; none write into it.
 
 **How it is populated and kept pristine:**
 
-- Populated at framework install/bootstrap time (a `workflow-bootstrap` step)
+- Populated at framework install/bootstrap time (a `grm-workflow-bootstrap` step)
   by copying the canonical source artifacts in, and refreshed on
-  `sync-from-upstream` / `sync-from-source` when the framework itself updates.
+  `grm-sync-from-upstream` / `grm-sync-from-source` when the framework itself updates.
 - It tracks the framework's *source of truth*, not the project's live edits:
   it is never written by feature work, task agents, or doc-generating skills.
   A consumer that finds `.grimoire-source/` missing falls back to the live tree
@@ -292,9 +292,9 @@ All consumers treat `.grimoire-source/` as **read-only**; none write into it.
 
 | | `.../workflow-bootstrap/golden/` | `.grimoire-source/` |
 |---|---|---|
-| **Purpose** | **Restore baseline** — the bytes `workflow-bootstrap --restore` / `hard-reset` write back to repair a drifted or wiped install | **Generation source** — trustworthy clean input that doc-generating skills *read* to synthesize new docs |
+| **Purpose** | **Restore baseline** — the bytes `workflow-bootstrap --restore` / `grm-hard-reset` write back to repair a drifted or wiped install | **Generation source** — trustworthy clean input that doc-generating skills *read* to synthesize new docs |
 | **Direction** | Written *out* to active paths on restore | Read *in* by generator skills; never written to active paths |
-| **Consumers** | `workflow-bootstrap`, `hard-reset`, `install-doctor` | `source-to-design-docs`, `design-doc-scaffold`, `design-language-adapt` |
+| **Consumers** | `grm-workflow-bootstrap`, `grm-hard-reset`, `grm-install-doctor` | `grm-source-to-design-docs`, `grm-design-doc-scaffold`, `grm-design-language-adapt` |
 | **Location** | Nested under the bootstrap skill | Repo-root hidden dir |
 | **On missing** | Restore cannot proceed (fail-closed) | Generators fall back to live tree (fail-safe) |
 
@@ -357,7 +357,7 @@ nested tree replaces the current flat three-bucket list.
 
 ### 5. Gating dial
 
-One `doc-assurance` setting in `grimoire-config.json` under a new `doc-hierarchy`
+One `grm-doc-assurance` setting in `grimoire-config.json` under a new `doc-hierarchy`
 key:
 
 ```json
@@ -372,8 +372,8 @@ overrides to `block` regardless of the config value.
 
 ### 6. Migration vehicle
 
-`doc-assurance` owns **detection** (flags orphans, missing breadcrumbs,
-absolute links, bare-prose references). A dedicated `docs-migrate` skill
+`grm-doc-assurance` owns **detection** (flags orphans, missing breadcrumbs,
+absolute links, bare-prose references). A dedicated `grm-docs-migrate` skill
 backed by `docs_migrate.py` **performs the rewrite** — archive-first, idempotent,
 loud-fallback on unresolvable refs. The `feature-manifest` `migrate` column
 invokes `docs-migrate --apply` for downstream projects. There is no duplicate
@@ -401,7 +401,7 @@ The following are exempt from up-link requirements and move requirements:
 Paradigm-rendered docs (`paradigms/*/`) get breadcrumbs at their **source**
 files and golden copies; the rendered/installed file (e.g.
 `docs/grimoire/integration-workflow.md`) is never given a breadcrumb directly
-because `work-paradigm-switch` would overwrite it. An exemption list mirrors
+because `grm-work-paradigm-switch` would overwrite it. An exemption list mirrors
 the existing `PARITY_ALLOW_DIVERGENT` pattern.
 
 ### Lazy-navigation guidance
@@ -439,7 +439,7 @@ non-index, non-exempt pages; per-tier index presence) + nested marker-aware
 ## Open questions
 
 - Whether C1 hand-edits the 23 golden mirror files or instead re-runs
-  `workflow-snapshot` after the live edits to re-baseline golden in one step.
+  `grm-workflow-snapshot` after the live edits to re-baseline golden in one step.
   Either yields consistent bytes; recommend the snapshot path to avoid
   drift between live and golden.
 

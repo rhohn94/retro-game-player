@@ -6,10 +6,10 @@
 > Scaffold-level design for the v1.18 UX-tier expansion. This doc designs
 > three enhancements that sit **on top of** the existing UX design-language
 > machinery — the per-project authority [`ux/design-language.md`](ux/design-language.md),
-> the [`design-language-adapt`](../../.claude/skills/design-language-adapt/SKILL.md)
-> skill, the [`ux-demo-build`](../../.claude/skills/ux-demo-build/SKILL.md)
+> the [`grm-design-language-adapt`](../../.claude/skills/grm-design-language-adapt/SKILL.md)
+> skill, the [`grm-ux-demo-build`](../../.claude/skills/grm-ux-demo-build/SKILL.md)
 > skill, and the GUI/non-GUI branch in
-> [`workflow-bootstrap`](../../.claude/skills/workflow-bootstrap/SKILL.md).
+> [`grm-workflow-bootstrap`](../../.claude/skills/grm-workflow-bootstrap/SKILL.md).
 > It is a design-only deliverable (the v1.18 UX-tier design gate); the
 > skill/implementation work is downstream (C2/C3/C4).
 
@@ -17,7 +17,7 @@
 
 The UX tier today is correct but manual at three seams:
 
-1. **Onboarding asks a cold question.** `workflow-bootstrap` Step 3 Q9 ("does
+1. **Onboarding asks a cold question.** `grm-workflow-bootstrap` Step 3 Q9 ("does
    this project have a UI?") and its GUI-stack follow-up are answered from
    scratch even when the repo already carries unambiguous framework evidence
    (a `package.json` with `react`, a `vite.config.ts`, `*.swift` files). The
@@ -25,10 +25,10 @@ The UX tier today is correct but manual at three seams:
 2. **The adaptation has one tier.** `ux/design-language.md` flattens design
    tokens and component recipes into prose under one `## Design` section.
    There is no structured, machine-addressable **theme** (token scales) or
-   **component** (named specs) layer that `ux-demo-build`, downstream
+   **component** (named specs) layer that `grm-ux-demo-build`, downstream
    tooling, or a future codegen step could consume without re-parsing prose
    (#5).
-3. **The demo has no memory.** `ux-demo-build` produces a demo and asks the
+3. **The demo has no memory.** `grm-ux-demo-build` produces a demo and asks the
    user to drop screenshots under `ux-demo/screenshots/`, but nothing
    captures a **baseline** or **diffs** subsequent runs. Visual drift in the
    adaptation is invisible until a human eyeballs it (#6).
@@ -41,10 +41,10 @@ auto-adopts.**
 
 **Covers (designed here, built downstream):**
 
-- GUI-framework auto-detection that pre-fills the `workflow-bootstrap`
+- GUI-framework auto-detection that pre-fills the `grm-workflow-bootstrap`
   GUI/non-GUI branch and seeds design-language defaults (#4).
 - A two-tier **theme + components** layer on top of `ux/design-language.md`:
-  schema, file layout, how `design-language-adapt` produces it, how it
+  schema, file layout, how `grm-design-language-adapt` produces it, how it
   composes with the existing adaptation (#5).
 - Visual-regression for `ux-demo/`: capture, baseline store, diff, opt-in
   skill flow, drift reporting (#6).
@@ -63,7 +63,7 @@ auto-adopts.**
 ### 1. GUI-framework auto-detection (#4)
 
 **Where it plugs in.** A new detection pass runs at the **start** of
-`workflow-bootstrap` Step 3 Q9, before the question is asked. It scans the
+`grm-workflow-bootstrap` Step 3 Q9, before the question is asked. It scans the
 repo root (and one level of obvious source dirs) for framework signals,
 computes a best-guess `(gui-presence, framework, stack-hint)` tuple, and
 **pre-selects** the corresponding `AskUserQuestion` option plus pre-fills the
@@ -99,7 +99,7 @@ grouped by source. A project may hit several rows; precedence resolves them
 
 The **stack-hint** the table yields is written verbatim into the
 `{ux-demo-stack}` slot (e.g. "React (web)", "SwiftUI", "Textual (TUI)") so
-`ux-demo-build` produces a stack-pure demo without a second interview.
+`grm-ux-demo-build` produces a stack-pure demo without a second interview.
 
 **Precedence (deterministic, highest wins).**
 
@@ -142,7 +142,7 @@ Hard rules:
   `{ux-demo-stack}`, deferral-row, or headless-N/A outcomes are unchanged).
 - Detection is **read-only and offline** — it inspects files already in the
   repo; it makes no network call (the network call belongs to
-  `design-language-adapt`).
+  `grm-design-language-adapt`).
 - When detection leans headless/deferred (rows 19–20) it still routes through
   the normal "Not yet" / "No, headless" outcomes; it never silently skips the
   UX tier.
@@ -150,7 +150,7 @@ Hard rules:
 **Seed of design-language defaults.** On a confirmed GUI answer, the inferred
 stack also seeds the **theme tier's** initial token vocabulary choice (web ⇒
 CSS-custom-property token names; native ⇒ the platform's resource idiom) —
-see §2. This is a *default starting point* for `design-language-adapt`, not a
+see §2. This is a *default starting point* for `grm-design-language-adapt`, not a
 committed token set.
 
 ### 2. Component-library / theme-system layer (#5) — flagship
@@ -191,7 +191,7 @@ docs/design/ux/
 Rationale for two new files (not one structured block inside
 [](ux/design-language.md)): the tiers are independently consumed (a token-only
 tool needs [](ux/theme.md) without parsing component prose), independently
-re-generated by `design-language-adapt`, and grow at different rates. This is
+re-generated by `grm-design-language-adapt`, and grow at different rates. This is
 exactly the [subdir convention](README.md#subdir-convention-docsdesigntier)
 already established for the UX tier — "promote a tier to a subdir once it has
 (or will have) more than one doc." [](ux/design-language.md) stays the orientation
@@ -298,9 +298,9 @@ Rules:
   downstream work (noted as a follow-up and as #5's "concrete sets are
   downstream").
 
-#### How `design-language-adapt` produces it
+#### How `grm-design-language-adapt` produces it
 
-`design-language-adapt` gains a step (downstream C-work; designed here): after
+`grm-design-language-adapt` gains a step (downstream C-work; designed here): after
 producing the prose adaptation (its current Step 3), it **also** emits/refreshes
 [](ux/theme.md) and [](ux/components.md) as **drafts**:
 
@@ -326,7 +326,7 @@ producing the prose adaptation (its current Step 3), it **also** emits/refreshes
   in role but can now reference component names ("the `primary-button` recipe
   renders with `theme.color.accent`"), making each checklist item map 1:1 to a
   named component + screenshot.
-- `ux-demo-build` reads [](ux/components.md) to know **which controls to build** and
+- `grm-ux-demo-build` reads [](ux/components.md) to know **which controls to build** and
   [](ux/theme.md) for the **values to apply** — replacing today's prose-parse of
   `### Component map`. Stack purity is enforced by `maps-to` naming the native
   control.
@@ -336,7 +336,7 @@ producing the prose adaptation (its current Step 3), it **also** emits/refreshes
 
 ### 3. Visual-regression for `ux-demo` (#6)
 
-**Goal.** Turn the screenshots `ux-demo-build` already asks for into a
+**Goal.** Turn the screenshots `grm-ux-demo-build` already asks for into a
 **baseline** that later runs **diff against**, so adaptation drift is caught
 mechanically. Tool-agnostic but concrete on layout, flow, and reporting.
 
@@ -382,12 +382,12 @@ re-capture is byte-comparable.
   per-item `mode: pixel | structural | both` selects. Default is `pixel`;
   projects opt a flaky item up to `structural` or `both`.
 
-**Opt-in skill flow — a new `ux-demo-regress` skill (not a `ux-demo-build`
-overload).** Rationale: `ux-demo-build` *constructs* the demo (idempotent
+**Opt-in skill flow — a new `grm-ux-demo-regress` skill (not a `grm-ux-demo-build`
+overload).** Rationale: `grm-ux-demo-build` *constructs* the demo (idempotent
 build); regression *evaluates* it (a check with pass/fail). Different verbs,
 different triggers, different output — keeping them separate honours the
-one-responsibility rule and keeps `ux-demo-build` lean. `ux-demo-regress`
-shares `ux-demo-build`'s stack-purity and opt-in conventions and is likewise
+one-responsibility rule and keeps `grm-ux-demo-build` lean. `grm-ux-demo-regress`
+shares `grm-ux-demo-build`'s stack-purity and opt-in conventions and is likewise
 **GUI-projects-only / never auto-run**. Its flow:
 
 1. **`--accept` (establish/update baseline).** Build/launch the demo, capture
@@ -419,7 +419,7 @@ current one (i.e. *expected* drift from a deliberate token change vs.
 prompt to re-`--accept`; a drift with no token change is a likely regression.
 The skill **reports** drift; it never auto-accepts a new baseline and never
 ticks the adaptation-acceptance checklist (user-only, same rule as
-`ux-demo-build`).
+`grm-ux-demo-build`).
 
 ## Acceptance
 
@@ -431,7 +431,7 @@ ticks the adaptation-acceptance checklist (user-only, same rule as
       precedence order, and states the confirm-not-assume rule (pre-fill the
       default + surface evidence; user answer is authoritative; detection is
       read-only/offline and writes no file itself).
-- [ ] #4: detection is shown to feed `workflow-bootstrap` Step 3 Q9 and reuse
+- [ ] #4: detection is shown to feed `grm-workflow-bootstrap` Step 3 Q9 and reuse
       the existing Step 4 patch outcomes (source-url, `{ux-demo-stack}`,
       deferral row, headless N/A) rather than introducing a parallel path.
 - [ ] #5: the design defines a two-tier `theme` (tokens) + `components`
@@ -439,7 +439,7 @@ ticks the adaptation-acceptance checklist (user-only, same rule as
       layout under `docs/design/ux/` ([](ux/theme.md) + [](ux/components.md) alongside
       the unchanged [](ux/design-language.md)), and states the no-raw-values-in-
       components invariant.
-- [ ] #5: the design specifies how `design-language-adapt` produces both tier
+- [ ] #5: the design specifies how `grm-design-language-adapt` produces both tier
       files as drafts under the existing source-sha / draft→adopted /
       selective-diff lifecycle, and how the tiers compose with (do not
       replace) the prose authority, including backward-compatibility for
@@ -452,13 +452,13 @@ ticks the adaptation-acceptance checklist (user-only, same rule as
       `visual-regression.json` manifest), the capture model (tool-agnostic,
       fixed viewport/DPR, animations off), the diff approach (pixel-diff
       primary with per-item tolerance, structural fallback), the opt-in skill
-      flow (new `ux-demo-regress` with `--accept` / `--check`, GUI-only,
+      flow (new `grm-ux-demo-regress` with `--accept` / `--check`, GUI-only,
       never auto-run), and how drift is reported (per-item table with
       verdict + token-SHA correlation).
 
 ## Open questions
 
-- Should `ux-demo-regress` live as a wholly new skill or as a sub-mode of a
+- Should `grm-ux-demo-regress` live as a wholly new skill or as a sub-mode of a
   renamed `ux-demo`? This doc proposes a new skill on responsibility grounds;
   the implementing C-work item may revisit if the two share enough scaffolding
   to merge cleanly.
@@ -477,4 +477,4 @@ ticks the adaptation-acceptance checklist (user-only, same rule as
 - A CI-friendly non-interactive `ux-demo-regress --check` exit-code mode (drift
   ⇒ non-zero) for projects that want regression in their pipeline.
 - Copilot-flavor port of the auto-detection guidance and the theme/component
-  schema (note: `ux-demo-regress` tooling parity is flavor-dependent).
+  schema (note: `grm-ux-demo-regress` tooling parity is flavor-dependent).

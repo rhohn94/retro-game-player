@@ -228,7 +228,7 @@ every time a turn adds new read output behind the warm prefix; doing that across
 many turns re-creates the same bytes repeatedly. So:
 
 - **Read a predictable, named set in one step.** When the files you need are
-  already known — a task lists its design docs, `repo-reference` gives a fixed
+  already known — a task lists its design docs, `grm-repo-reference` gives a fixed
   doc-location table, a skill names its inputs — read them all in a single
   batched step. Do not read one, act, read the next.
 - **Don't interleave reads with cache-invalidating edits.** Front-load the
@@ -269,7 +269,7 @@ volume. The size of the win scales with the file's load frequency: `CLAUDE.md`
 loads on *every* turn of *every* agent, so a single stabilizing decision there
 compounds across the whole spawn fan-out, while the same care on a rarely-loaded
 file barely matters. A precise per-operation A/B (single-step vs. drip read of
-the same set) can be captured with `token-measure` per the protocol below;
+the same set) can be captured with `grm-token-measure` per the protocol below;
 pending that, the inequality "warm < creation" is sufficient to justify the
 authoring rules, and none of them trade away correctness to bank the saving.
 

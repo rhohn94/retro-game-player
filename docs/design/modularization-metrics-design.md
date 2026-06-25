@@ -16,7 +16,7 @@ The earlier program releases enforced *language* quality (Rust v3.16, HTML/CSS
 v3.17), *architecture boundaries* (v3.18), and *DRY* (v3.19). What is still
 unmeasured is **modularity as a quantity**: how tightly coupled the modules are,
 which modules are unstable (depended-upon but volatile), and whether modules are
-growing past a healthy size. `code-health` reports complexity per *unit* but not
+growing past a healthy size. `grm-code-health` reports complexity per *unit* but not
 coupling between *modules*, so a project can stay within per-function complexity
 budgets while congealing into a tangled, hard-to-change module graph.
 
@@ -26,12 +26,12 @@ the **capstone** — a framework-wide sweep — and ships the fixes.
 
 ## Goals
 
-- A **module-coupling dimension** in `code-health` Section B: afferent (Ca) /
+- A **module-coupling dimension** in `grm-code-health` Section B: afferent (Ca) /
   efferent (Ce) coupling and instability `I = Ce/(Ca+Ce)` per module, plus a
   module-size budget, with baseline delta.
 - **Modularization guidance** in [architecture-guidelines.md](../architecture-guidelines.md) (target
   instability for core vs leaf modules; split a module before it grows past
-  budget) with audit-hints so `coding-practices-audit` checks it.
+  budget) with audit-hints so `grm-coding-practices-audit` checks it.
 - The **capstone self-consistency audit**: framework-wide contradiction sweep;
   every confirmed finding fixed in this release and recorded below.
 
@@ -46,7 +46,7 @@ the **capstone** — a framework-wide sweep — and ships the fixes.
 
 ### 1. Module-coupling metrics in code-health
 
-`code-health` Section B gains, per module (a directory or package):
+`grm-code-health` Section B gains, per module (a directory or package):
 
 | Metric | Meaning | Signal |
 |---|---|---|
@@ -55,7 +55,7 @@ the **capstone** — a framework-wide sweep — and ships the fixes.
 | I = Ce/(Ca+Ce) | instability, 0 (stable) → 1 (unstable) | core modules should trend toward 0 |
 | size | lines / file count per module | over budget → split |
 
-Computed from the same import scan the `architecture-audit` skill already uses
+Computed from the same import scan the `grm-architecture-audit` skill already uses
 (shared mechanism, not a new parser). Recorded in the baseline cache for delta.
 A module that is both **unstable and widely depended-upon** (high Ca *and* high
 I) is the headline finding — that is the painful-to-change hotspot.
@@ -76,15 +76,15 @@ A framework-wide sweep of CLAUDE.md, the release-pipeline skills, and the
 standards/integration docs for genuine contradictions. Confirmed findings, all
 fixed in this release:
 
-1. **`repo-reference` undercounted the profile registry** — said "The five
+1. **`grm-repo-reference` undercounted the profile registry** — said "The five
    starter profiles" while `.claude/model-effort-profiles.json` defines **six**
    (the `Autonomous` profile was undocumented). Fixed: heading de-counted and an
    `Autonomous` bullet added; the registry named as source of truth.
-2. **`release-agreement` description overstated its single-step effect** — said
+2. **`grm-release-agreement` description overstated its single-step effect** — said
    it "Creates … with status:agreed" while its body writes `status: draft` first
    and transitions to `agreed` in a later step (the guard hook requires the
    two-step lock). Fixed: description now states the draft→agreed transition.
-3. **Paradigm-label inconsistency in the `release-phase` variants** — the Noir
+3. **Paradigm-label inconsistency in the `grm-release-phase` variants** — the Noir
    and Weiss variants carry a `(Noir)` / `(Weiss)` title suffix; the Supervised
    variant had none. Fixed: Supervised variant titled `(Supervised)`.
 
@@ -100,11 +100,11 @@ counts, and pipeline sequencing are otherwise consistent.
 - The three capstone fixes are verifiable: `grep 'five starter' ` → absent;
   `grep 'status: draft then'` in release-agreement description → present;
   Supervised release-phase title carries `(Supervised)`.
-- `doc-assurance` reports no new flavor-parity / link / house-layout findings.
+- `grm-doc-assurance` reports no new flavor-parity / link / house-layout findings.
 
 ## Flavor parity
 
-[architecture-guidelines.md](../architecture-guidelines.md), this design doc, and the `code-health` prose are
-mirrored to `claude-code/` and `copilot/`. The capstone fixes to `repo-reference`
-and `release-agreement` are mirrored to `claude-code/` (skills are
+[architecture-guidelines.md](../architecture-guidelines.md), this design doc, and the `grm-code-health` prose are
+mirrored to `claude-code/` and `copilot/`. The capstone fixes to `grm-repo-reference`
+and `grm-release-agreement` are mirrored to `claude-code/` (skills are
 Claude-Code-canonical; copilot mirrors equivalent prompts where they exist).

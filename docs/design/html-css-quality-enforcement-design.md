@@ -15,7 +15,7 @@
 HTML and CSS are a large slice of the projects Grimoire scaffolds, yet
 `docs/coding-standards/html.md` and [css.md](../coding-standards/css.md) are explicit **stubs** —
 `> Stub — fill in as conventions are agreed` — with **zero** audit-hints. So
-`coding-practices-audit` checks *nothing* for the front-end, `code-health` has
+`grm-coding-practices-audit` checks *nothing* for the front-end, `grm-code-health` has
 no HTML/CSS row at all, and there is no dead-CSS or semantic/a11y gate. A managed
 web project can accumulate inline styles, non-semantic `<div>` soup, inaccessible
 controls, unused CSS, and `!important` debt with no Grimoire gate noticing.
@@ -27,14 +27,14 @@ controls, unused CSS, and `!important` debt with no Grimoire gate noticing.
   no-inline-styles anti-pattern — each normative rule carrying an `audit:` hint.
 - A pinned **HTML/CSS quality command set** (htmlhint, stylelint, dead-CSS)
   surfaced through the recipe `lint` target.
-- A **HTML/CSS row** in `code-health`: dead CSS (unused selectors) as the
+- A **HTML/CSS row** in `grm-code-health`: dead CSS (unused selectors) as the
   dead-code dimension, `jscpd` for duplication, stylelint complexity heuristics.
 - Folds into the existing v1.26 `code-quality` dials at the merge gate — no new
   config cluster, defaults stay warn-not-block.
 
 ## Non-goals
 
-- A standalone skill (extend `code-health` + `coding-practices-audit`).
+- A standalone skill (extend `grm-code-health` + `grm-coding-practices-audit`).
 - A specific CSS framework or methodology mandate beyond "pick one and apply it
   consistently" (BEM is the worked example, not a requirement).
 - A full WCAG conformance audit — the a11y hints are the high-value subset
@@ -55,11 +55,11 @@ controls, unused CSS, and `!important` debt with no Grimoire gate noticing.
 ### 2. Audit-hint coverage
 
 Every normative rule in [html.md](../coding-standards/html.md) and [css.md](../coding-standards/css.md) gains an `audit: id=… check=…
-severity=… applies="html"|"css"` marker. `coding-practices-audit` greps these,
+severity=… applies="html"|"css"` marker. `grm-coding-practices-audit` greps these,
 so the front-end audit surface goes from empty to comprehensive with no skill
 change (the data-driven contract from `coding-practices-audit-design.md`).
 
-### 3. `code-health` HTML/CSS row
+### 3. `grm-code-health` HTML/CSS row
 
 Section A (dead-code + duplication): unused CSS selectors via PurgeCSS-style
 dry-run + `jscpd`. Section B (complexity): selector-specificity / nesting-depth
@@ -67,7 +67,7 @@ heuristics from stylelint. Recorded in the baseline cache for delta reporting.
 
 ### 4. Merge-gate integration
 
-No new dial. The HTML/CSS `lint` recipe and `code-health` HTML/CSS pass become
+No new dial. The HTML/CSS `lint` recipe and `grm-code-health` HTML/CSS pass become
 the concrete checks the existing v1.26 `code-quality` dials govern for web
 projects.
 
@@ -83,9 +83,9 @@ projects.
 ## Validation / Idempotency
 
 - `grep -c 'audit: id=' html.md css.md` rises from **0** to the full rule count;
-  `coding-practices-audit` picks them up with no skill edit.
+  `grm-coding-practices-audit` picks them up with no skill edit.
 - Standards edits are declarative and idempotent; re-running is a no-op.
-- `doc-assurance` reports **no new** flavor-parity / link / house-layout findings
+- `grm-doc-assurance` reports **no new** flavor-parity / link / house-layout findings
   attributable to this release.
 - [html.md](../coding-standards/html.md) / [css.md](../coding-standards/css.md) / this design doc are byte-identical across root,
   `claude-code/`, and `copilot/` (verified by `diff`).
@@ -93,5 +93,5 @@ projects.
 ## Flavor parity
 
 [html.md](../coding-standards/html.md), [css.md](../coding-standards/css.md), and this design doc are mirrored to `claude-code/` and
-`copilot/`. The recipe contract is documented identically. `code-health` HTML/CSS
+`copilot/`. The recipe contract is documented identically. `grm-code-health` HTML/CSS
 tooling prose is Claude-Code-only; the copilot mirror carries the same standards.

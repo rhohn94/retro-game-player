@@ -5,11 +5,11 @@
 
 > Design gate for v1.27. Closes #41, #43, #46, #47, #48, #49: give managed
 > projects deterministic, fast, CI-runnable quality tooling out of the box,
-> complementing (not replacing) the agent-driven `coding-practices-audit`.
+> complementing (not replacing) the agent-driven `grm-coding-practices-audit`.
 
 ## Motivation
 
-`coding-practices-audit` is agent-driven (no linter/AST). It is good for
+`grm-coding-practices-audit` is agent-driven (no linter/AST). It is good for
 nuanced, hint-keyed adherence checks but is neither fast nor deterministic, and
 it does not cover dependency vulnerabilities, dead code, duplication, or
 complexity trends. Managed projects deserve real tooling — wired in at scaffold
@@ -22,7 +22,7 @@ only by convention.
 - New skills for **dependency/security audit**, **dead-code + duplication**, and
   **complexity/maintainability** reporting — each language-appropriate behind one
   abstraction, each emitting a report and an optional gate.
-- **Expanded audit-hints** so the existing `coding-practices-audit` catches more.
+- **Expanded audit-hints** so the existing `grm-coding-practices-audit` catches more.
 - Reuse the v1.26 `code-quality` dials and `{lint/typecheck/coverage}` commands —
   no new config schema.
 
@@ -46,18 +46,18 @@ A new sub-doc is the authority for the deterministic tooling layer:
   source of truth — no command duplicated between pre-commit and the merge gate).
   Opt-in install at bootstrap.
 
-`quick-start-template` references this tier: applying a profile drops in the
+`grm-quick-start-template` references this tier: applying a profile drops in the
 lint/format config and (on opt-in) the pre-commit config.
 
-### `dependency-audit` skill (#46)
+### `grm-dependency-audit` skill (#46)
 
 One skill, language-dispatched: `pip-audit` / `npm audit` / `cargo audit` /
 `govulncheck`. Emits a normalized findings report (package, advisory, severity,
-fixed-in). With `--file-issues`, routes each finding through `feedback-to-issue`
+fixed-in). With `--file-issues`, routes each finding through `grm-feedback-to-issue`
 (severity → label). Optional pre-release gate: fail on findings at/above a
 configured severity. Read-only by default; never edits manifests.
 
-### `code-health` skill (#47, #49)
+### `grm-code-health` skill (#47, #49)
 
 One skill emitting two report sections from language-appropriate tools:
 - **Dead code + duplication** (#47): `vulture` / `ts-prune` / `cargo-udeps` +
@@ -75,17 +75,17 @@ optional-pre-merge modes; thresholds configurable.
 The audit surface grows by adding `<!-- audit: id=… check=… severity=… applies=… -->`
 hints to [coding-standards.md](../coding-standards.md) and the per-language sub-docs — covering error
 handling, duplication, one-class-per-file, dependency hygiene, and per-language
-idioms. No `coding-practices-audit` skill change: the skill reads hints live. A
+idioms. No `grm-coding-practices-audit` skill change: the skill reads hints live. A
 coverage table in [coding-standards.md](../coding-standards.md) lists hint count per dimension.
 
 ## File-level changes (work-item map)
 
 - `docs/coding-standards/tooling.md` — NEW tooling-tier authority (#41,#48).
-- `.claude/skills/dependency-audit/SKILL.md` — NEW (#46).
-- `.claude/skills/code-health/SKILL.md` — NEW (#47,#49).
+- `.claude/skills/grm-dependency-audit/SKILL.md` — NEW (#46).
+- `.claude/skills/grm-code-health/SKILL.md` — NEW (#47,#49).
 - `docs/coding-standards.md` + `coding-standards/{python,javascript,rust}.md` —
   audit-hints + a hint-coverage table (#43).
-- `.claude/skills/quick-start-template/SKILL.md` — reference the tooling tier on
+- `.claude/skills/grm-quick-start-template/SKILL.md` — reference the tooling tier on
   apply (#41,#48).
 - `sync-from-upstream/feature-manifest.md` — rows for the new skills + tooling.
 - `workflow-bootstrap/manifest.md` — register the two new skills.
@@ -93,15 +93,15 @@ coverage table in [coding-standards.md](../coding-standards.md) lists hint count
 ## Idempotency & safety
 
 - New skills are read-only/report-first; gating is opt-in via the v1.26 dials.
-- `code-health` baseline is a derived, regenerable cache artifact (gitignorable).
+- `grm-code-health` baseline is a derived, regenerable cache artifact (gitignorable).
 - Re-running any scan with unchanged sources is deterministic.
 
 ## Validation
 
-- `dependency-audit` emits a normalized report and (with `--file-issues`) files
+- `grm-dependency-audit` emits a normalized report and (with `--file-issues`) files
   one issue per finding.
-- `code-health` reports dead code, duplication, and complexity with a baseline
+- `grm-code-health` reports dead code, duplication, and complexity with a baseline
   delta; a regression is flagged.
-- A newly-added audit-hint is exercised by `coding-practices-audit` with no skill
+- A newly-added audit-hint is exercised by `grm-coding-practices-audit` with no skill
   change.
 - A scaffolded profile lints and (on opt-in) installs pre-commit.

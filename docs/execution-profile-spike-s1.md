@@ -5,7 +5,7 @@
 
 > v1.11 "Execution profiles", Phase-1 gate. Drives the design of the
 > **Cheap-Slow** posture. Method: parse EXISTING transcripts with
-> `.claude/skills/token-measure/parse_usage.py` (no big re-runs). All figures
+> `.claude/skills/grm-token-measure/parse_usage.py` (no big re-runs). All figures
 > are the parser's **relative** cost roll-up (cache_read=0.08, input=1/3,
 > cache_creation=1.25/3, output=1.0; × tier Opus=15/Sonnet=3/Haiku=1) — not
 > dollars. Every number traces to a cited transcript or a stated assumption.

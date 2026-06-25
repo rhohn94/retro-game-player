@@ -28,7 +28,7 @@ installer, and switch mechanism this design specifies.
   names; how the installer selects and writes active content.
 - Per-paradigm content-diff map: which files differ and which are shared.
 - Installer + switch mechanism end-to-end: onboarding selection → activation;
-  the `work-paradigm-switch` skill contract; idempotent re-install; restorability.
+  the `grm-work-paradigm-switch` skill contract; idempotent re-install; restorability.
 - Config schema change: `work-paradigm.in-development` removed, field made
   active; `schema-version` bumped from `1` → `2`; forward-compat with v1.5
   configs.
@@ -37,7 +37,7 @@ installer, and switch mechanism this design specifies.
 - Implementing the Noir write-capable workflow tier (NW1–NW4).
 - Authoring the actual per-paradigm content (WP2).
 - Implementing the installer/switch skill code (WP3).
-- Updating `workflow-bootstrap` / golden (WP4).
+- Updating `grm-workflow-bootstrap` / golden (WP4).
 
 ---
 
@@ -53,9 +53,9 @@ installed at those names changes.
 
 | Surface | Stable name | Notes |
 |---------|-------------|-------|
-| Integration-master skill | `.claude/skills/integration-master/SKILL.md` | **New in v1.6** — consolidates the master's guidance (today in `docs/integration-workflow.md` / `CLAUDE.md`); `CLAUDE.md §Which agent are you?` is repointed to it; content is paradigm-specific |
-| Release-phase skill | `.claude/skills/release-phase/SKILL.md` | Autonomy posture differs per paradigm |
-| Release-phase-merge skill | `.claude/skills/release-phase-merge/SKILL.md` | Merge oversight differs |
+| Integration-master skill | `.claude/skills/grm-integration-master/SKILL.md` | **New in v1.6** — consolidates the master's guidance (today in `docs/integration-workflow.md` / `CLAUDE.md`); `CLAUDE.md §Which agent are you?` is repointed to it; content is paradigm-specific |
+| Release-phase skill | `.claude/skills/grm-release-phase/SKILL.md` | Autonomy posture differs per paradigm |
+| Release-phase-merge skill | `.claude/skills/grm-release-phase-merge/SKILL.md` | Merge oversight differs |
 | CLAUDE.md §Which agent are you? | `CLAUDE.md` (section replaced in-place) | Agent posture, oversight level |
 | CLAUDE.md §Task execution | `CLAUDE.md` (section replaced in-place) | Approval gates differ |
 | `docs/integration-workflow.md` | `docs/integration-workflow.md` | Decision/merge orchestration varies |
@@ -66,8 +66,8 @@ All other skills, hooks, and docs are **shared** (identical across paradigms).
 
 The following are paradigm-invariant and are never swapped:
 
-- `repo-init`, `workflow-bootstrap`, `project-release`, `release-planning`,
-  `release-agreement`, `release-agent-tracker` skills.
+- `grm-repo-init`, `grm-workflow-bootstrap`, `grm-project-release`, `grm-release-planning`,
+  `grm-release-agreement`, `grm-release-agent-tracker` skills.
 - All design docs under `docs/design/`.
 - Hook scripts (`protected-branch-guard.sh`, `worktree-guard.sh`,
   `push-guard.sh`).
@@ -120,9 +120,9 @@ The installer uses a fixed **install map** that records the source path
 
 | Source file | Installed to |
 |-------------|--------------|
-| `integration-master-SKILL.md` | `.claude/skills/integration-master/SKILL.md` |
-| `release-phase-SKILL.md` | `.claude/skills/release-phase/SKILL.md` |
-| `release-phase-merge-SKILL.md` | `.claude/skills/release-phase-merge/SKILL.md` |
+| `integration-master-SKILL.md` | `.claude/skills/grm-integration-master/SKILL.md` |
+| `release-phase-SKILL.md` | `.claude/skills/grm-release-phase/SKILL.md` |
+| `release-phase-merge-SKILL.md` | `.claude/skills/grm-release-phase-merge/SKILL.md` |
 | `CLAUDE-agent-role.md` | Active content for `CLAUDE.md §Which agent are you?` |
 | `CLAUDE-task-execution.md` | Active content for `CLAUDE.md §Task execution` |
 | [integration-workflow.md](../integration-workflow.md) | `docs/integration-workflow.md` |
@@ -132,7 +132,7 @@ content in-place (see §4.3).
 
 #### 2.3 Golden baseline
 
-The golden baseline (maintained by `workflow-bootstrap` / `workflow-snapshot`)
+The golden baseline (maintained by `grm-workflow-bootstrap` / `grm-workflow-snapshot`)
 must snapshot all three paradigm content sets:
 
 ```
@@ -175,11 +175,11 @@ also recorded.
 
 #### 3.2 Content shared across all paradigms (never swapped)
 
-- All task-agent skills: `repo-init`, `workflow-bootstrap`, `project-release`,
-  `release-planning`, `release-agreement`, `release-agent-tracker`,
-  `design-doc-scaffold`, `workflow-scaffold`, `worktree-preflight`,
-  `source-to-design-docs`, `sync-from-source`, `sync-from-upstream`,
-  `ledger-tick`, `onboarding`, `work-paradigm-switch`.
+- All task-agent skills: `grm-repo-init`, `grm-workflow-bootstrap`, `grm-project-release`,
+  `grm-release-planning`, `grm-release-agreement`, `grm-release-agent-tracker`,
+  `grm-design-doc-scaffold`, `grm-workflow-scaffold`, `grm-worktree-preflight`,
+  `grm-source-to-design-docs`, `grm-sync-from-source`, `grm-sync-from-upstream`,
+  `grm-ledger-tick`, `grm-onboarding`, `grm-work-paradigm-switch`.
 - Hook scripts and guards.
 - All design docs, roadmap, version history, coding standards.
 - Workflow scripts under `.claude/workflows/`.
@@ -192,14 +192,14 @@ also recorded.
 
 #### 4.1 Selection captured at onboarding
 
-The `onboarding` skill records `work-paradigm.value` in
+The `grm-onboarding` skill records `work-paradigm.value` in
 `.claude/grimoire-config.json` at project setup (a preview-only field in
-v1.5). Under v1.6, onboarding calls the `work-paradigm-switch` skill
+v1.5). Under v1.6, onboarding calls the `grm-work-paradigm-switch` skill
 **immediately after** writing the config, activating the chosen paradigm
-before `workflow-bootstrap` runs. This ensures the installed content is
+before `grm-workflow-bootstrap` runs. This ensures the installed content is
 already paradigm-correct when the user's first session opens.
 
-#### 4.2 The `work-paradigm-switch` skill contract
+#### 4.2 The `grm-work-paradigm-switch` skill contract
 
 **Input:** a `work-paradigm` value: `Supervised | Weiss | Noir` (case-insensitive; also accept `Autonomous`, `Collaborative` as aliases).
 
@@ -258,7 +258,7 @@ mismatch between the WP2 content and the WP3 marker placement.)
 
 #### 4.4 Idempotent re-install
 
-Running `work-paradigm-switch` with the currently active paradigm is safe
+Running `grm-work-paradigm-switch` with the currently active paradigm is safe
 and produces no visible change. The skill detects idempotency by:
 
 1. Reading `work-paradigm.value` from the config.
@@ -275,7 +275,7 @@ post-restore step without risk of spurious diffs.
 
 1. Restoring the golden-snapshotted paradigm content sets to
    `.claude/paradigms/`.
-2. Calling `work-paradigm-switch` with the value from
+2. Calling `grm-work-paradigm-switch` with the value from
    `.claude/grimoire-config.json` to re-install the active paradigm's content.
 
 If `.claude/grimoire-config.json` is missing or `work-paradigm` is unset,
@@ -322,7 +322,7 @@ Any Grimoire skill that reads `work-paradigm` must handle both versions:
   installer has not run yet.
 - **If `schema-version` is `2`**: `work-paradigm.value` is active canonical.
 
-The `work-paradigm-switch` skill performs the migration when first invoked on
+The `grm-work-paradigm-switch` skill performs the migration when first invoked on
 a v1 config: it activates the paradigm, drops `in-development`, and writes
 `schema-version: 2`. This is the only migration path; no automated migration
 runs silently.
@@ -352,9 +352,9 @@ guarantee from §5.1 is unchanged — nothing about `work-paradigm` is touched).
 **Forward-compat:** a v2 config (no `model-effort-profile`) is read identically
 to a v3 config whose value is `Medium` — readers treat a missing field/object as
 `Medium`/default (the registry's `default-profile`). No migration is forced; old
-configs behave exactly as today. A future `model-effort-profile-switch` skill
+configs behave exactly as today. A future `grm-model-effort-profile-switch` skill
 would drop `in-development` + bump version on first switch, the same shape as
-`work-paradigm-switch`. The profile *data* lives in
+`grm-work-paradigm-switch`. The profile *data* lives in
 `.claude/model-effort-profiles.json` with its own independent `schema-version`,
 so the distribution can evolve without touching the project config schema.
 
@@ -387,7 +387,7 @@ benefit the phased model exists to provide:
   inside one context.
 - **Per-item isolation** — one worktree per work item (the NW1 safety rail) is
   abandoned; all changes pile into a single working tree.
-- **Review gates** — the per-branch review + test step in `release-phase-merge`
+- **Review gates** — the per-branch review + test step in `grm-release-phase-merge`
   never runs, because there are no branches.
 - **Ledger tracking** — §5 of the release plan is never ticked; there is no
   record of what was implemented, reviewed, or merged.
@@ -401,8 +401,8 @@ option.
 
 **Trigger.** The default path engages **after a release plan is agreed** (a
 `docs/release-planning-v{X.Y}.md` reaches `status: agreed` and a `version/{X.Y}`
-staging branch exists — i.e. immediately after `release-agreement`, which under
-Noir follows directly from `release-planning` and, via F1, from onboarding for a
+staging branch exists — i.e. immediately after `grm-release-agreement`, which under
+Noir follows directly from `grm-release-planning` and, via F1, from onboarding for a
 fresh project). From that point the master is **in execution**, and execution
 *means dispatch*.
 
@@ -411,16 +411,16 @@ MUST, as its default path:
 
 1. **Decompose into phases.** Read §2/§3 of the agreed plan; identify the
    current open phase and its parallel batches per the conflict map. (This is
-   already the `release-phase` contract — F2 makes entering it non-optional, not
+   already the `grm-release-phase` contract — F2 makes entering it non-optional, not
    a new mechanism.)
 2. **Dispatch work items as separate isolated-worktree agents.** For each item
    in the current batch, spawn a distinct agent — `spawn_task` chips, or a
    write-capable Workflow whose agents each receive their own isolated worktree
    and short-lived branch (§Write-capable Workflow integration in the Noir
-   `integration-master` content; NW1 isolation rails). The master does **not**
+   `grm-integration-master` content; NW1 isolation rails). The master does **not**
    implement the items inline.
 3. **Merge per phase.** As branches report back, the master reviews, tests, and
-   merges them into `version/{X.Y}` via `release-phase-merge`, ticking §5 after
+   merges them into `version/{X.Y}` via `grm-release-phase-merge`, ticking §5 after
    each merge, then advances to the next phase — exactly as the
    agentic-scaffolding project itself is dogfooded (this design doc's own v1.8
    work is being built this way: DG-* design gates in parallel, then F-track
@@ -445,7 +445,7 @@ an **advisory soft guard** in the Noir content:
   trip it.)
 - **What it says:** an advisory reminder along the lines of — *"Noir default is
   distributed dispatch: this work maps to planned item {ITEM-ID}. Spawn an
-  isolated-worktree agent via `release-phase` instead of implementing inline, so
+  isolated-worktree agent via `grm-release-phase` instead of implementing inline, so
   the work keeps its per-item isolation, review gate, and ledger row. Proceed
   inline only if this is intentionally out of the phased plan."* The master may
   proceed if it judges inline work correct, but the default is redirected to
@@ -480,8 +480,8 @@ its installed copies, and leaves Supervised and Weiss content unchanged
 |---|---|
 | Noir integration-master content | `.claude/paradigms/noir/integration-master-SKILL.md` — canonical `claude-code/.claude/paradigms/noir/integration-master-SKILL.md`, the root dogfood copy `.claude/paradigms/noir/integration-master-SKILL.md`, and the `copilot/` equivalent **if/where a surface exists** (see note below). |
 | Noir release-phase content | `.claude/paradigms/noir/release-phase-SKILL.md` — canonical `claude-code/.claude/paradigms/noir/release-phase-SKILL.md`, the root dogfood copy `.claude/paradigms/noir/release-phase-SKILL.md`, and the `copilot/` equivalent if/where a surface exists. |
-| Active installed copies (Noir-active projects) | `.claude/skills/integration-master/SKILL.md` and `.claude/skills/release-phase/SKILL.md` — the currently-installed active content, when the active paradigm is Noir. (For a non-Noir-active project these stay untouched; the edit lands in the `noir/` content set and is installed on the next `work-paradigm-switch` to Noir.) |
-| Golden baseline | `.claude/golden/paradigms/noir/integration-master-SKILL.md` and `release-phase-SKILL.md` re-baselined by `workflow-snapshot` — **owned by D1**, not F2 (per the §3 conflict map: golden re-baseline runs last). |
+| Active installed copies (Noir-active projects) | `.claude/skills/grm-integration-master/SKILL.md` and `.claude/skills/grm-release-phase/SKILL.md` — the currently-installed active content, when the active paradigm is Noir. (For a non-Noir-active project these stay untouched; the edit lands in the `noir/` content set and is installed on the next `grm-work-paradigm-switch` to Noir.) |
+| Golden baseline | `.claude/golden/paradigms/noir/integration-master-SKILL.md` and `release-phase-SKILL.md` re-baselined by `grm-workflow-snapshot` — **owned by D1**, not F2 (per the §3 conflict map: golden re-baseline runs last). |
 
 The two Noir content files receive: (a) the §6.2 "must dispatch, don't work
 solo" default-path instruction (in `integration-master-SKILL.md`, as the defined
@@ -508,8 +508,8 @@ that the master enters this skill by default once a plan is agreed); and (b) the
       agreement trigger, required decompose → dispatch → merge-per-phase
       behaviour, and the advisory soft-guard (trigger + message + advisory-not-
       block nature) (§6.1–§6.2).
-- [ ] §6 names the F2 implementation targets (Noir `integration-master` +
-      `release-phase` content across `claude-code/` canonical + root + active
+- [ ] §6 names the F2 implementation targets (Noir `grm-integration-master` +
+      `grm-release-phase` content across `claude-code/` canonical + root + active
       installed copies; copilot where a surface exists; golden owned by D1) and
       records the interaction with the v1.6 write-capable tier (§6.3–§6.4).
 - [ ] Paradigm-neutral file naming scheme is specified: stable active paths
@@ -540,15 +540,15 @@ that the master enters this skill by default once a plan is agreed); and (b) the
 - **WP2** (paradigm content): author the three content sets under
   `.claude/paradigms/` per §3.1; Supervised set is behavior-equivalent to
   today; Weiss/Noir encode their postures.
-- **WP3** (switch skill): implement `work-paradigm-switch` per §4.2–§4.4;
-  integrate call into `onboarding`; install sentinel comments in `CLAUDE.md`
+- **WP3** (switch skill): implement `grm-work-paradigm-switch` per §4.2–§4.4;
+  integrate call into `grm-onboarding`; install sentinel comments in `CLAUDE.md`
   per §4.3; write schema-version 2 on first switch.
-- **WP4** (bootstrap + golden): extend `workflow-bootstrap` + golden to
+- **WP4** (bootstrap + golden): extend `grm-workflow-bootstrap` + golden to
   include `.claude/paradigms/` per §2.3; implement restore path per §4.5.
 - **D1** (docs): update `CLAUDE.md` + `docs/integration-workflow.md` to
   document paradigm selection/switch per the installed content structure.
 - **F2** (v1.8, Noir default dispatch): per §6, edit the Noir
-  `integration-master` + `release-phase` content (claude-code/ canonical + root
+  `grm-integration-master` + `grm-release-phase` content (claude-code/ canonical + root
   + active installed copies; copilot where a surface exists) to make distributed
   release-phase dispatch the default post-plan-agreement execution path and add
   the advisory soft guard against solo inline implementation. Golden re-baseline

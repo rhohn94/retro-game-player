@@ -41,14 +41,14 @@ mirror it to the `copilot/` flavor and the root dogfood. The plan is in
 - A subdir convention under `docs/design/` that gives downstream projects a
   canonical UX tier without forcing the scaffolding's own meta-docs into the
   same shape.
-- Two new skills: `design-language-adapt` (initial / re-adaptation from
-  upstream, with strict-local opt-out) and `ux-demo-build` (opt-in build of a
+- Two new skills: `grm-design-language-adapt` (initial / re-adaptation from
+  upstream, with strict-local opt-out) and `grm-ux-demo-build` (opt-in build of a
   minimal demo in the project's own stack).
 - A `git clone`-based source-pull mechanism, including landing-dir choice,
   offline-fallback semantics, retry semantics, and SHA recording — the
   ergonomics spike is **resolved inline** in §Source-pull mechanism, not
   deferred.
-- Initialization integration via `repo-init` (Step 6) and `workflow-bootstrap`
+- Initialization integration via `grm-repo-init` (Step 6) and `grm-workflow-bootstrap`
   (interview question + manifest entries).
 - A roadmap-based GUI-deferral mechanism for projects whose GUI is "not yet".
 - A `ux-demo/` policy (location, scope, stack purity, refresh discipline).
@@ -60,7 +60,7 @@ mirror it to the `copilot/` flavor and the root dogfood. The plan is in
 **Out of scope for v1.3** (mirrors §4 of the planning doc):
 
 - Auto-maintaining `ux-demo/`. Once a project's demo passes user review, it is
-  refreshed only by an explicit `ux-demo-build` invocation.
+  refreshed only by an explicit `grm-ux-demo-build` invocation.
 - Designing the upstream `design-language` repo itself. v1.3 only **consumes**
   it.
 - Auto-detecting GUI frameworks. Bootstrap asks; the user answers.
@@ -113,7 +113,7 @@ shadow-fork of upstream.
 `docs/design/ux/`**, with `docs/design/ux/design-language.md` as the
 canonical anchor (and additional `ux/`-tier docs like component maps or
 theming notes alongside it as the project grows). The
-[`repo-reference`](../../claude-code/.claude/skills/repo-reference/SKILL.md)
+[`grm-repo-reference`](../../claude-code/.claude/skills/grm-repo-reference/SKILL.md)
 doc-location map is updated in work item P2.6 to list `docs/design/ux/` with
 the description "UX-tier design docs (design-language, components,
 theming)".
@@ -157,8 +157,8 @@ HEAD and its SHA.
 
 **Landing directory.** `.design-language-source/` at the **repo root**.
 
-- Local-only, **gitignored**. Work item P2.5 (`repo-init` Step 6) and P2.2
-  (the `design-language-adapt` skill's first run) are jointly responsible for
+- Local-only, **gitignored**. Work item P2.5 (`grm-repo-init` Step 6) and P2.2
+  (the `grm-design-language-adapt` skill's first run) are jointly responsible for
   appending the directory to `.gitignore` if absent. The scaffolding's own
   `.gitignore` ships with the entry pre-added.
 - **Not** under `.claude/` — it is not a Claude-harness artefact, and a human
@@ -226,7 +226,7 @@ no upstream pull, no SHA tracking, no expectation of diffs — sets
 
 Under `source: local`:
 
-- `design-language-adapt` **skips the clone step** entirely. No network call,
+- `grm-design-language-adapt` **skips the clone step** entirely. No network call,
   no `.design-language-source/` directory created.
 - The skill treats the project's existing [design-language.md](ux/design-language.md) content as
   **authoritative**. It does not propose changes, does not record a
@@ -234,7 +234,7 @@ Under `source: local`:
   upstream for drift.
 - The skill's only useful action in strict-local mode is to (re-)generate the
   embedded acceptance checklist if the user has invalidated it, and to defer
-  to `ux-demo-build` for the demo refresh.
+  to `grm-ux-demo-build` for the demo refresh.
 - Switching back to upstream is a front-matter edit (`source: upstream`)
   followed by a normal re-invocation; the missing `source-sha:` triggers the
   initial-adaptation path.
@@ -245,7 +245,7 @@ or when the project never wanted upstream coupling in the first place.
 
 ### GUI-deferral mechanism
 
-`workflow-bootstrap` (work item P2.4) gains a three-way question in its Step 3
+`grm-workflow-bootstrap` (work item P2.4) gains a three-way question in its Step 3
 interview:
 
 > **Will this project have a GUI?** (Yes / Not yet / No, headless)
@@ -254,8 +254,8 @@ Routing of the three answers:
 
 - **Yes** → ask follow-up questions (upstream URL, default
   `https://github.com/rhohn94/design-language`, or `local`; primary GUI
-  framework hint for `ux-demo-build`); proceed normally. `repo-init` Step 6
-  (work item P2.5) runs `design-language-adapt` at day zero.
+  framework hint for `grm-ux-demo-build`); proceed normally. `grm-repo-init` Step 6
+  (work item P2.5) runs `grm-design-language-adapt` at day zero.
 - **Not yet** → bootstrap appends a one-line note to
   [`docs/roadmap.md`](../roadmap.md). The note lives **under the next
   planned version's block** (or in a `Backlog` section if no concrete next
@@ -264,11 +264,11 @@ Routing of the three answers:
   - UX design language: deferred until v{X.Y}.
   ```
   The deferral is visible during release planning — when the integration
-  master next runs `release-planning`, the roadmap entry surfaces the
+  master next runs `grm-release-planning`, the roadmap entry surfaces the
   pending work for that version.
 - **No, headless** → bootstrap marks the design-language slot **N/A** in the
-  manifest's restorable-skills view (i.e., `design-language-adapt` and
-  `ux-demo-build` are skipped for this project's bootstrap). The user can
+  manifest's restorable-skills view (i.e., `grm-design-language-adapt` and
+  `grm-ux-demo-build` are skipped for this project's bootstrap). The user can
   always re-run bootstrap later if the project gains a GUI.
 
 **Crucially**, the deferral is **never a hidden marker file** (no
@@ -307,20 +307,20 @@ demo is too big.
   leak, no headless browser.
 - A library project's demo (if one exists) uses the library's host stack.
 
-The `ux-demo-build` skill (work item P2.3) enforces this in its acceptance
+The `grm-ux-demo-build` skill (work item P2.3) enforces this in its acceptance
 checklist.
 
 **Not auto-maintained.** Once the demo passes user review, it is **frozen**
-until the user explicitly re-invokes `ux-demo-build`. The demo does not run
+until the user explicitly re-invokes `grm-ux-demo-build`. The demo does not run
 in CI, is not regenerated on every adapt-skill run, and does not block
 releases. This is a deliberate trade — the demo is a one-shot artefact
 proving "the adaptation works for this project's needs", not a live UI
 fixture.
 
-**Opt-in refresh.** `ux-demo-build` is the **only** path that touches
-`ux-demo/`. `design-language-adapt` can suggest "the demo may need a
+**Opt-in refresh.** `grm-ux-demo-build` is the **only** path that touches
+`ux-demo/`. `grm-design-language-adapt` can suggest "the demo may need a
 refresh" in its report after a successful upstream pull, but never runs
-`ux-demo-build` itself (per P2.2 acceptance: "Skill kicks off `ux-demo-build`
+`grm-ux-demo-build` itself (per P2.2 acceptance: "Skill kicks off `grm-ux-demo-build`
 only with explicit user consent").
 
 ### Verification model
@@ -341,7 +341,7 @@ reviews**:
    are the evidence; the checklist is the assertion.
 
 The user marks checklist items complete by editing
-[design-language.md](ux/design-language.md). **The `ux-demo-build` skill never auto-marks them.**
+[design-language.md](ux/design-language.md). **The `grm-ux-demo-build` skill never auto-marks them.**
 At most, the skill updates `adaptation-status:` from `draft` to
 `ready-for-review` when the demo builds clean — but never to `adopted`.
 
@@ -395,24 +395,24 @@ produces review material, never a silent overwrite.
 The day-zero and bootstrap integration points are owned by separate Phase 2
 work items but share this spec.
 
-- **`workflow-bootstrap` (work item P2.4).** Adds the GUI question (see
+- **`grm-workflow-bootstrap` (work item P2.4).** Adds the GUI question (see
   §GUI-deferral mechanism) to its Step 3 interview. Captures the upstream
   URL (or `local`) and a GUI framework hint when the answer is **Yes**.
-  Lists `design-language-adapt` and `ux-demo-build` in the manifest's
+  Lists `grm-design-language-adapt` and `grm-ux-demo-build` in the manifest's
   Restorable-skills table so subsequent restores cover them. Introduces new
   project-config tokens (e.g. `{design-language-source-url}`,
   `{ux-demo-stack}`) for any placeholder substitution downstream.
-- **`repo-init` (work item P2.5).** Inserts a new **Step 6 — "UX design
+- **`grm-repo-init` (work item P2.5).** Inserts a new **Step 6 — "UX design
   language (optional)"** describing the day-zero invocation of
-  `design-language-adapt` for **Yes**-answer GUI projects, with the
+  `grm-design-language-adapt` for **Yes**-answer GUI projects, with the
   roadmap-deferral path as the alternative for **Not yet** and the skip path
   for **No, headless**. Anti-patterns gain an entry: "Skipping UX design
   language for a GUI project without recording deferral in [roadmap.md](../roadmap.md)".
 - **`docs/integration-workflow.md` (work item P2.8).** Adds a §UX design
   language anchor placed as a **project-init concern**, not a per-release
-  concern. Lists the two trigger moments for `design-language-adapt`
+  concern. Lists the two trigger moments for `grm-design-language-adapt`
   (initial adaptation at day zero, on-demand re-adaptation later) and the
-  one trigger moment for `ux-demo-build` (opt-in, user-initiated).
+  one trigger moment for `grm-ux-demo-build` (opt-in, user-initiated).
 - **`claude-code/CLAUDE.md` (work item P2.9).** Adds a short
   (~5-line) paragraph noting that GUI projects own a
   `docs/design/ux/design-language.md` plus a `ux-demo/` at the repo root,
@@ -478,7 +478,7 @@ This design doc is accepted when **all** of the following hold:
   update) must commit to **one** concrete shape at implementation time —
   either always under the next version block (creating one if absent), or
   always in a dedicated `Backlog` section. The choice affects how
-  `release-planning` discovers the deferral.
+  `grm-release-planning` discovers the deferral.
 
 ## Follow-ups
 
@@ -494,7 +494,7 @@ This design doc is accepted when **all** of the following hold:
   deferred indefinitely (out of scope for v1.3, not promised for v1.4).
 - **Pinning to a specific upstream SHA via front-matter.** *(Addressed in
   v1.4 C1.)* `source-pin:` is now a supported front-matter field in the
-  stub and honoured by `design-language-adapt` (checks out that SHA
+  stub and honoured by `grm-design-language-adapt` (checks out that SHA
   instead of HEAD; recorded distinctly in `source-sha:`).
 - **Source URL allowlist / verification.** *(Addressed in v1.4 C1.)* The
   skill now verifies `source-url:` against a documented default allowlist

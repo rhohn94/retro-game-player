@@ -67,7 +67,7 @@ the cost taxonomy. It leaves clean seams for E1 (graduate + switch skill), E2
 - Implementing the integration-master dispatch logic (E2 owns it).
 - Implementing the onboarding decoupling (E3/E4 own it).
 - The `copilot/` flavor port + golden re-baseline (D2 owns it).
-- A budget → posture auto-selector and the **priority-picker skill** (both
+- A budget → posture auto-selector and the **grm-priority-picker skill** (both
   Backlog; this design only keeps the dials clean enough that the picker's
   pair → settings mapping is trivial — see §B).
 - Re-deriving S1's numbers; they are cited, not reproduced.
@@ -152,7 +152,7 @@ priority-pairs map to dial combinations as follows:
 > the cost lever on dispatch (Cheap-Slow) while keeping selective Opus on the
 > tier dial.
 
-**Seam for the priority-picker skill (Backlog).** A future `priority-picker`
+**Seam for the grm-priority-picker skill (Backlog).** A future `grm-priority-picker`
 skill will ask the user "which two of speed/quality/cost?" and write the dial
 settings. The mapping above *is* its lookup table. The dials are designed so
 this mapping is a pure function of the chosen pair → `{execution-strategy,
@@ -250,7 +250,7 @@ which currently lists Careful-Serial as the 3rd variant):**
 
 ### E. How execution-strategy governs the integration master (E2)
 
-`release-phase` (and, under Noir, the F2 default-dispatch path in
+`grm-release-phase` (and, under Noir, the F2 default-dispatch path in
 [work-paradigm-design.md §6](work-paradigm-design.md)) reads
 `workflow-variant.value` to choose its **dispatch shape**. This is what E2
 implements; the dial governs *fan-out width and isolation mode*, never tier.
@@ -261,7 +261,7 @@ implements; the dial governs *fan-out width and isolation mode*, never tier.
 | **Efficient** | **Balanced** — today's default. Parallel with conflict-map–respecting batches, dedup of shared reads, `mergeAfter` ordering. (Write-capable Workflow → **Efficient** variant.) |
 | **Cheap-Slow** | **Low fan-out** — small batches (bounded peak orchestrator context), parallel + tiered-down for light/mechanical work; **in-session subagents (N1)** for the ≤ ~10 small-heavy/dependent corner; literal solo only for ≤ 3 hard-sequential items (§C). Pairs with Eco-Budget tiers. (Write-capable Workflow → **Careful-Serial** variant for the serial corner, else low `maxConcurrency`.) |
 
-**Seam for E2.** `release-phase` Step 3 already resolves *tier* via the v1.10
+**Seam for E2.** `grm-release-phase` Step 3 already resolves *tier* via the v1.10
 model-effort resolver. E2 adds, alongside it, an **execution-strategy read**
 that sizes the batch (fan-out width) and selects the isolation mode
 (spawn / in-session / solo). The two reads are independent: tier from
@@ -292,13 +292,13 @@ required **no schema-version bump**
   **no version bump** (verified against the model-effort-profile precedent: the
   field was added at v3 in v1.9, and v1.10 graduation dropped the flag without
   bumping; same shape here, where `workflow-variant` was added pre-v3).
-- E1 ships a **`workflow-variant-switch` skill** (a.k.a. execution-strategy
-  switch), mirroring `model-effort-profile-switch`: validate the value against
+- E1 ships a **`grm-workflow-variant-switch` skill** (a.k.a. execution-strategy
+  switch), mirroring `grm-model-effort-profile-switch`: validate the value against
   the preset set `{Fast, Efficient, Cheap-Slow}` (case-insensitive), drop any
   legacy `in-development`, perform the §D value migration
   (`Careful-Serial` → `Cheap-Slow`), and write the validated value. **No
   file-swap** — like the model-effort profile, the strategy is pure data that
-  `release-phase`/the master reads live, so writing the field *is* activation.
+  `grm-release-phase`/the master reads live, so writing the field *is* activation.
 - **Forward-compat:** a config with `workflow-variant.value: "Efficient",
   in-development: true` reads identically to a graduated `Efficient` (the dial
   was already `Efficient`-default). A config with the retired value
@@ -373,9 +373,9 @@ the dials compose; the remaining combinations are interpolations between them.
 - **No registry file.** Unlike model-effort-profile (which needs
   `.claude/model-effort-profiles.json` because tiers are a data matrix), the
   three execution-strategy presets are behavioural and live in the consuming
-  skills (`release-phase` / integration-master); the config field stores only
+  skills (`grm-release-phase` / integration-master); the config field stores only
   the active value. No new framework file ships.
-- **Bootstrap / golden:** `workflow-bootstrap` golden config drops the
+- **Bootstrap / golden:** `grm-workflow-bootstrap` golden config drops the
   `in-development` flag and carries `workflow-variant.value: "Efficient"`. D2
   owns the golden re-baseline + copilot mirror.
 - **work-paradigm and model-effort-profile fields are untouched** — the §A
@@ -427,10 +427,10 @@ the dials compose; the remaining combinations are interpolations between them.
 ## Follow-ups
 
 - **E1** (graduate + switch skill): drop `workflow-variant.in-development`; ship
-  `workflow-variant-switch` (mirror `model-effort-profile-switch`); migrate the
+  `grm-workflow-variant-switch` (mirror `grm-model-effort-profile-switch`); migrate the
   preset set + the legacy `Careful-Serial` → `Cheap-Slow` value (§D, §F.1). No
   schema bump.
-- **E2** (integration-master dispatch): make `release-phase` / the Noir F2 path
+- **E2** (integration-master dispatch): make `grm-release-phase` / the Noir F2 path
   read `workflow-variant.value` and choose fan-out width + isolation mode per §E,
   decoupled from the tier resolver. Leave a clean N1 in-session call-site.
 - **E3** (decouple): make the Noir → Autonomous tier recommendation non-binding;
@@ -442,7 +442,7 @@ the dials compose; the remaining combinations are interpolations between them.
   config (drop `in-development`); amend
   [write-capable-workflow-design.md §4](write-capable-workflow-design.md) with the
   one-line cross-reference (§D step 3); add the version-history + roadmap entries.
-- **Backlog — priority-picker skill:** ask "which two of speed/quality/cost?" and
+- **Backlog — grm-priority-picker skill:** ask "which two of speed/quality/cost?" and
   write the dial settings per the §B mapping table.
 - **Backlog — N1 in-session subagents:** the execution mechanism Cheap-Slow's
   small-heavy corner targets (§C/§E).

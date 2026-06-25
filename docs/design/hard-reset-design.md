@@ -16,7 +16,7 @@ hand-deleting two dozen files.
 Today there is no supported way to do this. A user would have to manually
 identify which files are framework vs. project, decide what to keep, re-install
 the onboarding sentinel, and re-run onboarding — error-prone, and one slip
-deletes real work. The **`hard-reset`** skill makes this a single guarded
+deletes real work. The **`grm-hard-reset`** skill makes this a single guarded
 operation: it **archives** (never deletes) every project-local file into a
 timestamped directory, restores the framework to its pristine state, re-installs
 the onboarding sentinel, and re-runs onboarding — behind a strong per-action
@@ -37,8 +37,8 @@ always be fully recoverable from the archive it produces.
 - The **archive destination** — a timestamped `.grimoire-archive/<ts>/`
   directory, its layout, what is copied into it, and `.gitignore` handling.
 - **Re-onboarding** — whether the reset re-installs the
-  `GRIMOIRE_ONBOARDING_SENTINEL` and re-runs `onboarding` /
-  `workflow-bootstrap`, and the exact sequence.
+  `GRIMOIRE_ONBOARDING_SENTINEL` and re-runs `grm-onboarding` /
+  `grm-workflow-bootstrap`, and the exact sequence.
 - **Config handling** — restore `grimoire-config.json` to defaults vs. preserve
   selected preferences (paradigm, workflow-variant), and the opt-flag that
   selects between them.
@@ -46,7 +46,7 @@ always be fully recoverable from the archive it produces.
   rewrite git history.
 - The **safety guard** — strong per-action explicit confirmation with an
   itemised pre-flight summary, per the `CLAUDE.md` §Commits destructive-op rule.
-- The **skill shape** — the new `hard-reset` skill, its trigger phrases, and the
+- The **skill shape** — the new `grm-hard-reset` skill, its trigger phrases, and the
   flavors to mirror (canonical `claude-code/` → root → `copilot/`).
 
 **Does not cover:**
@@ -76,7 +76,7 @@ PROJECT-LOCAL files are **archived, then cleared** so the scaffold returns to
 its day-one shape.
 
 The authoritative inventory of framework files is
-`workflow-bootstrap`'s `manifest.md` (the "Restorable skills / infrastructure /
+`grm-workflow-bootstrap`'s `manifest.md` (the "Restorable skills / infrastructure /
 workflows / paradigm content sets" sections). The reset reads that manifest
 rather than hard-coding the list, so the two never drift.
 
@@ -122,7 +122,7 @@ design docs, source).
 `CLAUDE.md` is **partly framework, partly project**: it carries permanent
 framework instructions (the onboarding-sentinel detection block, worktree
 isolation, commit discipline, paradigm sections) *and* project-specific values
-filled in by `workflow-bootstrap` (test/build/release commands, the project's
+filled in by `grm-workflow-bootstrap` (test/build/release commands, the project's
 own roadmap-entry references, project-named prose).
 
 **Decision: treat `CLAUDE.md` as project-local for archival, framework for
@@ -157,7 +157,7 @@ This guarantees the post-reset `CLAUDE.md` is byte-for-byte the day-one file
 
 > **Scaffold-self note.** In the agentic-scaffolding repo itself, `claude-code/`,
 > `copilot/`, and `docs/design/*` ARE the product, not project-local state. The
-> `hard-reset` skill is meant for **adopting projects**, not for the scaffolding
+> `grm-hard-reset` skill is meant for **adopting projects**, not for the scaffolding
 > repo's own dogfood checkout; running it here would archive the product. The
 > skill's pre-flight summary makes this obvious (it would list the product as
 > "project source"), and the confirmation gate (§6) is the backstop. No special
@@ -262,21 +262,21 @@ half-reset. The sequence is:
 6. **Write `grimoire-config.json`** per §4 (defaults or preserved preferences).
 7. **Hand off to onboarding.** Because line 1 of `CLAUDE.md` is now the
    sentinel, the very next prompt the user issues triggers the standard
-   onboarding flow (`onboarding` skill → `repo-init` → `work-paradigm-switch`
-   → `workflow-bootstrap`), per [`onboarding-design.md`](onboarding-design.md)
+   onboarding flow (`grm-onboarding` skill → `grm-repo-init` → `grm-work-paradigm-switch`
+   → `grm-workflow-bootstrap`), per [`onboarding-design.md`](onboarding-design.md)
    §1–§5. The reset itself does **not** drive the interview inline — it restores
    the trigger condition and stops, so the user's next interaction is a normal
    first-run onboarding.
 
    - *Exception — `--reonboard-now` (optional):* if the user wants the interview
      to run immediately in the same session, the skill may invoke the
-     `onboarding` skill directly after step 6 instead of waiting for the next
+     `grm-onboarding` skill directly after step 6 instead of waiting for the next
      prompt. Default is the trigger-on-next-prompt behaviour (less surprising,
      mirrors a genuine fresh scaffold).
 
 **Why restore framework before clearing/writing config:** the restore step
 (step 3) repopulates `.claude/paradigms/` and golden-derived files; §4's config
-write and any later `work-paradigm-switch` need those in place. Clearing
+write and any later `grm-work-paradigm-switch` need those in place. Clearing
 project-local files (step 4) after the archive (step 2) guarantees nothing is
 removed before it is safely copied.
 
@@ -316,7 +316,7 @@ In **both** cases the *original* `grimoire-config.json` is archived (§2.2) befo
 being rewritten, so the pre-reset config is always recoverable. When preferences
 are preserved, the reset writes a config consistent with the **current** schema
 version (it does not resurrect a stale schema), and the subsequent
-`work-paradigm-switch` (driven by onboarding / `workflow-bootstrap --restore`)
+`grm-work-paradigm-switch` (driven by onboarding / `workflow-bootstrap --restore`)
 re-installs the preserved paradigm's content set into the active paths — so a
 preserve-mode reset lands in the same paradigm it started in, with pristine
 content.
@@ -390,7 +390,7 @@ The guard:
 
 ### 7. Skill shape & flavors to mirror
 
-**New skill: `hard-reset`** (`.claude/skills/hard-reset/SKILL.md`).
+**New skill: `grm-hard-reset`** (`.claude/skills/grm-hard-reset/SKILL.md`).
 
 **Trigger phrases:** "hard reset", "reset the scaffold", "re-initialize the
 project", "start the project over", "factory reset Grimoire", "wipe and
@@ -403,26 +403,26 @@ on deliberate intent.
 | Flag | Effect | Default |
 |---|---|---|
 | `--reset-config` | Reset `grimoire-config.json` to defaults instead of preserving preferences (§4). | off (preserve) |
-| `--reonboard-now` | Run the `onboarding` interview inline after reset instead of arming the sentinel for the next prompt (§3 step 7). | off (arm sentinel) |
+| `--reonboard-now` | Run the `grm-onboarding` interview inline after reset instead of arming the sentinel for the next prompt (§3 step 7). | off (arm sentinel) |
 
 **Composition:** the skill reuses existing machinery rather than reimplementing
-it — it reads `workflow-bootstrap`'s `manifest.md` for the framework inventory
+it — it reads `grm-workflow-bootstrap`'s `manifest.md` for the framework inventory
 (§1) and uses `workflow-bootstrap --restore` semantics for the framework
-restore (§3 step 3), then arms the sentinel and hands to `onboarding` (§3
-step 7). It is **not** in the `workflow-bootstrap` manifest's restorable set in
-a way that resets itself mid-run — like `workflow-bootstrap` and
-`workflow-snapshot`, `hard-reset` is a meta-skill (it is a framework file that is
+restore (§3 step 3), then arms the sentinel and hands to `grm-onboarding` (§3
+step 7). It is **not** in the `grm-workflow-bootstrap` manifest's restorable set in
+a way that resets itself mid-run — like `grm-workflow-bootstrap` and
+`grm-workflow-snapshot`, `grm-hard-reset` is a meta-skill (it is a framework file that is
 restored, but it must not archive/clear itself while executing; the running copy
 is preserved).
 
 **Flavors to mirror (C1 implementation):** canonical first, then propagate.
 
 1. **`claude-code/`** — the canonical, gold-standard copy. Author the skill here
-   first: `claude-code/.claude/skills/hard-reset/SKILL.md`. Add it to
-   `claude-code/.claude/skills/workflow-bootstrap/manifest.md` and ship a golden
-   copy under `workflow-bootstrap/golden/skills/hard-reset/`.
+   first: `claude-code/.claude/skills/grm-hard-reset/SKILL.md`. Add it to
+   `claude-code/.claude/skills/grm-workflow-bootstrap/manifest.md` and ship a golden
+   copy under `workflow-bootstrap/golden/skills/grm-hard-reset/`.
 2. **Root `.claude/`** — adopt into this project's own dogfood copy
-   (`.claude/skills/hard-reset/SKILL.md` + manifest + golden), matching the
+   (`.claude/skills/grm-hard-reset/SKILL.md` + manifest + golden), matching the
    canonical version.
 3. **`copilot/`** — the parallel flavor. Add the Copilot equivalent
    `copilot/.github/prompts/hard-reset.prompt.md`, mirroring the *behavioural*
@@ -431,7 +431,7 @@ is preserved).
    equivalent**, so the workflow-file archival/restore row (§1.1) is omitted in
    the Copilot flavor; everything else mirrors.
 
-The golden re-baseline (`workflow-snapshot`) and the manifest/[features.md](../features.md)
+The golden re-baseline (`grm-workflow-snapshot`) and the manifest/[features.md](../features.md)
 updates ride along with C1, or with the release's D1 dogfood pass per the v1.8
 plan.
 
@@ -443,7 +443,7 @@ plan.
       in `docs/design/README.md`.
 - [ ] The FRAMEWORK vs. PROJECT-LOCAL file-class split is enumerated concretely
       (§1.1, §1.2), with the framework inventory sourced from
-      `workflow-bootstrap`'s `manifest.md`.
+      `grm-workflow-bootstrap`'s `manifest.md`.
 - [ ] Ambiguous cases are decided: `CLAUDE.md` (archive-as-project,
       restore-as-framework-template, §1.3) and `.gitignore` + project-source
       exclude-list (§1.4).
@@ -461,7 +461,7 @@ plan.
 - [ ] The safety guard is specified: no silent invocation, itemised pre-flight
       summary, explicit per-action confirmation, archive-before-clear ordering;
       references the `CLAUDE.md` §Commits destructive-op rule (§6).
-- [ ] The implementation target is named: new `hard-reset` skill, its trigger
+- [ ] The implementation target is named: new `grm-hard-reset` skill, its trigger
       phrases + flags, and the flavors to mirror (claude-code/ canonical → root
       → copilot `.github/prompts/`), gating C1 (§7).
 

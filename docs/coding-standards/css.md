@@ -36,7 +36,7 @@ Per-technology coding standards for CSS. Read alongside the cross-language
 - Factor repeated declaration groups into a shared class, custom property, or
   utility rather than copy-pasting rule blocks.
 - Delete dead CSS — selectors no targeting any rendered markup are removed, not
-  left "just in case" (the dead-CSS pass in `code-health` surfaces them).
+  left "just in case" (the dead-CSS pass in `grm-code-health` surfaces them).
 
 ## Anti-patterns
 
@@ -54,7 +54,7 @@ Per-technology coding standards for CSS. Read alongside the cross-language
 Web projects drive CSS quality through the recipe `lint` target. The canonical
 command is `stylelint` (standard config plus `no-!important` and the chosen
 naming pattern), with a dead-CSS pass (PurgeCSS-style dry-run against templates)
-and a `jscpd` duplication pass surfaced through `code-health`. Findings are
+and a `jscpd` duplication pass surfaced through `grm-code-health`. Findings are
 warn-level by default and escalate to block via the v1.26 `code-quality`
 `audit-gate` dial. Design: `../design/html-css-quality-enforcement-design.md`.
 

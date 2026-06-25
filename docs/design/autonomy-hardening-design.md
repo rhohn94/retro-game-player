@@ -14,7 +14,7 @@ Real friction hit while operating Grimoire autonomously:
   improvised with the `Agent` tool + `isolation:"worktree"` (#60).
 - `git branch -D` was repeatedly blocked by the auto-mode classifier mid-campaign,
   stalling cleanup (#61).
-- `release-phase-merge` stops on *any* conflict, even trivial additive ones (#62).
+- `grm-release-phase-merge` stops on *any* conflict, even trivial additive ones (#62).
 - A transient model outage required a manual wait-and-retry (#63).
 - The opt-in `autonomous-push` lacks an audit trail / documented envelope (#64).
 
@@ -40,7 +40,7 @@ Real friction hit while operating Grimoire autonomously:
 
 The unattended path is the **write-capable workflow / isolated-worktree agent**
 route (the `Agent` tool with `isolation:"worktree"`), since `spawn_task` requires a
-human click. Documented in `integration-master` + [integration-workflow.md](../integration-workflow.md) as the
+human click. Documented in `grm-integration-master` + [integration-workflow.md](../integration-workflow.md) as the
 canonical Noir unattended-dispatch mechanism, with the **#35 isolation checks**
 codified: after every batch assert `HEAD == version/{X.Y}`, assert each branch
 advanced (`git rev-list --count version..branch` non-empty), and check file-set
@@ -61,7 +61,7 @@ resolving the mid-campaign stall without bypassing destructive-op confirmation.
 
 ### #62 — tiered merge-conflict resolution
 
-`release-phase-merge` classifies a conflict before stopping:
+`grm-release-phase-merge` classifies a conflict before stopping:
 - **auto-resolvable**: additive/disjoint hunks, or a known-generated artifact
   (lockfiles, `docs/README.md` map, baselines) ⇒ resolve (prefer union / regen)
   and **log** it to §5 follow-ups.

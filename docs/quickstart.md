@@ -67,9 +67,9 @@ The onboarding interview then asks four questions in order:
 After you answer, onboarding:
 
 1. Writes your preferences to **`.claude/grimoire-config.json`**.
-2. Runs **`repo-init`** to set up the branch model and guard hooks (skipped if
+2. Runs **`grm-repo-init`** to set up the branch model and guard hooks (skipped if
    `main` + `dev` already exist).
-3. Runs **`workflow-bootstrap`** to fill in project-specific settings (test
+3. Runs **`grm-workflow-bootstrap`** to fill in project-specific settings (test
    command, build command, release command, doc-location map, and more).
 4. Removes the sentinel from `CLAUDE.md` so onboarding never re-triggers.
 5. Seeds your `docs/roadmap.md` with the framework-required baseline
@@ -95,7 +95,7 @@ SKIP ONBOARDING — this is a headless CLI tool named "Acme"
 
 Grimoire detects the phrase (case-sensitive), infers config values from the
 rest of your prompt, writes `.claude/grimoire-config.json`, and runs
-`repo-init` + `workflow-bootstrap` non-interactively — prompting only for
+`grm-repo-init` + `grm-workflow-bootstrap` non-interactively — prompting only for
 settings that cannot be inferred (test/build/release commands, etc.).
 
 **Inference rules (highest-precedence first):**
@@ -137,7 +137,7 @@ A typical file looks like:
 ```
 
 The **Work Paradigm is active** — it is installed during setup (the
-`work-paradigm-switch` skill runs as part of onboarding) and the
+`grm-work-paradigm-switch` skill runs as part of onboarding) and the
 `schema-version` is `2`, so `work-paradigm` no longer carries an
 `in-development` flag. The `workflow-variant` field is still
 `in-development: true` (**preview — not yet active**); it is stored now so a
@@ -149,7 +149,7 @@ take effect.
 
 ## Step 4 — Verify initialization
 
-Run your project's test and build commands (filled in by `workflow-bootstrap`
+Run your project's test and build commands (filled in by `grm-workflow-bootstrap`
 and recorded in `CLAUDE.md`'s Project commands table) to confirm everything
 is wired up:
 
@@ -167,9 +167,9 @@ hooks (`protected-branch-guard.sh`, `push-guard.sh`) should be active.
 | Goal | Where to look |
 |------|---------------|
 | Understand the full feature set | [docs/features.md](features.md) |
-| Plan a new release | `release-planning` skill |
-| Add UX design language (GUI projects) | `design-language-adapt` skill |
-| Add a new multi-agent Workflow | `workflow-scaffold` skill |
+| Plan a new release | `grm-release-planning` skill |
+| Add UX design language (GUI projects) | `grm-design-language-adapt` skill |
+| Add a new multi-agent Workflow | `grm-workflow-scaffold` skill |
 | Understand the branch model | [docs/version-design.md](version-design.md) |
 | Understand the integration workflow | [docs/integration-workflow.md](integration-workflow.md) |
 
@@ -182,13 +182,13 @@ Verify that line 1 of `CLAUDE.md` is exactly `<!-- GRIMOIRE_ONBOARDING_SENTINEL 
 If the sentinel was accidentally removed before onboarding ran, restore line 1
 and start a new Claude Code session.
 
-**`workflow-bootstrap` is asking questions I already answered in onboarding.**  
-The onboarding skill passes your GUI-presence answer through to
-`workflow-bootstrap` automatically. If you see it re-ask the GUI question,
-check that you are running the `onboarding` skill (not calling `workflow-bootstrap`
+**`grm-workflow-bootstrap` is asking questions I already answered in onboarding.**  
+The grm-onboarding skill passes your GUI-presence answer through to
+`grm-workflow-bootstrap` automatically. If you see it re-ask the GUI question,
+check that you are running the `grm-onboarding` skill (not calling `grm-workflow-bootstrap`
 directly).
 
 **I want to re-run onboarding on an already-initialized project.**  
-Invoke the `onboarding` skill directly. It will re-run the interview and
-overwrite `.claude/grimoire-config.json`. `repo-init` and `workflow-bootstrap`
+Invoke the `grm-onboarding` skill directly. It will re-run the interview and
+overwrite `.claude/grimoire-config.json`. `grm-repo-init` and `grm-workflow-bootstrap`
 will be called but will detect and skip steps that are already complete.

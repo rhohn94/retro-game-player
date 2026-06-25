@@ -4,7 +4,7 @@
 
 
 > I4 deliverable for v1.12. Validates that the implemented `GitHubBackend` in
-> `.claude/skills/issue-tracker/issue_tracker.py` achieves R1's projected
+> `.claude/skills/grm-issue-tracker/issue_tracker.py` achieves R1's projected
 > savings. References: `docs/grimoire/issue-tracker-cost-spike.md` (R1).
 > Token proxy: `chars ÷ 4` (same method as R1). Repo probed:
 > `rhohn94/agentic-scaffolding` (3 probe issues, all closed).

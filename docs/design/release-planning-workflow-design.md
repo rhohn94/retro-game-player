@@ -5,7 +5,7 @@
 
 ## Motivation
 
-The `release-planning` skill produces a structured work-items report by reading
+The `grm-release-planning` skill produces a structured work-items report by reading
 the roadmap, in-flight plan, carryovers, and design docs. That read phase is
 inherently parallel — roadmap, carryovers, and design-doc readiness are
 independent — yet the skill's serial execution in one context reads them one
@@ -25,7 +25,7 @@ survive independent of the script. The plan is in
 ## Scope
 
 **In scope:**
-- The `release-planning` workflow script (`claude-code/.claude/workflows/release-planning.js`)
+- The `grm-release-planning` workflow script (`claude-code/.claude/workflows/release-planning.js`)
   and its design rationale.
 - The agent-tiering cost model and the A/B measurements that drove it.
 - The read-only safety contract that keeps workflows clear of the worktree-isolation
@@ -43,7 +43,7 @@ survive independent of the script. The plan is in
   is documented in P3.1 (see §Flavor note).
 - Code-review, hardening, or schema changes to the workflow script itself
   (owned by W3).
-- Integrating the workflow into `workflow-bootstrap` or golden baselines
+- Integrating the workflow into `grm-workflow-bootstrap` or golden baselines
   (owned by W4).
 
 ## Design
@@ -55,18 +55,18 @@ shape of work:
 
 | Mechanism | Human in loop | Isolation | Mutates code | Best for |
 |---|---|---|---|---|
-| `spawn_task` | yes (chip) | worktree per item | yes (commits) | distributing work items (`release-phase`) |
+| `spawn_task` | yes (chip) | worktree per item | yes (commits) | distributing work items (`grm-release-phase`) |
 | `Agent` | no | shared session | via tools | helper subagents inside the master's session |
 | `Workflow` | no | shared, read-mostly | no (by convention) | parallel read / verify / synthesis fan-out |
 | skill | yes (prompted) | master's session | via skills | interactive, user-guided multi-step procedures |
 
 **Skill vs. Workflow — complementary, not competing.** The
-`release-planning` skill is the authoritative description of *what* a
-release plan must contain (Steps 1–5 in `SKILL.md`). The `release-planning`
+`grm-release-planning` skill is the authoritative description of *what* a
+release plan must contain (Steps 1–5 in `SKILL.md`). The `grm-release-planning`
 Workflow is one mechanised *way* to draft the report's first pass by fanning
 the read-heavy steps across subagents. Both produce the same report shape; the
 Workflow returns a draft that the master hands to the user for iteration before
-`release-agreement` locks scope.
+`grm-release-agreement` locks scope.
 
 **When to use each:**
 - Use the **skill** when you want an interactive, user-guided walk through the
@@ -76,7 +76,7 @@ Workflow returns a draft that the master hands to the user for iteration before
   release with many design docs and carryovers — and the user has explicitly
   opted into multi-agent orchestration (Workflow is billed).
 - Use **`spawn_task`** to distribute concrete work items once the plan is
-  locked (`release-phase`). Each item is interactive, worktree-isolated, and
+  locked (`grm-release-phase`). Each item is interactive, worktree-isolated, and
   commits code on a branch — the opposite of the Workflow's read-only profile.
 - Use **`Agent`** for helper subagents inside the master's own session (e.g.,
   reading a single file in the background). Not for fan-out across many items.
@@ -151,7 +151,7 @@ highest cost posture has no reason to pay Opus there.
 
 The in-script tiers therefore stay **decoupled from the model/effort dispatch
 profile** (reaffirming the v1.9 principle). The profile dial governs
-`release-phase` `spawn_task` dispatch only; workflows are Claude-Code-only
+`grm-release-phase` `spawn_task` dispatch only; workflows are Claude-Code-only
 orchestration, and wiring them to the profile would re-introduce complexity for
 marginal benefit when the savings are already captured unconditionally above.
 Tuning, when a project genuinely needs more capability, is per-item via the
@@ -263,9 +263,9 @@ By staying read-only, a workflow:
 - Never needs a branch, a commit, or the integration-allow marker.
 - Returns its result to the master, who reviews it and takes any file-writing or
   branch-creating next step through the normal skills
-  (`design-doc-scaffold`, `release-agreement`).
+  (`grm-design-doc-scaffold`, `grm-release-agreement`).
 
-The `release-planning` workflow is an example of this pattern: it returns a
+The `grm-release-planning` workflow is an example of this pattern: it returns a
 markdown draft; the master hands it to the user; the user iterates; then the
 normal skill sequence locks scope.
 
@@ -325,11 +325,11 @@ authored by a parallel task; this section is intentionally a pointer only.
   to items by exact name and silently drops unmatched items via
   `.filter(Boolean)`; fix index-matching or exact-echo validation. See
   `release-planning-v1.4.md` §2 W3.
-- **W4 — `workflow-bootstrap` + golden.** Teach bootstrap and its golden
+- **W4 — `grm-workflow-bootstrap` + golden.** Teach bootstrap and its golden
   baseline about the `.claude/workflows/` artifact class (manifest row, restore
   logic, golden copy). See `release-planning-v1.4.md` §2 W4.
-- **W6 — `workflow-scaffold` skill.** A one-command scaffolder analogous to
-  `design-doc-scaffold`, encoding the model-tiering and batch-vs-fanout lessons
+- **W6 — `grm-workflow-scaffold` skill.** A one-command scaffolder analogous to
+  `grm-design-doc-scaffold`, encoding the model-tiering and batch-vs-fanout lessons
   as explicit authoring rules. See `release-planning-v1.4.md` §2 W6.
 - **Future Workflow builds.** The W7 spike surfaces candidates; actual builds
   are v1.5+ unless the spike finds a compelling near-zero-cost opportunity.

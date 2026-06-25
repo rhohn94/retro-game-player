@@ -35,9 +35,9 @@ alongside these defaults.
 
 ## DRY & duplication remediation
 
-DRY is enforced, not just stated: `code-health` runs a cross-file duplication
+DRY is enforced, not just stated: `grm-code-health` runs a cross-file duplication
 pass (`jscpd`) that the v1.26 `code-quality` `audit-gate` dial can warn or block
-on, and `coding-practices-audit` checks the `dry-no-duplication` hint above.
+on, and `grm-coding-practices-audit` checks the `dry-no-duplication` hint above.
 When a duplicate is found, resolve it along this ladder rather than leaving the
 copies in place:
 
@@ -46,7 +46,7 @@ copies in place:
 2. **Generalize** it so it carries no caller-specific values — inject them
    instead (the *genericity over specificity* rule in
    `architecture-guidelines.md`).
-3. **Register** the extracted unit via the **`component-registry`** so the next
+3. **Register** the extracted unit via the **`grm-component-registry`** so the next
    consumer discovers and reuses it instead of re-duplicating. This closes the
    loop between "duplication detected" and "reuse made discoverable."
 
@@ -70,7 +70,7 @@ Telemetry splits into two tiers:
   event with enough context to triage.
   <!-- audit: id="telemetry-errors" check="unhandled exceptions and fatal errors emit telemetry events" severity="error" applies="all" -->
 
-**Instrument when relevant (by project type):** use `workflow-bootstrap`'s
+**Instrument when relevant (by project type):** use `grm-workflow-bootstrap`'s
 detected project type to pick the surface, and confirm with the team which
 events are business-critical.
 
@@ -97,7 +97,7 @@ that language.
 
 ## Merge-gate quality enforcement (v1.26)
 
-Under the autonomous release pipeline, `release-phase-merge` runs a **quality
+Under the autonomous release pipeline, `grm-release-phase-merge` runs a **quality
 gate** on each merged branch before ticking the §5 ledger, governed by the
 `code-quality` block in `.claude/grimoire-config.json`. All dials default to
 safe (non-blocking / off), so a project opts into strictness. Authoritative
@@ -105,8 +105,8 @@ design: [`design/merge-gate-quality-design.md`](design/merge-gate-quality-design
 
 | Dial | Values (default **bold**) | Effect |
 |------|---------------------------|--------|
-| `audit-gate` | `off` / **`warn`** / `block` | Runs `coding-practices-audit` on the branch diff. `warn` files new gaps + proceeds; `block` rolls the merge back. |
-| `auto-reviewer` | `off` / **`noir`** / `always` | Auto-spawns a `reviewer`; blocking findings stop the merge. `noir` = Noir paradigm only. |
+| `audit-gate` | `off` / **`warn`** / `block` | Runs `grm-coding-practices-audit` on the branch diff. `warn` files new gaps + proceeds; `block` rolls the merge back. |
+| `auto-reviewer` | `off` / **`noir`** / `always` | Auto-spawns a `grm-reviewer`; blocking findings stop the merge. `noir` = Noir paradigm only. |
 | `coverage-threshold` | **`null`** / `0-100` / `"delta"` | Floor (or no-drop) on test coverage; a miss stops the merge. |
 | `typecheck` | `off` / **`build`** | Folds `{typecheck-command}` into the build gate so "build passes" implies "types check". |
 
@@ -131,7 +131,7 @@ a row when you introduce a new language or technology to the project.
 
 ## Audit-hint coverage (v1.27)
 
-The `coding-practices-audit` surface is the set of `<!-- audit: … -->` hints in
+The `grm-coding-practices-audit` surface is the set of `<!-- audit: … -->` hints in
 this doc and the per-language sub-docs. Adding a hint grows the audit with **no
 skill change**. Current coverage by dimension:
 

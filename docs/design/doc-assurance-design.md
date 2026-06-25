@@ -4,7 +4,7 @@
 
 
 > Design gate for v1.28. Closes #50–#54: make Grimoire's own docs self-checking.
-> One `doc-assurance` skill backed by a runnable script implements five checks —
+> One `grm-doc-assurance` skill backed by a runnable script implements five checks —
 > flavor parity, design-doc layout, link integrity, a validated docs map, and
 > cross-doc release consistency.
 
@@ -50,7 +50,7 @@ at release closeout.
 
 ## Implementation
 
-`.claude/skills/doc-assurance/SKILL.md` + `doc_assurance.py` (stdlib-only,
+`.claude/skills/grm-doc-assurance/SKILL.md` + `doc_assurance.py` (stdlib-only,
 read-only except `--write-map`). CLI: `doc_assurance.py [check…] [--strict]
 [--write-map]`. Default runs all checks, prints a per-check report, exits 0.
 `--strict` exits non-zero on any finding (closeout gate).

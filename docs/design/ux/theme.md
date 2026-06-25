@@ -12,7 +12,7 @@ adaptation-status: draft   # draft | ready-for-review | adopted  (user-controlle
 > and motion scales. [components.md](components.md) references these tokens by path; raw
 > values live here and nowhere else.
 >
-> Produced by the `design-language-adapt` skill as a draft. The user reviews
+> Produced by the `grm-design-language-adapt` skill as a draft. The user reviews
 > token values and advances `adaptation-status` to `adopted` when satisfied.
 > **Do not edit raw values in [components.md](components.md) — edit them here.**
 
@@ -57,7 +57,7 @@ theme:
 >   omitted keys with `# N/A for <stack>`.
 > - Scales (`spacing`, `type`, `radius`, `motion`) must stay as **ordered
 >   lists or named maps** — never standalone magic numbers.
-> - `token-syntax` is seeded by GUI-framework detection in `workflow-bootstrap`
+> - `token-syntax` is seeded by GUI-framework detection in `grm-workflow-bootstrap`
 >   Step 3 Q9. Do not change it without updating [components.md](components.md) accordingly.
 
 ## Schema invariants

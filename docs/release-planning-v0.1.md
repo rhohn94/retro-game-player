@@ -39,7 +39,7 @@ manifest and a localhost endpoint; distribution is a notarized Developer-ID DMG
 - **Branch:** `work/d2-vibrancy` · **Design doc:** `docs/design/native-vibrancy-design.md`
 
 #### D3 — Aura-in-React UX adaptation
-- **Description:** Run `design-language-adapt` to produce `docs/design/ux/design-language.md`; specify submodule vendoring of `design-language`, `bindings/react` consumption, 3-knob OKLCH theming wiring, anti-FOUC, and the Aura archetype→Harmony-screen mapping. Converge with Dream's intended direction.
+- **Description:** Run `grm-design-language-adapt` to produce `docs/design/ux/design-language.md`; specify submodule vendoring of `design-language`, `bindings/react` consumption, 3-knob OKLCH theming wiring, anti-FOUC, and the Aura archetype→Harmony-screen mapping. Converge with Dream's intended direction.
 - **Acceptance:** `docs/design/ux/design-language.md` records the pinned Aura SHA + submodule path + brand-knob values + archetype map; a `harmony-ux-design.md` captures the screen inventory; the Aura-in-React friction findings are noted.
 - **Branch:** `work/d3-aura-ux` · **Design doc:** `docs/design/ux/design-language.md`, `docs/design/harmony-ux-design.md`
 
@@ -153,9 +153,9 @@ manifest and a localhost endpoint; distribution is a notarized Developer-ID DMG
 - **Branch:** `work/w20-readme` · **Design doc:** —
 
 #### W21 — Create repo + Release v0.1
-- **Description:** Create `rhohn94/harmony` on GitHub; build the notarized arm64 DMG; run `project-release` (dev→main, tag `v0.1`, `gh release create` with the DMG asset); write `versions/{v0.1.0}/` + `current` in the deployed root with `release.json` + `grimoire-build-info.json`.
+- **Description:** Create `rhohn94/harmony` on GitHub; build the notarized arm64 DMG; run `grm-project-release` (dev→main, tag `v0.1`, `gh release create` with the DMG asset); write `versions/{v0.1.0}/` + `current` in the deployed root with `release.json` + `grimoire-build-info.json`.
 - **Acceptance:** GitHub repo exists; `v0.1` tag + a **GitHub Release object** with the DMG; deployed-instance layout populated; `fleet-instance.json` reflects v0.1.0. **Push is human-gated — stop for explicit user go.**
-- **Branch:** (integration master, `project-release`) · **Design doc:** `version-design.md`
+- **Branch:** (integration master, `grm-project-release`) · **Design doc:** `version-design.md`
 
 ---
 
@@ -244,7 +244,7 @@ Deferred to **v0.2** (see roadmap): ScreenScraper metadata (user API key); deepe
   v-prefixed `v0.1.0` across W4 telemetry + W11 fleet (architecture §4.2).
 - **Settings glue:** added `save_familiar_config` (base URL → config, key → Keychain)
   to wire W15 settings to the W12 backend.
-- **Dependency Channel ↔ submodule:** `sync-deps` cannot model a git submodule;
+- **Dependency Channel ↔ submodule:** `grm-sync-deps` cannot model a git submodule;
   Aura is recorded via a `[submodules.aura]` table in `vendor.toml`/`vendor.lock`
   (kind `git-submodule`), not an asset-bundle `[deps.aura]` (design-language#858).
 - **Live-hardware controller test:** W14's gamepad polling (`useGamepadPoll`) is

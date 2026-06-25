@@ -13,26 +13,26 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 | Rank | Skill / seam | Fit score | Token band | Read-only safe | Status |
 |------|-------------|-----------|------------|----------------|--------|
-| 1 | `release-planning` | 4 | M | Yes | shipped v1.4 |
-| 2 | `source-to-design-docs` (analysis phase only) | 4 | L | Partial — write phase excluded | **shipped v1.18** |
-| 3 | `release-agent-tracker` | 4 | S | No — ticks §5 ledger | |
-| 4 | `release-phase` (read / batch phase only) | 5* | S | No — spawn_task calls excluded | |
-| 5 | `design-doc-scaffold` | 3 | XS | No — writes file + commits | |
-| 6 | `design-language-adapt` (fetch + diff phase) | 3 | M | Partial — write phase excluded | |
-| 7 | `ledger-tick` | 3 | XS | No | |
-| 8 | `release-agreement` | 3 | S | No | |
-| 9 | `sync-from-source` (diff preview phase) | 3 | M | Partial | |
-| 10 | `sync-from-upstream` | 3 | M | No | |
-| 11 | `workflow-snapshot` (diff phase) | 3 | S | Partial | |
-| 12 | `worktree-preflight` | 3 | XS | Yes | |
+| 1 | `grm-release-planning` | 4 | M | Yes | shipped v1.4 |
+| 2 | `grm-source-to-design-docs` (analysis phase only) | 4 | L | Partial — write phase excluded | **shipped v1.18** |
+| 3 | `grm-release-agent-tracker` | 4 | S | No — ticks §5 ledger | |
+| 4 | `grm-release-phase` (read / batch phase only) | 5* | S | No — spawn_task calls excluded | |
+| 5 | `grm-design-doc-scaffold` | 3 | XS | No — writes file + commits | |
+| 6 | `grm-design-language-adapt` (fetch + diff phase) | 3 | M | Partial — write phase excluded | |
+| 7 | `grm-ledger-tick` | 3 | XS | No | |
+| 8 | `grm-release-agreement` | 3 | S | No | |
+| 9 | `grm-sync-from-source` (diff preview phase) | 3 | M | Partial | |
+| 10 | `grm-sync-from-upstream` | 3 | M | No | |
+| 11 | `grm-workflow-snapshot` (diff phase) | 3 | S | Partial | |
+| 12 | `grm-worktree-preflight` | 3 | XS | Yes | |
 
-\* `release-phase` scores 5 on orchestration fit but is excluded from the workflow pattern because its primary output is side-effectful `spawn_task` calls, not synthesized analysis.
+\* `grm-release-phase` scores 5 on orchestration fit but is excluded from the workflow pattern because its primary output is side-effectful `spawn_task` calls, not synthesized analysis.
 
 ---
 
 ## Per-Candidate Details
 
-### `release-planning`
+### `grm-release-planning`
 
 **Skill / seam:** Reads roadmap, version history, prior release plans, and design docs to produce a sized work-items report for the next version — no file writes until the user confirms scope.
 
@@ -40,13 +40,13 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 **Token-cost band:** M. Typically 4-8 source documents, each under 2k tokens; haiku extraction passes are cheap; one sonnet synthesis is the dominant cost.
 
-**Read-only safety:** Yes. No files are written during workflow execution. The user approves scope before `release-agreement` writes anything.
+**Read-only safety:** Yes. No files are written during workflow execution. The user approves scope before `grm-release-agreement` writes anything.
 
 **Priority rank for v1.5+:** Already shipping as `release-planning.js`. Reference implementation.
 
 ---
 
-### `source-to-design-docs` — analysis phase
+### `grm-source-to-design-docs` — analysis phase
 
 **Skill / seam:** Surveys an existing project's source tree and docs to identify design-doc candidates and draft content for each.
 
@@ -62,7 +62,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `release-agent-tracker`
+### `grm-release-agent-tracker`
 
 **Skill / seam:** Reads the §5 ledger and git branch state to produce a merge-queue and status table; optionally ticks one ledger row.
 
@@ -76,7 +76,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `release-phase` — batch-planning phase
+### `grm-release-phase` — batch-planning phase
 
 **Skill / seam:** Reads the agreed plan, identifies the current open phase, groups work items into conflict-free parallel batches, and assigns model/effort per token estimate.
 
@@ -86,11 +86,11 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 **Read-only safety:** No. The actual skill dispatches `spawn_task` calls. A workflow covering only the planning/preview phase would be read-only safe, but the dispatch step must remain outside.
 
-**Priority rank for v1.5+:** Medium. A "batch-plan preview" workflow that stops short of spawning has clear value for large phases (5+ items) but is lower priority than `source-to-design-docs`.
+**Priority rank for v1.5+:** Medium. A "batch-plan preview" workflow that stops short of spawning has clear value for large phases (5+ items) but is lower priority than `grm-source-to-design-docs`.
 
 ---
 
-### `design-doc-scaffold`
+### `grm-design-doc-scaffold`
 
 **Skill / seam:** Creates a single `docs/design/{feature}-design.md` from the house template and wires it into the design index.
 
@@ -104,7 +104,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `design-language-adapt` — fetch and diff phase
+### `grm-design-language-adapt` — fetch and diff phase
 
 **Skill / seam:** Fetches the upstream UX design-language source, records the source SHA, and produces a diff / draft adaptation for the project.
 
@@ -118,7 +118,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `ledger-tick`
+### `grm-ledger-tick`
 
 **Skill / seam:** Flips status markers in the §5 ledger doc and commits the change.
 
@@ -132,7 +132,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `release-agreement`
+### `grm-release-agreement`
 
 **Skill / seam:** Locks a confirmed scope report into a versioned planning doc, creates the `version/{X.Y}` branch, and commits.
 
@@ -146,7 +146,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `sync-from-source` — diff preview phase
+### `grm-sync-from-source` — diff preview phase
 
 **Skill / seam:** Diffs live workflow files against a source project to produce an action table of files to copy or skip.
 
@@ -160,13 +160,13 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `sync-from-upstream`
+### `grm-sync-from-upstream`
 
 **Skill / seam:** Applies upstream scaffolding updates via 3-way merge, resolves conflict markers, and re-specializes placeholder tokens.
 
 **Value of parallel fan-out:** Low. Steps are strongly ordered; conflict resolution requires sequential judgment.
 
-**Token-cost band:** M. Similar file count to `sync-from-source`.
+**Token-cost band:** M. Similar file count to `grm-sync-from-source`.
 
 **Read-only safety:** No. Applies file changes and resolves merge markers.
 
@@ -174,7 +174,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `workflow-snapshot` — diff phase
+### `grm-workflow-snapshot` — diff phase
 
 **Skill / seam:** Diffs live skill/hook files against the golden baseline to identify what has changed and needs to be re-generalized.
 
@@ -188,7 +188,7 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 ---
 
-### `worktree-preflight`
+### `grm-worktree-preflight`
 
 **Skill / seam:** Runs `git merge-base` and `git rev-parse` checks to verify a worktree is on the correct staging ref.
 
@@ -206,12 +206,12 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 | Skill | Reason |
 |-------|--------|
-| `project-release` | Linear checklist with destructive git ops and mandatory user confirmation gates at each step. |
-| `release-phase-merge` | Strictly sequential: each merge must pass tests before the next can proceed; parallelism is unsafe. |
-| `repo-init` | One-time setup with hard step ordering; no fan-out. |
-| `repo-reference` | Static lookup table; invoked inline by other agents, not a fan-out target. |
-| `ux-demo-build` | Opt-in, requires user confirmation before overwriting, ends in a human hand-off. |
-| `workflow-bootstrap` | Fundamentally interactive — requires a multi-turn `AskUserQuestion` interview before patching files. |
+| `grm-project-release` | Linear checklist with destructive git ops and mandatory user confirmation gates at each step. |
+| `grm-release-phase-merge` | Strictly sequential: each merge must pass tests before the next can proceed; parallelism is unsafe. |
+| `grm-repo-init` | One-time setup with hard step ordering; no fan-out. |
+| `grm-repo-reference` | Static lookup table; invoked inline by other agents, not a fan-out target. |
+| `grm-ux-demo-build` | Opt-in, requires user confirmation before overwriting, ends in a human hand-off. |
+| `grm-workflow-bootstrap` | Fundamentally interactive — requires a multi-turn `AskUserQuestion` interview before patching files. |
 
 ---
 
@@ -219,9 +219,9 @@ The Workflow tool excels at read-heavy, parallelizable work where multiple indep
 
 This ranked list is the input for the [roadmap.md](../roadmap.md) Backlog. Recommended sequencing for v1.5+:
 
-1. **`source-to-design-docs` analysis workflow** — highest new-value addition; clean split at user-confirmation gate.
-2. **`release-agent-tracker` read-only workflow** — low cost, high frequency during active releases.
-3. **`release-phase` batch-plan preview workflow** — useful for large phases; complements existing `release-planning.js`.
-4. Lower-priority partial workflows (`design-language-adapt` fetch phase, `sync-from-source` diff phase) — assess demand before investing.
+1. **`grm-source-to-design-docs` analysis workflow** — highest new-value addition; clean split at user-confirmation gate.
+2. **`grm-release-agent-tracker` read-only workflow** — low cost, high frequency during active releases.
+3. **`grm-release-phase` batch-plan preview workflow** — useful for large phases; complements existing `release-planning.js`.
+4. Lower-priority partial workflows (`grm-design-language-adapt` fetch phase, `grm-sync-from-source` diff phase) — assess demand before investing.
 
 Candidates scoring below 3 should not be added to the Backlog as workflow targets.

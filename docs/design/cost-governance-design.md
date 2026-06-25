@@ -67,13 +67,13 @@ the gap that makes long-horizon autonomous operation (the Steady Steward,
   of what a run can see from inside; reset cadence; the checkpoint-and-resume
   design (or the documented "rely on scheduled re-entry" verdict) (§E).
 - **Priority-picker logic** (#10): the 2-of-3 trade-off → concrete dial settings,
-  with the three worked mappings; this feeds the `priority-picker` skill (§F).
+  with the three worked mappings; this feeds the `grm-priority-picker` skill (§F).
 - **Steady Steward preset** (#14): composed from the above + the work-scoping
   rule, with the v1.16-dependency flags called out explicitly (§G).
 - The README index row.
 
 **Does not cover (non-goals — phase-2 / later):**
-- Implementing any skill (`priority-picker`, a budget-tracker, a
+- Implementing any skill (`grm-priority-picker`, a budget-tracker, a
   cost-governance-switch) — phase-2 items; this doc only specifies their
   contracts and seams.
 - Editing `grimoire-config.json`, the golden baseline, or paradigm files —
@@ -174,7 +174,7 @@ see §E).
 #### B.2 Utilization tracking
 
 Cost is accumulated from each agent's measured usage — the same per-class
-`{input, output, cache_read, cache_creation}` accounting the **`token-measure`**
+`{input, output, cache_read, cache_creation}` accounting the **`grm-token-measure`**
 skill already extracts from session `.jsonl` transcripts
 ([`token-efficiency-design.md`](token-efficiency-design.md) §measurement
 protocol). v1 tracks the **session aggregate** (the integration master's running
@@ -218,7 +218,7 @@ while the top threshold triggers the configured mode.
   Mode: defer-non-critical now active.`
 - **Session-end summary.** At the end of any session that tracked a budget,
   report `used / amount (pct)`, the window, per-class breakdown if available
-  (reusing `token-measure`'s report table), and any deferred work. This is the
+  (reusing `grm-token-measure`'s report table), and any deferred work. This is the
   honest record the user reviews — it is the primary deliverable of the budget
   feature in v1, given that hard enforcement is out of scope.
 
@@ -233,8 +233,8 @@ while the top threshold triggers the configured mode.
 
 A per-agent-type verbosity setting — `terse` / `normal` / `verbose` — in the
 `cost-governance.verbosity` block (a `default` plus a `by-agent` override map
-keyed by the agent role: `scout`, `reviewer`, `researcher`, `verifier`,
-`reporter`, `triager`, task-agent, integration-master). It can also be expressed
+keyed by the agent role: `grm-scout`, `grm-reviewer`, `grm-researcher`, `grm-verifier`,
+`grm-reporter`, `grm-triager`, task-agent, integration-master). It can also be expressed
 in the **paradigm layer** (a paradigm may set a baseline verbosity), with the
 config `by-agent` override winning.
 
@@ -280,8 +280,8 @@ Because verbosity is real cost, it is wired alongside the existing cost levers:
   verbosity* per cost posture.
 - **High-quality profiles permit verbose.** **High Effort** (and a deliberately
   quality-prioritized run) **permit** `verbose` — when correctness/auditability
-  dominates cost, the extra reasoning output earns its keep (e.g. a `reviewer`
-  or `researcher` that should show its work).
+  dominates cost, the extra reasoning output earns its keep (e.g. a `grm-reviewer`
+  or `grm-researcher` that should show its work).
 - **`normal` is the unpinned default** for the middle profiles (Medium,
   Efficient, Autonomous) — agents are concise by house style but not clipped.
 - **Resolution order:** explicit `cost-governance.verbosity.by-agent[role]` →
@@ -332,7 +332,7 @@ When autonomous or scheduled work *would start* inside a blocked window (under
    if now allowed, else re-defer.
 
 This mechanism is **only reached by autonomous/scheduled dispatch** — the Noir
-default-dispatch path and any scheduled routine. Interactive `release-phase` runs
+default-dispatch path and any scheduled routine. Interactive `grm-release-phase` runs
 skip the schedule entirely. The actual scheduling primitive (cadence, default
 wakeup) is a **v1.16** concern (#11/#13); v1.15 defines the *policy + defer
 decision*, and §G flags the wiring dependency.
@@ -347,7 +347,7 @@ and not guaranteed**:
 - **Per-agent usage IS observable after the fact.** Session `.jsonl` transcripts
   carry per-message `usage` (`input_tokens`, `output_tokens`,
   `cache_read_input_tokens`, `cache_creation_input_tokens`) — this is exactly
-  what the **`token-measure`** skill reads
+  what the **`grm-token-measure`** skill reads
   ([`token-efficiency-design.md`](token-efficiency-design.md)). So a session can
   *accumulate its own and its spawned children's* token usage by reading
   transcripts (the basis for §B tracking).
@@ -403,7 +403,7 @@ scheduled re-entry**, *not* on catching a hard cap mid-generation:
 
 The 2-of-3 trade-off — **pick two of {speed, quality, cost}** — mapped to
 concrete settings of the three dials. This is the *logic*; the
-**`priority-picker` skill** (built separately, phase-2) is the UI that asks the
+**`grm-priority-picker` skill** (built separately, phase-2) is the UI that asks the
 user the question and writes the dial values. The logic restates and refines the
 mapping table from
 [`execution-profiles-design.md`](execution-profiles-design.md) §B, made concrete
@@ -425,8 +425,8 @@ for the picker.
   independently.
 - **The picker is a pure writer.** It asks the pair (+ autonomy), looks up this
   table, and calls the existing switch skills
-  (`workflow-variant-switch`, `model-effort-profile-switch`,
-  `work-paradigm-switch`) plus writes `cost-governance.verbosity.default`. It
+  (`grm-workflow-variant-switch`, `grm-model-effort-profile-switch`,
+  `grm-work-paradigm-switch`) plus writes `cost-governance.verbosity.default`. It
   embeds no dispatch/tier logic of its own — exactly the seam
   `execution-profiles-design.md` §B reserved for it.
 
@@ -515,7 +515,7 @@ without them:
       (§E).
 - [ ] **Priority-picker logic (#10):** the three worked 2-of-3 mappings
       (quality+cost / speed+cost / speed+quality → concrete dial settings), feeding
-      the separately-built `priority-picker` skill as a pure-writer seam (§F).
+      the separately-built `grm-priority-picker` skill as a pure-writer seam (§F).
 - [ ] **Steady Steward preset (#14):** composed from §A–§F (Noir × Cheap-Slow ×
       Eco + low daily budget + terse + off-peak + one-item-per-wake), with #11/#13
       (scheduling) and #16 (autonomous push) explicitly flagged as v1.16 wiring
@@ -545,10 +545,10 @@ without them:
 ## Follow-ups
 
 - **Phase-2 — budget tracker:** implement the §B utilization accumulator
-  (reusing `token-measure`), the `.claude/cache/cost-utilization.json` periodic
+  (reusing `grm-token-measure`), the `.claude/cache/cost-utilization.json` periodic
   ledger, threshold warnings, the four `on-approach` modes, and the session-end
   summary.
-- **Phase-2 — `priority-picker` skill:** ask the 2-of-3 pair (+ autonomy
+- **Phase-2 — `grm-priority-picker` skill:** ask the 2-of-3 pair (+ autonomy
   separately), look up §F, call the three switch skills, and write
   `cost-governance.verbosity.default`.
 - **Phase-2 — verbosity wiring:** add the `cost-governance.verbosity` resolution

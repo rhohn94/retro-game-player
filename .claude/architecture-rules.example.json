@@ -1,6 +1,6 @@
 {
   "schema-version": 1,
-  "_comment": "Opt-in architecture fitness rules for the architecture-audit skill. Copy to .claude/architecture-rules.json and adapt globs/edges to this project. Absent file => architecture-audit reports 'no rules declared' and exits clean. Design: docs/design/architecture-fitness-design.md",
+  "_comment": "Opt-in architecture fitness rules for the grm-architecture-audit skill. Copy to .claude/architecture-rules.json and adapt globs/edges to this project. Absent file => architecture-audit reports 'no rules declared' and exits clean. Design: docs/design/architecture-fitness-design.md",
   "layers": {
     "presentation": ["src/ui/**", "src/views/**", "src/components/**"],
     "application": ["src/services/**", "src/app/**"],

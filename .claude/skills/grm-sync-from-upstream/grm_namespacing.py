@@ -402,7 +402,7 @@ def _self_test() -> int:
         gi = (skills / "grm-iterate" / "SKILL.md").read_text()
         if "NEW-synced-content" not in gi:
             failures.append("COLLISION: synced grm-iterate/ content was clobbered")
-        archived = list(root.glob(".grimoire-archive/*/.claude/skills/iterate/SKILL.md"))
+        archived = list(root.glob(".grimoire-archive/*/.claude/skills/grm-iterate/SKILL.md"))
         if not archived:
             failures.append("COLLISION: stale iterate/ was not archived")
         elif "OLD-stale-content" not in archived[0].read_text():

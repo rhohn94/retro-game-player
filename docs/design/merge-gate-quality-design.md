@@ -5,14 +5,14 @@
 
 > Design gate for v1.26. Closes #40, #42, #44, #45: stop quality regressions at
 > the merge boundary instead of after the fact. Adds a config-gated quality gate
-> to `release-phase-merge`, an auto-spawned Reviewer under Noir, a test-coverage
+> to `grm-release-phase-merge`, an auto-spawned Reviewer under Noir, a test-coverage
 > threshold, and static-analysis/type-check folded into the build gate.
 
 ## Motivation
 
-Today `release-phase-merge` runs the project's test command after each merge and
-ticks §5 — nothing else. `coding-practices-audit` exists but is on-demand only,
-the `reviewer` role is optional and manual, there is no coverage floor, and
+Today `grm-release-phase-merge` runs the project's test command after each merge and
+ticks §5 — nothing else. `grm-coding-practices-audit` exists but is on-demand only,
+the `grm-reviewer` role is optional and manual, there is no coverage floor, and
 type-checking is not standardized. Regressions therefore land on
 `version/{X.Y}`/`dev` and are caught (if at all) after the fact. v1.26 moves these
 checks **to the merge boundary**, gated by config so projects opt into strictness.
@@ -20,13 +20,13 @@ checks **to the merge boundary**, gated by config so projects opt into strictnes
 ## Goals
 
 - A single **`code-quality` config cluster** holding the four dials.
-- `release-phase-merge` consults the dials **before ticking §5** for a branch.
+- `grm-release-phase-merge` consults the dials **before ticking §5** for a branch.
 - Safe defaults: warn-not-block, coverage off unless set, reviewer Noir-only.
 - Mirrored across flavors; an idempotent sync adopt step.
 
 ## Non-goals
 
-- Replacing the on-demand `coding-practices-audit` / `reviewer` invocations.
+- Replacing the on-demand `grm-coding-practices-audit` / `grm-reviewer` invocations.
 - Imposing any gate by default on projects that do not opt in.
 - A specific CI provider or external service.
 
@@ -51,10 +51,10 @@ time — no file-swap.
 
 ### Dial 1 — `audit-gate` (#40)
 
-Before ticking §5 for a freshly-merged branch, `release-phase-merge` runs
-`coding-practices-audit` scoped to that branch's diff (`git diff <base>...<branch>`):
+Before ticking §5 for a freshly-merged branch, `grm-release-phase-merge` runs
+`grm-coding-practices-audit` scoped to that branch's diff (`git diff <base>...<branch>`):
 - `off` — skip.
-- `warn` — run; new gaps are filed via `feedback-to-issue` (audience internal) and
+- `warn` — run; new gaps are filed via `grm-feedback-to-issue` (audience internal) and
   noted in §5 follow-ups; merge proceeds.
 - `block` — run; **new** gaps (gaps not present on the base) abort the merge: the
   branch is rolled back (`git reset --hard` to pre-merge `ORIG_HEAD`) and the §5
@@ -67,12 +67,12 @@ for what it introduced.
 ### Dial 2 — `auto-reviewer` (#44)
 
 - `off` — never auto-spawn.
-- `noir` (default) — under the Noir paradigm only, spawn a `reviewer` per branch
+- `noir` (default) — under the Noir paradigm only, spawn a `grm-reviewer` per branch
   before the merge; **blocking** findings stop the merge (same rollback as
   `audit-gate: block`); non-blocking findings become §5 follow-ups.
 - `always` — auto-spawn regardless of paradigm.
 
-Reuses the existing `reviewer` role wholesale (own-session, structured
+Reuses the existing `grm-reviewer` role wholesale (own-session, structured
 blocking/non-blocking report) — no new review logic.
 
 ### Dial 3 — `coverage-threshold` (#42)
@@ -97,15 +97,15 @@ emitted in a parseable form.
 
 ## Where it plugs in
 
-- `release-phase-merge` SKILL — new **§Quality gate (before ticking §5)** section
+- `grm-release-phase-merge` SKILL — new **§Quality gate (before ticking §5)** section
   ordering the four checks: typecheck/build → tests(+coverage) → audit-gate →
   auto-reviewer; any failing gate stops the merge with the standard rollback.
-- `workflow-bootstrap` — interview captures `{lint-command}`,
+- `grm-workflow-bootstrap` — interview captures `{lint-command}`,
   `{typecheck-command}`, `{coverage-command}` placeholders (blank ⇒ dial off) and
   writes the `code-quality` block defaults.
 - [coding-standards.md](../coding-standards.md) — documents the gate and the four dials as the
   authoritative reference; commands table gains `typecheck` / `coverage` rows.
-- `sync-from-upstream` `feature-manifest.md` — one `merge-gate-quality` row,
+- `grm-sync-from-upstream` `feature-manifest.md` — one `merge-gate-quality` row,
   config block additive + opt-in.
 
 ## Idempotency & safety

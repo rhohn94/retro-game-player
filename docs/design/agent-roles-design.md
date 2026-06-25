@@ -26,7 +26,7 @@ Two problems follow from the scatter:
    guide locally re-derived "where do I file" and got it wrong. A role that
    references one authoritative contract cannot drift in isolation.
 2. **No uniform slot for new roles.** v1.14 adds five new roles (Reviewer,
-   Scout, Verifier, Triager, Researcher) and an install-doctor skill. Without a
+   Scout, Verifier, Triager, Researcher) and an grm-install-doctor skill. Without a
    shared spawn + return contract, each would invent its own session shape,
    its own write-surface rules, and its own per-paradigm behaviour.
 
@@ -74,14 +74,14 @@ not a role** — it appears here only to mark that distinction (§E).
 
 | Role | Session type | Context width | Git write surface | Issue-tracker write surface | Spawning rule (who / when) | Model/effort pin | One-line mandate |
 |---|---|---|---|---|---|---|---|
-| **Task agent** | Own-session (via `spawn_task`), isolated worktree | Medium–large | **Yes** — commits on its own branch rooted at `version/{X.Y}` | No (flags via the master → Reporter) | Integration master, per `release-phase` batch | Per `repo-reference` table — sized to the item | Implement one work item to its checkpoint, then self-review. |
-| **Integration master** | Orchestration session (main loop) | Medium | **Merge only** — into `version/*` / `dev` / `main` from the marker-blessed worktree | Via Reporter or `feedback-to-issue` directly | Human (Supervised/Weiss) or autonomously under Noir | opus / high — review + integration judgement | Own release scope; plan, spawn, merge, release. |
-| **Reporter** | Own-session (via `spawn_task`) | Narrow | **No** | **Yes** — the configured tracker only | Integration master / human / any; when filing 1+ items off the main loop | ~Haiku / Eco — `feedback-to-issue` synthesis | File feedback through `feedback-to-issue`, then exit. |
+| **Task agent** | Own-session (via `spawn_task`), isolated worktree | Medium–large | **Yes** — commits on its own branch rooted at `version/{X.Y}` | No (flags via the master → Reporter) | Integration master, per `grm-release-phase` batch | Per `grm-repo-reference` table — sized to the item | Implement one work item to its checkpoint, then self-review. |
+| **Integration master** | Orchestration session (main loop) | Medium | **Merge only** — into `version/*` / `dev` / `main` from the marker-blessed worktree | Via Reporter or `grm-feedback-to-issue` directly | Human (Supervised/Weiss) or autonomously under Noir | opus / high — review + integration judgement | Own release scope; plan, spawn, merge, release. |
+| **Reporter** | Own-session (via `spawn_task`) | Narrow | **No** | **Yes** — the configured tracker only | Integration master / human / any; when filing 1+ items off the main loop | ~Haiku / Eco — `grm-feedback-to-issue` synthesis | File feedback through `grm-feedback-to-issue`, then exit. |
 | **Reviewer** (#21) | Own-session (via `spawn_task`) | Narrow — the diff + touched code | **No** (read-only on code + diff) | No (confirmed findings → Reporter) | Integration master, **pre-merge** (Noir: auto per branch) | review band (opus/high) | Review the diff; return findings split blocking vs non-blocking. *Wraps `code-review`.* |
 | **Scout** (#22) | Own-session (via `spawn_task`) | Narrow | **No** (strictly read-only) | **No** | Integration master at release-planning, or a task agent facing ambiguity | scout band (sonnet/medium typical) | Investigate a question; return a condensed structured brief. *Wraps `Explore` / `deep-research`.* |
 | **Verifier** (#23) | Own-session (via `spawn_task`) | Narrow — the branch under test | **No** source edits / git writes (reads the branch; runs build/test/release) | No (failures → Reporter) | Integration master, **pre-merge** (Noir: auto per branch) | verify band (sonnet/medium typical) | Run build/test/release; return a structured pass/fail report. |
 | **Triager** (#24) | Own-session (via `spawn_task`) | Narrow | **No** | **Yes** — the configured tracker only | Integration master, on demand or scheduled grooming | triage band (sonnet/medium typical) | Groom the tracker (dedupe / label / prioritize / close stale); return a summary. |
-| **Researcher** (#26) | Own-session (via `spawn_task`) | Medium | **No** | **Yes** — files ONE scoped item | Integration master, or escalated from a Reporter (under-specified item) | **review band (opus/high), profile-invariant** | Investigate, then author + file one scoped design item. *Composes `source-to-design-docs`, `design-doc-scaffold`, `feedback-to-issue`.* |
+| **Researcher** (#26) | Own-session (via `spawn_task`) | Medium | **No** | **Yes** — files ONE scoped item | Integration master, or escalated from a Reporter (under-specified item) | **review band (opus/high), profile-invariant** | Investigate, then author + file one scoped design item. *Composes `grm-source-to-design-docs`, `grm-design-doc-scaffold`, `grm-feedback-to-issue`.* |
 
 **Reading the columns.** *Session type* distinguishes own-session roles
 (launched via `spawn_task` into a fresh session — the integration master never
@@ -91,14 +91,14 @@ cheap. *Git write surface* and *issue-tracker write surface* together fix what
 the role may mutate; for every narrow role at least one is **No**. *Spawning
 rule* names who launches it and at what point in the release flow. *Model/effort
 pin* is the recommended tier (rides along in the `spawn_task` chip; see
-`repo-reference`); only the Researcher's pin is **profile-invariant** (§D). The
+`grm-repo-reference`); only the Researcher's pin is **profile-invariant** (§D). The
 *mandate* is the one-line contract — the longer form is each role's §B section.
 
 ### B. Per-role contracts
 
 Each contract states the mandate, what the role **MAY** and **MAY NOT** touch,
 and its **per-paradigm behaviour** — mirroring how the Reporter is described in
-`.claude/skills/reporter/SKILL.md`. The paradigm pattern is uniform across the
+`.claude/skills/grm-reporter/SKILL.md`. The paradigm pattern is uniform across the
 narrow roles:
 
 > **Supervised** — the integration master *proposes* the spawn; the user
@@ -127,7 +127,7 @@ the subsections below fix the registry-level invariants.
 #### B.2 Integration master
 
 - **Mandate:** own release scope and integration — plan, spawn, merge, release.
-  Guide: `.claude/skills/integration-master/SKILL.md` and
+  Guide: `.claude/skills/grm-integration-master/SKILL.md` and
   `docs/integration-workflow.md`.
 - **MAY:** merge into `version/*` / `dev` / `main` from the marker-blessed
   worktree; spawn every other role; file issues directly or via a Reporter;
@@ -141,8 +141,8 @@ the subsections below fix the registry-level invariants.
 
 #### B.3 Reporter
 
-- **Mandate:** receive feedback and file it through `feedback-to-issue`, then
-  exit. Authoritative guide: `.claude/skills/reporter/SKILL.md` (this registry
+- **Mandate:** receive feedback and file it through `grm-feedback-to-issue`, then
+  exit. Authoritative guide: `.claude/skills/grm-reporter/SKILL.md` (this registry
   does not restate its internals).
 - **MAY:** write to the **configured issue tracker** only.
 - **MAY NOT:** make any git commit; read/write any `version/*` branch; append to
@@ -201,9 +201,9 @@ the subsections below fix the registry-level invariants.
 #### B.8 Researcher (#26)
 
 - **Mandate:** a two-phase role — (1) **investigate** a topic (composing
-  `source-to-design-docs`), then (2) **author and file ONE scoped item** in the
-  design-doc house layout (composing `design-doc-scaffold` and
-  `feedback-to-issue`). Write surface is the issue tracker only.
+  `grm-source-to-design-docs`), then (2) **author and file ONE scoped item** in the
+  design-doc house layout (composing `grm-design-doc-scaffold` and
+  `grm-feedback-to-issue`). Write surface is the issue tracker only.
 - **MAY:** read broadly; produce a design-doc-shaped artifact; file exactly one
   scoped tracker item.
 - **MAY NOT:** commit code; merge; file multiple unscoped items; push.
@@ -297,7 +297,7 @@ registry.
 
 The five new roles below each ship in their own work item, in **both flavors**
 (`.claude/skills/<role>/SKILL.md` + `copilot/.github/prompts/<role>.prompt.md`),
-with a `sync-from-upstream` feature-manifest entry so downstream projects adopt
+with a `grm-sync-from-upstream` feature-manifest entry so downstream projects adopt
 on next sync. Each fills the slot defined for it in §A/§B and uses the §C
 spawn + return contract:
 
@@ -312,7 +312,7 @@ The install-doctor is a single idempotent, non-destructive *skill* that audits
 framework files against `workflow-bootstrap/manifest.md`, validates the upstream
 connection, runs every feature-manifest `detect` predicate, optionally repairs
 under `--repair` / `--reinstall`, and emits a health report. It **wraps**
-`workflow-bootstrap` + `sync-from-upstream` (no reimplementation). It does not
+`grm-workflow-bootstrap` + `grm-sync-from-upstream` (no reimplementation). It does not
 appear in the role taxonomy table as a role because it has **no session mandate
 of its own** — it runs in whatever session invokes it (typically the integration
 master's), defines no spawn/return contract, and gets no worktree. It is listed
@@ -344,7 +344,7 @@ is a skill.**
 
 - None blocking R1. The exact model/effort *band names* for the new roles are
   recommendations here; each role's work item finalizes its pin against the
-  live `repo-reference` table.
+  live `grm-repo-reference` table.
 
 ## Follow-ups
 

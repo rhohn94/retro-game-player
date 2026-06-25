@@ -7,14 +7,14 @@
 > F2 (sync adoption phase), F3 (adoption playbooks), F4 (release-time authoring
 > hook), U1 (bake upstream URLs).
 > **Informed by:** `docs/grimoire/sync-flow-audit.md` (SR1 findings).
-> **Extends:** `.claude/skills/sync-from-upstream/` (the engine),
-> `onboarding` skill §6.5 (the `baseline-version` precedent generalized here).
+> **Extends:** `.claude/skills/grm-sync-from-upstream/` (the engine),
+> `grm-onboarding` skill §6.5 (the `baseline-version` precedent generalized here).
 
 ---
 
 ## §1 — Overview and goals
 
-`sync-from-upstream` is today file-level: it 3-way-merges files
+`grm-sync-from-upstream` is today file-level: it 3-way-merges files
 (`NEW`/`UPDATE`/`MERGED`/`CONFLICT`/`REVIEW`) and the agent's post-sync job is
 limited to resolving conflicts and re-filling `{placeholders}`. A new
 capability's files land inert — the sync agent has no notion of a *feature*, so
@@ -51,7 +51,7 @@ file merge and is purely additive.
 
 ### §2.1 — Location and format
 
-**Location:** `.claude/skills/sync-from-upstream/feature-manifest.md`
+**Location:** `.claude/skills/grm-sync-from-upstream/feature-manifest.md`
 
 **Format:** versioned Markdown table (same pattern as `baseline-requirements.md`).
 
@@ -78,8 +78,8 @@ manifest-version: 1
 | `feature-id` | string (kebab-case) | yes | Stable unique key (e.g. `github-issues`). Never reused after removal. |
 | `introduced-in` | `vX.Y` | yes | The Grimoire release that shipped this feature. Used for version-delta computation. |
 | `summary` | string | yes | One-sentence human description of the capability. Shown to the user during adoption prompts. |
-| `detect` | prose predicate | yes | How to determine whether the feature is already adopted in the project. Written as a testable instruction the agent evaluates (e.g. "check whether `.claude/grimoire-config.json` contains an `issue-tracker` block with `provider` not equal to `roadmap`"). Returns true (adopted) or false (not yet adopted). |
-| `adopt` | prose steps or skill invocation | yes | Idempotent steps to enable the feature. May reference a skill by name (e.g. "run `issue-tracker-switch` with the captured provider"). Must be safe to re-run. |
+| `detect` | prose predicate | yes | How to determine whether the feature is already adopted in the project. Written as a testable instruction the agent evaluates (e.g. "check whether `.claude/grimoire-config.json` contains an `grm-issue-tracker` block with `provider` not equal to `roadmap`"). Returns true (adopted) or false (not yet adopted). |
+| `adopt` | prose steps or skill invocation | yes | Idempotent steps to enable the feature. May reference a skill by name (e.g. "run `grm-issue-tracker-switch` with the captured provider"). Must be safe to re-run. |
 | `migrate` | prose steps or null | no | Optional, separate data-migration steps. Absent/null = feature has no migration component. When present, migration is always explicitly confirmed and backed up before running. Never merged into `adopt`. |
 
 **Field semantics — precise definitions:**
@@ -92,7 +92,7 @@ manifest-version: 1
   always skipped regardless of `framework-version`.
 
 - **`adopt`**: idempotent config-or-file enabling steps. May call a skill
-  (e.g. `issue-tracker-switch`), write config fields, or both. Running `adopt`
+  (e.g. `grm-issue-tracker-switch`), write config fields, or both. Running `adopt`
   twice on the same project must be safe (the underlying skills are idempotent).
   `adopt` does not touch existing user data — it configures capabilities, not
   migrates content.
@@ -110,9 +110,9 @@ manifest-version: 1
 
 | feature-id | introduced-in | summary | detect | adopt | migrate |
 |---|---|---|---|---|---|
-| `github-issues` | v1.12 | External GitHub Issues tracker replaces/augments roadmap Backlog | Check `.claude/grimoire-config.json`: `issue-tracker.trackers` exists and at least one entry has `provider` not equal to `roadmap`. | Run the onboarding Step 6 question: ask the user for their preferred issue-tracker provider (roadmap / GitHub). If GitHub is chosen, call `issue-tracker-switch set github <owner/repo>` with the captured repo. | (optional, confirmed) Offer to migrate existing `docs/roadmap.md ## Backlog` bullets to the configured tracker via `feedback-to-issue`. Back up roadmap first. Confirm before each bullet. Reversible: re-add to roadmap from backup on decline. |
-| `execution-strategy` | v1.11 | Execution-strategy dial (Fast / Efficient / Cheap-Slow) for workflow dispatch | Check `.claude/grimoire-config.json`: `workflow-variant.value` is present and one of `{Fast, Efficient, Cheap-Slow}`. | Call `workflow-variant-switch` with the user's chosen value (default `Efficient`). | null |
-| `model-effort-profile` | v1.10 | Model/effort profile dial (cost posture) for agent dispatch | Check `.claude/grimoire-config.json`: `model-effort-profile.value` is present and a recognized profile name. | Call `model-effort-profile-switch` with the user's chosen value (default `Medium`). | null |
+| `github-issues` | v1.12 | External GitHub Issues tracker replaces/augments roadmap Backlog | Check `.claude/grimoire-config.json`: `issue-tracker.trackers` exists and at least one entry has `provider` not equal to `roadmap`. | Run the onboarding Step 6 question: ask the user for their preferred issue-tracker provider (roadmap / GitHub). If GitHub is chosen, call `issue-tracker-switch set github <owner/repo>` with the captured repo. | (optional, confirmed) Offer to migrate existing `docs/roadmap.md ## Backlog` bullets to the configured tracker via `grm-feedback-to-issue`. Back up roadmap first. Confirm before each bullet. Reversible: re-add to roadmap from backup on decline. |
+| `execution-strategy` | v1.11 | Execution-strategy dial (Fast / Efficient / Cheap-Slow) for workflow dispatch | Check `.claude/grimoire-config.json`: `workflow-variant.value` is present and one of `{Fast, Efficient, Cheap-Slow}`. | Call `grm-workflow-variant-switch` with the user's chosen value (default `Efficient`). | null |
+| `model-effort-profile` | v1.10 | Model/effort profile dial (cost posture) for agent dispatch | Check `.claude/grimoire-config.json`: `model-effort-profile.value` is present and a recognized profile name. | Call `grm-model-effort-profile-switch` with the user's chosen value (default `Medium`). | null |
 ```
 
 ---
@@ -136,7 +136,7 @@ The marker lives as a new top-level field, peer to the existing dials:
 
 **`schema-version` stays at 3.** The `framework-version` field is additive at
 schema-version 3 — the same graduation precedent used for `model-effort-profile`
-(v1.10/P1), `workflow-variant` (v1.11/E1), and `issue-tracker` (v1.12/I2/I3).
+(v1.10/P1), `workflow-variant` (v1.11/E1), and `grm-issue-tracker` (v1.12/I2/I3).
 No schema-version bump is warranted for pure-additive field additions; readers
 that do not understand `framework-version` simply ignore it.
 
@@ -182,7 +182,7 @@ walk precisely so the adoption phase can own it surgically.
 
 ## §4 — Sync adoption phase
 
-The adoption phase is the new step added to `sync-from-upstream` **after** the
+The adoption phase is the new step added to `grm-sync-from-upstream` **after** the
 file merge (`--apply`) completes successfully. It does not run during dry-runs
 or `--adopt-base`. It does not run if the file merge produced unresolved
 CONFLICTs (§4.1).
@@ -232,7 +232,7 @@ order (oldest first):
 
 **Ordering matters:** features with `introduced-in` older than others must be
 adopted first because later features may depend on config state set by earlier
-ones (e.g. `issue-tracker` block must exist before a future feature that
+ones (e.g. `grm-issue-tracker` block must exist before a future feature that
 extends it). Ascending `introduced-in` order guarantees this.
 
 ### §4.4 — Idempotency and failure handling
@@ -268,13 +268,13 @@ After the adopt loop completes:
 
 ### §4.6 — SKILL.md update (F2)
 
-F2 will add a **Step 4.5 — Feature adoption** section to the `sync-from-upstream`
+F2 will add a **Step 4.5 — Feature adoption** section to the `grm-sync-from-upstream`
 SKILL.md between Step 4 (Resolve and re-specialize) and Step 5 (Report and commit),
 noting:
 
 1. After a clean `--apply`, the adoption phase runs automatically.
 2. If paradigm files (`paradigms/*`) were `UPDATE`d during the sync, run
-   `work-paradigm-switch` to re-install the active paradigm into its live
+   `grm-work-paradigm-switch` to re-install the active paradigm into its live
    paths (SR1 Finding 3).
 3. The adoption phase does not re-run on a re-run of `--apply` unless
    CONFLICT files were resolved since the last run (the phase checks the
@@ -305,7 +305,7 @@ is_excluded() {
 ```
 
 **Rationale:** `grimoire-config.json` is a project-config file, not a
-framework-managed file. Its content (`work-paradigm.value`, `issue-tracker`
+framework-managed file. Its content (`work-paradigm.value`, `grm-issue-tracker`
 block, project name) is per-project and should never be overwritten by a
 wholesale upstream copy. The adoption phase is the only writer of
 `framework-version` into this file (§3.5). Excluding it from the file-merge
@@ -397,16 +397,16 @@ confirmation flow as Noir — one prompt per pending migration.
 
 SR1 Finding 3: when the file merge produces `UPDATE` results for files under
 `.claude/paradigms/`, the active paradigm content in its live paths (installed
-by `work-paradigm-switch`) may be stale. The adoption phase includes a check:
+by `grm-work-paradigm-switch`) may be stale. The adoption phase includes a check:
 if any `paradigms/*` file was `UPDATE`d during this sync run, the phase adds a
 post-adoption instruction:
 
 ```
-Paradigm files updated. Re-run `work-paradigm-switch` to re-install the active
+Paradigm files updated. Re-run `grm-work-paradigm-switch` to re-install the active
 paradigm (<paradigm-name>) into its live paths.
 ```
 
-This is surfaced as a reminder, not an automated action, because `work-paradigm-switch`
+This is surfaced as a reminder, not an automated action, because `grm-work-paradigm-switch`
 installs content into paths that may vary by project and should not run without
 the user knowing.
 
@@ -423,7 +423,7 @@ manifest generalizes to already-shipped dials.
 ```markdown
 | feature-id | introduced-in | summary | detect | adopt | migrate |
 |---|---|---|---|---|---|
-| `github-issues` | v1.12 | External GitHub Issues tracker replaces/augments roadmap Backlog | Check `.claude/grimoire-config.json`: field `issue-tracker.trackers` exists and at least one entry has `provider` not equal to `roadmap`. | Ask the onboarding Step 6 question: "Choose your issue tracker: Roadmap (default) / GitHub." If GitHub, ask for `owner/repo`. Call `issue-tracker-switch set github <owner/repo>`. If the user chooses Roadmap, mark as declined (skip). | (optional, confirmed, backed-up) Offer to migrate existing `docs/roadmap.md ## Backlog` bullets to the configured GitHub Issues repo via `feedback-to-issue`. Step 1: back up roadmap (`cp docs/roadmap.md docs/roadmap.md.pre-migration-<ts>`). Step 2: confirm ("Migrate N roadmap items to GitHub Issues? This will remove them from roadmap.md. A backup is at docs/roadmap.md.pre-migration-<ts>."). Step 3: for each Backlog bullet, call `feedback-to-issue` with `audience: internal`. Step 4: remove migrated bullets from roadmap. Reversible from backup. |
+| `github-issues` | v1.12 | External GitHub Issues tracker replaces/augments roadmap Backlog | Check `.claude/grimoire-config.json`: field `issue-tracker.trackers` exists and at least one entry has `provider` not equal to `roadmap`. | Ask the onboarding Step 6 question: "Choose your issue tracker: Roadmap (default) / GitHub." If GitHub, ask for `owner/repo`. Call `issue-tracker-switch set github <owner/repo>`. If the user chooses Roadmap, mark as declined (skip). | (optional, confirmed, backed-up) Offer to migrate existing `docs/roadmap.md ## Backlog` bullets to the configured GitHub Issues repo via `grm-feedback-to-issue`. Step 1: back up roadmap (`cp docs/roadmap.md docs/roadmap.md.pre-migration-<ts>`). Step 2: confirm ("Migrate N roadmap items to GitHub Issues? This will remove them from roadmap.md. A backup is at docs/roadmap.md.pre-migration-<ts>."). Step 3: for each Backlog bullet, call `grm-feedback-to-issue` with `audience: internal`. Step 4: remove migrated bullets from roadmap. Reversible from backup. |
 ```
 
 ### §8.2 — Detect
@@ -451,7 +451,7 @@ natural reuse point: onboarding §3.4 already defines the exact interaction.
 After the user answers, the step calls:
 
 ```bash
-python3 .claude/skills/issue-tracker-switch/issue_tracker_switch.py \
+python3 .claude/skills/grm-issue-tracker-switch/issue_tracker_switch.py \
     set github <owner/repo>
 ```
 
@@ -475,11 +475,11 @@ succeeds and the user has a non-roadmap tracker configured:
 1. Count `## Backlog` bullets in `docs/roadmap.md`.
 2. Offer: "Migrate `N` roadmap Backlog items to GitHub Issues? A backup
    will be created at `docs/roadmap.md.pre-migration-<timestamp>`. Yes / No."
-3. On Yes: backup, then call `feedback-to-issue` for each bullet, then remove
+3. On Yes: backup, then call `grm-feedback-to-issue` for each bullet, then remove
    migrated bullets from roadmap.
 4. On No: skip. Migration can be run again at the next sync or manually.
 
-The `feedback-to-issue` skill handles near-duplicate detection automatically.
+The `grm-feedback-to-issue` skill handles near-duplicate detection automatically.
 
 ### §8.5 — Cheap backfill entries (proving generality)
 
@@ -489,8 +489,8 @@ they are no-ops for current projects — they exist to onboard projects that
 predate these dials and still carry a v1 or v2 config.
 
 ```markdown
-| `execution-strategy` | v1.11 | Execution-strategy dial (Fast / Efficient / Cheap-Slow) | `.claude/grimoire-config.json` has `workflow-variant.value` set to one of `{Fast, Efficient, Cheap-Slow}`. | Ask: "Choose your execution strategy: Fast / Efficient (default) / Cheap-Slow." Call `workflow-variant-switch` with the chosen value. | null |
-| `model-effort-profile` | v1.10 | Model/effort profile dial (cost posture) | `.claude/grimoire-config.json` has `model-effort-profile.value` set to a recognized profile name. | Ask: "Choose your model/effort profile: Medium (default) / High Effort / Low Effort / Efficient / Autonomous / Eco-Budget." Call `model-effort-profile-switch` with the chosen value. | null |
+| `execution-strategy` | v1.11 | Execution-strategy dial (Fast / Efficient / Cheap-Slow) | `.claude/grimoire-config.json` has `workflow-variant.value` set to one of `{Fast, Efficient, Cheap-Slow}`. | Ask: "Choose your execution strategy: Fast / Efficient (default) / Cheap-Slow." Call `grm-workflow-variant-switch` with the chosen value. | null |
+| `model-effort-profile` | v1.10 | Model/effort profile dial (cost posture) | `.claude/grimoire-config.json` has `model-effort-profile.value` set to a recognized profile name. | Ask: "Choose your model/effort profile: Medium (default) / High Effort / Low Effort / Efficient / Autonomous / Eco-Budget." Call `grm-model-effort-profile-switch` with the chosen value. | null |
 ```
 
 These entries demonstrate that the manifest is not Github-Issues-specific —
@@ -508,12 +508,12 @@ tooling (no automated check), because the judgment of what constitutes a
 
 ### §9.1 — Where the instruction lives
 
-The `project-release` skill SKILL.md and the `release-phase-merge` D2 close-out
+The `grm-project-release` skill SKILL.md and the `grm-release-phase-merge` D2 close-out
 section both receive an added checklist item:
 
 ```
 - [ ] For each new flagship capability: add an entry to
-      `.claude/skills/sync-from-upstream/feature-manifest.md`
+      `.claude/skills/grm-sync-from-upstream/feature-manifest.md`
       (fields: feature-id, introduced-in, summary, detect, adopt, migrate?).
       Commit the manifest update as part of the D2 close-out branch.
 ```
@@ -557,9 +557,9 @@ already-adopted projects and skip the entry).
 Two default upstream URLs:
 
 1. **Grimoire Framework** — the `agentic-scaffolding` GitHub repo; used by
-   `sync-from-upstream` (`UPSTREAM_REPO` in `.scaffold-upstream.conf`).
+   `grm-sync-from-upstream` (`UPSTREAM_REPO` in `.scaffold-upstream.conf`).
 2. **Aura design language** — the design-language upstream repo; used by
-   `design-language-adapt` as its default source-pin URL.
+   `grm-design-language-adapt` as its default source-pin URL.
 
 ### §10.2 — Where they live
 
@@ -576,7 +576,7 @@ it with a seeded default is the natural extension point with no new mechanism
 required. The design-language URL belongs alongside the design-language
 document's `source-pin:` front-matter, which already exists (v1.4 C1).
 
-For `.scaffold-upstream.conf`, the seed written by `workflow-bootstrap` / `repo-init`:
+For `.scaffold-upstream.conf`, the seed written by `grm-workflow-bootstrap` / `grm-repo-init`:
 
 ```sh
 # Grimoire Framework upstream (seeded by workflow-bootstrap; overridable)
@@ -597,11 +597,11 @@ source-pin: null   # set to the upstream SHA after first adapt
 ---
 ```
 
-### §10.3 — Seeding by `repo-init` / `workflow-bootstrap`
+### §10.3 — Seeding by `grm-repo-init` / `grm-workflow-bootstrap`
 
-`workflow-bootstrap` writes `.scaffold-upstream.conf` (or updates the
+`grm-workflow-bootstrap` writes `.scaffold-upstream.conf` (or updates the
 `UPSTREAM_REPO` line if the file exists without it) as part of its file-restore
-step. `repo-init` writes the design-language golden template. Both are
+step. `grm-repo-init` writes the design-language golden template. Both are
 idempotent: if the file already has a non-empty `UPSTREAM_REPO`, they do not
 overwrite it (preserving forks that point at their own upstream).
 
@@ -617,14 +617,14 @@ UPSTREAM_REPO=https://github.com/my-org/my-scaffold-fork.git
 ```
 
 in `.scaffold-upstream.conf`. The seeding logic's idempotency check ensures the
-fork's value is never overwritten by a subsequent `workflow-bootstrap` run.
+fork's value is never overwritten by a subsequent `grm-workflow-bootstrap` run.
 
 ### §10.5 — Mirror across flavors
 
 `claude-code/` canonical. The same `UPSTREAM_REPO` default is seeded in the
-`copilot/` flavor's `workflow-bootstrap` step. Copilot does not have
+`copilot/` flavor's `grm-workflow-bootstrap` step. Copilot does not have
 `sync-from-upstream.sh` (it has its own equivalent, or a gap), but the URL is
-still seeded in the Copilot `workflow-bootstrap` golden for future parity.
+still seeded in the Copilot `grm-workflow-bootstrap` golden for future parity.
 
 ---
 
@@ -633,7 +633,7 @@ still seeded in the Copilot `workflow-bootstrap` golden for future parity.
 | Flavor | Notes |
 |--------|-------|
 | `claude-code/` (canonical) | Primary implementation target. All of F1/F2/F3/F4/U1 land here first. The feature manifest, `sync-from-upstream.sh` changes, and `grimoire-config.json` exclusion all live under `claude-code/.claude/`. |
-| `copilot/` | No `sync-from-upstream.sh` equivalent (Copilot gap). Copilot receives: (a) the feature manifest file (same location, informational), (b) a gap-note in the Copilot sync skill that the adoption phase is not yet implemented for Copilot, (c) the `upstream-sources` seed in `workflow-bootstrap` (U1). The adoption phase for Copilot is a D2 follow-up item. |
+| `copilot/` | No `sync-from-upstream.sh` equivalent (Copilot gap). Copilot receives: (a) the feature manifest file (same location, informational), (b) a gap-note in the Copilot sync skill that the adoption phase is not yet implemented for Copilot, (c) the `upstream-sources` seed in `grm-workflow-bootstrap` (U1). The adoption phase for Copilot is a D2 follow-up item. |
 | Root (this repo) | Dogfoods the workflow. After D2, this repo's own `.claude/grimoire-config.json` gains `framework-version: "v1.13"`, and the feature manifest is seeded. The root `.scaffold-upstream.conf` is updated to use the canonical URL. |
 
 ### §11.1 — Consumer and flavor matrix
@@ -641,14 +641,14 @@ still seeded in the Copilot `workflow-bootstrap` golden for future parity.
 | Consumer / Skill | Touches | Notes |
 |---|---|---|
 | `sync-from-upstream.sh` (F2) | `is_excluded()` + adoption phase | Exclusion is a one-liner; adoption phase is a new post-`--apply` section. |
-| `sync-from-upstream` SKILL.md (F2) | Step 4.5 added | Describes adoption phase; notes paradigm-file re-install caveat. |
+| `grm-sync-from-upstream` SKILL.md (F2) | Step 4.5 added | Describes adoption phase; notes paradigm-file re-install caveat. |
 | `feature-manifest.md` (F1) | Created | Lives alongside the skill files. |
 | `grimoire-config.json` schema (F1) | `framework-version` field added | Additive at schema-version 3; no version bump. |
-| `repo-init` / `workflow-bootstrap` (U1) | `.scaffold-upstream.conf` seed | Idempotent; does not overwrite existing URLs. |
-| `onboarding` SKILL.md (no change) | — | Onboarding is the adopt precedent; this design reuses it without modifying it. |
-| `project-release` SKILL.md (F4) | Close-out checklist item added | "Add manifest entry for each new flagship." |
-| `release-phase-merge` SKILL.md (F4) | D2 checklist item added | Same instruction. |
-| `work-paradigm-switch` (no change) | — | Re-install reminder is surfaced by the adoption phase; the skill itself is unchanged. |
+| `grm-repo-init` / `grm-workflow-bootstrap` (U1) | `.scaffold-upstream.conf` seed | Idempotent; does not overwrite existing URLs. |
+| `grm-onboarding` SKILL.md (no change) | — | Onboarding is the adopt precedent; this design reuses it without modifying it. |
+| `grm-project-release` SKILL.md (F4) | Close-out checklist item added | "Add manifest entry for each new flagship." |
+| `grm-release-phase-merge` SKILL.md (F4) | D2 checklist item added | Same instruction. |
+| `grm-work-paradigm-switch` (no change) | — | Re-install reminder is surfaced by the adoption phase; the skill itself is unchanged. |
 
 ---
 
@@ -656,7 +656,7 @@ still seeded in the Copilot `workflow-bootstrap` golden for future parity.
 
 ### §12.1 — Out of scope for v1.13
 
-- **Proprietary Grimoire tracker backend** — the `issue-tracker` abstraction
+- **Proprietary Grimoire tracker backend** — the `grm-issue-tracker` abstraction
   already accommodates it (v1.12); not built in this release.
 - **Changing the file-level 3-way merge engine** — v1.13 adds a phase after
   it; the engine is sound (SR1) and unchanged.
@@ -678,10 +678,10 @@ still seeded in the Copilot `workflow-bootstrap` golden for future parity.
 - **`skipped-features` sidecar**: F3 should decide the mechanism for recording a
   conscious user decline of an optional adoption, so it is not re-offered
   endlessly (§8.3).
-- **`work-paradigm-switch` re-install as an adoption step**: if paradigm files
+- **`grm-work-paradigm-switch` re-install as an adoption step**: if paradigm files
   are updated during sync, a future manifest entry could encode this as an
   idempotent `adopt` step rather than a manual reminder. Deferred because
-  `work-paradigm-switch` requires knowing the active paradigm name, which varies
+  `grm-work-paradigm-switch` requires knowing the active paradigm name, which varies
   per project.
 - **Copilot adoption phase**: the copilot flavor gap for the adoption phase.
   Estimate: medium. Depends on whether copilot gets its own sync-from-upstream

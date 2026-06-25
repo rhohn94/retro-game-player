@@ -29,51 +29,51 @@ the right sequence of steps.
 
 | Skill | Purpose |
 |---|---|
-| `release-planning` | Generate a work-items report for the next release. Reads design docs, the roadmap, and carryovers; produces a sized, structured list. |
-| `release-agreement` | Finalise and lock a release plan after the user approves the report. Creates `docs/release-planning-vX.Y.md`, creates the `version/X.Y` staging branch, and sets up the §5 ledger. |
-| `release-phase` | Spawn work-item sessions (via `spawn_task`) for the next open phase. Groups work by dependency, sizes each item by token estimate, and assigns model/effort. |
-| `release-phase-merge` | Merge completed subagent branches into the staging branch, run tests after each merge, and tick §5 ledger rows. When all phases are done, merges `version/X.Y` into `dev` and cleans up. |
-| `project-release` | Promote `dev` to `main` and tag a new version. The final step in the release cycle. |
+| `grm-release-planning` | Generate a work-items report for the next release. Reads design docs, the roadmap, and carryovers; produces a sized, structured list. |
+| `grm-release-agreement` | Finalise and lock a release plan after the user approves the report. Creates `docs/release-planning-vX.Y.md`, creates the `version/X.Y` staging branch, and sets up the §5 ledger. |
+| `grm-release-phase` | Spawn work-item sessions (via `spawn_task`) for the next open phase. Groups work by dependency, sizes each item by token estimate, and assigns model/effort. |
+| `grm-release-phase-merge` | Merge completed subagent branches into the staging branch, run tests after each merge, and tick §5 ledger rows. When all phases are done, merges `version/X.Y` into `dev` and cleans up. |
+| `grm-project-release` | Promote `dev` to `main` and tag a new version. The final step in the release cycle. |
 
 ### Onboarding and initialization skills
 
 | Skill | Purpose |
 |---|---|
-| `repo-init` | Initialize the branch model (`main`, `dev`) and install guard hooks into a fresh project. Safe to re-run — skips steps that are already complete. |
-| `workflow-bootstrap` | Fill in project-specific settings after `repo-init`: test command, build command, release command, doc-location map, and more. Also restores `.claude/workflows/` scripts. |
-| `onboarding` | Run (or re-run) the first-run interview. Captures the project name, the active work paradigm, and the workflow-variant preview, writes `.claude/grimoire-config.json`, then calls `repo-init` + `workflow-bootstrap` and bridges into first-release planning. |
+| `grm-repo-init` | Initialize the branch model (`main`, `dev`) and install guard hooks into a fresh project. Safe to re-run — skips steps that are already complete. |
+| `grm-workflow-bootstrap` | Fill in project-specific settings after `grm-repo-init`: test command, build command, release command, doc-location map, and more. Also restores `.claude/workflows/` scripts. |
+| `grm-onboarding` | Run (or re-run) the first-run interview. Captures the project name, the active work paradigm, and the workflow-variant preview, writes `.claude/grimoire-config.json`, then calls `grm-repo-init` + `grm-workflow-bootstrap` and bridges into first-release planning. |
 
 ### Design and standards skills
 
 | Skill | Purpose |
 |---|---|
-| `design-doc-scaffold` | Create a new feature design doc under `docs/design/` using the house layout and wire it into the index. |
-| `repo-reference` | Look up the doc-location map and the subagent model/effort assignment table for this project. |
-| `source-to-design-docs` | Analyse existing source code and synthesise design docs from what is already built. |
-| `sync-from-source` | Pull updates from an upstream source directory into the project. |
-| `sync-from-upstream` | Pull framework updates from the Grimoire upstream into a project that adopted an earlier version. |
+| `grm-design-doc-scaffold` | Create a new feature design doc under `docs/design/` using the house layout and wire it into the index. |
+| `grm-repo-reference` | Look up the doc-location map and the subagent model/effort assignment table for this project. |
+| `grm-source-to-design-docs` | Analyse existing source code and synthesise design docs from what is already built. |
+| `grm-sync-from-source` | Pull updates from an upstream source directory into the project. |
+| `grm-sync-from-upstream` | Pull framework updates from the Grimoire upstream into a project that adopted an earlier version. |
 
 ### UX skills
 
 | Skill | Purpose |
 |---|---|
-| `design-language-adapt` | Establish or refresh the per-project UX design language under `docs/design/ux/design-language.md`. Reads from a configurable upstream source. |
-| `ux-demo-build` | Build a minimal demo page proving the adapted design language works in the project's own stack (opt-in, on-demand). |
+| `grm-design-language-adapt` | Establish or refresh the per-project UX design language under `docs/design/ux/design-language.md`. Reads from a configurable upstream source. |
+| `grm-ux-demo-build` | Build a minimal demo page proving the adapted design language works in the project's own stack (opt-in, on-demand). |
 
 ### Workflow authoring skills
 
 | Skill | Purpose |
 |---|---|
-| `workflow-scaffold` | Add a new `.claude/workflows/` script to the project, encoding token-efficiency lessons (model tiering, batched reads, structured output, read-only contract). |
-| `workflow-snapshot` | Snapshot the current state of a running Workflow for review or resume. |
+| `grm-workflow-scaffold` | Add a new `.claude/workflows/` script to the project, encoding token-efficiency lessons (model tiering, batched reads, structured output, read-only contract). |
+| `grm-workflow-snapshot` | Snapshot the current state of a running Workflow for review or resume. |
 
 ### Integration and safety skills
 
 | Skill | Purpose |
 |---|---|
-| `worktree-preflight` | Verify a fresh or spawned worktree is rooted on its staging ref before any commit or merge. Run this before `git switch -c` or any branch operation. |
-| `release-agent-tracker` | Track and report on active subagent sessions during a multi-phase release. |
-| `ledger-tick` | Tick a row in the §5 status ledger in `docs/release-planning-vX.Y.md`. |
+| `grm-worktree-preflight` | Verify a fresh or spawned worktree is rooted on its staging ref before any commit or merge. Run this before `git switch -c` or any branch operation. |
+| `grm-release-agent-tracker` | Track and report on active subagent sessions during a multi-phase release. |
+| `grm-ledger-tick` | Tick a row in the §5 status ledger in `docs/release-planning-vX.Y.md`. |
 
 ---
 
@@ -98,17 +98,17 @@ feature/work-item branches
 
 | Branch | Who writes to it | When |
 |---|---|---|
-| `version/X.Y` | Integration master only (via `release-phase-merge`) | Merges completed work-item branches during a release |
-| `dev` | Integration master only (via `release-phase-merge` final step) | When all phases of a release are complete |
-| `main` | Integration master only (via `project-release`) | When the release is approved and `dev` is green |
+| `version/X.Y` | Integration master only (via `grm-release-phase-merge`) | Merges completed work-item branches during a release |
+| `dev` | Integration master only (via `grm-release-phase-merge` final step) | When all phases of a release are complete |
+| `main` | Integration master only (via `grm-project-release`) | When the release is approved and `dev` is green |
 
 ### Rules for task agents
 
 - **Branch in place** from the staging ref: `git switch -c <branch> version/X.Y`.
 - **Never merge your own work** into `version/X.Y`, `dev`, or `main` — the
-  integration master merges (`release-phase-merge`).
+  integration master merges (`grm-release-phase-merge`).
 - Never `cd` to a sibling worktree or edit outside your own worktree.
-- Run `worktree-preflight` before any `git switch -c` or `git branch` operation.
+- Run `grm-worktree-preflight` before any `git switch -c` or `git branch` operation.
 
 ### Hotfixes
 
@@ -146,7 +146,7 @@ Workflows are **read-only by convention** in the Supervised and Weiss
 the resulting branch — exactly as with `spawn_task`-spawned agents. Never
 let a Workflow agent write directly to a shared branch.
 
-### The `release-planning` Workflow
+### The `grm-release-planning` Workflow
 
 The first shipped Workflow. Given a target release version, it:
 
@@ -155,16 +155,16 @@ The first shipped Workflow. Given a target release version, it:
 2. Sizes each candidate work item by token estimate using a dedicated sizer
    agent.
 3. Synthesises a structured `work-items-report.md` ready for review and
-   `release-agreement`.
+   `grm-release-agreement`.
 
-Use the `workflow-scaffold` skill to add new Workflows following the same
+Use the `grm-workflow-scaffold` skill to add new Workflows following the same
 pattern.
 
 ---
 
 ## 4. Guard Hooks
 
-Guard hooks are git hook scripts installed by `repo-init` into `.git/hooks/`
+Guard hooks are git hook scripts installed by `grm-repo-init` into `.git/hooks/`
 (and mirrored to `.claude/hooks/` for the golden restore baseline). They run
 automatically on every relevant git operation and fail-closed: if a guard
 cannot verify something is safe, the operation is blocked.
@@ -229,7 +229,7 @@ After onboarding, your project preferences live in `.claude/grimoire-config.json
 
 | Field | Type | Description |
 |---|---|---|
-| `schema-version` | integer | Config schema version. `2` once the Work Paradigm is active (migrated from `1` by `work-paradigm-switch`). Used for migration. |
+| `schema-version` | integer | Config schema version. `2` once the Work Paradigm is active (migrated from `1` by `grm-work-paradigm-switch`). Used for migration. |
 | `name` | string | Your project's product name (set during onboarding). |
 | `work-paradigm.value` | enum | `Supervised` / `Weiss` / `Noir` — how much autonomy the integration master is granted. (Input aliases: `Collaborative`→Weiss, `Autonomous`→Noir.) |
 | `workflow-variant.value` | enum | `Efficient` / `Fast` / `Careful-Serial` — the cost/latency/collision-risk trade-off for write-capable Workflow runs. |
@@ -238,10 +238,10 @@ After onboarding, your project preferences live in `.claude/grimoire-config.json
 ### Active vs. preview preferences
 
 The **Work Paradigm is active**: it is installed during onboarding (the
-`work-paradigm-switch` skill swaps the selected paradigm's content into the
+`grm-work-paradigm-switch` skill swaps the selected paradigm's content into the
 active files) and the config is migrated to `schema-version: 2`, dropping
 `work-paradigm.in-development`. Switch paradigms later via the
-`work-paradigm-switch` skill.
+`grm-work-paradigm-switch` skill.
 
 The `workflow-variant` field is still **captured but not yet behaviorally
 active** (`in-development: true`). Grimoire stores it so that when the variant
@@ -257,9 +257,9 @@ These features are designed or planned but not yet active:
 
 - **Workflow variants** — the `workflow-variant` setting is captured but the
   three variants (Efficient / Fast / Careful-Serial) are not yet implemented.
-- **GitHub Releases** — `project-release` tags `main` but does not yet publish
+- **GitHub Releases** — `grm-project-release` tags `main` but does not yet publish
   a GitHub Release. Planned for a future release.
-- **Auto-maintained `ux-demo/`** — `ux-demo-build` is on-demand only; no
+- **Auto-maintained `ux-demo/`** — `grm-ux-demo-build` is on-demand only; no
   continuous integration of the demo page yet.
 
 See `docs/roadmap.md` for the full backlog and planned release themes.

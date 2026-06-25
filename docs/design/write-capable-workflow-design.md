@@ -21,7 +21,7 @@ The **Noir (Autonomous)** paradigm introduced in v1.6 lifts the read-only
 convention for that paradigm only. Under Noir, Workflows may be
 **write-capable**: each mutating agent runs in its own isolated worktree, commits
 to a short-lived branch, and exits. The integration master collects the branches
-and merges them — the same pattern used by `release-phase` + `spawn_task`, but
+and merges them — the same pattern used by `grm-release-phase` + `spawn_task`, but
 orchestrated inside a Workflow script rather than through interactive chips.
 
 This document specifies the tier model, the Noir gate that controls access, the
@@ -36,7 +36,7 @@ variants (Efficient / Fast / Careful-Serial) that callers choose from.
 - The two workflow tiers (read-only vs. write-capable) and their paradigm gating.
 - The isolated-worktree parallel execution model: per-agent worktrees, branch
   naming, master-merge orchestration, conflict handling, and tie-in to
-  `release-phase-merge`.
+  `grm-release-phase-merge`.
 - Safety rails: what agents may and may not do; why push stays human.
 - The three execution variants and when each is selected.
 - Lessons from the v1.5 vet (workflow run `wf_84d9bd9b-704`): sequential
@@ -48,8 +48,8 @@ variants (Efficient / Fast / Careful-Serial) that callers choose from.
 **Does not cover:**
 - Authoring paradigm content sets (WP2).
 - Implementing the file-swap installer or switch skill (WP3).
-- Updating `workflow-bootstrap` / golden (WP4).
-- Implementation of the `workflow-scaffold` skill update (NW4 owns that).
+- Updating `grm-workflow-bootstrap` / golden (WP4).
+- Implementation of the `grm-workflow-scaffold` skill update (NW4 owns that).
 - Implementing the guard changes required for write-capable agents (NW2 owns
   that).
 - Implementation of the actual isolated-worktree execution machinery (NW3 owns
@@ -71,7 +71,7 @@ variants (Efficient / Fast / Careful-Serial) that callers choose from.
 **Read-only tier (today's convention, preserved in Weiss + Supervised):** the
 Workflow fans out agents to read, analyse, and synthesise; it returns a draft
 to the master. No file is written; no branch is created. All three paradigms
-can use read-only Workflows. The existing `release-planning` workflow is a
+can use read-only Workflows. The existing `grm-release-planning` workflow is a
 canonical example.
 
 **Write-capable tier (Noir only):** the Workflow fans out agents that each
@@ -94,7 +94,7 @@ export const meta = {
 };
 ```
 
-At runtime, `workflow-scaffold`-generated scripts must check the active paradigm
+At runtime, `grm-workflow-scaffold`-generated scripts must check the active paradigm
 before entering any write-capable phase:
 
 ```js
@@ -121,7 +121,7 @@ system, config schema, and switch mechanism.
 #### 2.1 The core pattern
 
 Write-capable Workflow agents follow the same isolated-worktree model that
-`release-phase` / `spawn_task` uses for work items — adapted for unattended
+`grm-release-phase` / `spawn_task` uses for work items — adapted for unattended
 orchestration inside a Workflow script rather than interactive chips:
 
 1. **The Workflow script** receives a list of work items (e.g. files to edit,
@@ -132,7 +132,7 @@ orchestration inside a Workflow script rather than interactive chips:
    exits. It never touches `dev`, `main`, or `version/*` directly.
 4. **After all agents complete**, the Workflow script collects the branch names
    and returns them (via structured output) to the integration master.
-5. **The integration master** runs `release-phase-merge` (or equivalent) to
+5. **The integration master** runs `grm-release-phase-merge` (or equivalent) to
    merge the branches into the staging ref in the order specified by the
    conflict map.
 
@@ -142,7 +142,7 @@ all its agents are inside the local repository; nothing reaches the remote.
 #### 2.2 Branch naming
 
 Per-agent branches follow the work-item naming convention already used by
-`release-phase`:
+`grm-release-phase`:
 
 ```
 <item-slug>-<short-uuid>
@@ -169,7 +169,7 @@ return {
 ```
 
 The integration master follows the `mergeAfter` dependency order when calling
-`release-phase-merge`. If a merge conflict arises:
+`grm-release-phase-merge`. If a merge conflict arises:
 - The master attempts an automatic merge (non-conflicting hunks).
 - On unresolvable conflict: the master surfaces a summary to the user (Noir
   preserves the human-push gate but also preserves human escalation for true
@@ -178,13 +178,13 @@ The integration master follows the `mergeAfter` dependency order when calling
 
 #### 2.4 Tie-in to release-phase-merge
 
-`release-phase-merge` already knows how to merge a branch into a staging ref,
+`grm-release-phase-merge` already knows how to merge a branch into a staging ref,
 run tests, tick the ledger, and handle conflict escalation. Write-capable
 Workflows reuse this machinery: the Workflow produces a branch list;
-`release-phase-merge` consumes it. No new merge logic is invented.
+`grm-release-phase-merge` consumes it. No new merge logic is invented.
 
 NW3 will wire the handoff: the Workflow script's structured-output schema
-must match (or be mappable to) the input contract `release-phase-merge`
+must match (or be mappable to) the input contract `grm-release-phase-merge`
 expects. NW2 will confirm that the guard hooks permit merges from the
 integration-allow-marked worktree after agents have committed to their
 isolated branches.
@@ -216,7 +216,7 @@ model: item.hard ? 'opus' : 'sonnet'
 - **Never `haiku`** for write-capable agents — too weak; risks rework that costs
   more than the tier saving.
 
-`workflow-scaffold` encodes this default in the write-capable template so future
+`grm-workflow-scaffold` encodes this default in the write-capable template so future
 scaffolded workflows do not regress to all-Opus Execute.
 
 #### 2.6 Workflow model tiers vs. the dispatch profile (v1.10 decision)
@@ -229,7 +229,7 @@ mechanical implementation, so even a high-effort project gains nothing from Opus
 there (the `item.hard` flag covers the genuinely hard exceptions).
 
 The in-script tiers stay **decoupled from the model/effort dispatch profile**
-(reaffirming the v1.9 principle). The profile dial governs `release-phase`
+(reaffirming the v1.9 principle). The profile dial governs `grm-release-phase`
 `spawn_task` dispatch only; workflows are Claude-Code-only orchestration, and
 coupling them to the profile would re-introduce complexity for marginal benefit
 when the savings are already captured unconditionally. The tuning mechanism is
@@ -352,7 +352,7 @@ when that field is activated (future release).
 
 #### 4.3 Variant encoding in workflow scripts
 
-The `workflow-scaffold` skill (updated by NW4) will emit variant-aware scaffolding:
+The `grm-workflow-scaffold` skill (updated by NW4) will emit variant-aware scaffolding:
 a `selectVariant(args)` helper and separate phase definitions per variant. The
 `Careful-Serial` variant always uses `maxConcurrency: 1` in its phase
 configuration; `Efficient` and `Fast` use `maxConcurrency: N` with differing
@@ -420,7 +420,7 @@ isolated-worktree model requires:
       (Noir only); `meta.tier` field specified; Noir gate described with
       fail-closed behaviour (§1).
 - [ ] Isolated-worktree parallel execution model described: per-agent worktree,
-      branch naming scheme, conflict handling + merge order, `release-phase-merge`
+      branch naming scheme, conflict handling + merge order, `grm-release-phase-merge`
       tie-in (§2).
 - [ ] Safety rails enumerated: no-push, no-protected-branch mutation, worktree
       confinement, master-only merges, human-push gate (§3).
@@ -446,9 +446,9 @@ isolated-worktree model requires:
   concurrent isolated worktrees; add tests (§5.3 implications).
 - **NW3** (isolated-worktree parallel execution): implement the execution
   machinery: `isolation: 'worktree'` agent spawning, branch naming, conflict
-  map output schema, `release-phase-merge` handoff, and the three variant
+  map output schema, `grm-release-phase-merge` handoff, and the three variant
   phase configurations.
-- **NW4** (`workflow-scaffold` update): update the skill to support the
+- **NW4** (`grm-workflow-scaffold` update): update the skill to support the
   `tier: 'write-capable'` declaration, emit variant-aware scaffolding, and
   document both tiers and the variants in the convention doc.
 - **D1** (docs): update `CLAUDE.md` + `docs/integration-workflow.md` to
