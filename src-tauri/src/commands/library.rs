@@ -209,7 +209,7 @@ fn is_safe_games_target(path: &Path) -> bool {
         "/private",
         "/users",
     ];
-    !BLOCKED.iter().any(|b| trimmed == *b)
+    !BLOCKED.contains(&trimmed)
 }
 
 /// Suggest (without creating) the default games-directory path, so the confirm

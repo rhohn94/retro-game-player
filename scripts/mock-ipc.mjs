@@ -33,6 +33,8 @@ export const MOCK_FIXTURES = {
   list_content_folders: [
     { id: 1, path: "/Users/you/ROMs", enabled: true, addedAt: NOW },
   ],
+  suggest_games_dir: "/Users/you/Games",
+  create_games_folder: "/Users/you/Games",
 
   // --- Cores (src/ipc/cores.ts) ---
   list_available_cores: [
@@ -68,11 +70,14 @@ export const MOCK_FIXTURES = {
 };
 
 /** Build the page-init script string that installs the mock IPC global before
- *  any app code runs. Injected via Playwright's addInitScript. */
-export function buildMockIpcInitScript() {
+ *  any app code runs. Injected via Playwright's addInitScript. `overrides` (an
+ *  object keyed by command) is merged over the defaults — e.g. pass
+ *  `{ list_games: [], list_content_folders: [] }` to render the empty states. */
+export function buildMockIpcInitScript(overrides = {}) {
+  const fixtures = { ...MOCK_FIXTURES, ...overrides };
   return `
     (function () {
-      var FIX = ${JSON.stringify(MOCK_FIXTURES)};
+      var FIX = ${JSON.stringify(fixtures)};
       var internals = window.__TAURI_INTERNALS__ || (window.__TAURI_INTERNALS__ = {});
       internals.invoke = function (cmd) {
         if (Object.prototype.hasOwnProperty.call(FIX, cmd)) return Promise.resolve(FIX[cmd]);

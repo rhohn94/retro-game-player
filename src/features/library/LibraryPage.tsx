@@ -11,11 +11,12 @@
 
 import { AuraButton, AuraCard } from "@aura/react";
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { launchGame, listGames } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
 import { listContainer, riseIn } from "../../lib/motion";
+import { CreateGamesFolderDialog } from "./CreateGamesFolderDialog";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { GameTile } from "./GameTile";
 import { useBoxart } from "./useBoxart";
@@ -70,8 +71,9 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [system, setSystem] = useState<string>(ALL_SYSTEMS);
   const [focused, setFocused] = useState<Game | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
-  useEffect(() => {
+  const loadGames = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     listGames()
@@ -91,6 +93,8 @@ export function LibraryPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => loadGames(), [loadGames]);
 
   const systems = useMemo(() => systemsOf(games), [games]);
   const visible = useMemo(
@@ -125,9 +129,18 @@ export function LibraryPage() {
           <AuraCard class="harmony-notice">Could not load games: {error}</AuraCard>
         )}
         {!loading && !error && visible.length === 0 && (
-          <p className="harmony-muted">
-            No games yet — add a content folder in Settings to scan your library.
-          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+            <p className="harmony-muted" style={{ margin: 0 }}>
+              No games yet — create a games folder, or add an existing content
+              folder in Settings to scan your library.
+            </p>
+            <AuraButton
+              variant="primary"
+              events={{ "aura-click": () => setShowCreate(true) }}
+            >
+              Create a games folder for me
+            </AuraButton>
+          </div>
         )}
 
         <motion.div
@@ -146,6 +159,12 @@ export function LibraryPage() {
           ))}
         </motion.div>
       </div>
+
+      <CreateGamesFolderDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => loadGames()}
+      />
     </div>
   );
 }

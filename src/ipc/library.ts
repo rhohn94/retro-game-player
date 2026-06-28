@@ -70,3 +70,20 @@ export function listGames(system?: string): Promise<Game[]> {
 export function getGame(id: number): Promise<Game> {
   return invoke<Game>("get_game", { id });
 }
+
+/**
+ * Suggest (without creating) the default games-directory path so the confirm
+ * dialog can pre-fill it. Returns an absolute path string (W51).
+ */
+export function suggestGamesDir(): Promise<string> {
+  return invoke<string>("suggest_games_dir");
+}
+
+/**
+ * Create a games directory at the (user-confirmed) location and persist it to
+ * config. Creation is idempotent and refuses unsafe targets; an empty/omitted
+ * path uses the default `~/Games`. Returns the absolute path created (W51).
+ */
+export function createGamesFolder(suggestedPath?: string): Promise<string> {
+  return invoke<string>("create_games_folder", { suggestedPath });
+}

@@ -76,7 +76,7 @@ const MIME = {
 
 // Minimal static file server over the built bundle. SPA fallback to index.html
 // for unknown routes so the hash-router app boots.
-function startStaticServer(rootDir) {
+export function startStaticServer(rootDir) {
   return new Promise((resolvePromise, reject) => {
     const server = createServer(async (req, res) => {
       try {
@@ -109,7 +109,7 @@ function startStaticServer(rootDir) {
 // Resolve a usable Chromium-family executable without a network download:
 // explicit env override, then any cached ms-playwright build, then the path
 // playwright-core resolves, then a system Chrome. Returns null if none runnable.
-function resolveChromiumExecutable(chromium) {
+export function resolveChromiumExecutable(chromium) {
   const candidates = [];
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) {
     candidates.push(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE);
@@ -312,7 +312,13 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error("[visual-inspect] fatal:", err);
-  process.exit(1);
-});
+// Only run the CLI when invoked directly (not when imported for its helpers,
+// e.g. by scripts/inspect-empty-states.mjs).
+const invokedDirectly =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error("[visual-inspect] fatal:", err);
+    process.exit(1);
+  });
+}
