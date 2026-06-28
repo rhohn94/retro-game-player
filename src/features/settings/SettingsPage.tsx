@@ -25,6 +25,7 @@ import {
   type ContentFolder,
   type ScanReport,
 } from "../../ipc/library";
+import { CreateGamesFolderDialog } from "../library/CreateGamesFolderDialog";
 import {
   listInstalledCores,
   setActiveCore,
@@ -74,6 +75,7 @@ function FoldersPane() {
   const [scanResult, setScanResult] = useState<ScanReport | null>(null);
   const [scanning, setScanning] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -168,9 +170,18 @@ function FoldersPane() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {folders.length === 0 && (
-          <p style={{ color: "var(--aura-on-surface-muted)", margin: 0, fontSize: 13 }}>
-            No content folders configured.
-          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+            <p style={{ color: "var(--aura-on-surface-muted)", margin: 0, fontSize: 13 }}>
+              No content folders configured.
+            </p>
+            <AuraButton
+              tabIndex={0}
+              variant="secondary"
+              events={{ "aura-click": () => setShowCreate(true) }}
+            >
+              Create a games folder for me
+            </AuraButton>
+          </div>
         )}
         {folders.map((f) => (
           <div
@@ -203,6 +214,14 @@ function FoldersPane() {
           </div>
         ))}
       </div>
+
+      <CreateGamesFolderDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => {
+          load();
+        }}
+      />
     </div>
   );
 }

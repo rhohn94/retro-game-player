@@ -35,6 +35,9 @@ pub struct AppConfig {
     pub familiar_base_url: String,
     /// Whether to launch games fullscreen by default.
     pub launch_fullscreen: bool,
+    /// Absolute path to the games directory Harmony created for the user, if any
+    /// (W51). `None` until the user accepts the "create a games folder" offer.
+    pub games_dir: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -44,6 +47,7 @@ impl Default for AppConfig {
             retroarch_path: None,
             familiar_base_url: DEFAULT_FAMILIAR_BASE_URL.to_string(),
             launch_fullscreen: true,
+            games_dir: None,
         }
     }
 }
@@ -97,6 +101,20 @@ mod tests {
         assert_eq!(cfg.familiar_base_url, DEFAULT_FAMILIAR_BASE_URL);
         assert!(cfg.retroarch_path.is_none());
         assert!(cfg.launch_fullscreen);
+        assert!(cfg.games_dir.is_none());
+    }
+
+    #[test]
+    fn games_dir_round_trips() {
+        let (paths, tmp) = temp_paths("games-dir");
+        let cfg = AppConfig {
+            games_dir: Some("/Users/me/Games".to_string()),
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert_eq!(loaded.games_dir.as_deref(), Some("/Users/me/Games"));
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

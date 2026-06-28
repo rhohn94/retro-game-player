@@ -134,15 +134,31 @@ Ticket [#2](https://github.com/rhohn94/harmony/issues/2) · Plan:
 
 ---
 
-## v0.5 – v0.7 — GUI & emulator cores (provisional)
+## v0.5 — Threshold
 
-**Theme:** With a consistent, fluid token-driven UI, complete the experience and
-the discover → download → configure core lifecycle. Each release is re-planned
-against the working app.
+**Theme:** Let Harmony offer to create a games directory for the user, so an
+empty library has a one-click path to a real, scannable folder.
 
-- **v0.5 — Games directory:** let Harmony offer to create a games directory for
-  the user (empty-state convenience, user-confirmed location, wired into the
-  scan plumbing). Ticket [#3](https://github.com/rhohn94/harmony/issues/3).
+- **Backend:** `AppConfig.games_dir` + `create_games_folder` / `suggest_games_dir`
+  commands — idempotent `create_dir_all`, absolute-path + system-dir safety
+  guards, persistence; Tauri-free inner fn with full unit tests.
+- **Frontend:** a confirm-first `CreateGamesFolderDialog` (editable pre-filled
+  path, no silent writes) wired into the Library and Settings → Folders empty
+  states; chains create → add-content-folder → rescan.
+- **Verify:** `scripts/inspect-empty-states.mjs` screenshots the empty-state
+  affordance (the standard inspect uses populated fixtures).
+
+Ticket [#3](https://github.com/rhohn94/harmony/issues/3) · Plan:
+[`release-planning-v0.5.md`](release-planning-v0.5.md) · Design:
+[`games-directory-design.md`](design/games-directory-design.md).
+
+---
+
+## v0.6 – v0.7 — GUI & emulator cores (provisional)
+
+**Theme:** With creation, scanning, and a fluid UI in place, complete search and
+the core lifecycle. Each release is re-planned against the working app.
+
 - **v0.6 — Search & filtering:** built-in search providers (links-only) plus a
   frontend filtering experience (console, year, developer, publisher, title,
   popular aliases). Ticket [#4](https://github.com/rhohn94/harmony/issues/4).

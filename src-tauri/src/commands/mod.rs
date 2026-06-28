@@ -44,6 +44,9 @@ macro_rules! register_commands {
             $crate::commands::library::rescan,
             $crate::commands::library::list_games,
             $crate::commands::library::get_game,
+            // library (W51 — create-a-games-folder)
+            $crate::commands::library::suggest_games_dir,
+            $crate::commands::library::create_games_folder,
             // launch (W7)
             $crate::commands::launch::launch_game,
             $crate::commands::launch::locate_retroarch,

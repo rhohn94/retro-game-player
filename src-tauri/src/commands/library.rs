@@ -3,13 +3,15 @@
 //! own the camelCase wire DTOs (architecture-design.md §2) and translate repo
 //! rows into them; the domain stays pure and Tauri-free.
 
+use crate::config::paths::Paths;
+use crate::config::AppConfig;
 use crate::core::library::{scan_folder_path, DatIndex, ScanReport};
 use crate::db::repo::library::{ContentFolder, Game, LibraryRepo, NewContentFolder};
 use crate::db::repo::Repository;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
@@ -171,4 +173,183 @@ pub async fn get_game(db: State<'_, Db>, id: i64) -> AppResult<GameDto> {
 /// so this returns `None`; the seam is here for W8/W13 to supply a DAT later.
 fn load_dat() -> Option<DatIndex> {
     None
+}
+
+// --- W51: create-a-games-folder ---------------------------------------------
+
+/// The default games directory (`~/Games`) suggested when the user does not
+/// supply a path of their own.
+fn default_games_dir() -> AppResult<PathBuf> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Io("could not resolve the home directory".to_string()))?;
+    Ok(home.join("Games"))
+}
+
+/// Whether `path` is a safe target to create a games folder at. Requires an
+/// absolute path and refuses the filesystem root and top-level system dirs, so a
+/// stray empty/`/`/`/System` value can never trigger a create there.
+fn is_safe_games_target(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    let lower = path.to_string_lossy().to_lowercase();
+    let trimmed = lower.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return false; // the root "/" collapses to "" here
+    }
+    const BLOCKED: &[&str] = &[
+        "/system",
+        "/library",
+        "/applications",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/etc",
+        "/var",
+        "/private",
+        "/users",
+    ];
+    !BLOCKED.contains(&trimmed)
+}
+
+/// Suggest (without creating) the default games-directory path, so the confirm
+/// dialog can pre-fill it. Returns an absolute path string.
+#[tauri::command]
+pub async fn suggest_games_dir() -> AppResult<String> {
+    Ok(default_games_dir()?.to_string_lossy().into_owned())
+}
+
+/// Tauri-free core of [`create_games_folder`] so it is unit-testable without
+/// constructing a Tauri `State`. Validates the target, creates it idempotently,
+/// persists it to `AppConfig.games_dir`, and returns the absolute path.
+fn create_games_folder_inner(paths: &Paths, suggested_path: Option<String>) -> AppResult<String> {
+    let target = match suggested_path {
+        Some(s) if !s.trim().is_empty() => PathBuf::from(s.trim()),
+        _ => default_games_dir()?,
+    };
+    if !is_safe_games_target(&target) {
+        return Err(AppError::Validation(format!(
+            "refusing to create a games folder at an unsafe location: {}",
+            target.display()
+        )));
+    }
+    if target.exists() && !target.is_dir() {
+        return Err(AppError::Validation(format!(
+            "path exists and is not a directory: {}",
+            target.display()
+        )));
+    }
+    std::fs::create_dir_all(&target)?;
+    let abs = target.to_string_lossy().into_owned();
+
+    // Persist as the configured games dir (load → set → save).
+    let mut cfg = AppConfig::load(paths)?;
+    cfg.games_dir = Some(abs.clone());
+    cfg.save(paths)?;
+
+    Ok(abs)
+}
+
+/// Create a games directory at the user-confirmed location and persist it to
+/// `AppConfig.games_dir`. When `suggested_path` is empty/absent the default
+/// `~/Games` is used. Creation is idempotent (`create_dir_all` never overwrites
+/// existing data — it only ensures the directory exists) and refuses unsafe
+/// targets or a path that already exists as a non-directory. Returns the
+/// absolute path of the directory.
+#[tauri::command]
+pub async fn create_games_folder(
+    paths: State<'_, Paths>,
+    suggested_path: Option<String>,
+) -> AppResult<String> {
+    create_games_folder_inner(&paths, suggested_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_target(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("harmony-games-{tag}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn suggest_games_dir_is_absolute_and_ends_with_games() {
+        let p = tauri::async_runtime::block_on(suggest_games_dir()).expect("suggest");
+        assert!(Path::new(&p).is_absolute());
+        assert!(p.ends_with("Games"));
+    }
+
+    #[test]
+    fn create_games_folder_creates_and_persists() {
+        let tmp = temp_target("create");
+        std::fs::remove_dir_all(&tmp).ok();
+        let paths = Paths::with_root(tmp.join("root")).expect("root");
+        let target = tmp.join("MyGames");
+
+        let out = create_games_folder_inner(&paths, Some(target.to_string_lossy().into_owned()))
+            .expect("create");
+
+        assert_eq!(out, target.to_string_lossy());
+        assert!(target.is_dir());
+        // Persisted into AppConfig.
+        let cfg = AppConfig::load(&paths).expect("load cfg");
+        assert_eq!(cfg.games_dir.as_deref(), Some(out.as_str()));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn create_games_folder_is_idempotent() {
+        let tmp = temp_target("idem");
+        std::fs::remove_dir_all(&tmp).ok();
+        let paths = Paths::with_root(tmp.join("root")).expect("root");
+        let target = tmp.join("Games");
+        std::fs::create_dir_all(&target).unwrap();
+        // Pre-existing file inside must survive a re-create.
+        let sentinel = target.join("keep.txt");
+        std::fs::write(&sentinel, b"hi").unwrap();
+
+        create_games_folder_inner(&paths, Some(target.to_string_lossy().into_owned()))
+            .expect("create");
+
+        assert!(sentinel.is_file(), "existing data must be preserved");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn create_games_folder_rejects_unsafe_target() {
+        let tmp = temp_target("unsafe");
+        let paths = Paths::with_root(tmp.join("root")).expect("root");
+        // Note: an empty string means "use the default" (not a rejection) — see
+        // create_games_folder_inner; these are explicit unsafe targets.
+        for bad in ["/", "/System", "/Users", "relative/games"] {
+            let res = create_games_folder_inner(&paths, Some(bad.to_string()));
+            assert!(res.is_err(), "expected {bad:?} to be rejected");
+        }
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn create_games_folder_rejects_existing_file() {
+        let tmp = temp_target("isfile");
+        std::fs::remove_dir_all(&tmp).ok();
+        std::fs::create_dir_all(&tmp).unwrap();
+        let paths = Paths::with_root(tmp.join("root")).expect("root");
+        let file = tmp.join("not-a-dir");
+        std::fs::write(&file, b"x").unwrap();
+
+        let res = create_games_folder_inner(&paths, Some(file.to_string_lossy().into_owned()));
+        assert!(res.is_err());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn is_safe_games_target_logic() {
+        assert!(is_safe_games_target(Path::new("/Users/me/Games")));
+        assert!(is_safe_games_target(Path::new("/Volumes/External/Games")));
+        assert!(!is_safe_games_target(Path::new("/")));
+        assert!(!is_safe_games_target(Path::new("/System")));
+        assert!(!is_safe_games_target(Path::new("/Users")));
+        assert!(!is_safe_games_target(Path::new("relative")));
+    }
 }
