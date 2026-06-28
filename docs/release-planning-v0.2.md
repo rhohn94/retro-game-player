@@ -93,6 +93,6 @@ and the notarized DMG (T2). **Not** screenshotting the real native Tauri window
 ### Release
 | Step | Status |
 |---|---|
-| `version/0.2` → `dev` merged | ☐ |
-| `dev` → `main` promoted + `v0.2` tagged | ☐ |
+| `version/0.2` → `dev` merged | ☑ |
+| `dev` → `main` promoted + `v0.2` tagged | ☑ |
 | Pushed to origin (human-gated) | ☐ |
