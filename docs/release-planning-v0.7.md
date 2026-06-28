@@ -73,6 +73,6 @@ clippy, build, visual-inspect) must pass before merge.
 
 | Step | Status | Notes |
 |---|---|---|
-| version/0.7 → dev | ☐ | |
-| dev → main promoted + tagged v0.7 | ☐ | |
+| version/0.7 → dev | ☑ | merged `--no-ff`; 194 Rust + 60 JS tests + visual-inspect green on dev |
+| dev → main promoted + tagged v0.7 | ☑ | |
 | pushed to origin | ☐ | HUMAN-GATED — do not push without explicit go |
