@@ -280,7 +280,7 @@ mod tests {
     fn list_available_marks_uninstalled_catalog_entries() {
         let db = Db::open_in_memory().unwrap();
         let cores = list_available(&db, Some("nes")).unwrap();
-        assert_eq!(cores.len(), 2);
+        assert!(cores.len() >= 2, "expected the broadened nes catalog");
         assert!(cores.iter().all(|c| c.installed_path.is_none()));
         assert!(cores.iter().any(|c| c.core_id == "mesen"));
     }
@@ -298,9 +298,9 @@ mod tests {
     fn install_rejects_uncurated_pair_before_any_network() {
         let db = Db::open_in_memory().unwrap();
         let paths = temp_paths();
-        // 'nestopia' is not curated for nes → fails on the map check, no fetch.
+        // 'atari800' is not curated for nes → fails on the map check, no fetch.
         assert!(matches!(
-            install(&db, &paths, "nes", "nestopia"),
+            install(&db, &paths, "nes", "atari800"),
             Err(AppError::Unsupported(_))
         ));
     }

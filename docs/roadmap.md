@@ -173,14 +173,25 @@ Ticket [#4](https://github.com/rhohn94/harmony/issues/4) · Plan:
 
 ---
 
-## v0.7 — Core discovery (provisional)
+## v0.7 — Forge
 
-**Theme:** Complete the emulator-core lifecycle. Re-planned against the working app.
+**Theme:** Discovery (browse), search, and download for emulator cores — built on
+the existing real download/verify/install path.
 
-- **v0.7 — Core discovery:** browse/discover, search, and download + install for
-  emulator cores. Ticket [#5](https://github.com/rhohn94/harmony/issues/5).
+- **Broadened catalog:** `system_map.rs` expanded to well-known libretro cores
+  (nes: mesen/fceumm/nestopia/quicknes; snes: snes9x/bsnes/snes9x2010; n64:
+  mupen64plus_next/parallel_n64) so there is a real catalog to discover.
+- **Browse + search:** a pure tested `coreFilter.ts` + a `CoresPage` search box
+  that switches to a flat, all-systems result list (grouped by system); install /
+  update / set-active flow through the existing real backend.
+- The download itself was already real (buildbot fetch → arm64 verify → atomic
+  write → persist); v0.7 makes it discoverable and searchable.
 
-Plan: *(planned after v0.6)*
+Ticket [#5](https://github.com/rhohn94/harmony/issues/5) · Plan:
+[`release-planning-v0.7.md`](release-planning-v0.7.md) · Design:
+[`core-discovery-design.md`](design/core-discovery-design.md).
+
+**This completes the GUI-and-cores program (v0.2 – v0.7).**
 
 ---
 

@@ -36,13 +36,17 @@ export const MOCK_FIXTURES = {
   suggest_games_dir: "/Users/you/Games",
   create_games_folder: "/Users/you/Games",
 
-  // --- Cores (src/ipc/cores.ts) ---
+  // --- Cores (src/ipc/cores.ts) — mirrors the curated catalog in system_map.rs ---
   list_available_cores: [
     { id: 1, system: "nes", coreId: "mesen", installedPath: "/cores/mesen_libretro.dylib", version: "1.0", lastModified: NOW, active: true, available: true },
     { id: 2, system: "nes", coreId: "fceumm", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 6, system: "nes", coreId: "nestopia", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 7, system: "nes", coreId: "quicknes", installedPath: null, version: null, lastModified: null, active: false, available: true },
     { id: 3, system: "snes", coreId: "snes9x", installedPath: "/cores/snes9x_libretro.dylib", version: "1.62", lastModified: NOW, active: true, available: true },
     { id: 4, system: "snes", coreId: "bsnes", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 8, system: "snes", coreId: "snes9x2010", installedPath: null, version: null, lastModified: null, active: false, available: true },
     { id: 5, system: "n64", coreId: "mupen64plus_next", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 9, system: "n64", coreId: "parallel_n64", installedPath: null, version: null, lastModified: null, active: false, available: true },
   ],
   list_installed_cores: [
     { id: 1, system: "nes", coreId: "mesen", installedPath: "/cores/mesen_libretro.dylib", version: "1.0", lastModified: NOW, active: true, available: true },

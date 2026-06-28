@@ -21,15 +21,15 @@ struct SystemEntry {
 const SYSTEM_CORES: &[SystemEntry] = &[
     SystemEntry {
         system: "nes",
-        cores: &["mesen", "fceumm"],
+        cores: &["mesen", "fceumm", "nestopia", "quicknes"],
     },
     SystemEntry {
         system: "snes",
-        cores: &["snes9x", "bsnes"],
+        cores: &["snes9x", "bsnes", "snes9x2010"],
     },
     SystemEntry {
         system: "n64",
-        cores: &["mupen64plus_next"],
+        cores: &["mupen64plus_next", "parallel_n64"],
     },
 ];
 
@@ -93,18 +93,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nes_maps_to_mesen_then_fceumm() {
-        assert_eq!(cores_for("nes").unwrap(), &["mesen", "fceumm"]);
+    fn nes_recommends_mesen_first_and_offers_more() {
+        let nes = cores_for("nes").unwrap();
+        assert_eq!(nes[0], "mesen"); // first id is the recommended default
+        assert!(nes.contains(&"fceumm"));
+        assert!(nes.contains(&"nestopia"));
     }
 
     #[test]
-    fn snes_maps_to_snes9x_then_bsnes() {
-        assert_eq!(cores_for("snes").unwrap(), &["snes9x", "bsnes"]);
+    fn snes_recommends_snes9x_first_and_offers_more() {
+        let snes = cores_for("snes").unwrap();
+        assert_eq!(snes[0], "snes9x");
+        assert!(snes.contains(&"bsnes"));
     }
 
     #[test]
-    fn n64_maps_to_mupen64plus_next() {
-        assert_eq!(cores_for("n64").unwrap(), &["mupen64plus_next"]);
+    fn n64_recommends_mupen_first_and_offers_more() {
+        let n64 = cores_for("n64").unwrap();
+        assert_eq!(n64[0], "mupen64plus_next");
+        assert!(n64.contains(&"parallel_n64"));
     }
 
     #[test]
@@ -116,8 +123,9 @@ mod tests {
     fn is_known_validates_pairs() {
         assert!(is_known("nes", "mesen"));
         assert!(is_known("snes", "bsnes"));
+        assert!(is_known("nes", "nestopia")); // now curated (v0.7 broadened catalog)
         assert!(!is_known("nes", "snes9x")); // wrong system
-        assert!(!is_known("nes", "nestopia")); // not curated
+        assert!(!is_known("nes", "atari800")); // not curated
         assert!(!is_known("xyz", "mesen")); // unknown system
     }
 
@@ -133,15 +141,19 @@ mod tests {
     #[test]
     fn available_all_lists_every_pair() {
         let all = available(None).unwrap();
-        assert_eq!(all.len(), 5); // 2 + 2 + 1
+        assert_eq!(all.len(), 9); // nes 4 + snes 3 + n64 2
         assert!(all.contains(&("nes", "mesen")));
-        assert!(all.contains(&("n64", "mupen64plus_next")));
+        assert!(all.contains(&("nes", "quicknes")));
+        assert!(all.contains(&("n64", "parallel_n64")));
     }
 
     #[test]
     fn available_filtered_to_one_system() {
         let snes = available(Some("snes")).unwrap();
-        assert_eq!(snes, vec![("snes", "snes9x"), ("snes", "bsnes")]);
+        assert_eq!(
+            snes,
+            vec![("snes", "snes9x"), ("snes", "bsnes"), ("snes", "snes9x2010")]
+        );
     }
 
     #[test]
