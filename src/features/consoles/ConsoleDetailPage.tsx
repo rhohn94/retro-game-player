@@ -109,6 +109,26 @@ export function ConsoleDetailPage() {
         </div>
       </header>
 
+      <section className="harmony-console-detail__section">
+        <h2 className="harmony-console-detail__h2">Hardware</h2>
+        <table className="harmony-specs">
+          <tbody>
+            <tr>
+              <th scope="row">CPU</th>
+              <td>{info.cpu}</td>
+            </tr>
+            <tr>
+              <th scope="row">GPU</th>
+              <td>{info.gpu}</td>
+            </tr>
+            <tr>
+              <th scope="row">RAM</th>
+              <td>{info.ram}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
       {owned.length > 0 && (
         <section className="harmony-console-detail__section">
           <h2 className="harmony-console-detail__h2">Your {info.abbreviation} games</h2>

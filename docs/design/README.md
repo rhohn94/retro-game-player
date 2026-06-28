@@ -42,6 +42,7 @@
 | [ux-design-language-design.md](ux-design-language-design.md) | UX design language design: per-project design-language adaptation framework, two-tier token+component schema, upstream source integration |
 | [library-import-design.md](library-import-design.md) | v0.12 "Curator": ROM import (drag-drop + native file picker) into the managed Games dir, auto-metadata on add (cover art + Wikipedia description), manual refresh, and the curated links-only ROM-site download providers |
 | [console-browse-design.md](console-browse-design.md) | v0.12 "Curator": the "By Console" browse + detail view, the static console catalog (name/maker/gen/year/Wikipedia), per-console media cache, and the bundled per-console title catalog (libretro-database, names-only, embedded) |
+| [presentation-shell-design.md](presentation-shell-design.md) | v0.14 "Lounge": wiring the W14 controller stack into the shell + library (spatial nav, global Back), the OS-fullscreen toggle (F11 + sidebar button), and the per-console CPU/GPU/RAM hardware-specs table |
 | *(add rows as docs are created)* | |
 
 ### UX tier (`docs/design/ux/`)

@@ -8,8 +8,10 @@
 
 import { AuraCard } from "@aura/react";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
 import type { Game } from "../../ipc/commands";
 import { listItem } from "../../lib/motion";
+import { useFocusable } from "../controller";
 import { useBoxart } from "./useBoxart";
 
 export interface GameTileProps {
@@ -23,9 +25,19 @@ export interface GameTileProps {
 /** A single focusable cover-art tile. */
 export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
   const art = useBoxart(game, false);
+  // Register with the controller's spatial-nav registry. When the controller
+  // moves focus here, mirror it to native DOM focus so the tile scrolls into
+  // view and fires onFocus (hero crossfade); `confirm` opens the game.
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(`game:${game.id}`, () =>
+    onOpen(game),
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
 
   return (
     <motion.button
+      ref={ref}
       variants={listItem}
       type="button"
       className="harmony-tile"

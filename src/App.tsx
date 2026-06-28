@@ -9,13 +9,14 @@
 // (titleBarStyle "Overlay" + hiddenTitle, D2 §1/§5) can be dragged. Interactive
 // children must NOT inherit the drag region — keep controls off the strip.
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AuraApp } from "@aura/react";
 import { isAppError, ping } from "./ipc/commands";
-import { HARMONY_ROUTES } from "./routes";
+import { HARMONY_ROUTES, type HarmonyRoute } from "./routes";
 import { pageTransition } from "./lib/motion";
-import { ControllerProvider, HintBar } from "./features/controller";
+import { ControllerProvider, HintBar, useController, useFocusable } from "./features/controller";
+import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
 // inset — D2 §5) lives as `--harmony-*` tokens in theme/aura-theme.css so the
@@ -57,8 +58,77 @@ function IpcStatus() {
   );
 }
 
+/**
+ * A primary-nav item registered as a controller focus target. When the controller
+ * moves focus here, we mirror it to native DOM focus (`ref.focus()`) so the item
+ * scrolls into view and shows the ring; `confirm` navigates to the route.
+ */
+function FocusableNavItem({ route }: { route: HarmonyRoute }) {
+  const navigate = useNavigate();
+  const { ref, isFocused } = useFocusable<HTMLAnchorElement>(`nav:${route.path}`, () =>
+    navigate(route.path),
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <NavLink
+      ref={ref}
+      to={route.path}
+      end={route.index}
+      style={({ isActive }) => ({
+        padding: "var(--aura-space-2) var(--harmony-space-2-5)",
+        borderRadius: "var(--aura-radius-sm)",
+        textDecoration: "none",
+        color: isActive ? "var(--aura-on-primary)" : "var(--aura-on-surface)",
+        background: isActive ? "var(--aura-primary)" : "transparent",
+        outline: isFocused ? "2px solid var(--aura-focus)" : "none",
+        outlineOffset: "2px",
+        transition:
+          "background var(--harmony-dur-fast) var(--harmony-ease-out), color var(--harmony-dur-fast) var(--harmony-ease-out)",
+      })}
+    >
+      {route.navLabel}
+    </NavLink>
+  );
+}
+
+/** Focusable fullscreen toggle in the sidebar footer (also bound to F11). */
+function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(
+    "shell:fullscreen",
+    fullscreen.toggle,
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={fullscreen.toggle}
+      className="harmony-panel"
+      title="Toggle fullscreen (F11)"
+      style={{
+        width: "100%",
+        textAlign: "left",
+        cursor: "pointer",
+        fontSize: "var(--harmony-font-chip)",
+        padding: "var(--harmony-chip-pad-sm)",
+        borderRadius: "var(--aura-radius-sm)",
+        color: "var(--aura-on-surface)",
+        border: "none",
+        outline: isFocused ? "2px solid var(--aura-focus)" : "none",
+        outlineOffset: "2px",
+      }}
+    >
+      {fullscreen.isFullscreen ? "⤡ Exit full screen" : "⤢ Full screen"}
+    </button>
+  );
+}
+
 /** The translucent primary navigation, built from the route table's nav entries. */
-function Sidebar() {
+function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     <nav
       className="harmony-sidebar"
@@ -79,30 +149,34 @@ function Sidebar() {
         Harmony
       </h1>
       {HARMONY_ROUTES.filter((r) => r.navLabel).map((r) => (
-        <NavLink
-          key={r.path}
-          to={r.path}
-          end={r.index}
-          style={({ isActive }) => ({
-            padding: "var(--aura-space-2) var(--harmony-space-2-5)",
-            borderRadius: "var(--aura-radius-sm)",
-            textDecoration: "none",
-            color: isActive
-              ? "var(--aura-on-primary)"
-              : "var(--aura-on-surface)",
-            background: isActive ? "var(--aura-primary)" : "transparent",
-            transition:
-              "background var(--harmony-dur-fast) var(--harmony-ease-out), color var(--harmony-dur-fast) var(--harmony-ease-out)",
-          })}
-        >
-          {r.navLabel}
-        </NavLink>
+        <FocusableNavItem key={r.path} route={r} />
       ))}
-      <div style={{ marginTop: "auto" }}>
+      <div
+        style={{
+          marginTop: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--aura-space-2)",
+        }}
+      >
+        <FullscreenButton fullscreen={fullscreen} />
         <IpcStatus />
       </div>
     </nav>
   );
+}
+
+/**
+ * Wires app-level controller actions: `back` navigates to the previous screen so
+ * the controller's B button always backs out. Registered once at shell mount.
+ */
+function ShellControllerBindings() {
+  const { setActionHandlers } = useController();
+  const navigate = useNavigate();
+  useEffect(() => {
+    setActionHandlers({ back: () => navigate(-1) });
+  }, [setActionHandlers, navigate]);
+  return null;
 }
 
 /**
@@ -135,56 +209,66 @@ function RoutedOutlet() {
   );
 }
 
-function App() {
+/**
+ * The app shell inside the controller provider. Owns the fullscreen toggle
+ * (F11 + sidebar button) and the app-level controller bindings.
+ */
+function Shell() {
+  const fullscreen = useFullscreen();
   return (
     // AuraApp is the app-shell archetype root; it paints transparent so vibrancy
     // reads through (theme/aura-theme.css). The wrapper bridges React to the
     // custom element's events/class contract (design-language.md §7.2).
-    // ControllerProvider owns spatial focus + gamepad polling so the whole app
-    // is navigable by controller alone (W14). The persistent HintBar footer
-    // shows the focused context's button hints; screens supply their own hints
-    // via a nested <HintBar> when they need richer context.
-    // MotionConfig reducedMotion="user" makes every Framer animation in the app
-    // honour the OS "reduce motion" setting from one place (the CSS side is
-    // handled by the media query in theme/motion.css).
-    <ControllerProvider>
-      <MotionConfig reducedMotion="user">
-      <AuraApp className="harmony-shell" style={{ display: "block", minHeight: "100vh" }}>
-        <div
-          data-tauri-drag-region
+    <AuraApp className="harmony-shell" style={{ display: "block", minHeight: "100vh" }}>
+      <ShellControllerBindings />
+      <div
+        data-tauri-drag-region
+        style={{
+          height: "var(--harmony-drag-strip-height)",
+          paddingLeft: "var(--harmony-traffic-light-inset)",
+          width: "100%",
+        }}
+      />
+      <div
+        style={{
+          display: "flex",
+          minHeight: "calc(100vh - var(--harmony-drag-strip-height))",
+        }}
+      >
+        <Sidebar fullscreen={fullscreen} />
+        <main
           style={{
-            height: "var(--harmony-drag-strip-height)",
-            paddingLeft: "var(--harmony-traffic-light-inset)",
-            width: "100%",
-          }}
-        />
-        <div
-          style={{
+            flex: 1,
+            padding: "var(--aura-space-5)",
+            overflow: "auto",
             display: "flex",
-            minHeight: "calc(100vh - var(--harmony-drag-strip-height))",
+            flexDirection: "column",
           }}
         >
-          <Sidebar />
-          <main
-            style={{
-              flex: 1,
-              padding: "var(--aura-space-5)",
-              overflow: "auto",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <RoutedOutlet />
-            <HintBar
-              hints={[
-                { action: "confirm", label: "Select" },
-                { action: "back", label: "Back" },
-                { action: "menu", label: "Menu" },
-              ]}
-            />
-          </main>
-        </div>
-      </AuraApp>
+          <RoutedOutlet />
+          <HintBar
+            hints={[
+              { action: "confirm", label: "Select" },
+              { action: "back", label: "Back" },
+              { action: "menu", label: "Menu" },
+            ]}
+          />
+        </main>
+      </div>
+    </AuraApp>
+  );
+}
+
+function App() {
+  return (
+    // ControllerProvider owns spatial focus + gamepad polling so the whole app
+    // is navigable by controller alone (W14, wired into the shell + library in
+    // v0.14). MotionConfig reducedMotion="user" makes every Framer animation
+    // honour the OS "reduce motion" setting from one place (the CSS side is the
+    // media query in theme/motion.css).
+    <ControllerProvider>
+      <MotionConfig reducedMotion="user">
+        <Shell />
       </MotionConfig>
     </ControllerProvider>
   );

@@ -328,6 +328,26 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.14 — Lounge
+
+**Theme:** The couch / big-picture experience. First of three grouped releases
+covering an 8-feature program (controller, fullscreen, specs, in-page play +
+overlay + transitions, and downloads).
+
+- **Controller navigation:** the built-but-unwired W14 controller stack is
+  connected to the shell — the sidebar nav and library tiles are spatial-focus
+  targets, `confirm` activates, and the B button backs out. Mouse/keyboard
+  unchanged.
+- **Fullscreen:** F11 or a focusable sidebar button toggles the Harmony window
+  into OS fullscreen (`useFullscreen` + `core:window` capabilities).
+- **Console hardware specs:** each console detail page shows a CPU / GPU / RAM
+  table (`ConsoleInfo` gains static spec fields for all 20 consoles).
+
+Design: [`presentation-shell-design.md`](design/presentation-shell-design.md) ·
+Plan: [`release-planning-v0.14.md`](release-planning-v0.14.md).
+
+---
+
 ## Backlog
 
 Deferred until after the GUI-and-cores program (v0.2–v0.7):

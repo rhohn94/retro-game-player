@@ -30,6 +30,12 @@ pub struct ConsoleDto {
     pub abbreviation: String,
     pub generation: u8,
     pub year: u16,
+    /// Main CPU (chip + clock).
+    pub cpu: String,
+    /// Graphics processor / video chip.
+    pub gpu: String,
+    /// Main system RAM (display string — units vary across the retro era).
+    pub ram: String,
     /// Wikipedia summary text, if fetched/cached (null until then).
     pub description: Option<String>,
     /// Canonical Wikipedia article URL, if cached.
@@ -51,6 +57,9 @@ fn base_dto(c: &catalog::ConsoleInfo) -> ConsoleDto {
         abbreviation: c.abbreviation.to_string(),
         generation: c.generation,
         year: c.year,
+        cpu: c.cpu.to_string(),
+        gpu: c.gpu.to_string(),
+        ram: c.ram.to_string(),
         description: None,
         wikipedia_url: None,
         image_path: None,

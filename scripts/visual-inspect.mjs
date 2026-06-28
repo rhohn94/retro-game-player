@@ -55,7 +55,7 @@ const REPORT_PATH = join(OUT_DIR, "report.json");
 const ROUTES = [
   { name: "library", hash: "#/", expect: "Library" },
   { name: "consoles", hash: "#/consoles", expect: "Consoles" },
-  { name: "console-detail", hash: "#/console/nes", expect: "known titles" },
+  { name: "console-detail", hash: "#/console/nes", expect: "Hardware" },
   { name: "cores", hash: "#/cores", expect: "Cores" },
   { name: "search", hash: "#/search", expect: "Search" },
   { name: "settings", hash: "#/settings", expect: "Settings" },

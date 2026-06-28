@@ -178,6 +178,35 @@
     font-size: 16px;
   }
 
+  /* ---- hardware specs table ---- */
+  .harmony-specs {
+    border-collapse: collapse;
+    width: max-content;
+    max-width: 100%;
+    font-size: 14px;
+  }
+  .harmony-specs th,
+  .harmony-specs td {
+    text-align: left;
+    padding: var(--aura-space-2) var(--aura-space-4) var(--aura-space-2) 0;
+    border-bottom: 1px solid var(--aura-outline-variant);
+    vertical-align: top;
+  }
+  .harmony-specs th {
+    color: var(--aura-on-surface-muted);
+    font-weight: 600;
+    white-space: nowrap;
+    padding-right: var(--aura-space-5);
+  }
+  .harmony-specs td {
+    color: var(--aura-on-surface);
+    font-variant-numeric: tabular-nums;
+  }
+  .harmony-specs tr:last-child th,
+  .harmony-specs tr:last-child td {
+    border-bottom: none;
+  }
+
   /* ---- catalog browser ---- */
   .harmony-catalog {
     display: flex;

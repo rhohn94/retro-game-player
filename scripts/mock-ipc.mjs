@@ -92,6 +92,7 @@ export const MOCK_FIXTURES = {
   ],
   get_console: {
     key: "nes", name: "Nintendo Entertainment System", manufacturer: "Nintendo", abbreviation: "NES", generation: 3, year: 1983,
+    cpu: "Ricoh 2A03 @ 1.79 MHz", gpu: "Ricoh 2C02 PPU", ram: "2 KB",
     description: "The Nintendo Entertainment System is an 8-bit home video game console developed and marketed by Nintendo. It was first released in Japan in 1983 as the Family Computer.",
     wikipediaUrl: "https://en.wikipedia.org/wiki/Nintendo_Entertainment_System", imagePath: null, ownedCount: 2, catalogCount: 4081,
   },

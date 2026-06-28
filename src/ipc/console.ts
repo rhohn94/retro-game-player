@@ -18,6 +18,12 @@ export interface ConsoleInfo {
   generation: number;
   /** Debut year. */
   year: number;
+  /** Main CPU (chip + clock). */
+  cpu: string;
+  /** Graphics processor / video chip. */
+  gpu: string;
+  /** Main system RAM (display string — units vary across the retro era). */
+  ram: string;
   /** Wikipedia summary text, if fetched/cached (null until then). */
   description: string | null;
   /** Canonical Wikipedia article URL, if cached. */
