@@ -71,6 +71,6 @@ full gate suite must pass before merge.
 
 | Step | Status | Notes |
 |---|---|---|
-| version/0.4 → dev | ☐ | |
-| dev → main promoted + tagged v0.4 | ☐ | |
+| version/0.4 → dev | ☑ | merged `--no-ff`; 44 tests + visual-inspect green on dev |
+| dev → main promoted + tagged v0.4 | ☑ | |
 | pushed to origin | ☐ | HUMAN-GATED — do not push without explicit go |
