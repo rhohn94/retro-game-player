@@ -27,12 +27,12 @@
       "implemented": true
     },
     "smoke": {
-      "description": "CI-safe smoke (extended by W18): build the web bundle, cargo-check the Rust shell, run the headless visual-inspection capture over the served UI, and assert the artifact exists. No GUI window, no RetroArch, no network.",
-      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml && node scripts/visual-inspect.mjs && test -f artifacts/visual-inspection/dom.html",
+      "description": "CI-safe smoke (W18; hardened in v0.2 Sight): build the web bundle, cargo-check the Rust shell, then run the headless visual-inspection capture which VERIFIES the GUI actually mounts and renders on every route (Library/Cores/Search/Settings) with mock IPC, failing on a blank or crashed UI or any uncaught page error — not merely asserting a file exists. No GUI window, no RetroArch, no network.",
+      "command": "pnpm build && cargo check --manifest-path src-tauri/Cargo.toml && node scripts/visual-inspect.mjs",
       "implemented": true
     },
     "inspect": {
-      "description": "W18 visual-inspection CLI (gui-visual-inspection-cli): render the built web UI headlessly and capture a PNG screenshot + DOM dump to artifacts/visual-inspection/. Run `pnpm build` first; falls back to a static DOM dump if no headless browser is available, still producing an artifact and exiting 0.",
+      "description": "Visual-inspection CLI (gui-visual-inspection-cli; W18, upgraded v0.2 Sight): render the built web UI headlessly with mock Tauri IPC, walk every primary route, screenshot each to artifacts/visual-inspection/, capture console + uncaught errors, and assert each route's React tree mounted (exit 1 on a blank/crashed GUI). Run `pnpm build` first; falls back to a static DOM dump (GUI unverified, exit 0) when no headless browser is available.",
       "command": "pnpm build && node scripts/visual-inspect.mjs",
       "implemented": true
     },

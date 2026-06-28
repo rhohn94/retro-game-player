@@ -1,26 +1,33 @@
-// Harmony visual-inspection CLI (W18) — the framework-required
-// `gui-visual-inspection-cli` capability.
+// Harmony visual-inspection CLI (W18; upgraded in v0.2 "Sight") — the
+// framework-required `gui-visual-inspection-cli` capability.
 //
 // A Tauri app cannot open its native window in headless CI, so this command
 // renders the Vite-built web UI (the SPA the Rust shell loads) in a headless
-// browser and captures an artifact to a known path. It is non-interactive,
-// CI-safe (no GUI window, no RetroArch, no network), and always exits 0 on a
-// produced artifact.
+// browser and captures artifacts per route. It is non-interactive and CI-safe
+// (no GUI window, no RetroArch, no real network).
 //
-// Strategy (most-faithful first, with a guaranteed fallback):
-//   1. Serve the built `dist/` over a local loopback HTTP server.
-//   2. Launch headless Chromium via playwright-core, resolving an executable
-//      from (a) PLAYWRIGHT_CHROMIUM_EXECUTABLE, (b) a cached ms-playwright
-//      build, or (c) playwright-core's own resolved path. Screenshot to PNG
-//      and dump the rendered DOM to HTML.
-//   3. If no browser can launch (none installed), fall back to copying the
-//      static built index.html as the DOM artifact so the artifact still
-//      exists and the command still exits 0 — limitation noted in the output.
+// WHAT CHANGED IN v0.2 AND WHY:
+//   v0.1 reported success whenever ANY artifact file existed. That let a fully
+//   broken app (React never mounted — see the Aura-runtime crash fixed in
+//   vite.config) pass `smoke` with a green check while showing only a blank
+//   backdrop. This version actually VERIFIES the GUI:
+//     1. Captures browser console + uncaught page errors and FAILS on any
+//        uncaught error (the exact signal that was previously invisible).
+//     2. Asserts the React tree mounted and shell chrome rendered on EVERY
+//        route, FAILING (non-zero exit) when a route is blank.
+//     3. Injects a mock Tauri IPC layer (scripts/mock-ipc.mjs) so screens
+//        render POPULATED instead of error/empty states.
+//     4. Walks all primary routes and screenshots each.
 //
-// Artifacts (known paths, under artifacts/visual-inspection/):
-//   - screenshot.png   (PNG screenshot; only in browser mode)
-//   - dom.html         (rendered or static DOM dump; always produced)
-//   - report.json      (machine-readable: mode, artifacts, ok)
+// Exit codes: 0 = verified (or browser unavailable → unverified but tolerated
+// so browserless CI still runs); 1 = GUI failed verification (blank/crashed);
+// 2 = dist/ not built.
+//
+// Artifacts (under artifacts/visual-inspection/):
+//   - screenshot.png        (the library route; kept at this path for back-compat)
+//   - <route>.png           (one screenshot per route)
+//   - dom.html              (rendered DOM of the library route)
+//   - report.json           (machine-readable: per-route verdicts, errors, ok)
 //
 // See docs/design/runtime-verification-design.md.
 
@@ -30,7 +37,10 @@ import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve } from "node:path";
 import { homedir } from "node:os";
+import { createRequire } from "node:module";
+import { buildMockIpcInitScript } from "./mock-ipc.mjs";
 
+const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DIST = join(ROOT, "dist");
@@ -38,6 +48,16 @@ const OUT_DIR = join(ROOT, "artifacts", "visual-inspection");
 const PNG_PATH = join(OUT_DIR, "screenshot.png");
 const DOM_PATH = join(OUT_DIR, "dom.html");
 const REPORT_PATH = join(OUT_DIR, "report.json");
+
+// The primary routes (hash-router paths) the harness walks. `name` doubles as
+// the screenshot filename; `expect` is a substring that must appear in the
+// rendered text for the route to count as genuinely rendered (not just a shell).
+const ROUTES = [
+  { name: "library", hash: "#/", expect: "Library" },
+  { name: "cores", hash: "#/cores", expect: "Cores" },
+  { name: "search", hash: "#/search", expect: "Search" },
+  { name: "settings", hash: "#/settings", expect: "Settings" },
+];
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -88,7 +108,7 @@ function startStaticServer(rootDir) {
 
 // Resolve a usable Chromium-family executable without a network download:
 // explicit env override, then any cached ms-playwright build, then the path
-// playwright-core resolves (may be absent). Returns null if none is runnable.
+// playwright-core resolves, then a system Chrome. Returns null if none runnable.
 function resolveChromiumExecutable(chromium) {
   const candidates = [];
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) {
@@ -99,25 +119,12 @@ function resolveChromiumExecutable(chromium) {
     for (const entry of readdirSync(cacheRoot)) {
       if (entry.startsWith("chromium_headless_shell-")) {
         candidates.push(
-          join(
-            cacheRoot,
-            entry,
-            "chrome-headless-shell-mac-arm64",
-            "chrome-headless-shell",
-          ),
+          join(cacheRoot, entry, "chrome-headless-shell-mac-arm64", "chrome-headless-shell"),
         );
       }
       if (entry.startsWith("chromium-")) {
         candidates.push(
-          join(
-            cacheRoot,
-            entry,
-            "chrome-mac-arm64",
-            "Google Chrome for Testing.app",
-            "Contents",
-            "MacOS",
-            "Google Chrome for Testing",
-          ),
+          join(cacheRoot, entry, "chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"),
         );
       }
     }
@@ -135,10 +142,24 @@ function resolveChromiumExecutable(chromium) {
   return null;
 }
 
-import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
+// Assert the SPA actually rendered on the current page: React mounted content
+// into #root, the shell chrome is present, and the route's expected text shows.
+async function assertRendered(page, route) {
+  return page.evaluate((expect) => {
+    const root = document.getElementById("root");
+    const rootChildren = root ? root.children.length : 0;
+    const bodyText = document.body.innerText || "";
+    const hasShell = !!document.querySelector(".harmony-sidebar, .harmony-shell, aura-app");
+    return {
+      rootChildren,
+      rootHtmlLen: root ? root.innerHTML.length : 0,
+      hasShell,
+      hasExpectedText: bodyText.includes(expect),
+    };
+  }, route.expect);
+}
 
-async function captureWithBrowser() {
+async function captureWithBrowser(useMock) {
   const { chromium } = require("playwright-core");
   const executablePath = resolveChromiumExecutable(chromium);
   if (!executablePath) {
@@ -146,6 +167,8 @@ async function captureWithBrowser() {
   }
   const { server, port } = await startStaticServer(DIST);
   let browser;
+  const consoleErrors = [];
+  const pageErrors = [];
   try {
     browser = await chromium.launch({
       executablePath,
@@ -155,16 +178,51 @@ async function captureWithBrowser() {
       viewport: { width: 1280, height: 832 },
       deviceScaleFactor: 2,
     });
-    await page.goto(`http://127.0.0.1:${port}/`, {
-      waitUntil: "networkidle",
-      timeout: 30000,
+    if (useMock) await page.addInitScript(buildMockIpcInitScript());
+    page.on("console", (m) => {
+      if (m.type() === "error") consoleErrors.push(m.text());
     });
-    // Give the SPA a beat to mount + paint the first route.
-    await page.waitForTimeout(1200);
-    await page.screenshot({ path: PNG_PATH, fullPage: false });
-    const html = await page.content();
-    await writeFile(DOM_PATH, html, "utf-8");
-    return { ok: true, executablePath, port };
+    page.on("pageerror", (e) => pageErrors.push(e.message));
+
+    const routeResults = [];
+    for (const route of ROUTES) {
+      const before = pageErrors.length;
+      await page.goto(`http://127.0.0.1:${port}/${route.hash}`, {
+        waitUntil: "networkidle",
+        timeout: 30000,
+      });
+      await page.waitForTimeout(700); // let the route mount + paint
+      const checks = await assertRendered(page, route);
+      const shot = join(OUT_DIR, `${route.name}.png`);
+      await page.screenshot({ path: shot, fullPage: false });
+      if (route.name === "library") {
+        await page.screenshot({ path: PNG_PATH, fullPage: false });
+        await writeFile(DOM_PATH, await page.content(), "utf-8");
+      }
+      const routeErrors = pageErrors.slice(before);
+      const rendered =
+        checks.rootChildren > 0 && checks.hasShell && checks.hasExpectedText;
+      routeResults.push({
+        route: route.name,
+        hash: route.hash,
+        screenshot: shot,
+        rendered,
+        ...checks,
+        pageErrors: routeErrors,
+      });
+    }
+
+    const allRendered = routeResults.every((r) => r.rendered);
+    return {
+      ok: true,
+      verified: true,
+      guiOk: allRendered && pageErrors.length === 0,
+      executablePath,
+      mock: !!useMock,
+      routes: routeResults,
+      consoleErrors,
+      pageErrors,
+    };
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.close();
@@ -172,30 +230,29 @@ async function captureWithBrowser() {
 }
 
 // Fallback: ship the static built index.html as the DOM artifact. No browser
-// render, but the artifact exists and the command still exits 0.
+// render → the GUI is UNVERIFIED (we cannot prove it mounts), so we do not fail
+// the gate, but we mark verified:false so the limitation is explicit.
 async function captureStaticFallback() {
-  const indexPath = join(DIST, "index.html");
-  await copyFile(indexPath, DOM_PATH);
-  return { ok: true, static: true };
+  await copyFile(join(DIST, "index.html"), DOM_PATH);
+  return { ok: true, verified: false, static: true };
 }
 
 async function main() {
   if (!existsSync(DIST) || !existsSync(join(DIST, "index.html"))) {
-    console.error(
-      "[visual-inspect] dist/ not built. Run `pnpm build` first.",
-    );
+    console.error("[visual-inspect] dist/ not built. Run `pnpm build` first.");
     process.exit(2);
   }
   await mkdir(OUT_DIR, { recursive: true });
+  const useMock = process.env.HARMONY_INSPECT_NO_MOCK !== "1";
 
   let mode = "browser";
   let detail = {};
   try {
-    const res = await captureWithBrowser();
+    const res = await captureWithBrowser(useMock);
     if (!res.ok) {
       console.warn(
         `[visual-inspect] browser capture unavailable (${res.reason}); ` +
-          "falling back to static DOM dump.",
+          "falling back to static DOM dump (GUI unverified).",
       );
       mode = "static-fallback";
       detail = await captureStaticFallback();
@@ -205,35 +262,52 @@ async function main() {
   } catch (err) {
     console.warn(
       `[visual-inspect] browser capture failed (${err && err.message}); ` +
-        "falling back to static DOM dump.",
+        "falling back to static DOM dump (GUI unverified).",
     );
     mode = "static-fallback";
     detail = await captureStaticFallback();
   }
 
-  const artifacts = [];
-  if (existsSync(PNG_PATH)) artifacts.push(PNG_PATH);
-  if (existsSync(DOM_PATH)) artifacts.push(DOM_PATH);
-
+  const verified = !!detail.verified;
+  const guiOk = verified ? !!detail.guiOk : null;
   const report = {
     capability: "gui-visual-inspection-cli",
     mode,
-    ok: artifacts.length > 0,
-    artifacts,
+    verified,
+    guiOk,
+    mock: !!detail.mock,
+    routes: detail.routes || [],
+    consoleErrors: detail.consoleErrors || [],
+    pageErrors: detail.pageErrors || [],
     domPath: existsSync(DOM_PATH) ? DOM_PATH : null,
     screenshotPath: existsSync(PNG_PATH) ? PNG_PATH : null,
-    detail: { executablePath: detail.executablePath || null, static: !!detail.static },
+    executablePath: detail.executablePath || null,
     capturedAt: new Date().toISOString(),
   };
   await writeFile(REPORT_PATH, JSON.stringify(report, null, 2), "utf-8");
 
-  if (!report.ok) {
-    console.error("[visual-inspect] no artifact produced.");
+  // Report summary.
+  if (verified) {
+    for (const r of report.routes) {
+      const flag = r.rendered ? "ok " : "FAIL";
+      console.log(`[visual-inspect] ${flag} ${r.route.padEnd(9)} ${r.screenshot}`);
+    }
+    if (report.pageErrors.length) {
+      console.error("[visual-inspect] uncaught page errors:");
+      for (const e of report.pageErrors) console.error(`  ✗ ${e}`);
+    }
+  }
+
+  if (verified && !guiOk) {
+    console.error(
+      "[visual-inspect] GUI VERIFICATION FAILED — a route is blank or the page threw. " +
+        `See ${REPORT_PATH}`,
+    );
     process.exit(1);
   }
   console.log(
-    `[visual-inspect] mode=${mode} artifacts=${artifacts.length}\n` +
-      artifacts.map((a) => `  - ${a}`).join("\n"),
+    `[visual-inspect] mode=${mode} verified=${verified}` +
+      (verified ? ` guiOk=${guiOk} routes=${report.routes.length}` : " (browser unavailable)"),
   );
   process.exit(0);
 }

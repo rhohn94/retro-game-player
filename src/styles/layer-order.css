@@ -1,0 +1,6 @@
+/* Cascade layer order — imported first in main.tsx so Vite establishes all
+   layer positions before any feature CSS (library.css, cores.css, etc.) is
+   bundled. harmony-theme is last so Harmony overrides always win over Aura's
+   own layers. The list mirrors Aura's @layer declaration in aura.css exactly,
+   with harmony-theme appended. */
+@layer tokens, theme, base, elevation, components, elevation-modes, layout, media, glow, overlay, menu, shell-nav, nav-header, footer, dialog, toast, tabs, select, datepicker, timepicker, range, radio, checkbox, form, stepper, tag-input, color-picker, resizable, editor, image, video, tooltip, entrance, table, states, code, chart, disclosure, catalog, app-shell, form-page, list-page, content-page, detail-page, settings-page, dashboard-page, error-page, mobile, utilities, print, preferences, harmony-theme;
