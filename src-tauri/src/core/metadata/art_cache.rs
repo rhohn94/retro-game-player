@@ -127,6 +127,10 @@ mod tests {
             art_path: None,
             size_bytes: 0,
             added_at: 1,
+            year: None,
+            developer: None,
+            publisher: None,
+            aliases: None,
         })
         .unwrap()
     }

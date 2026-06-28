@@ -17,6 +17,14 @@ export interface Game {
   artPath: string | null;
   sizeBytes: number;
   addedAt: number;
+  /** Release year, if known (null until enrichment populates it). */
+  year: number | null;
+  /** Developer / studio, if known. */
+  developer: string | null;
+  /** Publisher, if known. */
+  publisher: string | null;
+  /** Alternate titles / popular aliases (empty when none). */
+  aliases: string[];
 }
 
 /** A configured content folder (mirrors Rust `ContentFolderDto`). */

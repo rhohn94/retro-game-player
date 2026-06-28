@@ -32,6 +32,14 @@ pub struct Game {
     pub art_path: Option<String>,
     pub size_bytes: i64,
     pub added_at: i64,
+    /// Release year, if known (W61; nullable — populated by future enrichment).
+    pub year: Option<i64>,
+    /// Developer / studio, if known (W61; nullable).
+    pub developer: Option<String>,
+    /// Publisher, if known (W61; nullable).
+    pub publisher: Option<String>,
+    /// Alternate titles as a JSON array string, if known (W61; nullable).
+    pub aliases: Option<String>,
 }
 
 /// New-folder input (no id; assigned by SQLite).
@@ -54,6 +62,11 @@ pub struct NewGame {
     pub art_path: Option<String>,
     pub size_bytes: i64,
     pub added_at: i64,
+    /// Optional metadata (W61). Defaults to `None` from a scan (no enrichment yet).
+    pub year: Option<i64>,
+    pub developer: Option<String>,
+    pub publisher: Option<String>,
+    pub aliases: Option<String>,
 }
 
 /// Repository over the library tables.
@@ -93,6 +106,10 @@ fn map_game(row: &Row) -> rusqlite::Result<Game> {
         art_path: row.get("art_path")?,
         size_bytes: row.get("size_bytes")?,
         added_at: row.get("added_at")?,
+        year: row.get("year")?,
+        developer: row.get("developer")?,
+        publisher: row.get("publisher")?,
+        aliases: row.get("aliases")?,
     })
 }
 
@@ -168,8 +185,9 @@ impl LibraryRepo<'_> {
         self.db.with_conn(|c| {
             c.execute(
                 "INSERT INTO games (folder_id, path, system, crc32, md5, clean_name, \
-                 dat_matched, core_hint, art_path, size_bytes, added_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 dat_matched, core_hint, art_path, size_bytes, added_at, \
+                 year, developer, publisher, aliases) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     game.folder_id,
                     game.path,
@@ -182,6 +200,10 @@ impl LibraryRepo<'_> {
                     game.art_path,
                     game.size_bytes,
                     game.added_at,
+                    game.year,
+                    game.developer,
+                    game.publisher,
+                    game.aliases,
                 ],
             )
             .map_err(map_sqlite)?;
@@ -287,6 +309,10 @@ mod tests {
             art_path: None,
             size_bytes: 4096,
             added_at: 200,
+            year: None,
+            developer: None,
+            publisher: None,
+            aliases: None,
         }
     }
 
@@ -334,6 +360,37 @@ mod tests {
         // Deleting the folder cascades to the game.
         repo.delete_folder(fid).unwrap();
         assert!(matches!(repo.get_game(gid), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn game_metadata_round_trips() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let fid = repo.add_folder(&folder("/roms")).unwrap();
+        let mut g = game(fid, "/roms/meta.nes");
+        g.year = Some(1990);
+        g.developer = Some("Nintendo R&D4".to_string());
+        g.publisher = Some("Nintendo".to_string());
+        g.aliases = Some(r#"["Mario 3","SMB3"]"#.to_string());
+        let gid = repo.add_game(&g).unwrap();
+        let got = repo.get_game(gid).unwrap();
+        assert_eq!(got.year, Some(1990));
+        assert_eq!(got.developer.as_deref(), Some("Nintendo R&D4"));
+        assert_eq!(got.publisher.as_deref(), Some("Nintendo"));
+        assert_eq!(got.aliases.as_deref(), Some(r#"["Mario 3","SMB3"]"#));
+    }
+
+    #[test]
+    fn scanned_game_has_null_metadata() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let fid = repo.add_folder(&folder("/roms")).unwrap();
+        let gid = repo.add_game(&game(fid, "/roms/plain.nes")).unwrap();
+        let got = repo.get_game(gid).unwrap();
+        assert!(got.year.is_none());
+        assert!(got.developer.is_none());
+        assert!(got.publisher.is_none());
+        assert!(got.aliases.is_none());
     }
 
     #[test]

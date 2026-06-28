@@ -51,10 +51,22 @@ pub struct GameDto {
     pub art_path: Option<String>,
     pub size_bytes: i64,
     pub added_at: i64,
+    pub year: Option<i64>,
+    pub developer: Option<String>,
+    pub publisher: Option<String>,
+    /// Alternate titles, parsed from the stored JSON array (empty when absent).
+    pub aliases: Vec<String>,
 }
 
 impl From<Game> for GameDto {
     fn from(g: Game) -> Self {
+        // `aliases` is stored as a JSON array string; expose it as a real list,
+        // defaulting to empty on absence or malformed JSON (never fail a list).
+        let aliases = g
+            .aliases
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+            .unwrap_or_default();
         Self {
             id: g.id,
             path: g.path,
@@ -67,6 +79,10 @@ impl From<Game> for GameDto {
             art_path: g.art_path,
             size_bytes: g.size_bytes,
             added_at: g.added_at,
+            year: g.year,
+            developer: g.developer,
+            publisher: g.publisher,
+            aliases,
         }
     }
 }

@@ -156,11 +156,14 @@ mod tests {
     fn provider_crud_roundtrip() {
         let db = Db::open_in_memory().unwrap();
         let repo = SearchProvidersRepo::new(&db);
-        let id = repo.add(&provider("MobyGames")).unwrap();
-        assert_eq!(repo.get(id).unwrap().name, "MobyGames");
+        // The DB ships with seeded built-in providers (migration 003); assert
+        // relative to that baseline using a name that is not one of the seeds.
+        let base = repo.list().unwrap().len();
+        let id = repo.add(&provider("My Custom Provider")).unwrap();
+        assert_eq!(repo.get(id).unwrap().name, "My Custom Provider");
         repo.set_enabled(id, false).unwrap();
         assert!(!repo.get(id).unwrap().enabled);
-        assert_eq!(repo.list().unwrap().len(), 1);
+        assert_eq!(repo.list().unwrap().len(), base + 1);
         repo.delete(id).unwrap();
         assert!(matches!(repo.get(id), Err(AppError::NotFound(_))));
     }
@@ -169,9 +172,9 @@ mod tests {
     fn duplicate_name_is_conflict() {
         let db = Db::open_in_memory().unwrap();
         let repo = SearchProvidersRepo::new(&db);
-        repo.add(&provider("MobyGames")).unwrap();
+        repo.add(&provider("My Custom Provider")).unwrap();
         assert!(matches!(
-            repo.add(&provider("MobyGames")),
+            repo.add(&provider("My Custom Provider")),
             Err(AppError::Conflict(_))
         ));
     }

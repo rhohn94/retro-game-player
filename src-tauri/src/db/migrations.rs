@@ -18,10 +18,20 @@ struct Migration {
 
 /// The ordered migration set shipped with this build. Append new entries with
 /// strictly increasing `version`; never edit a released migration's `sql`.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: include_str!("migrations/001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("migrations/001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("migrations/002_game_metadata.sql"),
+    },
+    Migration {
+        version: 3,
+        sql: include_str!("migrations/003_seed_search_providers.sql"),
+    },
+];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
 fn current_version(conn: &Connection) -> AppResult<i64> {
@@ -98,5 +108,37 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 7);
+    }
+
+    #[test]
+    fn games_table_has_metadata_columns() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(games)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for c in ["year", "developer", "publisher", "aliases"] {
+            assert!(cols.iter().any(|x| x == c), "missing column {c}");
+        }
+    }
+
+    #[test]
+    fn built_in_providers_are_seeded() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM search_providers", [], |r| r.get(0))
+            .unwrap();
+        assert!(n >= 4, "expected built-in providers to be seeded, got {n}");
+        // Idempotent: re-running must not duplicate them.
+        run(&mut conn).expect("re-migrate");
+        let n2: i64 = conn
+            .query_row("SELECT count(*) FROM search_providers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, n2);
     }
 }

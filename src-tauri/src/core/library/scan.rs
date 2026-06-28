@@ -112,6 +112,11 @@ pub fn scan_folder_path(
             art_path: None,
             size_bytes,
             added_at: now,
+            // Metadata is populated by future enrichment, not by the scan (W61).
+            year: None,
+            developer: None,
+            publisher: None,
+            aliases: None,
         };
 
         match repo.add_game(&new_game) {

@@ -154,18 +154,33 @@ Ticket [#3](https://github.com/rhohn94/harmony/issues/3) · Plan:
 
 ---
 
-## v0.6 – v0.7 — GUI & emulator cores (provisional)
+## v0.6 — Lens
 
-**Theme:** With creation, scanning, and a fluid UI in place, complete search and
-the core lifecycle. Each release is re-planned against the working app.
+**Theme:** Built-in search providers and a multi-facet library filtering
+experience.
 
-- **v0.6 — Search & filtering:** built-in search providers (links-only) plus a
-  frontend filtering experience (console, year, developer, publisher, title,
-  popular aliases). Ticket [#4](https://github.com/rhohn94/harmony/issues/4).
+- **Built-in providers:** migration-seeded, links-only providers (MobyGames,
+  IGDB, Wikipedia, GameFAQs) — Harmony only opens a constructed link.
+- **Metadata columns:** nullable `year`/`developer`/`publisher`/`aliases` added to
+  `games` (forward-compatible; null until enrichment exists).
+- **Filtering:** a pure tested `filter.ts` + a `LibraryFilters` bar (console
+  pills, title/alias search, year/developer/publisher selects) combining facets
+  with AND and **hiding facets with no values** (graceful degradation).
+
+Ticket [#4](https://github.com/rhohn94/harmony/issues/4) · Plan:
+[`release-planning-v0.6.md`](release-planning-v0.6.md) · Design:
+[`library-filtering-design.md`](design/library-filtering-design.md).
+
+---
+
+## v0.7 — Core discovery (provisional)
+
+**Theme:** Complete the emulator-core lifecycle. Re-planned against the working app.
+
 - **v0.7 — Core discovery:** browse/discover, search, and download + install for
   emulator cores. Ticket [#5](https://github.com/rhohn94/harmony/issues/5).
 
-Plan: *(planned per release after v0.3)*
+Plan: *(planned after v0.6)*
 
 ---
 

@@ -20,14 +20,8 @@ import { CreateGamesFolderDialog } from "./CreateGamesFolderDialog";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { GameTile } from "./GameTile";
 import { useBoxart } from "./useBoxart";
-
-const ALL_SYSTEMS = "All";
-
-/** Distinct systems present in the library, prefixed with the "All" filter. */
-function systemsOf(games: Game[]): string[] {
-  const set = new Set(games.map((g) => g.system));
-  return [ALL_SYSTEMS, ...Array.from(set).sort()];
-}
+import { LibraryFilters } from "./LibraryFilters";
+import { EMPTY_CRITERIA, facetValues, filterGames, type FilterCriteria } from "./filter";
 
 /** The large hero teaser over the backdrop: cover + title + system + Play. */
 function HeroTeaser({ game }: { game: Game | null }) {
@@ -69,7 +63,7 @@ export function LibraryPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [system, setSystem] = useState<string>(ALL_SYSTEMS);
+  const [criteria, setCriteria] = useState<FilterCriteria>(EMPTY_CRITERIA);
   const [focused, setFocused] = useState<Game | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -96,11 +90,8 @@ export function LibraryPage() {
 
   useEffect(() => loadGames(), [loadGames]);
 
-  const systems = useMemo(() => systemsOf(games), [games]);
-  const visible = useMemo(
-    () => (system === ALL_SYSTEMS ? games : games.filter((g) => g.system === system)),
-    [games, system],
-  );
+  const facets = useMemo(() => facetValues(games), [games]);
+  const visible = useMemo(() => filterGames(games, criteria), [games, criteria]);
 
   return (
     <div className="harmony-library">
@@ -109,26 +100,13 @@ export function LibraryPage() {
       <div className="harmony-library__content">
         <HeroTeaser game={focused} />
 
-        <div className="harmony-tabs" role="tablist" aria-label="System filter">
-          {systems.map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="tab"
-              aria-selected={s === system}
-              className={s === system ? "harmony-tab harmony-tab--active" : "harmony-tab"}
-              onClick={() => setSystem(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+        <LibraryFilters facets={facets} criteria={criteria} onChange={setCriteria} />
 
         {loading && <p className="harmony-muted">Loading library…</p>}
         {error && (
           <AuraCard class="harmony-notice">Could not load games: {error}</AuraCard>
         )}
-        {!loading && !error && visible.length === 0 && (
+        {!loading && !error && games.length === 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
             <p className="harmony-muted" style={{ margin: 0 }}>
               No games yet — create a games folder, or add an existing content
@@ -141,6 +119,9 @@ export function LibraryPage() {
               Create a games folder for me
             </AuraButton>
           </div>
+        )}
+        {!loading && !error && games.length > 0 && visible.length === 0 && (
+          <p className="harmony-muted">No games match your filters.</p>
         )}
 
         <motion.div

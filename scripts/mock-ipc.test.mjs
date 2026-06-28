@@ -9,6 +9,8 @@ import { MOCK_FIXTURES, buildMockIpcInitScript } from "./mock-ipc.mjs";
 const GAME_KEYS = [
   "id", "path", "system", "crc32", "md5", "cleanName",
   "datMatched", "coreHint", "artPath", "sizeBytes", "addedAt",
+  // v0.6 metadata facets
+  "year", "developer", "publisher", "aliases",
 ];
 const CORE_KEYS = [
   "id", "system", "coreId", "installedPath", "version",
