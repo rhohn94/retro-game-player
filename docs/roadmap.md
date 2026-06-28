@@ -213,6 +213,32 @@ list to gens 1–6 ([#7](https://github.com/rhohn94/harmony/issues/7)).
 
 ---
 
+## v0.9 — Contact
+
+**Theme:** Repair the whole Aura interaction layer so buttons, text fields, and
+selects actually respond to real user input.
+
+An audit of all 7 interactive component files found 17 controls wired against an
+**imagined** Aura API: 11 buttons listened for an `aura-click` event Aura never
+dispatches (it fires native `click`); 4 `<AuraField>`s carried input props with
+no contained `<input>` (the wrapper renders none); 2 `<AuraSelect>`s used native
+`<option>` children + a hyphenated `aura-change`. The two user-reported bugs
+(the dead "Create a games folder" button and the untypeable Search box) were
+symptoms of this. Fixes follow patterns already working in-repo (`onClick`,
+contained `<input>`, native `<select>`).
+
+- **Buttons → `onClick`**, **fields → contained `<input>`** (shared
+  `.harmony-input`), **selects → native `<select>`**.
+- **Guard:** `scripts/aura-wiring.test.mjs` fails on any dead event literal or
+  prop-driven `AuraField`; `scripts/inspect-interactions.mjs` drives the UI with
+  **real** clicks/typing and asserts the state change (the old scripts faked the
+  event they were verifying).
+
+Plan: [`release-planning-v0.9.md`](release-planning-v0.9.md) · Design:
+[`interaction-wiring-design.md`](design/interaction-wiring-design.md).
+
+---
+
 ## Backlog
 
 Deferred until after the GUI-and-cores program (v0.2–v0.7):

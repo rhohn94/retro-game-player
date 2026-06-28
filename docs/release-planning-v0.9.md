@@ -96,7 +96,7 @@ the full gate suite runs before merge. Design:
 
 | Step | Status | Notes |
 |---|---|---|
-| version/0.9 → dev | ☐ | |
-| dev → main promoted + tagged v0.9 | ☐ | |
-| deployed | ☐ | |
-| pushed to origin | ☐ | full standing session authority granted |
+| version/0.9 → dev | ☑ | merged `--no-ff`; 62 JS tests green on dev |
+| dev → main promoted + tagged v0.9 | ☑ | |
+| deployed | ☑ | `just deploy` → deployed-apps/current + /Applications/Harmony.app at 0.9.0 |
+| pushed to origin | ☑ | main + dev + tag v0.9 (fast-forward, no force) |
