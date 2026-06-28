@@ -62,6 +62,6 @@ merge.
 
 | Step | Status | Notes |
 |---|---|---|
-| version/0.8 → dev | ☐ | |
-| dev → main promoted + tagged v0.8 | ☐ | |
+| version/0.8 → dev | ☑ | merged `--no-ff`; 60 JS tests + visual-inspect green on dev |
+| dev → main promoted + tagged v0.8 | ☑ | |
 | pushed to origin | ☐ | HUMAN-GATED — do not push without explicit go |
