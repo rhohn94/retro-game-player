@@ -58,29 +58,76 @@ Plan: [`release-planning-v0.1.md`](release-planning-v0.1.md).
 
 ---
 
-## v0.2 — Enrichment & polish
+## The GUI-and-cores program (v0.2 – v0.7)
 
-**Theme:** Richer metadata, smarter matching, and a more refined experience.
+v0.1 built the full Foundation, but the app shipped **blank**: two defects (an
+Aura-runtime init-order crash and an inverted CSS cascade-layer order) stopped
+React from mounting, and the smoke gate never noticed because it only checked
+that an artifact file existed. This six-release program first makes the app
+**visible and self-verifying**, then completes and hardens the GUI and the
+emulator-core lifecycle end-to-end. v0.3–v0.7 are **provisional** — each is
+re-planned against the now-working app using v0.2's tooling rather than guessed
+in advance.
 
-- Optional ScreenScraper support (user-supplied API key).
-- Optional AI-assisted enrichment (fuzzy title matching, ambiguous-dump
-  disambiguation) via **Familiar**'s OpenAI-compatible API — a **soft**
-  dependency detected through its capability-discovery endpoint; Harmony works
-  fully with Familiar absent.
-- Refined controller-binding configuration UI and more art fallbacks.
-
-Plan: *(not yet planned)*
+Enrichment & polish (ScreenScraper, Familiar AI, richer controller-binding UI)
+and broader system coverage — the previous v0.2/v0.3 themes — move to **after**
+this program (see [Backlog](#backlog)).
 
 ---
 
-## v0.3 — Beyond the core three
+## v0.2 — Sight
 
-**Theme:** Broaden system coverage and library power-tools.
+**Theme:** Make the app render, and make the GUI self-verifying so a blank or
+crashed UI can never again pass a green build.
 
-- Additional systems beyond NES / SNES / N64.
-- Collections, favorites, play-time tracking, and richer filtering.
+- **Blank-screen fix:** load the Aura runtime as a classic render-blocking
+  `<head>` script so its `ready()` callback defers correctly (was crashing on
+  `Aura.icons` undefined); order the CSS cascade layers so Harmony's theme
+  overrides win over Aura defaults.
+- **Verified visual inspection:** the headless capture now asserts the React
+  tree mounts and renders on every route, captures console + uncaught errors,
+  and **exits non-zero on a blank/crashed GUI** — wired into `smoke`.
+- **Mock IPC harness (closes T4):** deterministic Tauri-IPC fixtures so screens
+  render populated headlessly; multi-route screenshots + machine-readable report.
 
-Plan: *(not yet planned)*
+Plan: [`release-planning-v0.2.md`](release-planning-v0.2.md).
+
+---
+
+## v0.3 – v0.7 — Full GUI & emulator cores (provisional)
+
+**Theme:** With the app visible, complete and verify the GUI and the
+discover → download → configure → launch core lifecycle. Each release is
+re-planned against the working app.
+
+- **v0.3 — Library & shell:** real library grid, hero, navigation shell, game
+  detail — verified rendering with mock data.
+- **v0.4 — Core discovery & download:** cores screen, buildbot catalog, the
+  download → verify → install flow, per-system active-core selection — end-to-end.
+- **v0.5 — Scan & identification:** content-folder config, scan trigger +
+  progress, No-Intro matching results, unmatched-ROM handling.
+- **v0.6 — Launch & settings:** RetroArch locate/picker, launch flow, and the
+  full settings surface (folders, cores, controllers, search, RetroArch path).
+- **v0.7 — Controller & art:** spatial controller navigation + hints, box
+  art/thumbnail fetch + caching with graceful fallbacks, full controller
+  operability.
+
+Plan: *(planned per release after v0.2)*
+
+---
+
+## Backlog
+
+Deferred until after the GUI-and-cores program (v0.2–v0.7):
+
+- **Enrichment & polish** (was v0.2): optional ScreenScraper support
+  (user-supplied API key); optional AI-assisted enrichment (fuzzy title
+  matching, ambiguous-dump disambiguation) via **Familiar**'s OpenAI-compatible
+  API as a soft, capability-discovered dependency; refined controller-binding
+  configuration UI and more art fallbacks.
+- **Beyond the core three** (was v0.3): additional systems beyond NES / SNES /
+  N64; collections, favorites, play-time tracking, and richer filtering.
+- **Notarized DMG** (T2): signed + notarized arm64 DMG for distribution.
 
 ---
 

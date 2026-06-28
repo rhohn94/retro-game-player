@@ -1,6 +1,9 @@
-# Runtime Verification Design — Visual Inspection + Smoke (v0.1)
+# Runtime Verification Design — Visual Inspection + Smoke (v0.1, hardened v0.2)
 
 > **Up:** [↑ Design docs](README.md)
+>
+> **v0.2 "Sight" update:** the capture now *verifies* the GUI actually renders
+> (it previously only proved a file existed — see [§v0.2 hardening](#v02-hardening--verified-rendering--mock-ipc)).
 
 > **Status:** W18 deliverable. Documents Harmony's **visual-inspection CLI**
 > (the framework-required `gui-visual-inspection-cli` capability — see
@@ -80,14 +83,46 @@ The command exits `0` on a produced artifact, `1` if none could be produced, and
 ```
 pnpm build                                         # build the web bundle (tsc + vite)
 && cargo check --manifest-path src-tauri/Cargo.toml # type-check the Rust shell
-&& node scripts/visual-inspect.mjs                  # render the served UI, capture artifact
-&& test -f artifacts/visual-inspection/dom.html     # assert the artifact exists
+&& node scripts/visual-inspect.mjs                  # render + VERIFY the GUI (exits 1 if blank/crashed)
 ```
 
 The `inspect` target is the capture alone (it runs `pnpm build` first for
 standalone use). W1 owns the base recipe file; W18 extended the existing `smoke`
-target and appended the `inspect` target — no existing target's command was
-rewritten.
+target and appended the `inspect` target. In v0.2 the trailing `test -f` artifact
+check was dropped — the script's own exit code is now the gate (see below).
+
+## v0.2 hardening — verified rendering + mock IPC
+
+**Why.** v0.1's smoke reported success whenever any artifact file existed. The
+app shipped completely blank — React never mounted because importing the Aura
+runtime as a deferred ES module fired its internal `ready()` callback before
+`Aura.icons` was defined, throwing `Cannot read properties of undefined (reading
+'names')` and aborting the entry module. Smoke stayed green throughout, because
+a `dom.html` file was still produced. The capture was screenshotting a bug.
+
+**What changed.** `scripts/visual-inspect.mjs` now:
+
+1. **Captures** browser `console` errors and uncaught `pageerror`s, and **fails
+   the gate on any uncaught error** — the exact signal that was invisible before.
+2. **Asserts the GUI rendered on every route** — React mounted into `#root`,
+   the shell chrome is present, and the route's expected text shows — and exits
+   **non-zero** when any route is blank. (Proven: hiding the JS bundle makes all
+   four routes report `FAIL` and the command exit 1.)
+3. **Injects a mock Tauri IPC layer** (`scripts/mock-ipc.mjs`) before the app
+   boots, so `window.__TAURI_INTERNALS__.invoke` returns deterministic fixtures
+   and screens render **populated** instead of "Could not load…" error states.
+   `scripts/mock-ipc.test.mjs` guards the fixtures against DTO drift.
+4. **Walks all primary routes** (Library / Cores / Search / Settings) and
+   screenshots each to `artifacts/visual-inspection/<route>.png`, plus the
+   machine-readable per-route verdicts in `report.json`.
+
+**Graceful degradation.** With no headless browser, the static fallback still
+produces a DOM artifact and exits 0, but the report records `verified:false` so
+the unverified state is explicit rather than a false pass.
+
+The runtime crash fix itself lives in `vite.config.ts` (the Aura runtime is
+loaded as a classic render-blocking `<head>` script so its `ready()` defers
+correctly) and the CSS cascade-layer ordering in `src/styles/layer-order.css`.
 
 ## Validation
 
