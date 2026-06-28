@@ -264,6 +264,28 @@ Closes [#7](https://github.com/rhohn94/harmony/issues/7) · Plan:
 
 ---
 
+## v0.11 — Quarry
+
+**Theme:** Search for game downloads — discover and link downloadable games from
+the search screen and a game's detail page, strictly links-only.
+
+- **Provider kinds:** a `kind` column (migration 004) splits providers into
+  `reference` (v0.6 metadata seeds) and `download`. Seeds two **legal**,
+  links-only download homes — the Internet Archive and itch.io. Harmony ships no
+  links to copyrighted-ROM sources; users may add their own providers.
+- **Contract preserved + tested:** `run_search` only substitutes templates —
+  there is no fetch path — so "no bytes downloaded" is structural; a test pins
+  every seeded download template to a link (`https://…{query}`). The Search
+  header states the link-only contract; download providers are marked `⬇`.
+- **Find downloads for a title:** the game detail page jumps to a pre-filled,
+  auto-run search for the game's title.
+
+Closes [#6](https://github.com/rhohn94/harmony/issues/6) · Plan:
+[`release-planning-v0.11.md`](release-planning-v0.11.md) · Design:
+[`download-search-design.md`](design/download-search-design.md).
+
+---
+
 ## Backlog
 
 Deferred until after the GUI-and-cores program (v0.2–v0.7):

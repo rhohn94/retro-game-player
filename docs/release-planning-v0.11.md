@@ -64,7 +64,7 @@ pre-filled jump. Each item committed atomically; full gates before merge.
 
 | Step | Status | Notes |
 |---|---|---|
-| version/0.11 → dev | ☐ | |
-| dev → main promoted + tagged v0.11 | ☐ | |
-| deployed | ☐ | |
-| pushed to origin | ☐ | full standing session authority granted |
+| version/0.11 → dev | ☑ | merged `--no-ff`; 201 Rust + 65 JS tests green on dev |
+| dev → main promoted + tagged v0.11 | ☑ | |
+| deployed | ☑ | /Applications/Harmony.app + deployed-apps/current at 0.11.0 |
+| pushed to origin | ☑ | main + dev + tag v0.11 (fast-forward, no force) |
