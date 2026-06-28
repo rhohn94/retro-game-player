@@ -147,6 +147,14 @@ export function GameDetailPage() {
               <AuraButton class="harmony-detail__secondary" onClick={onGetArt}>
                 Get art
               </AuraButton>
+              <AuraButton
+                class="harmony-detail__secondary"
+                onClick={() =>
+                  navigate("/search", { state: { query: game.cleanName } })
+                }
+              >
+                Find downloads
+              </AuraButton>
             </div>
 
             {launchError && (

@@ -16,6 +16,10 @@ pub struct SearchProvider {
     pub name: String,
     pub url_template: String,
     pub enabled: bool,
+    /// Provider category: `"reference"` (metadata/info) or `"download"`
+    /// (links to legal homes for downloadable content). Free text; defaults to
+    /// `"reference"` for user-added providers.
+    pub kind: String,
 }
 
 /// New-provider input (no id; assigned by SQLite).
@@ -23,6 +27,7 @@ pub struct NewSearchProvider {
     pub name: String,
     pub url_template: String,
     pub enabled: bool,
+    pub kind: String,
 }
 
 /// Repository over the `search_providers` table.
@@ -45,6 +50,7 @@ fn map_provider(row: &Row) -> rusqlite::Result<SearchProvider> {
         name: row.get("name")?,
         url_template: row.get("url_template")?,
         enabled: row.get::<_, i64>("enabled")? != 0,
+        kind: row.get("kind")?,
     })
 }
 
@@ -53,9 +59,14 @@ impl SearchProvidersRepo<'_> {
     pub fn add(&self, provider: &NewSearchProvider) -> AppResult<i64> {
         self.db.with_conn(|c| {
             c.execute(
-                "INSERT INTO search_providers (name, url_template, enabled) \
-                 VALUES (?1, ?2, ?3)",
-                params![provider.name, provider.url_template, provider.enabled as i64],
+                "INSERT INTO search_providers (name, url_template, enabled, kind) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    provider.name,
+                    provider.url_template,
+                    provider.enabled as i64,
+                    provider.kind
+                ],
             )
             .map_err(map_sqlite)?;
             Ok(c.last_insert_rowid())
@@ -149,6 +160,7 @@ mod tests {
             name: name.to_string(),
             url_template: "https://example.com/?q={query}".to_string(),
             enabled: true,
+            kind: "reference".to_string(),
         }
     }
 
@@ -166,6 +178,36 @@ mod tests {
         assert_eq!(repo.list().unwrap().len(), base + 1);
         repo.delete(id).unwrap();
         assert!(matches!(repo.get(id), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn kind_round_trips_and_defaults_reference() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = SearchProvidersRepo::new(&db);
+        let id = repo.add(&provider("My Custom Provider")).unwrap();
+        assert_eq!(repo.get(id).unwrap().kind, "reference");
+    }
+
+    #[test]
+    fn migration_seeds_legal_download_providers() {
+        // The download-kind providers (migration 004) ship enabled and link-only.
+        let db = Db::open_in_memory().unwrap();
+        let repo = SearchProvidersRepo::new(&db);
+        let downloads: Vec<_> = repo
+            .list()
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.kind == "download")
+            .collect();
+        assert!(
+            downloads.len() >= 2,
+            "expected the seeded legal download providers"
+        );
+        for p in downloads {
+            // Contract: link-only templates (no fetch path exists in run_search).
+            assert!(p.url_template.contains("{query}"));
+            assert!(p.url_template.starts_with("https://"));
+        }
     }
 
     #[test]

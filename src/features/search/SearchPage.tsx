@@ -10,9 +10,11 @@
  *  - Controller-navigable: query field → provider chips → result links → add button.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AuraButton, AuraField, AuraCard } from "@aura/react";
+import { isDownloadProvider } from "./downloads";
 import {
   listProviders,
   addProvider,
@@ -198,6 +200,7 @@ function ProviderChip({
         title={provider.enabled ? "Disable provider" : "Enable provider"}
       >
         {provider.enabled ? "✓ " : ""}
+        {isDownloadProvider(provider) ? "⬇ " : ""}
         {provider.name}
       </button>
       <button
@@ -235,13 +238,21 @@ function ProviderChip({
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export function SearchPage() {
+  // A "Find downloads for this title" jump (e.g. from the game detail page)
+  // arrives with the title pre-filled in navigation state; we run it once the
+  // providers have loaded.
+  const location = useLocation();
+  const initialQuery = (
+    (location.state as { query?: string } | null)?.query ?? ""
+  ).trim();
   const [providers, setProviders] = useState<SearchProvider[]>([]);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [running, setRunning] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>({ open: false });
   const queryRef = useRef<HTMLInputElement>(null);
+  const didAutoRun = useRef(false);
 
   // Load providers on mount.
   useEffect(() => {
@@ -271,6 +282,15 @@ export function SearchPage() {
       setRunning(false);
     }
   }, [query, providers]);
+
+  // Auto-run a search that arrived pre-filled via navigation state ("Find
+  // downloads for this title"), once providers have loaded so enabled ones
+  // contribute. Runs at most once per mount.
+  useEffect(() => {
+    if (didAutoRun.current || !initialQuery || providers.length === 0) return;
+    didAutoRun.current = true;
+    void handleSearch();
+  }, [providers, initialQuery, handleSearch]);
 
   // Keyboard: Enter in query field runs search.
   function handleQueryKey(e: React.KeyboardEvent) {
@@ -330,6 +350,11 @@ export function SearchPage() {
     >
       {/* Header */}
       <h1 style={{ margin: 0, fontSize: 22 }}>Search</h1>
+      <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+        Find games and info across your providers. Results are{" "}
+        <strong>links only</strong> — Harmony opens them in your browser and never
+        downloads files for you. <span aria-hidden>⬇</span> marks download sources.
+      </p>
 
       {/* Query + run */}
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

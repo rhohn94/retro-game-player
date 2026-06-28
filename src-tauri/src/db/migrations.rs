@@ -31,6 +31,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: include_str!("migrations/003_seed_search_providers.sql"),
     },
+    Migration {
+        version: 4,
+        sql: include_str!("migrations/004_search_provider_kind.sql"),
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -134,6 +138,15 @@ mod tests {
             .query_row("SELECT count(*) FROM search_providers", [], |r| r.get(0))
             .unwrap();
         assert!(n >= 4, "expected built-in providers to be seeded, got {n}");
+        // v0.11: at least one download-kind provider is seeded (links only).
+        let downloads: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM search_providers WHERE kind = 'download'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(downloads >= 2, "expected seeded download providers, got {downloads}");
         // Idempotent: re-running must not duplicate them.
         run(&mut conn).expect("re-migrate");
         let n2: i64 = conn

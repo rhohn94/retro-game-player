@@ -30,6 +30,9 @@ pub struct SearchProvider {
     #[serde(rename = "urlTemplate")]
     pub url_template: String,
     pub enabled: bool,
+    /// `"reference"` (metadata/info) or `"download"` (links to legal homes for
+    /// downloadable content). The UI groups + labels providers by this.
+    pub kind: String,
 }
 
 /// A single search result — a constructed link only (mirrors TS `SearchResult`).
@@ -52,6 +55,7 @@ fn to_ipc(p: crate::db::repo::search_providers::SearchProvider) -> SearchProvide
         name: p.name,
         url_template: p.url_template,
         enabled: p.enabled,
+        kind: p.kind,
     }
 }
 
@@ -78,6 +82,9 @@ pub fn add_provider(
         name,
         url_template,
         enabled: true,
+        // User-added providers are reference-kind by default; the seeded
+        // download providers are the curated legal sources (migration 004).
+        kind: "reference".to_string(),
     })?;
     repo.get(id).map(to_ipc)
 }

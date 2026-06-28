@@ -19,6 +19,8 @@ pub struct SearchProvider {
     /// substitution time). Example: `https://duckduckgo.com/?q={query}`.
     pub url_template: String,
     pub enabled: bool,
+    /// Provider category: `"reference"` or `"download"` (v0.11).
+    pub kind: String,
 }
 
 /// A single search result — a constructed link for the UI to open in the

@@ -20,6 +20,12 @@ export interface SearchProvider {
   /** URL template containing the `{query}` placeholder. */
   urlTemplate: string;
   enabled: boolean;
+  /**
+   * Category: `"reference"` (metadata/info sites) or `"download"` (links to
+   * legal homes for downloadable content). Drives grouping/labeling in the UI.
+   * Older rows without the column read as `"reference"`.
+   */
+  kind: string;
 }
 
 /**
