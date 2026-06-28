@@ -23,3 +23,22 @@
 .cores-row:hover {
   background: var(--aura-surface-3) !important;
 }
+
+/* Catalog browse/search box (v0.7). Token-driven like the library filter. */
+.cores-search {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: var(--aura-space-4);
+  padding: var(--aura-space-2) var(--harmony-space-2-5);
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-border);
+  background: var(--aura-surface-2);
+  color: var(--aura-on-surface);
+  font: inherit;
+  transition: border-color var(--harmony-dur-fast) var(--harmony-ease-out);
+}
+.cores-search:focus-visible {
+  outline: var(--harmony-focus-ring);
+  outline-offset: var(--harmony-focus-ring-offset);
+  border-color: var(--aura-primary);
+}
