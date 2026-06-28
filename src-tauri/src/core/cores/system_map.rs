@@ -17,20 +17,43 @@ struct SystemEntry {
 }
 
 /// The curated map. Adding a system or core is a one-line edit here — no other
-/// module hard-codes core ids.
+/// module hard-codes core ids. Ordered by console generation (gen 1–6 home
+/// consoles, v0.10). Every core id below is a real `<core>_libretro.dylib` the
+/// libretro buildbot ships for `apple/osx/arm64`, so each pair downloads. The
+/// first id in each list is the recommended default.
+///
+/// Coverage notes: Gen 1 dedicated/Pong consoles have no cartridge-ROM
+/// emulation path and are omitted; the original Xbox has no libretro core and is
+/// omitted. CD-based systems are listed here (their cores are installable) even
+/// though `core/library/mapper.rs` cannot auto-scan their shared container
+/// formats by extension.
 const SYSTEM_CORES: &[SystemEntry] = &[
-    SystemEntry {
-        system: "nes",
-        cores: &["mesen", "fceumm", "nestopia", "quicknes"],
-    },
-    SystemEntry {
-        system: "snes",
-        cores: &["snes9x", "bsnes", "snes9x2010"],
-    },
-    SystemEntry {
-        system: "n64",
-        cores: &["mupen64plus_next", "parallel_n64"],
-    },
+    // Gen 3–5 originals (v0.1).
+    SystemEntry { system: "nes", cores: &["mesen", "fceumm", "nestopia", "quicknes"] },
+    SystemEntry { system: "snes", cores: &["snes9x", "bsnes", "snes9x2010"] },
+    SystemEntry { system: "n64", cores: &["mupen64plus_next", "parallel_n64"] },
+    // Gen 2.
+    SystemEntry { system: "atari2600", cores: &["stella", "stella2014"] },
+    SystemEntry { system: "atari5200", cores: &["a5200", "atari800"] },
+    SystemEntry { system: "atari7800", cores: &["prosystem"] },
+    SystemEntry { system: "intellivision", cores: &["freeintv"] },
+    SystemEntry { system: "colecovision", cores: &["gearcoleco", "bluemsx"] },
+    SystemEntry { system: "odyssey2", cores: &["o2em"] },
+    // Gen 3.
+    SystemEntry { system: "mastersystem", cores: &["genesis_plus_gx", "smsplus", "gearsystem"] },
+    // Gen 4.
+    SystemEntry { system: "genesis", cores: &["genesis_plus_gx", "picodrive"] },
+    SystemEntry { system: "pcengine", cores: &["mednafen_pce", "mednafen_pce_fast", "geargrafx"] },
+    SystemEntry { system: "neogeo", cores: &["fbneo", "fbalpha2012_neogeo", "neocd"] },
+    // Gen 5.
+    SystemEntry { system: "ps1", cores: &["pcsx_rearmed", "swanstation", "mednafen_psx_hw"] },
+    SystemEntry { system: "saturn", cores: &["mednafen_saturn", "yabasanshiro", "yabause"] },
+    SystemEntry { system: "3do", cores: &["opera"] },
+    SystemEntry { system: "jaguar", cores: &["virtualjaguar"] },
+    // Gen 6.
+    SystemEntry { system: "dreamcast", cores: &["flycast"] },
+    SystemEntry { system: "ps2", cores: &["play"] },
+    SystemEntry { system: "gamecube", cores: &["dolphin"] },
 ];
 
 /// The buildbot core ids offered for `system`, or [`AppError::Unsupported`] if
@@ -141,10 +164,51 @@ mod tests {
     #[test]
     fn available_all_lists_every_pair() {
         let all = available(None).unwrap();
-        assert_eq!(all.len(), 9); // nes 4 + snes 3 + n64 2
+        assert_eq!(all.len(), 40); // 20 systems, gen 1–6 home consoles (v0.10)
         assert!(all.contains(&("nes", "mesen")));
         assert!(all.contains(&("nes", "quicknes")));
         assert!(all.contains(&("n64", "parallel_n64")));
+        assert!(all.contains(&("genesis", "genesis_plus_gx")));
+        assert!(all.contains(&("ps1", "pcsx_rearmed")));
+        assert!(all.contains(&("dreamcast", "flycast")));
+    }
+
+    #[test]
+    fn catalog_covers_gen_1_through_6_home_consoles() {
+        // Every expected gen 2–6 home console is curated with ≥1 core, and the
+        // recommended (first) core is the expected default.
+        for (system, recommended) in [
+            ("atari2600", "stella"),
+            ("atari5200", "a5200"),
+            ("atari7800", "prosystem"),
+            ("intellivision", "freeintv"),
+            ("colecovision", "gearcoleco"),
+            ("odyssey2", "o2em"),
+            ("mastersystem", "genesis_plus_gx"),
+            ("genesis", "genesis_plus_gx"),
+            ("pcengine", "mednafen_pce"),
+            ("neogeo", "fbneo"),
+            ("ps1", "pcsx_rearmed"),
+            ("saturn", "mednafen_saturn"),
+            ("3do", "opera"),
+            ("jaguar", "virtualjaguar"),
+            ("dreamcast", "flycast"),
+            ("ps2", "play"),
+            ("gamecube", "dolphin"),
+        ] {
+            let cores = cores_for(system)
+                .unwrap_or_else(|_| panic!("system '{system}' missing from catalog"));
+            assert!(!cores.is_empty(), "system '{system}' has no cores");
+            assert_eq!(cores[0], recommended, "wrong default core for '{system}'");
+        }
+    }
+
+    #[test]
+    fn catalog_has_twenty_systems() {
+        let mut systems: Vec<&str> = SYSTEM_CORES.iter().map(|e| e.system).collect();
+        systems.sort_unstable();
+        systems.dedup();
+        assert_eq!(systems.len(), 20, "expected 20 distinct gen 1–6 systems");
     }
 
     #[test]

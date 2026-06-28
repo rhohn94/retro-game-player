@@ -47,6 +47,16 @@ export const MOCK_FIXTURES = {
     { id: 8, system: "snes", coreId: "snes9x2010", installedPath: null, version: null, lastModified: null, active: false, available: true },
     { id: 5, system: "n64", coreId: "mupen64plus_next", installedPath: null, version: null, lastModified: null, active: false, available: true },
     { id: 9, system: "n64", coreId: "parallel_n64", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    // Gen 2–6 home consoles (v0.10 broadened catalog) — a representative slice.
+    { id: 10, system: "atari2600", coreId: "stella", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 11, system: "mastersystem", coreId: "genesis_plus_gx", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 12, system: "genesis", coreId: "genesis_plus_gx", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 13, system: "pcengine", coreId: "mednafen_pce", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 14, system: "neogeo", coreId: "fbneo", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 15, system: "ps1", coreId: "pcsx_rearmed", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 16, system: "saturn", coreId: "mednafen_saturn", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 17, system: "dreamcast", coreId: "flycast", installedPath: null, version: null, lastModified: null, active: false, available: true },
+    { id: 18, system: "gamecube", coreId: "dolphin", installedPath: null, version: null, lastModified: null, active: false, available: true },
   ],
   list_installed_cores: [
     { id: 1, system: "nes", coreId: "mesen", installedPath: "/cores/mesen_libretro.dylib", version: "1.0", lastModified: NOW, active: true, available: true },
