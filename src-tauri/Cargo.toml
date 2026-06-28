@@ -1,6 +1,6 @@
 [package]
 name = "harmony"
-version = "0.7.0"
+version = "0.8.0"
 description = "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher."
 authors = ["Harmony"]
 edition = "2021"

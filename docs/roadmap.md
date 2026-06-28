@@ -195,6 +195,24 @@ Ticket [#5](https://github.com/rhohn94/harmony/issues/5) · Plan:
 
 ---
 
+## v0.8 — Confirm
+
+**Theme:** A UX follow-up to a user-reported bug. The "Create a games folder"
+flow used to close silently on success; since a fresh folder is empty, the
+Library stayed empty and it looked like nothing happened.
+
+- The dialog now shows a **"✓ Games folder ready"** confirmation with the created
+  path and a **Reveal in Finder** button (`revealItemInDir`, already covered by
+  `opener:default`); the library/settings views still refresh.
+
+Plan: [`release-planning-v0.8.md`](release-planning-v0.8.md).
+
+**Backlog (filed, not started):** searching for game downloads
+([#6](https://github.com/rhohn94/harmony/issues/6)) and expanding the console
+list to gens 1–6 ([#7](https://github.com/rhohn94/harmony/issues/7)).
+
+---
+
 ## Backlog
 
 Deferred until after the GUI-and-cores program (v0.2–v0.7):

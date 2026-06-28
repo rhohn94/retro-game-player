@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
 import {
@@ -37,12 +38,16 @@ export function CreateGamesFolderDialog({
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The absolute path once creation succeeds — drives the success confirmation.
+  const [createdPath, setCreatedPath] = useState<string | null>(null);
 
-  // Pre-fill the suggested default path each time the dialog opens.
+  // Pre-fill the suggested default path each time the dialog opens, and reset
+  // any prior success/error state so a reopen starts on the form.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setError(null);
+    setCreatedPath(null);
     suggestGamesDir()
       .then((p) => {
         if (!cancelled) setPath(p);
@@ -68,13 +73,24 @@ export function CreateGamesFolderDialog({
         if (!(isAppError(e) && e.kind === "conflict")) throw e;
       }
       await rescan();
-      onCreated(created);
-      onClose();
+      onCreated(created); // refresh the caller's view (library / settings)
+      // Stay open and confirm success instead of closing silently — a fresh
+      // folder is empty, so without this it looks like nothing happened.
+      setCreatedPath(created);
     } catch (e: unknown) {
       const detail = isAppError(e) ? e.detail : String(e);
       setError(detail);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleReveal() {
+    if (!createdPath) return;
+    try {
+      await revealItemInDir(createdPath);
+    } catch {
+      /* best-effort; non-fatal if the reveal fails */
     }
   }
 
@@ -91,44 +107,84 @@ export function CreateGamesFolderDialog({
         animate={dialogPop.animate}
         onKeyDown={(e) => {
           if (e.key === "Escape") onClose();
-          if (e.key === "Enter" && !busy) void handleConfirm();
+          if (e.key === "Enter" && createdPath) onClose();
+          else if (e.key === "Enter" && !busy) void handleConfirm();
         }}
         style={{ display: "flex", flexDirection: "column", gap: 16, padding: 4 }}
       >
-        <h3 style={{ margin: 0, fontSize: 16 }}>Create a games folder</h3>
-        <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-          Harmony will create this folder (if it doesn’t exist) and start watching
-          it for games. Existing files are never touched.
-        </p>
+        {createdPath ? (
+          // ── Success: confirm the folder was created + offer to reveal it ──
+          <>
+            <h3 style={{ margin: 0, fontSize: 16 }}>✓ Games folder ready</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+              Created and now watching this folder for games. It’s empty for now —
+              drop ROMs in and rescan, or reveal it in Finder to add some.
+            </p>
+            <code
+              style={{
+                fontFamily: "monospace",
+                fontSize: 13,
+                background: "var(--aura-surface-raised)",
+                padding: "var(--aura-space-2) var(--harmony-space-2-5)",
+                borderRadius: "var(--aura-radius-sm)",
+                wordBreak: "break-all",
+                color: "var(--aura-on-surface)",
+              }}
+            >
+              {createdPath}
+            </code>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <AuraButton variant="secondary" onClick={() => void handleReveal()}>
+                Reveal in Finder
+              </AuraButton>
+              <AuraButton variant="primary" onClick={onClose}>
+                Done
+              </AuraButton>
+            </div>
+          </>
+        ) : (
+          // ── Form: confirm/edit the location before any write ──
+          <>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Create a games folder</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+              Harmony will create this folder (if it doesn’t exist) and start
+              watching it for games. Existing files are never touched.
+            </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-            Location
-          </label>
-          <AuraField
-            name="games-dir-path"
-            type="text"
-            value={path}
-            placeholder="~/Games"
-            events={{
-              "aura-field:input": (e) =>
-                setPath((e as CustomEvent<{ value: string }>).detail.value),
-            }}
-          />
-        </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+                Location
+              </label>
+              <AuraField
+                name="games-dir-path"
+                type="text"
+                value={path}
+                placeholder="~/Games"
+                events={{
+                  "aura-field:input": (e) =>
+                    setPath((e as CustomEvent<{ value: string }>).detail.value),
+                }}
+              />
+            </div>
 
-        {error && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-error)" }}>{error}</p>
+            {error && (
+              <p style={{ margin: 0, fontSize: 12, color: "var(--aura-error)" }}>{error}</p>
+            )}
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <AuraButton variant="ghost" disabled={busy} onClick={onClose}>
+                Cancel
+              </AuraButton>
+              <AuraButton
+                variant="primary"
+                disabled={busy}
+                onClick={() => void handleConfirm()}
+              >
+                {busy ? "Creating…" : "Create folder"}
+              </AuraButton>
+            </div>
+          </>
         )}
-
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <AuraButton variant="ghost" disabled={busy} onClick={onClose}>
-            Cancel
-          </AuraButton>
-          <AuraButton variant="primary" disabled={busy} onClick={() => void handleConfirm()}>
-            {busy ? "Creating…" : "Create folder"}
-          </AuraButton>
-        </div>
       </motion.div>
     </AuraDialog>
   );
