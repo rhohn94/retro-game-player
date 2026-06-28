@@ -1,0 +1,45 @@
+/*
+ * Harmony motion tokens (v0.4 "Motion") — the CSS half of the single motion
+ * source. The Framer-Motion half lives in src/lib/motion.ts; the duration/easing
+ * NUMBERS are mirrored between the two (Framer transitions are JS numbers, not
+ * CSS vars). Keep them in sync — see design-language.md §3.5.
+ *
+ * Tokens forward Aura's motion primitives (vendor/aura/css/tokens.css
+ * --aura-dur-* / --aura-ease-*) so a future Aura re-tune flows through, and any
+ * CSS transition in Harmony references a token rather than a literal ms value.
+ *
+ * Declared in the harmony-theme cascade layer (after Aura's barrel) like the
+ * rest of the Harmony theme.
+ */
+
+@layer harmony-theme {
+  :root {
+    /* durations — mirror DUR in src/lib/motion.ts */
+    --harmony-dur-fast: var(--aura-dur-fast); /* 120ms */
+    --harmony-dur-base: var(--aura-dur-base); /* 200ms */
+    --harmony-dur-slow: var(--aura-dur-slow); /* 360ms */
+    --harmony-dur-spinner: 700ms; /* core install spinner sweep */
+
+    /* easings — mirror EASE in src/lib/motion.ts */
+    --harmony-ease-out: var(--aura-ease-out); /* decelerate / settle */
+    --harmony-ease-standard: var(--aura-ease-standard); /* measured in/out */
+    --harmony-ease-spring: var(--aura-ease-spring); /* overshoot */
+  }
+
+  /*
+   * Central reduced-motion honouring for the CSS side. The Framer side is
+   * handled in one place by <MotionConfig reducedMotion="user"> (App.tsx).
+   * Together these are the single source of reduced-motion truth — individual
+   * components no longer need their own media query.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

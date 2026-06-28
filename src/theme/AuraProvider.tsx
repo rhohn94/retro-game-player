@@ -14,6 +14,7 @@
 // elements are registered before React mounts.
 import "@aura/css/aura.css";
 import "./aura-theme.css";
+import "./motion.css";
 
 import {
   createContext,

@@ -7,7 +7,9 @@
  * Design: harmony-ux-design.md §5, file-search-design.md §UI (W17).
  */
 import { useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
+import { dialogPop } from "../../lib/motion";
 import type { SearchProvider } from "../../ipc/search";
 
 export interface ProviderFormData {
@@ -92,8 +94,10 @@ export function ProviderDialog({
         "--aura-dialog-width": "420px",
       } as React.CSSProperties}
     >
-      <div
+      <motion.div
         onKeyDown={handleKeyDown}
+        initial={dialogPop.initial}
+        animate={dialogPop.animate}
         style={{ display: "flex", flexDirection: "column", gap: 16, padding: 4 }}
       >
         <h3 style={{ margin: 0, fontSize: 16 }}>{title}</h3>
@@ -144,7 +148,7 @@ export function ProviderDialog({
             Save
           </AuraButton>
         </div>
-      </div>
+      </motion.div>
     </AuraDialog>
   );
 }

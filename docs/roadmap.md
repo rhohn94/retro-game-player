@@ -114,15 +114,32 @@ Ticket [#1](https://github.com/rhohn94/harmony/issues/1) · Plan:
 
 ---
 
-## v0.4 – v0.7 — GUI & emulator cores (provisional)
+## v0.4 — Motion
 
-**Theme:** With a consistent token-driven UI, complete the experience and the
-discover → download → configure core lifecycle. Each release is re-planned
+**Theme:** Smooth, fluid animation for every transition and event, on a single
+motion-token source, centrally honouring `prefers-reduced-motion`.
+
+- **Single motion source:** `src/lib/motion.ts` (Framer durations/spring
+  presets/variants) + `src/theme/motion.css` (CSS duration/easing tokens
+  forwarding Aura's primitives). Existing motion refactored onto it; no raw
+  spring/duration literals remain in components.
+- **Gaps closed:** route crossfade (`AnimatePresence` keyed by pathname), library
+  grid stagger, provider-dialog pop, sidebar-nav / tab / result-row transitions.
+- **Reduced motion** honoured in two places only — `<MotionConfig
+  reducedMotion="user">` + the global CSS media query — guarded by
+  `scripts/motion.test.mjs`.
+
+Ticket [#2](https://github.com/rhohn94/harmony/issues/2) · Plan:
+[`release-planning-v0.4.md`](release-planning-v0.4.md).
+
+---
+
+## v0.5 – v0.7 — GUI & emulator cores (provisional)
+
+**Theme:** With a consistent, fluid token-driven UI, complete the experience and
+the discover → download → configure core lifecycle. Each release is re-planned
 against the working app.
 
-- **v0.4 — Fluid motion:** smooth, fluid animation for every transition and
-  event (route/page transitions, list entrance/reorder, micro-interactions),
-  honouring `prefers-reduced-motion`. Ticket [#2](https://github.com/rhohn94/harmony/issues/2).
 - **v0.5 — Games directory:** let Harmony offer to create a games directory for
   the user (empty-state convenience, user-confirmed location, wired into the
   scan plumbing). Ticket [#3](https://github.com/rhohn94/harmony/issues/3).

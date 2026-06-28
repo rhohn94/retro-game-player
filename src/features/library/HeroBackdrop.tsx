@@ -8,6 +8,7 @@
 // backdrop CROSSFADES in (Framer Motion opacity), honouring prefers-reduced-motion.
 
 import { AnimatePresence, motion } from "framer-motion";
+import { DUR } from "../../lib/motion";
 import { useEffect, useState } from "react";
 import { getBlurredHero } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
@@ -53,7 +54,7 @@ export function HeroBackdrop({ game }: { game: Game | null }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={{ duration: DUR.entrance }}
           />
         )}
       </AnimatePresence>

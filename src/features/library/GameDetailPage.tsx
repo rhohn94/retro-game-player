@@ -10,6 +10,7 @@
 
 import { AuraButton, AuraCard } from "@aura/react";
 import { motion } from "framer-motion";
+import { SPRING } from "../../lib/motion";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchBoxart, getGame, launchGame } from "../../ipc/commands";
@@ -114,7 +115,7 @@ export function GameDetailPage() {
         className="harmony-detail__content"
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 26 }}
+        transition={SPRING.gentle}
       >
         <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
           ◀ Back

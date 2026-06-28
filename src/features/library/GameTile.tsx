@@ -7,7 +7,9 @@
 // onto the tile reports up so the parent can update the hero (harmony §1).
 
 import { AuraCard } from "@aura/react";
+import { motion } from "framer-motion";
 import type { Game } from "../../ipc/commands";
+import { listItem } from "../../lib/motion";
 import { useBoxart } from "./useBoxart";
 
 export interface GameTileProps {
@@ -23,7 +25,8 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
   const art = useBoxart(game, false);
 
   return (
-    <button
+    <motion.button
+      variants={listItem}
       type="button"
       className="harmony-tile"
       onFocus={() => onFocusGame(game)}
@@ -39,6 +42,6 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
         )}
         <span className="harmony-tile__title">{game.cleanName}</span>
       </AuraCard>
-    </button>
+    </motion.button>
   );
 }

@@ -120,6 +120,10 @@
     color: var(--aura-on-surface);
     cursor: pointer;
     font: inherit;
+    transition:
+      background var(--harmony-dur-fast) var(--harmony-ease-out),
+      color var(--harmony-dur-fast) var(--harmony-ease-out),
+      border-color var(--harmony-dur-fast) var(--harmony-ease-out);
   }
   .harmony-tab--active {
     background: var(--aura-primary);
@@ -147,7 +151,7 @@
     gap: var(--aura-space-2);
     padding: var(--aura-space-2);
     border-radius: var(--aura-radius-md);
-    transition: transform 120ms ease;
+    transition: transform var(--harmony-dur-fast) var(--harmony-ease-out);
   }
   .harmony-tile:hover .harmony-tile__card,
   .harmony-tile:focus-visible .harmony-tile__card {
@@ -181,6 +185,9 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
+
+  /* The hover lift uses the shared fast/out motion token; reduced-motion is
+     honoured centrally by the global media query in theme/motion.css. */
 
   /* ---- detail page ---- */
   .harmony-detail {
@@ -259,12 +266,5 @@
   .harmony-detail__row-value {
     flex: 1;
     overflow-wrap: anywhere;
-  }
-
-  /* Collapse springs/fades for reduced-motion users (motion conventions §0). */
-  @media (prefers-reduced-motion: reduce) {
-    .harmony-tile__card {
-      transition: none;
-    }
   }
 }

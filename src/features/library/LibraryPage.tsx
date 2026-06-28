@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { launchGame, listGames } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { listContainer, riseIn } from "../../lib/motion";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { GameTile } from "./GameTile";
 import { useBoxart } from "./useBoxart";
@@ -34,9 +35,9 @@ function HeroTeaser({ game }: { game: Game | null }) {
   return (
     <motion.div
       key={game.id}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
+      initial={riseIn.initial}
+      animate={riseIn.animate}
+      transition={riseIn.transition}
     >
       <AuraCard class="harmony-hero">
         <div className="harmony-hero__cover">
@@ -129,7 +130,12 @@ export function LibraryPage() {
           </p>
         )}
 
-        <div className="harmony-grid">
+        <motion.div
+          className="harmony-grid"
+          variants={listContainer}
+          initial="hidden"
+          animate="visible"
+        >
           {visible.map((game) => (
             <GameTile
               key={game.id}
@@ -138,7 +144,7 @@ export function LibraryPage() {
               onOpen={(g) => navigate(`/game/${g.id}`)}
             />
           ))}
-        </div>
+        </motion.div>
       </div>
     </div>
   );

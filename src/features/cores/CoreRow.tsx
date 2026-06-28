@@ -7,6 +7,7 @@
 
 import { motion } from "framer-motion";
 import { AuraButton, AuraCard } from "@aura/react";
+import { SPRING } from "../../lib/motion";
 import type { Core } from "../../ipc/commands";
 import type { CoreAction, CoreError } from "./useCores";
 
@@ -83,7 +84,7 @@ function Spinner() {
         border: "2px solid var(--aura-primary-a40)",
         borderTopColor: "var(--aura-primary)",
         borderRadius: "50%",
-        animation: "cores-spin 0.7s linear infinite",
+        animation: "cores-spin var(--harmony-dur-spinner) linear infinite",
         verticalAlign: "middle",
         marginLeft: 6,
       }}
@@ -112,7 +113,7 @@ export function CoreRow({
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 320, damping: 28 }}
+      transition={SPRING.snappy}
     >
       <AuraCard
         class="cores-row"
@@ -214,7 +215,7 @@ export function CoreRow({
         <motion.div
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "spring", stiffness: 340, damping: 26 }}
+          transition={SPRING.snappy}
           role="alert"
           style={{
             marginBottom: 8,

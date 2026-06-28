@@ -24,18 +24,7 @@ import type { SearchProvider, SearchResult } from "../../ipc/search";
 import { isAppError } from "../../ipc/commands";
 import { ProviderDialog } from "./ProviderDialog";
 import type { ProviderFormData } from "./ProviderDialog";
-
-// ── Motion variants ──────────────────────────────────────────────────────────
-
-const fadeStagger = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.05 } },
-};
-
-const resultItem = {
-  hidden: { opacity: 0, y: 6 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.18 } },
-};
+import { listContainer, listItem } from "../../lib/motion";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -104,7 +93,7 @@ function ResultRow({ result }: { result: SearchResult }) {
 
   return (
     <motion.li
-      variants={resultItem}
+      variants={listItem}
       style={{ listStyle: "none", margin: 0, padding: 0 }}
     >
       <button
@@ -122,7 +111,7 @@ function ResultRow({ result }: { result: SearchResult }) {
           color: "var(--aura-on-surface)",
           textAlign: "left",
           fontSize: 14,
-          transition: "background 0.12s",
+          transition: "background var(--harmony-dur-fast) var(--harmony-ease-out)",
         }}
         onMouseEnter={(e) =>
           ((e.currentTarget as HTMLButtonElement).style.background =
@@ -440,7 +429,7 @@ export function SearchPage() {
                   </h3>
                   <AnimatePresence>
                     <motion.ul
-                      variants={fadeStagger}
+                      variants={listContainer}
                       initial="hidden"
                       animate="visible"
                       style={{ listStyle: "none", margin: 0, padding: "0 4px 8px" }}

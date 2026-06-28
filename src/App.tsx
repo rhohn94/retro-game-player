@@ -9,10 +9,12 @@
 // (titleBarStyle "Overlay" + hiddenTitle, D2 §1/§5) can be dragged. Interactive
 // children must NOT inherit the drag region — keep controls off the strip.
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AuraApp } from "@aura/react";
 import { isAppError, ping } from "./ipc/commands";
 import { HARMONY_ROUTES } from "./routes";
+import { pageTransition } from "./lib/motion";
 import { ControllerProvider, HintBar } from "./features/controller";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
@@ -89,6 +91,8 @@ function Sidebar() {
               ? "var(--aura-on-primary)"
               : "var(--aura-on-surface)",
             background: isActive ? "var(--aura-primary)" : "transparent",
+            transition:
+              "background var(--harmony-dur-fast) var(--harmony-ease-out), color var(--harmony-dur-fast) var(--harmony-ease-out)",
           })}
         >
           {r.navLabel}
@@ -101,6 +105,36 @@ function Sidebar() {
   );
 }
 
+/**
+ * The routed content area, animated. Each route is keyed by pathname so
+ * AnimatePresence (mode="wait") fades the outgoing screen out before the
+ * incoming one fades in — a quiet crossfade that gives navigation continuity
+ * without getting in the user's way. `Routes` is given the same `location` so it
+ * keeps rendering the outgoing element through its exit animation.
+ */
+function RoutedOutlet() {
+  const location = useLocation();
+  return (
+    <div style={{ flex: 1, position: "relative" }}>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={location.pathname}
+          style={{ height: "100%" }}
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+        >
+          <Routes location={location}>
+            {HARMONY_ROUTES.map((r) => (
+              <Route key={r.path} path={r.path} element={r.element} />
+            ))}
+          </Routes>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function App() {
   return (
     // AuraApp is the app-shell archetype root; it paints transparent so vibrancy
@@ -110,7 +144,11 @@ function App() {
     // is navigable by controller alone (W14). The persistent HintBar footer
     // shows the focused context's button hints; screens supply their own hints
     // via a nested <HintBar> when they need richer context.
+    // MotionConfig reducedMotion="user" makes every Framer animation in the app
+    // honour the OS "reduce motion" setting from one place (the CSS side is
+    // handled by the media query in theme/motion.css).
     <ControllerProvider>
+      <MotionConfig reducedMotion="user">
       <AuraApp className="harmony-shell" style={{ display: "block", minHeight: "100vh" }}>
         <div
           data-tauri-drag-region
@@ -136,13 +174,7 @@ function App() {
               flexDirection: "column",
             }}
           >
-            <div style={{ flex: 1 }}>
-              <Routes>
-                {HARMONY_ROUTES.map((r) => (
-                  <Route key={r.path} path={r.path} element={r.element} />
-                ))}
-              </Routes>
-            </div>
+            <RoutedOutlet />
             <HintBar
               hints={[
                 { action: "confirm", label: "Select" },
@@ -153,6 +185,7 @@ function App() {
           </main>
         </div>
       </AuraApp>
+      </MotionConfig>
     </ControllerProvider>
   );
 }

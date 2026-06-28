@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { SPRING } from "../../lib/motion";
 import { SystemList } from "./SystemList";
 import { CoreRow } from "./CoreRow";
 import { useCores } from "./useCores";
@@ -137,7 +138,7 @@ export function CoresPage() {
                   initial={{ opacity: 0, x: 8 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -4 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 26 }}
+                  transition={SPRING.responsive}
                 >
                   {cores.length === 0 ? (
                     <div

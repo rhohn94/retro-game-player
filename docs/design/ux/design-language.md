@@ -196,6 +196,38 @@ values get a `--harmony-*` token. No `var(--aura-*, <literal>)` colour fallbacks
 remain — every token resolves to a declared value. The
 `scripts/token-adoption.test.mjs` guard enforces both invariants.
 
+### 3.5 Motion (v0.4 "Motion")
+
+Animation has a **single source split across two files** because Framer Motion
+transitions are plain JS numbers (they cannot read CSS custom properties at
+runtime):
+
+- **`src/lib/motion.ts`** — the JS half. Exports durations (`DUR`), easings
+  (`EASE_OUT`/`EASE_STANDARD`), named spring presets (`SPRING.gentle` →
+  `.responsive` → `.snappy`), and shared variants (`pageTransition`,
+  `listContainer`/`listItem`, `riseIn`, `dialogPop`). Components import these
+  instead of hard-coding `stiffness`/`damping`/`duration` literals.
+- **`src/theme/motion.css`** — the CSS half. `--harmony-dur-*` / `--harmony-ease-*`
+  forward Aura's `--aura-dur-*` / `--aura-ease-*` primitives for CSS transitions,
+  and it carries the **global `prefers-reduced-motion` rule**.
+
+The duration/easing **numbers are mirrored** between the two files — keep them in
+sync.
+
+**Where motion lives.** Route changes crossfade (`AnimatePresence` `mode="wait"`
+keyed by `location.pathname` in `App.tsx`); the library grid staggers in
+(`listContainer` + `listItem` on `GameTile`); the hero, game-detail, cores
+column, and core rows use the spring presets; the provider dialog pops in
+(`dialogPop`); sidebar-nav, library tabs, and result rows transition on the fast
+token.
+
+**Reduced motion is honoured in exactly two places** — `<MotionConfig
+reducedMotion="user">` wrapping the app (all Framer animation) and the global
+media query in `motion.css` (all CSS transitions). Individual components no
+longer carry their own reduced-motion media query. `scripts/motion.test.mjs`
+guards that no raw spring/duration literal leaks outside `lib/motion.ts` and that
+both reduced-motion hooks stay in place.
+
 ---
 
 ## 4. Anti-FOUC strategy
