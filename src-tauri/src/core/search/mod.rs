@@ -7,7 +7,11 @@
 //! links so the UI can preview them; its parsing core (`extract_links`) is pure
 //! and tested without a network. Persistence is handled by
 //! `db::repo::search_providers` (W3).
+//!
+//! `liveness` (v0.19) adds an optional, opt-in `HEAD`-only probe that classifies
+//! a previewed link as alive / dead / unknown — a probe, not a download.
 
 pub mod fetch;
+pub mod liveness;
 pub mod provider;
 pub mod template;

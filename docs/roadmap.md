@@ -328,6 +328,34 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.19 — Reach
+
+**Theme:** Ship the two deferred differentiators and broaden where search
+reaches. v0.16–v0.18 made one provider's results browsable and relevant; v0.19
+merges the same game across providers, lets the user check whether a link is
+still alive, and seeds more legal, scrape-compatible sources — the no-download
+contract untouched.
+
+- **Cross-provider dedupe → game-first view:** a Group **By game** toggle merges
+  the same title found across providers into one row with an "available from N
+  providers" expander, so you pick the source. Provider-first grouping stays the
+  default.
+- **Link liveness (opt-in):** a "Check links" toggle HEAD-probes each previewed
+  link (a probe, not a download) and marks it alive / dead / unknown with a
+  colored dot — bounded by a URL cap, short timeout, and capped concurrency, off
+  by default.
+- **Broader provider reach:** seven vetted, server-rendered providers added
+  (Steam, PDRoms, Demozoo, Pouët, Lemon Amiga, Zophar's Domain, ROMhacking.net);
+  JS-only storefronts that a static fetch can't scrape were excluded.
+- **Contract honesty:** the "legal sources only" wording is corrected to reflect
+  that the seeded set has spanned general ROM sites since v0.12 — Harmony links
+  out and never downloads; legality of any link is the user's responsibility.
+
+Design: [`download-browsing-ux-design.md`](design/download-browsing-ux-design.md) §8 ·
+Plan: [`release-planning-v0.19.md`](release-planning-v0.19.md).
+
+---
+
 ## v0.18 — Focus
 
 **Theme:** Make results *relevant*. v0.16/v0.17 preview and browse what a
