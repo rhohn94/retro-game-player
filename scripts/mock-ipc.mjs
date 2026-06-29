@@ -72,6 +72,14 @@ export const MOCK_FIXTURES = {
     // Download-oriented, links-only legal sources (v0.11 migration 004).
     { id: 5, name: "Internet Archive", urlTemplate: "https://archive.org/search?query={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
     { id: 6, name: "itch.io", urlTemplate: "https://itch.io/search?q={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    // v0.19 "Reach" — vetted legal, server-rendered providers (migration 009).
+    { id: 7, name: "Steam", urlTemplate: "https://store.steampowered.com/search/?term={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    { id: 8, name: "PDRoms", urlTemplate: "https://www.pdroms.de/?s={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    { id: 9, name: "Demozoo", urlTemplate: "https://demozoo.org/productions/?q={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    { id: 10, name: "Pouet", urlTemplate: "https://www.pouet.net/prodlist.php?prod={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    { id: 11, name: "Lemon Amiga", urlTemplate: "https://www.lemonamiga.com/games/list.php?list_title={query}", enabled: true, kind: "reference", directDownload: false, composeFilters: false },
+    { id: 12, name: "Zophar's Domain", urlTemplate: "https://www.zophar.net/music/search?search={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
+    { id: 13, name: "ROMhacking.net", urlTemplate: "https://www.romhacking.net/hacks/?title={query}", enabled: true, kind: "download", directDownload: false, composeFilters: false },
   ],
   // v0.16 preview shape: one ProviderResults group per provider, with scraped
   // items, the searchUrl fallback, and an optional per-provider error.
@@ -93,6 +101,19 @@ export const MOCK_FIXTURES = {
       error: null,
     },
     {
+      providerId: 8,
+      providerName: "PDRoms",
+      searchUrl: "https://www.pdroms.de/?s=mario",
+      directDownload: false,
+      items: [
+        // Overlaps Internet Archive's "Super Mario Bros. 3 …" → same normalized
+        // key, so the game-first view merges them into one "2 providers" row.
+        { title: "Super Mario Bros 3 (Europe)", url: "https://www.pdroms.de/smb3-eur" },
+        { title: "Mario Builder (Homebrew)", url: "https://www.pdroms.de/homebrew-mario" },
+      ],
+      error: null,
+    },
+    {
       providerId: 6,
       providerName: "itch.io",
       searchUrl: "https://itch.io/search?q=mario",
@@ -100,6 +121,18 @@ export const MOCK_FIXTURES = {
       items: [],
       error: "network error: provider returned status 503",
     },
+  ],
+
+  // v0.19 liveness probe (src/ipc/search.ts probeLinks). The mock ignores the
+  // url args and returns a representative mix so the status dots render.
+  probe_links: [
+    { url: "https://archive.org/details/smb-usa", state: "alive" },
+    { url: "https://archive.org/details/smw-world", state: "alive" },
+    { url: "https://archive.org/details/smb3-usa-reva", state: "alive" },
+    { url: "https://archive.org/details/smb2-jp", state: "dead" },
+    { url: "https://archive.org/details/dkc-usa", state: "unknown" },
+    { url: "https://www.pdroms.de/smb3-eur", state: "alive" },
+    { url: "https://www.pdroms.de/homebrew-mario", state: "unknown" },
   ],
 
   // --- Controller (src/ipc/controllers.ts) ---

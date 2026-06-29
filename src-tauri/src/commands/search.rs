@@ -18,7 +18,7 @@
 
 use tauri::State;
 
-use crate::core::search::{fetch, provider as provider_core, template};
+use crate::core::search::{fetch, liveness, provider as provider_core, template};
 use crate::db::{
     repo::{
         search_providers::{NewSearchProvider, SearchProvidersRepo},
@@ -281,6 +281,16 @@ pub fn run_search(
             .collect()
     });
     Ok(groups)
+}
+
+/// Probe previewed links for liveness (v0.19 "Reach"). OPT-IN: the frontend only
+/// calls this when the user enables the "Check links" toggle. Each URL gets a
+/// cheap `HEAD` request classified as alive / dead / unknown — a probe, not a
+/// content download (it reads headers only). Bounded by a URL cap, a short
+/// timeout, and capped concurrency in `core::search::liveness`.
+#[tauri::command]
+pub fn probe_links(urls: Vec<String>) -> AppResult<Vec<liveness::LinkStatus>> {
+    Ok(liveness::probe_links(&urls))
 }
 
 #[cfg(test)]

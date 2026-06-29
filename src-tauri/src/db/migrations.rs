@@ -51,6 +51,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 8,
         sql: include_str!("migrations/008_search_provider_compose_filters.sql"),
     },
+    Migration {
+        version: 9,
+        sql: include_str!("migrations/009_seed_legal_search_providers.sql"),
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -199,6 +203,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(bad, 0, "download providers must be https {{query}} links");
+    }
+
+    #[test]
+    fn legal_v019_providers_are_seeded_as_https_query_links() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        // v0.19 "Reach": the vetted legal/server-rendered providers are present,
+        // every one a links-only https {query} template (the no-download contract).
+        for name in [
+            "Steam",
+            "PDRoms",
+            "Demozoo",
+            "Pouet",
+            "Lemon Amiga",
+            "Zophar's Domain",
+            "ROMhacking.net",
+        ] {
+            let tmpl: String = conn
+                .query_row(
+                    "SELECT url_template FROM search_providers WHERE name = ?1",
+                    [name],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| panic!("provider {name} should be seeded"));
+            assert!(
+                tmpl.starts_with("https://") && tmpl.contains("{query}"),
+                "{name} must be an https {{query}} link, got {tmpl}"
+            );
+        }
     }
 
     #[test]

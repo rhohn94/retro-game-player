@@ -53,6 +53,19 @@ export interface SearchResultItem {
 }
 
 /**
+ * A link's liveness verdict (v0.19). `alive` = the host answered success/
+ * redirect; `dead` = a definitive 404/410; `unknown` = blocked, errored, or
+ * indeterminate (never claimed dead on a maybe). Mirrors the Rust `LinkState`.
+ */
+export type LinkState = "alive" | "dead" | "unknown";
+
+/** One probed URL paired with its liveness verdict. Mirrors Rust `LinkStatus`. */
+export interface LinkStatus {
+  url: string;
+  state: LinkState;
+}
+
+/**
  * The previewed results for one provider. `searchUrl` is the provider's
  * constructed search-page link (always present, so the UI can offer "open the
  * full results page" even when scraping is empty or fails). `items` are the
@@ -118,6 +131,17 @@ export function updateProvider(args: {
 /** Remove a search provider by id. */
 export function removeProvider(args: { id: number }): Promise<void> {
   return invoke<void>("remove_provider", { id: args.id });
+}
+
+/**
+ * Probe previewed links for liveness (v0.19). OPT-IN — call only when the user
+ * enables the "Check links" toggle. Each URL is checked with a cheap `HEAD`
+ * request (a probe, **not** a content download) and classified alive / dead /
+ * unknown. The backend bounds the work (URL cap, short timeout, capped
+ * concurrency); URLs beyond the cap are simply not probed.
+ */
+export function probeLinks(urls: string[]): Promise<LinkStatus[]> {
+  return invoke<LinkStatus[]>("probe_links", { urls });
 }
 
 /**

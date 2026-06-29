@@ -13,8 +13,16 @@ grouped per provider. This doc covers how those grouped results are **browsed**.
 
 - Harmony **never downloads content**. Every result is a link the user opens in
   the system browser via `tauri-plugin-opener`.
-- **Legal sources only**; the app links out, it does not host or fetch content
-  for the user.
+- **Links out, never hosts or fetches content for the user.** The app only
+  constructs a `{query}` link and opens the user's chosen result in their own
+  browser. Providers vary in what they host — the seeded set spans licensed
+  storefronts (Steam), public-domain / homebrew and demoscene repositories
+  (PDRoms, Demozoo, Pouët), preservation libraries (Internet Archive), reference
+  databases, *and* general ROM sites. Harmony curates a default set and the user
+  adds or removes any provider; the legality of any given link is the user's
+  responsibility, not a guarantee the app makes. (Earlier drafts of this doc
+  asserted "legal sources only"; that overclaimed — the seeded set has included
+  general ROM sites since v0.12, so the wording is corrected here in v0.19.)
 - The only per-result data we have is what we scrape: **anchor text (title) +
   absolute URL**. Some listings additionally expose a size / date / file-type
   string; most do not. No seeders, no quality profiles, no first-party metadata.
@@ -175,3 +183,67 @@ that opted in; everyone else still searches on the bare game name.
 This keeps the no-download contract intact (still only fetching provider
 search-results HTML) and the scrape source-agnostic (W180 filters, it does not
 add per-site parsers).
+
+## 8. Differentiators & reach (v0.19 "Reach")
+
+v0.16–v0.18 made one provider's results browsable and relevant. v0.19 ships the
+two deferred differentiators (§5) — cross-provider dedupe and link liveness —
+and broadens the reach of providers, all without touching the no-download
+contract.
+
+### 8.1 Cross-provider dedupe → game-first view (W192/W194)
+
+The same game often appears across several providers. A pure module
+`resultDedup.ts` collapses them:
+
+- **`normalizeTitle`** reduces a scraped title to a canonical key —
+  lowercased, with bracketed region/format/quality groups `(USA) [!] (Rev A)`
+  and any trailing file extension stripped, punctuation collapsed. Conservative:
+  it never drops words, so two genuinely different titles cannot merge.
+- **`dedupeAcrossProviders`** merges items sharing a key into one
+  `MergedResult` carrying every provider **source** (same URL listed twice never
+  double-counts; an empty-normalized title falls back to a per-URL key so nothing
+  is silently dropped).
+
+A **Group: By provider | By game** toggle (provider-first stays the default)
+switches `SearchPage` between the existing collapsible groups and a flat
+game-first list. Each merged row shows the title, the Match/region badges, and an
+**"N providers"** pill that expands to the per-provider sources — NZBHydra's
+"available from N providers", inverted toward user intent. Filter, relevance
+ranking, hide-weak, and multi-select all apply to the merged view (a merged row's
+checkbox selects its representative source).
+
+### 8.2 Link liveness — opt-in HEAD probe (W191/W193/W194)
+
+A previewed 404 is the worst browsing outcome, so v0.19 adds an **opt-in**
+liveness check. A backend `probe_links` command (`core::search::liveness`) issues
+a cheap **`HEAD`** request per URL — a probe, **not** a content download (headers
+only) — and classifies it:
+
+- `alive` (2xx/3xx), `dead` (only a definitive 404/410), `unknown` (an anti-bot
+  403, a 429, a method-rejected 405, a 5xx, or any transport error — never
+  claimed dead on a maybe).
+
+It is bounded by a hard URL cap (64), a short timeout (6 s), and capped
+concurrency (8) processed in sequential batches — a courtesy to the probed hosts
+that satisfies §6's "probe, not a fetch; per-host rate limit; off by default".
+The UI exposes a **Check links** toggle (off by default); when on, each row shows
+a small alive/dead/unknown dot, and a merged row aggregates its sources (alive if
+any source is reachable, dead only if all probed sources are dead). The pure
+display mapping lives in `linkStatus.ts`.
+
+### 8.3 Broader provider reach + contract honesty (W190)
+
+Migration 009 seeds seven additional vetted providers whose **server-rendered**
+search pages work with the static scrape (JS-only storefronts like GOG/GameJolt
+were excluded — a static fetch returns placeholders, not links): **Steam**
+(licensed storefront), **PDRoms** (homebrew/public-domain), **Demozoo** + **Pouët**
+(demoscene), **Lemon Amiga** (reference), **Zophar's Domain** (music rips), and
+**ROMhacking.net** (patches/translations).
+
+This release also corrects the doc/UI **"legal sources only"** overclaim (§1):
+the seeded set has included general ROM sites since v0.12, so the contract is
+restated honestly — Harmony links out and never downloads, providers vary in what
+they host, and the legality of any given link is the user's responsibility. The
+manual **Add provider** path remains the way to add any source not seeded by
+default.
