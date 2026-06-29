@@ -41,6 +41,14 @@ export interface ControllerContextValue {
   family: DeviceFamily;
   /** Register screen-level handlers for non-focus actions (back/menu/quit). */
   setActionHandlers: (handlers: ActionHandlers) => void;
+  /**
+   * Install an exclusive handler that receives EVERY semantic action and
+   * bypasses spatial nav + screen handlers entirely (pass `null` to release).
+   * Used by a modal/immersive surface (e.g. the in-page player overlay) that
+   * needs to own the controller while it is active — the gamepad belongs to the
+   * game, and the menu/overlay, not the page behind it.
+   */
+  setExclusiveHandler: (handler: ((action: SemanticAction) => void) | null) => void;
 }
 
 export const ControllerContext = createContext<ControllerContextValue | null>(null);
@@ -65,6 +73,7 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   const entriesRef = useRef<Map<string, FocusEntry>>(new Map());
   const focusedRef = useRef<string | null>(null);
   const handlersRef = useRef<ActionHandlers>({});
+  const exclusiveRef = useRef<((action: SemanticAction) => void) | null>(null);
   focusedRef.current = focusedId;
 
   const setFocus = useCallback((id: string | null) => setFocusedId(id), []);
@@ -84,6 +93,13 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
     handlersRef.current = h;
   }, []);
 
+  const setExclusiveHandler = useCallback(
+    (h: ((action: SemanticAction) => void) | null) => {
+      exclusiveRef.current = h;
+    },
+    [],
+  );
+
   // Load persisted binding overrides once (best-effort; defaults work without them).
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +116,11 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleAction = useCallback((action: SemanticAction) => {
+    // An exclusive owner (modal/immersive surface) swallows every action.
+    if (exclusiveRef.current) {
+      exclusiveRef.current(action);
+      return;
+    }
     const dir = navDirection(action);
     if (dir) {
       const next = nextFocus(readTargets(entriesRef.current), focusedRef.current, dir);
@@ -118,8 +139,8 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   useGamepadPoll({ onAction: handleAction, overrides, onFamilyChange: setFamily });
 
   const value = useMemo<ControllerContextValue>(
-    () => ({ focusedId, setFocus, register, family, setActionHandlers }),
-    [focusedId, setFocus, register, family, setActionHandlers],
+    () => ({ focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler }),
+    [focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler],
   );
 
   return <ControllerContext.Provider value={value}>{children}</ControllerContext.Provider>;

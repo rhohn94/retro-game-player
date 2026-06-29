@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the bundle's Info.plist by Tauri at build time. -->
+<plist version="1.0">
+  <dict>
+    <!-- v0.15: the in-page WASM player embeds an http://127.0.0.1 iframe (the
+         loopback EmulatorJS host). App Transport Security blocks cleartext HTTP
+         by default; NSAllowsLocalNetworking permits loopback/.local/link-local
+         loads only, without weakening ATS for any real network host. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsLocalNetworking</key>
+      <true/>
+    </dict>
+  </dict>
+</plist>

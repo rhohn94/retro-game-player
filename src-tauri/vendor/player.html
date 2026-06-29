@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harmony — In-page play</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      /* EmulatorJS mounts its UI into #game and fills it. */
+      #game {
+        width: 100%;
+        height: 100%;
+      }
+      /* A faint diagnostic, shown until EmulatorJS paints over the frame — also
+         stays visible if a core fails to load, so the running origin and core
+         are verifiable in the real app. */
+      #diag {
+        position: absolute;
+        left: 8px;
+        bottom: 6px;
+        z-index: 2;
+        font: 11px -apple-system, system-ui, sans-serif;
+        color: #5f5;
+        opacity: 0.55;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="diag"></div>
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var core = q.get("core") || "nes";
+        var game = q.get("game") || "";
+        var name = q.get("name") || "Game";
+        document.getElementById("diag").textContent =
+          "origin " + location.origin + " · core " + core;
+
+        // Load the single minified production bundle (emulator.min.js, built
+        // locally from src/ via scripts/build-ejs-bundle.mjs). This is the fast
+        // path: one request instead of loader.js's debug path, which loads
+        // ~580 KB of src/ scripts sequentially one-at-a-time.
+        window.EJS_player = "#game";
+        window.EJS_core = core;
+        window.EJS_pathtodata = "/emulatorjs/";
+        // Use the bundled WebGL2 core (e.g. fceumm-wasm.data). EmulatorJS otherwise
+        // defaults NES to the *legacy* core (fceumm-legacy-wasm.data), which we
+        // don't bundle — it would be fetched from the public CDN on every boot
+        // (slow, and breaks offline play). WKWebView supports WebGL2, so the
+        // non-legacy core renders fine and loads instantly from the loopback origin.
+        window.EJS_defaultOptions = { webgl2Enabled: "enabled" };
+        // notWithPath=true for the game download (emulator.js), so this relative
+        // URL resolves directly against this same loopback origin.
+        window.EJS_gameUrl = "/rom/" + game;
+        window.EJS_gameName = name;
+        window.EJS_startOnLoaded = true;
+
+        var s = document.createElement("script");
+        s.src = "/emulatorjs/loader.js";
+        document.body.appendChild(s);
+
+        // Bridge for the Harmony in-game overlay (v0.15). The parent asks us to
+        // pause/resume the emulator while its overlay is open (so the gamepad
+        // doesn't drive the game behind the menu); we forward the in-iframe
+        // Escape key up so the parent can open the overlay even while the game
+        // holds keyboard focus.
+        window.addEventListener("message", function (e) {
+          var t = e.data && e.data.type;
+          if (!t || !window.EJS_emulator) return;
+          if (t === "harmony-pause" && typeof EJS_emulator.pause === "function") {
+            EJS_emulator.pause();
+          } else if (t === "harmony-resume" && typeof EJS_emulator.play === "function") {
+            EJS_emulator.play();
+          }
+        });
+        window.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            window.parent.postMessage({ type: "harmony-overlay-toggle" }, "*");
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -379,4 +379,119 @@
   .harmony-detail__wiki:hover {
     text-decoration: underline;
   }
+
+  /* ---- in-page WASM player (v0.15) — an <iframe> on the loopback play origin ---- */
+  .harmony-player {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-2);
+    margin-bottom: var(--aura-space-4);
+  }
+  .harmony-player__frame {
+    width: 100%;
+    max-width: 760px;
+    aspect-ratio: 4 / 3;
+    border: 0;
+    background: black;
+    border-radius: var(--aura-radius-md);
+    overflow: hidden;
+    /* #7: the frame fades in as the game boots (seamless start). */
+    animation: harmony-player-in var(--harmony-dur-slow, 0.4s) var(--harmony-ease-out);
+  }
+  @keyframes harmony-player-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .harmony-player__bar {
+    display: flex;
+    gap: var(--aura-space-2);
+  }
+  /* Player chrome controls (Full screen / Menu) — chip styling like the tabs. */
+  .harmony-player__fs {
+    padding: var(--harmony-chip-pad);
+    border-radius: var(--aura-radius-full);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface);
+    cursor: pointer;
+    font: inherit;
+  }
+  .harmony-player__fs:focus-visible {
+    outline: var(--harmony-focus-ring);
+    outline-offset: var(--harmony-focus-ring-offset);
+  }
+
+  /* #6: immersive mode — the player fills the viewport over the app chrome
+     (paired with a Tauri window-fullscreen), so the overlay can sit above it. */
+  .harmony-player--immersive {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    margin: 0;
+    background: black;
+  }
+  .harmony-player--immersive .harmony-player__frame {
+    max-width: none;
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+
+  /* #6: in-game overlay (Resume / Full screen / Exit) over the running game. */
+  .harmony-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--aura-surface) 72%, transparent);
+  }
+  .harmony-overlay__panel {
+    min-width: 280px;
+    padding: var(--aura-space-5) var(--aura-space-6);
+    border-radius: var(--aura-radius-lg);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-panel-alpha, var(--aura-surface-raised));
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-4);
+  }
+  .harmony-overlay__title {
+    margin: 0;
+    font-size: var(--harmony-font-detail-title, 22px);
+  }
+  .harmony-overlay__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-2);
+  }
+  .harmony-overlay__btn {
+    padding: var(--aura-space-3) var(--aura-space-4);
+    border-radius: var(--aura-radius-md);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface);
+    cursor: pointer;
+    font: inherit;
+    font-size: 16px;
+    text-align: left;
+    transition: background var(--harmony-dur-fast) var(--harmony-ease-out);
+  }
+  .harmony-overlay__btn--active,
+  .harmony-overlay__btn:hover {
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    border-color: var(--aura-primary);
+  }
+  .harmony-overlay__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--aura-on-surface-muted);
+  }
 }

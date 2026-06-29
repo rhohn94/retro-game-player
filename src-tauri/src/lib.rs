@@ -7,6 +7,7 @@ pub mod config;
 pub mod core; // domain logic (cores/library/launch/metadata/search/vibrancy/familiar) — Tauri-free
 pub mod db; // W3 — SQLite persistence (handle, migrations, repos)
 pub mod fleet; // W11 — Fleet/Ensign: identity, manifest, status server
+pub mod play; // v0.15 — in-page WASM play: loopback EmulatorJS host server
 pub mod error;
 pub mod telemetry;
 
@@ -24,8 +25,15 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     telemetry::record_run_start(&paths, env!("CARGO_PKG_VERSION"))?;
 
     // --- W3: database (path comes from W4's resolver — reconciliation seam) ---
-    let database = db::Db::open(&paths.db_file()?)?;
+    let db_path = paths.db_file()?;
+    let database = db::Db::open(&db_path)?;
     app.manage(database);
+
+    // --- v0.15: loopback EmulatorJS host server for in-page WASM play. Best-
+    // effort (bind failure degrades to the native launch); serves ROMs via its
+    // own read-only connection to the same db file, so it never contends for the
+    // managed Db handle. ---
+    app.manage(play::start(db_path));
 
     // --- W11: Fleet/Ensign identity, manifest, localhost status server ---
     // (borrows `paths` before W10 moves it into managed state below).

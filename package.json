@@ -1,9 +1,9 @@
 {
   "name": "harmony",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
-  "description": "Harmony \u2014 a Mac-native (Apple Silicon) emulator frontend / launcher.",
+  "description": "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -16,6 +16,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@emulatorjs/emulatorjs": "^4.2.3",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
