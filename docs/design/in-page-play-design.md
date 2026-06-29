@@ -100,9 +100,19 @@ summon a Harmony overlay (Resume / Full screen / Exit).
 ## 5. Licensing
 
 EmulatorJS is **GPL-3.0**. The vendored runtime + the NES core are bundled into
-the app, so the distribution carries a `NOTICE`/`LICENSE` for EmulatorJS (added at
-release). Harmony ships **no game content** — `/rom/<id>` only serves files the
-user imported into their own library.
+the app, so the distribution carries attribution for EmulatorJS. Harmony ships
+**no game content** — `/rom/<id>` only serves files the user imported into their
+own library.
+
+**Done (release attribution):** the bundled components — EmulatorJS (GPL-3.0),
+the fceumm NES core (GPL-2.0-or-later), nipplejs (MIT), and libunrar.js
+(UnRAR license) — are documented in
+[`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md) at the repo root, with
+the verbatim GPL-3.0 text in [`licenses/GPL-3.0.txt`](../../licenses/GPL-3.0.txt)
+and a written-offer pointer to corresponding source. The README links to the
+notices. Two items are flagged there as open questions for the maintainer:
+Harmony's own combined-work license (GPL copyleft over the single binary) and the
+UnRAR license's GPL-incompatibility.
 
 ## Verification
 

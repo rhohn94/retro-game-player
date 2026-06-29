@@ -20,6 +20,7 @@ contain any emulation code of its own.
 - [Setup and first use](#setup-and-first-use)
 - [Feature overview](#feature-overview)
 - [Distribution](#distribution)
+- [License and attribution](#license-and-attribution)
 - [Developer workflow](#developer-workflow)
 - [Docs index](#docs-index)
 
@@ -225,6 +226,17 @@ sandboxing.
 
 GitHub Releases are cut from the `main` branch after the integration master
 merges and tags a version. See [docs/version-design.md](docs/version-design.md).
+
+---
+
+## License and attribution
+
+Harmony's in-page player bundles **EmulatorJS** (GPL-3.0) and the **fceumm**
+NES core into the distributable. Bundled third-party software, its licenses, and
+pointers to corresponding source are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the full GPL-3.0 text is in
+[licenses/GPL-3.0.txt](licenses/GPL-3.0.txt). Harmony's own code has no declared
+license yet (see the open question in the notices file).
 
 ---
 
