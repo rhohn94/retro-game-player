@@ -257,21 +257,21 @@ fn write_all(path: &Path, bytes: &[u8]) -> AppResult<()> {
 mod tests {
     use super::*;
 
-    fn temp_paths() -> Paths {
-        let tmp = std::env::temp_dir().join(format!(
-            "harmony-install-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        Paths::with_root(tmp.join("com.harmony.app")).expect("paths")
+    /// A sandboxed [`Paths`] rooted in a fresh, uniquely-named temp dir. Returns
+    /// the owning [`tempfile::TempDir`] alongside it: the caller must keep it
+    /// alive for the test's duration (it deletes its tree on drop). Using
+    /// `TempDir` instead of a `pid+nanos` path avoids two parallel-run hazards —
+    /// non-unique nanosecond timestamps colliding across threads, and the old
+    /// manual `remove_dir_all(parent)` cleanup yanking a sibling test's dir.
+    fn temp_paths() -> (tempfile::TempDir, Paths) {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let paths = Paths::with_root(tmp.path().join("com.harmony.app")).expect("paths");
+        (tmp, paths)
     }
 
     #[test]
     fn dylib_dest_lives_under_cores_system_dir() {
-        let paths = temp_paths();
+        let (_tmp, paths) = temp_paths();
         let dest = dylib_dest(&paths, "nes", "mesen").unwrap();
         assert!(dest.ends_with("cores/nes/mesen_libretro.dylib"));
     }
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn install_rejects_uncurated_pair_before_any_network() {
         let db = Db::open_in_memory().unwrap();
-        let paths = temp_paths();
+        let (_tmp, paths) = temp_paths();
         // 'atari800' is not curated for nes → fails on the map check, no fetch.
         assert!(matches!(
             install(&db, &paths, "nes", "atari800"),
@@ -342,7 +342,7 @@ mod tests {
             zw.write_all(b"not a mach-o binary").unwrap();
             zw.finish().unwrap();
         }
-        let paths = temp_paths();
+        let (_tmp, paths) = temp_paths();
         let dest = dylib_dest(&paths, "nes", "mesen").unwrap();
         assert!(matches!(
             place_verified_dylib(&buf, "mesen", &dest),
@@ -367,10 +367,11 @@ mod tests {
             zw.write_all(&header).unwrap();
             zw.finish().unwrap();
         }
-        let paths = temp_paths();
+        let (_tmp, paths) = temp_paths();
         let dest = dylib_dest(&paths, "nes", "mesen").unwrap();
         place_verified_dylib(&buf, "mesen", &dest).unwrap();
         assert!(dest.exists());
-        std::fs::remove_dir_all(paths.root().parent().unwrap()).ok();
+        // `_tmp` (TempDir) deletes its tree on drop — no manual cleanup, which
+        // previously deleted a shared parent dir and raced sibling tests.
     }
 }

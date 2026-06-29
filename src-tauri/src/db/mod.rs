@@ -88,10 +88,17 @@ fn app_support_dir() -> AppResult<PathBuf> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| AppError::Io("HOME environment variable not set".to_string()))?;
-    Ok(home
-        .join("Library")
+    Ok(app_support_under(&home))
+}
+
+/// Pure layout helper: the app-support dir for a given home. Split out from
+/// [`app_support_dir`] so tests can exercise the layout against a temp home
+/// without mutating the process-global `HOME` env var (a parallel-test hazard —
+/// any concurrent test resolving a HOME-derived path would observe the change).
+fn app_support_under(home: &Path) -> PathBuf {
+    home.join("Library")
         .join("Application Support")
-        .join(BUNDLE_ID))
+        .join(BUNDLE_ID)
 }
 
 #[cfg(test)]
@@ -124,11 +131,12 @@ mod tests {
 
     #[test]
     fn default_db_path_ends_with_bundle_and_filename() {
-        // Drive HOME to a temp dir so the test never touches the real profile.
-        let tmp = std::env::temp_dir().join("harmony_db_path_test");
-        std::env::set_var("HOME", &tmp);
-        let path = default_db_path().expect("resolve");
+        // Resolve against a temp home via the pure layout helper rather than
+        // mutating the process-global `HOME` (which would race any concurrent
+        // test reading a HOME-derived path). `default_db_path` simply joins
+        // `DB_FILENAME` onto this dir, so the full tail is asserted here.
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let path = app_support_under(tmp.path()).join(DB_FILENAME);
         assert!(path.ends_with("Library/Application Support/com.harmony.app/harmony.db"));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
