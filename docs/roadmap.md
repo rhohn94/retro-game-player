@@ -328,6 +328,33 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.17 — Sift
+
+**Theme:** Make the v0.16 preview *browsable*. Once Harmony shows the candidate
+links each provider surfaced, v0.17 lets the user sift to the one they want —
+fold, filter, sort, badge, and batch-open — all on the already-scraped title +
+URL, with the no-download contract untouched.
+
+- **Collapsible provider groups:** each provider's results fold under a header
+  toggle (chevron + name + count/error badge) with an Expand-all / Collapse-all
+  toolbar; empty and errored groups start collapsed so populated providers lead.
+- **Live result filter:** a fast-filter box instantly narrows visible rows by a
+  case-insensitive substring over title + URL; group counts and the summary
+  reflect the filtered totals.
+- **Sort + persisted preference:** order rows Found (scrape order), Title A→Z, or
+  Title Z→A; the choice persists across searches and restarts.
+- **Multi-select + open in browser:** per-row and per-group checkboxes with a
+  selection footer that opens every chosen link in the system browser (with a
+  confirm above ten tabs) — Harmony still never downloads anything itself.
+- **Title-parsed badges:** compact chips parsed from the anchor text — region
+  (USA/EUR/JPN/…), revision (Rev A / v1.1), dump-quality (`[!]`/`[b]`/…), and
+  file type — modelled on the *arr stack's quality badges.
+
+Design: [`download-browsing-ux-design.md`](design/download-browsing-ux-design.md) ·
+Plan: [`release-planning-v0.17.md`](release-planning-v0.17.md).
+
+---
+
 ## v0.16 — Trove
 
 **Theme:** See what you found before you go get it. Search stops being a bare

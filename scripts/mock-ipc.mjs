@@ -84,6 +84,8 @@ export const MOCK_FIXTURES = {
       items: [
         { title: "Super Mario Bros. (USA)", url: "https://archive.org/details/smb-usa" },
         { title: "Super Mario World (World)", url: "https://archive.org/details/smw-world" },
+        { title: "Super Mario Bros. 3 (USA) (Rev A) [!].zip", url: "https://archive.org/details/smb3-usa-reva" },
+        { title: "Super Mario Bros. 2 (Japan) [b]", url: "https://archive.org/details/smb2-jp" },
       ],
       error: null,
     },
