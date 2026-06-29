@@ -112,6 +112,10 @@ export const MOCK_FIXTURES = {
   fetch_boxart: null,
   enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3" },
   import_games: [],
+  // v0.15 in-page play — empty origin means "play server unavailable", so the
+  // headless/mocked detail route renders the native Play button (no iframe to a
+  // loopback origin that doesn't exist under the smoke harness).
+  get_play_origin: "",
   get_blurred_hero: null,
 };
 

@@ -19,6 +19,7 @@ pub mod familiar; // W12
 // pub mod settings;    // W4/W15
 pub mod controllers; // W14
 pub mod console; // v0.12 — console catalog (browse + detail + bundled titles)
+pub mod play; // v0.15 — in-page WASM emulator ROM delivery
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -79,6 +80,8 @@ macro_rules! register_commands {
             $crate::commands::console::list_consoles,
             $crate::commands::console::get_console,
             $crate::commands::console::list_catalog_titles,
+            // in-page play (v0.15)
+            $crate::commands::play::get_play_origin,
         ])
     };
 }

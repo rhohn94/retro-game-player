@@ -328,6 +328,28 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.15 — Arcade
+
+**Theme:** Play, live and in-page. Second of three grouped releases in the
+8-feature program — a supported game now boots **inside** the Harmony detail
+screen, with sound, as part of the retro vibe.
+
+- **In-page play:** NES titles auto-boot in an embedded EmulatorJS WASM core
+  served from a loopback `http://127.0.0.1` origin (the only reliable way to host
+  EmulatorJS's Worker/WASM pipeline under the `tauri://` scheme); systems without
+  a bundled in-page core fall back to the native external-RetroArch launch.
+- **In-game overlay + immersive mode:** while the player is mounted it owns the
+  controller; the menu/Start button, controller back, or Escape summon a Harmony
+  overlay (Resume / Full screen / Exit) that pauses the game, and "Full screen"
+  enters a window-fullscreen immersive mode the overlay renders over.
+- **Seamless transitions:** the player frame fades in as the game boots and the
+  overlay animates in/out via the shared motion presets.
+
+Design: [`in-page-play-design.md`](design/in-page-play-design.md) ·
+Plan: [`release-planning-v0.15.md`](release-planning-v0.15.md).
+
+---
+
 ## v0.14 — Lounge
 
 **Theme:** The couch / big-picture experience. First of three grouped releases
