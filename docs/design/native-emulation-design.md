@@ -184,15 +184,20 @@ architecture — it keeps serving every other system.
 
 ## Open questions
 
-- **Bundling `fceumm` as a native `.dylib`.** We already bundle the WASM build
-  of fceumm for EmulatorJS; the native libretro build is a separate artifact
-  (same upstream core, different build target). Sourcing/build process for the
-  native `.dylib` (vendored prebuilt vs. built from source in CI) needs a
-  decision before W-items are sized.
 - **Combined-work license question** (already open, not created by this
   feature): bundling a GPL-2.0-or-later core natively doesn't change the
   existing unresolved question of Harmony's own declared license — flagged
   here so it isn't reopened as if new.
+
+**Resolved while sizing the release plan:** sourcing the native `.dylib` is
+**not** new work — `core/cores/install.rs` ([core-discovery-design.md](core-discovery-design.md),
+v0.7 "Forge") already downloads, arch-verifies (arm64-only), and persists the
+native libretro `fceumm` core for the existing external-RetroArch launch path
+(`system_map.rs` lists `fceumm` under `nes`). The native hosting layer reuses
+`CoresRepo`'s `installed_path` for an installed `(nes, fceumm)` row — same
+artifact, same install flow, no new bundling/build pipeline. If the core isn't
+installed yet, the existing Cores UI install flow covers it; the native player
+should surface that prompt rather than auto-installing silently.
 
 ## Follow-ups
 
