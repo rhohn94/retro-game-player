@@ -193,7 +193,7 @@ zero results) — nothing scope-trimmed under that rule.
 |---|---|---|---|---|
 | `feat/w210-ffi-core-lifecycle` (W210) | ☑ | ☑ | ☐ | ☑ |
 | `feat/w211-callback-wiring` (W211) | ☑ | ☑ | ☐ | ☑ |
-| `feat/w212-runtime-cpal-audio` (W212) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w212-runtime-cpal-audio` (W212) | ☑ | ☑ | ☐ | ☑ |
 | `feat/w213-core-path-resolution` (W213) | ☑ | ☐ | ☐ | ☐ |
 
 ### Pass 2 — UI wiring (parallel once Pass 1 merges)
@@ -207,4 +207,15 @@ zero results) — nothing scope-trimmed under that rule.
 
 ### Follow-ups discovered during implementation
 
-(Empty at start; populated by release-phase-merge as branches land.)
+- **W212 real-device audio check still pending.** No installed `fceumm`
+  `.dylib` or `.nes` ROM exists in this dev environment, so the
+  stop-and-reassess "is native audio actually clean?" question (the whole
+  reason for #15) has not yet been empirically answered — only the
+  ring-buffer logic is unit-tested. A `#[ignore]`d manual test
+  (`play::native::runtime::manual::manual_play_produces_audible_output`,
+  gated on `HARMONY_MANUAL_AUDIO_CORE`/`HARMONY_MANUAL_AUDIO_ROM` env vars)
+  is the mechanism to run this check once real assets are available — by the
+  user, or in a later session with a legally-owned ROM and an installed core.
+  Proceeding to Pass 2 on the assumption the implementation is sound, per the
+  user's explicit "lock full scope" decision acknowledging this exact blind
+  spot; this is the first thing to verify before calling v0.21 done.
