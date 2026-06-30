@@ -24,6 +24,7 @@ serde_json = "1"
 thiserror = "2"
 # --- APPEND DOMAIN DEPENDENCIES BELOW THIS LINE ---
 base64 = "0.22"                                            # W10 (blurred-hero data URI)
+cpal = "0.15"                                               # W212 (native libretro core audio output via CoreAudio)
 crc32fast = "1"                                            # W6 (CRC32 ROM hashing)
 dirs = "5"                                                 # W4 (app-support path resolution)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] } # W10 (vibrancy blur)
