@@ -65,6 +65,35 @@ export interface LinkStatus {
   state: LinkState;
 }
 
+/** The result of validating a provider template against a sample query (v0.20).
+ *  Mirrors Rust `ProviderValidation`. */
+export interface ProviderValidation {
+  /** The resolved search URL the sample query was tested against. */
+  searchUrl: string;
+  /** How many scrapeable links the page yielded. */
+  linkCount: number;
+  /** Up to five sample titles, for a quick sanity check. */
+  sampleTitles: string[];
+  /** True when the page looks JavaScript-rendered (static scrape finds nothing). */
+  likelyJsRendered: boolean;
+  /** A fetch/parse failure message, if the test couldn't complete. */
+  error: string | null;
+}
+
+/** One curated-catalog provider (v0.20). Mirrors Rust `CatalogEntry`. */
+export interface CatalogProvider {
+  name: string;
+  urlTemplate: string;
+  kind: string;
+  /** A short media-type tag for filtering (e.g. "Indie & homebrew"). */
+  media: string;
+  description: string;
+  /** True when the provider's search page is JavaScript-rendered. */
+  jsRendered: boolean;
+  /** True when a provider with this name or template is already configured. */
+  added: boolean;
+}
+
 /**
  * The previewed results for one provider. `searchUrl` is the provider's
  * constructed search-page link (always present, so the UI can offer "open the
@@ -95,12 +124,14 @@ export function listProviders(): Promise<SearchProvider[]> {
 export function addProvider(args: {
   name: string;
   urlTemplate: string;
+  kind?: string;
   directDownload?: boolean;
   composeFilters?: boolean;
 }): Promise<SearchProvider> {
   return invoke<SearchProvider>("add_provider", {
     name: args.name,
     urlTemplate: args.urlTemplate,
+    kind: args.kind ?? null,
     directDownload: args.directDownload ?? null,
     composeFilters: args.composeFilters ?? null,
   });
@@ -115,6 +146,7 @@ export function updateProvider(args: {
   name?: string;
   urlTemplate?: string;
   enabled?: boolean;
+  kind?: string;
   directDownload?: boolean;
   composeFilters?: boolean;
 }): Promise<SearchProvider> {
@@ -123,6 +155,7 @@ export function updateProvider(args: {
     name: args.name ?? null,
     urlTemplate: args.urlTemplate ?? null,
     enabled: args.enabled ?? null,
+    kind: args.kind ?? null,
     directDownload: args.directDownload ?? null,
     composeFilters: args.composeFilters ?? null,
   });
@@ -142,6 +175,28 @@ export function removeProvider(args: { id: number }): Promise<void> {
  */
 export function probeLinks(urls: string[]): Promise<LinkStatus[]> {
   return invoke<LinkStatus[]>("probe_links", { urls });
+}
+
+/**
+ * Validate a provider URL template (v0.20 "Test provider"). Substitutes a sample
+ * query, fetches the results page, and reports the scrapeable link count + a few
+ * sample titles + a JS-rendered guess. A fetch failure comes back as
+ * `error`, not a thrown error. Only fetches the public results page — never
+ * downloads content.
+ */
+export function validateProvider(args: {
+  urlTemplate: string;
+  sampleQuery?: string;
+}): Promise<ProviderValidation> {
+  return invoke<ProviderValidation>("validate_provider", {
+    urlTemplate: args.urlTemplate,
+    sampleQuery: args.sampleQuery ?? null,
+  });
+}
+
+/** List the curated provider catalog (v0.20), each flagged `added`. */
+export function listProviderCatalog(): Promise<CatalogProvider[]> {
+  return invoke<CatalogProvider[]>("list_provider_catalog");
 }
 
 /**

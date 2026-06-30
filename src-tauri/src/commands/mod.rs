@@ -67,6 +67,9 @@ macro_rules! register_commands {
             $crate::commands::search::run_search,
             // search liveness probe (v0.19)
             $crate::commands::search::probe_links,
+            // provider discovery (v0.20)
+            $crate::commands::search::validate_provider,
+            $crate::commands::search::list_provider_catalog,
             // vibrancy (W10)
             $crate::commands::vibrancy::get_blurred_hero,
             // fleet (W11)

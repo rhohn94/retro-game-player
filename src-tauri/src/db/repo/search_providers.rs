@@ -154,6 +154,21 @@ impl SearchProvidersRepo<'_> {
         })
     }
 
+    /// Set a provider's `kind` (`"reference"` / `"download"`) (NotFound if absent).
+    /// v0.20: user-added providers can be marked as a download source so they get
+    /// the ⬇ grouping/label.
+    pub fn set_kind(&self, id: i64, kind: &str) -> AppResult<()> {
+        self.db.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE search_providers SET kind = ?1 WHERE id = ?2",
+                    params![kind, id],
+                )
+                .map_err(map_sqlite)?;
+            require_affected(n)
+        })
+    }
+
     /// Set a provider's `direct_download` capability flag (NotFound if absent).
     /// v0.16 scaffolding for a future per-vendor direct-download feature.
     pub fn set_direct_download(&self, id: i64, direct_download: bool) -> AppResult<()> {
@@ -231,6 +246,18 @@ mod tests {
         let repo = SearchProvidersRepo::new(&db);
         let id = repo.add(&provider("My Custom Provider")).unwrap();
         assert_eq!(repo.get(id).unwrap().kind, "reference");
+    }
+
+    #[test]
+    fn kind_can_be_changed_after_creation() {
+        // v0.20: a user-added (default-reference) provider can be promoted to a
+        // download source.
+        let db = Db::open_in_memory().unwrap();
+        let repo = SearchProvidersRepo::new(&db);
+        let id = repo.add(&provider("My Custom Provider")).unwrap();
+        assert_eq!(repo.get(id).unwrap().kind, "reference");
+        repo.set_kind(id, "download").unwrap();
+        assert_eq!(repo.get(id).unwrap().kind, "download");
     }
 
     #[test]

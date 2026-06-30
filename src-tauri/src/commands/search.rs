@@ -18,7 +18,7 @@
 
 use tauri::State;
 
-use crate::core::search::{fetch, liveness, provider as provider_core, template};
+use crate::core::search::{catalog, fetch, liveness, provider as provider_core, template};
 use crate::db::{
     repo::{
         search_providers::{NewSearchProvider, SearchProvidersRepo},
@@ -175,6 +175,7 @@ pub fn list_providers(db: State<'_, Db>) -> AppResult<Vec<SearchProvider>> {
 pub fn add_provider(
     name: String,
     url_template: String,
+    kind: Option<String>,
     direct_download: Option<bool>,
     compose_filters: Option<bool>,
     db: State<'_, Db>,
@@ -185,9 +186,9 @@ pub fn add_provider(
         name,
         url_template,
         enabled: true,
-        // User-added providers are reference-kind by default; the seeded
-        // download providers are the curated legal sources (migration 004).
-        kind: "reference".to_string(),
+        // v0.20: the dialog/catalog can specify kind; default reference when the
+        // caller doesn't (a plain user-added provider).
+        kind: normalize_kind(kind.as_deref()),
         // Direct download is opt-in per vendor; off unless explicitly set.
         direct_download: direct_download.unwrap_or(false),
         // Filter composition is opt-in per vendor (v0.18); off by default.
@@ -196,13 +197,27 @@ pub fn add_provider(
     repo.get(id).map(to_ipc)
 }
 
+/// Normalize an optional caller-supplied `kind` to a known value, defaulting to
+/// `"reference"` (only `"download"` and `"reference"` are valid).
+fn normalize_kind(kind: Option<&str>) -> String {
+    match kind {
+        Some("download") => "download".to_string(),
+        _ => "reference".to_string(),
+    }
+}
+
 /// Update an existing provider's fields (all optional). Returns the updated provider.
+// Tauri commands receive their args positionally from the IPC payload, so the
+// optional-field set is naturally wide; grouping them into a struct would only
+// move the deserialization boilerplate.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn update_provider(
     id: i64,
     name: Option<String>,
     url_template: Option<String>,
     enabled: Option<bool>,
+    kind: Option<String>,
     direct_download: Option<bool>,
     compose_filters: Option<bool>,
     db: State<'_, Db>,
@@ -219,6 +234,9 @@ pub fn update_provider(
     }
     if let Some(e) = enabled {
         repo.set_enabled(id, e)?;
+    }
+    if let Some(k) = kind {
+        repo.set_kind(id, &normalize_kind(Some(&k)))?;
     }
     if let Some(d) = direct_download {
         repo.set_direct_download(id, d)?;
@@ -281,6 +299,94 @@ pub fn run_search(
             .collect()
     });
     Ok(groups)
+}
+
+// ── Provider discovery (v0.20 "Atlas") ────────────────────────────────────────
+
+/// The result of validating a provider's URL template against a sample query.
+#[derive(serde::Serialize)]
+pub struct ProviderValidation {
+    #[serde(rename = "searchUrl")]
+    pub search_url: String,
+    #[serde(rename = "linkCount")]
+    pub link_count: usize,
+    #[serde(rename = "sampleTitles")]
+    pub sample_titles: Vec<String>,
+    #[serde(rename = "likelyJsRendered")]
+    pub likely_js_rendered: bool,
+    pub error: Option<String>,
+}
+
+/// One catalog entry as returned to the UI, with an `added` flag.
+#[derive(serde::Serialize)]
+pub struct CatalogEntry {
+    pub name: String,
+    #[serde(rename = "urlTemplate")]
+    pub url_template: String,
+    pub kind: String,
+    pub media: String,
+    pub description: String,
+    #[serde(rename = "jsRendered")]
+    pub js_rendered: bool,
+    /// True when a provider with this name or template is already configured.
+    pub added: bool,
+}
+
+/// Validate a provider's URL template (v0.20 "Test provider"). Substitutes a
+/// sample query, fetches the resulting search page, and reports how many
+/// scrapeable links it found (with a few sample titles) plus a guess at whether
+/// the page is JavaScript-rendered. A fetch failure is returned as `error`, not
+/// a thrown command error, so the dialog can show it inline. Like `run_search`,
+/// this only fetches the public results page — it never downloads content.
+#[tauri::command]
+pub fn validate_provider(
+    url_template: String,
+    sample_query: Option<String>,
+) -> AppResult<ProviderValidation> {
+    provider_core::validate_template(&url_template)?;
+    let q = sample_query
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "mario".to_string());
+    let search_url = template::substitute(&url_template, &q)?;
+    match fetch::fetch_diagnostics(&search_url) {
+        Ok(diag) => Ok(ProviderValidation {
+            link_count: diag.links.len(),
+            sample_titles: diag.links.into_iter().take(5).map(|r| r.title).collect(),
+            likely_js_rendered: diag.likely_js_rendered,
+            search_url,
+            error: None,
+        }),
+        Err(e) => Ok(ProviderValidation {
+            search_url,
+            link_count: 0,
+            sample_titles: Vec::new(),
+            likely_js_rendered: false,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// List the curated provider catalog (v0.20), each entry flagged `added` when a
+/// provider with the same name or template is already configured.
+#[tauri::command]
+pub fn list_provider_catalog(db: State<'_, Db>) -> AppResult<Vec<CatalogEntry>> {
+    let repo = SearchProvidersRepo::new(db.inner());
+    let existing = repo.list()?;
+    Ok(catalog::all()
+        .iter()
+        .map(|c| CatalogEntry {
+            name: c.name.to_string(),
+            url_template: c.url_template.to_string(),
+            kind: c.kind.to_string(),
+            media: c.media.to_string(),
+            description: c.description.to_string(),
+            js_rendered: c.js_rendered,
+            added: existing
+                .iter()
+                .any(|p| p.name == c.name || p.url_template == c.url_template),
+        })
+        .collect())
 }
 
 /// Probe previewed links for liveness (v0.19 "Reach"). OPT-IN: the frontend only

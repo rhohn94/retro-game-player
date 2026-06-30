@@ -328,6 +328,31 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.20 — Atlas
+
+**Theme:** Make adding a provider first-class. Rather than hand-crafting URL
+templates, the user discovers providers from a curated, searchable catalog and
+adds them in one click — with clear guidance, template auto-detection, and a live
+test for custom ones. The no-download contract is untouched.
+
+- **Browse providers (curated catalog):** a searchable, media-filterable gallery
+  of vetted legitimate sources (storefronts, indie/homebrew & demoscene archives,
+  libraries, reference sites) — one-click add, with JavaScript-rendered sites
+  honestly flagged.
+- **Guided authoring:** the Add-provider dialog gains inline requirement help, a
+  reference/download Type selector, and "Detect from URL" — paste a results URL
+  and it derives the `{query}` template.
+- **Test provider:** a live validator runs a sample query and reports how many
+  links it found (with samples), warning when a site is JavaScript-rendered.
+- **Boundary:** discovery is a curated catalog + detect-from-URL, not an open-web
+  finder for download sites. JS-render support for itch.io/GameJolt is the next
+  release.
+
+Design: [`provider-discovery-design.md`](design/provider-discovery-design.md) ·
+Plan: [`release-planning-v0.20.md`](release-planning-v0.20.md).
+
+---
+
 ## v0.19 — Reach
 
 **Theme:** Ship the two deferred differentiators and broaden where search

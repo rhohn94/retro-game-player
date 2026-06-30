@@ -55,6 +55,36 @@ pub struct ScrapedResult {
 /// is a non-success status — the caller surfaces that per-provider and falls
 /// back to offering the search-page link itself.
 pub fn fetch_results(search_url: &str) -> AppResult<Vec<ScrapedResult>> {
+    let body = fetch_body(search_url)?;
+    Ok(extract_links(&body, search_url))
+}
+
+/// Diagnostics for the provider validator (v0.20): the scraped links plus a
+/// guess at whether the page is JavaScript-rendered (so a static scrape finds
+/// nothing). Returned by `fetch_diagnostics`.
+pub struct FetchDiagnostics {
+    pub links: Vec<ScrapedResult>,
+    pub likely_js_rendered: bool,
+}
+
+/// Fetch `search_url` and return both the scraped links and a JS-rendered guess,
+/// for the "Test provider" validator. Same fetch path + safeguards as
+/// `fetch_results`; `Err` on the same conditions (non-http, request failure,
+/// non-success status).
+pub fn fetch_diagnostics(search_url: &str) -> AppResult<FetchDiagnostics> {
+    let body = fetch_body(search_url)?;
+    let links = extract_links(&body, search_url);
+    let likely_js_rendered = looks_client_rendered(&body, count_anchors(&body));
+    Ok(FetchDiagnostics {
+        links,
+        likely_js_rendered,
+    })
+}
+
+/// Fetch a search page's HTML body over http(s), enforcing the scheme, status,
+/// timeout, and body-size safeguards. Shared by `fetch_results` and
+/// `fetch_diagnostics`.
+fn fetch_body(search_url: &str) -> AppResult<String> {
     // Only ever fetch over http(s); never file://, data:, etc.
     if !is_http_url(search_url) {
         return Err(AppError::Validation(format!(
@@ -80,8 +110,7 @@ pub fn fetch_results(search_url: &str) -> AppResult<Vec<ScrapedResult>> {
         )));
     }
 
-    let body = read_capped(resp)?;
-    Ok(extract_links(&body, search_url))
+    read_capped(resp)
 }
 
 /// Read a response body up to `MAX_BODY_BYTES`, decoding as UTF-8 lossily. The
@@ -212,6 +241,47 @@ fn is_chrome_anchor(title: &str) -> bool {
     CHROME_WORDS.contains(&lower.as_str())
 }
 
+/// Count `<a ` / `<a>` opening tags in raw HTML (case-insensitive). A cheap proxy
+/// for "how many links does the server actually render", used by the JS-rendered
+/// heuristic — independent of `extract_links`' filtering.
+fn count_anchors(html: &str) -> usize {
+    let lower = html.to_ascii_lowercase();
+    lower.match_indices("<a").filter(|(i, _)| {
+        // Require the char after "<a" to be a space, '>' or '/' so "<article>"
+        // etc. don't count as anchors.
+        lower[*i + 2..]
+            .chars()
+            .next()
+            .map(|c| c == ' ' || c == '>' || c == '\t' || c == '\n' || c == '/')
+            .unwrap_or(false)
+    }).count()
+}
+
+/// Markers that a page is a client-rendered single-page app: a near-empty mount
+/// node plus a framework hook. Matched case-insensitively.
+const SPA_MARKERS: &[&str] = &[
+    "id=\"root\"",
+    "id=\"app\"",
+    "id=\"__next\"",
+    "__next_data__",
+    "window.__nuxt__",
+    "data-reactroot",
+    "ng-version",
+    "ng-app",
+];
+
+/// Heuristic: does this HTML look JavaScript-rendered (so a static scrape finds
+/// no real results)? True only when the page renders very few anchors **and**
+/// carries a known SPA shell marker — conservative, so a genuinely empty
+/// results page (few anchors, no SPA marker) is not mislabeled. Pure/testable.
+fn looks_client_rendered(html: &str, anchor_count: usize) -> bool {
+    if anchor_count >= 3 {
+        return false;
+    }
+    let lower = html.to_ascii_lowercase();
+    SPA_MARKERS.iter().any(|m| lower.contains(m))
+}
+
 /// Collapse internal whitespace, trim, and bound the length — anchor text often
 /// carries newlines/tabs and can be arbitrarily long.
 fn normalize_title(s: &str) -> String {
@@ -335,6 +405,32 @@ mod tests {
         assert!(!is_http_url("ftp://example.com"));
         assert!(!is_http_url("file:///etc/passwd"));
         assert!(!is_http_url("not a url"));
+    }
+
+    #[test]
+    fn looks_client_rendered_flags_spa_shells() {
+        // An SPA shell: a near-empty mount node + a framework script, no anchors.
+        let spa = r#"<html><body><div id="root"></div><script src="/app.js"></script></body></html>"#;
+        assert!(looks_client_rendered(spa, count_anchors(spa)));
+        let next = r#"<div id="__next"></div><script>window.__NEXT_DATA__={}</script>"#;
+        assert!(looks_client_rendered(next, count_anchors(next)));
+    }
+
+    #[test]
+    fn looks_client_rendered_is_false_for_server_rendered_pages() {
+        // Several real anchors → server-rendered, even if a marker coincidentally
+        // appears.
+        let html = r#"<div id="app"><a href="/1">A</a><a href="/2">B</a><a href="/3">C</a></div>"#;
+        assert!(!looks_client_rendered(html, count_anchors(html)));
+        // Few anchors but NO SPA marker → a genuinely sparse page, not mislabeled.
+        let sparse = r#"<html><body><p>No results found.</p></body></html>"#;
+        assert!(!looks_client_rendered(sparse, count_anchors(sparse)));
+    }
+
+    #[test]
+    fn count_anchors_counts_only_real_anchors() {
+        let html = r#"<a href="x">1</a><article>not a link</article><a>2</a><address/>"#;
+        assert_eq!(count_anchors(html), 2);
     }
 
     #[test]

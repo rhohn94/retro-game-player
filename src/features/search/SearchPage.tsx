@@ -34,6 +34,7 @@ import type {
 import { isAppError } from "../../ipc/commands";
 import { ProviderDialog } from "./ProviderDialog";
 import type { ProviderFormData } from "./ProviderDialog";
+import { ProviderCatalog } from "./ProviderCatalog";
 import { listContainer, listItem, DUR, EASE_OUT, EASE_STANDARD } from "../../lib/motion";
 import { filterItems } from "./resultFilter";
 import {
@@ -156,7 +157,13 @@ function aggregateState(
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 /** Empty state shown when no providers are configured. */
-function EmptyState({ onAddProvider }: { onAddProvider: () => void }) {
+function EmptyState({
+  onAddProvider,
+  onBrowse,
+}: {
+  onAddProvider: () => void;
+  onBrowse: () => void;
+}) {
   return (
     <AuraCard
       class="harmony-panel"
@@ -198,9 +205,14 @@ function EmptyState({ onAddProvider }: { onAddProvider: () => void }) {
         . Harmony constructs the link and opens it in your browser — it never
         downloads anything automatically.
       </p>
-      <AuraButton variant="primary" onClick={onAddProvider}>
-        + Add Provider
-      </AuraButton>
+      <div style={{ display: "flex", gap: 8 }}>
+        <AuraButton variant="primary" onClick={onBrowse}>
+          ⊞ Browse providers
+        </AuraButton>
+        <AuraButton variant="ghost" onClick={onAddProvider}>
+          + Add your own
+        </AuraButton>
+      </div>
     </AuraCard>
   );
 }
@@ -1024,6 +1036,8 @@ export function SearchPage() {
   const [running, setRunning] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>({ open: false });
+  // Provider discovery (v0.20): the curated "Browse providers" catalog sheet.
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const queryRef = useRef<HTMLInputElement>(null);
   const didAutoRun = useRef(false);
 
@@ -1156,6 +1170,7 @@ export function SearchPage() {
         id: dialog.provider.id,
         name: data.name,
         urlTemplate: data.urlTemplate,
+        kind: data.kind,
         directDownload: data.directDownload,
         composeFilters: data.composeFilters,
       });
@@ -1167,6 +1182,13 @@ export function SearchPage() {
       setProviders((prev) => [...prev, created]);
     }
     setDialog({ open: false });
+  }
+
+  // A provider added from the catalog sheet (v0.20) — append if new.
+  function handleCatalogAdded(created: SearchProvider) {
+    setProviders((prev) =>
+      prev.some((p) => p.id === created.id) ? prev : [...prev, created]
+    );
   }
 
   // Collapse controls for the result groups.
@@ -1336,10 +1358,20 @@ export function SearchPage() {
           >
             + Add
           </AuraButton>
+          <AuraButton
+            variant="ghost"
+            style={{ fontSize: 13, padding: "4px 10px" }}
+            onClick={() => setCatalogOpen(true)}
+          >
+            ⊞ Browse providers
+          </AuraButton>
         </div>
       ) : (
         /* No providers configured → empty state */
-        <EmptyState onAddProvider={() => setDialog({ open: true })} />
+        <EmptyState
+          onAddProvider={() => setDialog({ open: true })}
+          onBrowse={() => setCatalogOpen(true)}
+        />
       )}
 
       {/* Search error */}
@@ -1634,6 +1666,13 @@ export function SearchPage() {
         provider={dialog.provider}
         onSave={handleDialogSave}
         onClose={() => setDialog({ open: false })}
+      />
+
+      {/* Discover & add providers from the curated catalog (v0.20) */}
+      <ProviderCatalog
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        onAdded={handleCatalogAdded}
       />
     </section>
   );

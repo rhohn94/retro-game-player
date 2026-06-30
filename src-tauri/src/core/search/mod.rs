@@ -10,7 +10,11 @@
 //!
 //! `liveness` (v0.19) adds an optional, opt-in `HEAD`-only probe that classifies
 //! a previewed link as alive / dead / unknown — a probe, not a download.
+//!
+//! `catalog` (v0.20) is a curated directory of legitimate providers the user can
+//! discover and add in one click.
 
+pub mod catalog;
 pub mod fetch;
 pub mod liveness;
 pub mod provider;

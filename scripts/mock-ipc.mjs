@@ -123,6 +123,25 @@ export const MOCK_FIXTURES = {
     },
   ],
 
+  // v0.20 provider discovery. list_provider_catalog returns curated entries (a
+  // representative slice); validate_provider returns one sample "good" result.
+  list_provider_catalog: [
+    { name: "itch.io", urlTemplate: "https://itch.io/search?q={query}", kind: "download", media: "Indie & homebrew", description: "The largest independent game storefront.", jsRendered: true, added: true },
+    { name: "GameJolt", urlTemplate: "https://gamejolt.com/search?q={query}", kind: "download", media: "Indie & homebrew", description: "Indie community and storefront with many free titles.", jsRendered: true, added: false },
+    { name: "PDRoms", urlTemplate: "https://www.pdroms.de/?s={query}", kind: "download", media: "Homebrew & public-domain", description: "Curated homebrew and public-domain games.", jsRendered: false, added: true },
+    { name: "Demozoo", urlTemplate: "https://demozoo.org/productions/?q={query}", kind: "download", media: "Demoscene", description: "Demoscene productions database.", jsRendered: false, added: true },
+    { name: "Steam", urlTemplate: "https://store.steampowered.com/search/?term={query}", kind: "download", media: "Storefront", description: "Valve's licensed storefront.", jsRendered: false, added: true },
+    { name: "GOG", urlTemplate: "https://www.gog.com/en/games?query={query}", kind: "download", media: "Storefront", description: "DRM-free storefront strong on retro PC games.", jsRendered: true, added: false },
+    { name: "MobyGames", urlTemplate: "https://www.mobygames.com/search/?q={query}", kind: "reference", media: "Reference", description: "Cross-platform game metadata database.", jsRendered: false, added: true },
+  ],
+  validate_provider: {
+    searchUrl: "https://example.com/search?q=mario",
+    linkCount: 12,
+    sampleTitles: ["Super Mario Bros. (USA)", "Super Mario World", "Mario Kart 64"],
+    likelyJsRendered: false,
+    error: null,
+  },
+
   // v0.19 liveness probe (src/ipc/search.ts probeLinks). The mock ignores the
   // url args and returns a representative mix so the status dots render.
   probe_links: [
