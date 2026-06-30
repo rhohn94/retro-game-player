@@ -1,6 +1,6 @@
 [package]
 name = "harmony"
-version = "0.20.0"
+version = "0.21.0"
 description = "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher."
 authors = ["Harmony"]
 edition = "2021"
@@ -24,10 +24,12 @@ serde_json = "1"
 thiserror = "2"
 # --- APPEND DOMAIN DEPENDENCIES BELOW THIS LINE ---
 base64 = "0.22"                                            # W10 (blurred-hero data URI)
+cpal = "0.15"                                               # W212 (native libretro core audio output via CoreAudio)
 crc32fast = "1"                                            # W6 (CRC32 ROM hashing)
 dirs = "5"                                                 # W4 (app-support path resolution)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] } # W10 (vibrancy blur)
 keyring = { version = "3", features = ["apple-native"] }   # W12 (macOS Keychain for the Familiar key)
+libloading = "0.8"                                         # W210 (dlopen a native libretro core .dylib)
 md-5 = "0.10"                                              # W6 (MD5 ROM hashing)
 percent-encoding = "2"                                     # W8 (CDN URL encoding)
 quick-xml = "0.36"                                         # W6 (No-Intro Logiqx DAT parsing)

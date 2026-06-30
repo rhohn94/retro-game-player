@@ -328,6 +328,40 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 ---
 
+## v0.21 — Bedrock
+
+**Theme:** Host the `fceumm` NES core natively (FFI via `libloading`) instead
+of in EmulatorJS/WASM, to fix the Web Audio cold-start audio garble
+([#15](https://github.com/rhohn94/harmony/issues/15)) and cut load time at the
+root. Ships behind a flag; EmulatorJS stays the path for every other system
+and as the automatic fallback if native init fails.
+
+- **Native core hosting:** hand-rolled libretro FFI (no maintained Rust crate
+  hosts prebuilt cores — confirmed by research) loads the already-installed
+  `fceumm` `.dylib` (reusing the v0.7 core-install pipeline, no new bundling
+  work) and runs it directly in the Rust backend.
+- **Native audio:** `cpal`/CoreAudio output fed by a ring buffer from the
+  core's audio callback — no Web Audio, no cold-start garble.
+- **Frame delivery:** decoded frames pushed to a `<canvas>` via Tauri IPC.
+- **Input:** the same keyboard/gamepad bindings that already drive the
+  EmulatorJS path drive the native one (`src/features/controller/` gamepad
+  state + EmulatorJS-equivalent keyboard defaults), pushed into the core each
+  poll tick.
+- **Settings toggle:** off by default; the runtime switch falls back to
+  EmulatorJS automatically if native init fails for any reason.
+- **Boundary:** NES-only proof this release; broader core coverage, save
+  states, a native NSView overlay, and the preview-then-play attract mode are
+  explicit follow-ups, not built here.
+- **Real-device verification still pending:** the audio-cleanliness and
+  load-time acceptance criteria need an installed `fceumm` core + a real ROM
+  to verify by ear/clock, neither of which exists in the dev sandbox — see
+  `release-planning-v0.21.md` §5 Follow-ups.
+
+Design: [`native-emulation-design.md`](design/native-emulation-design.md) ·
+Plan: [`release-planning-v0.21.md`](release-planning-v0.21.md).
+
+---
+
 ## v0.20 — Atlas
 
 **Theme:** Make adding a provider first-class. Rather than hand-crafting URL

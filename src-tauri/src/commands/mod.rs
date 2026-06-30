@@ -20,6 +20,7 @@ pub mod familiar; // W12
 pub mod controllers; // W14
 pub mod console; // v0.12 — console catalog (browse + detail + bundled titles)
 pub mod play; // v0.15 — in-page WASM emulator ROM delivery
+pub mod native_play; // v0.21 "Bedrock" W214 — native libretro core frame delivery
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -87,6 +88,13 @@ macro_rules! register_commands {
             $crate::commands::console::list_catalog_titles,
             // in-page play (v0.15)
             $crate::commands::play::get_play_origin,
+            // native play (v0.21 "Bedrock" W214/W215)
+            $crate::commands::native_play::get_native_play_enabled,
+            $crate::commands::native_play::set_native_play_enabled,
+            $crate::commands::native_play::start_native_play,
+            $crate::commands::native_play::stop_native_play,
+            $crate::commands::native_play::get_native_frame,
+            $crate::commands::native_play::set_native_input,
         ])
     };
 }

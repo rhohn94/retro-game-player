@@ -35,6 +35,10 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // managed Db handle. ---
     app.manage(play::start(db_path));
 
+    // --- v0.21 "Bedrock" W214: holds the single in-flight native libretro
+    // core session, if any (see commands::native_play). ---
+    app.manage(commands::native_play::NativeSession::default());
+
     // --- W11: Fleet/Ensign identity, manifest, localhost status server ---
     // (borrows `paths` before W10 moves it into managed state below).
     let version = env!("CARGO_PKG_VERSION");

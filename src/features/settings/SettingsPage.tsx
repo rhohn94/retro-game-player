@@ -37,6 +37,7 @@ import {
 import { probeFamiliar, type FamiliarProbe } from "../../ipc/familiar";
 import { useAuraTheme } from "../../theme/AuraProvider";
 import { NAMED_THEMES } from "../../theme/tokens";
+import { getNativePlayEnabled, setNativePlayEnabled } from "../../ipc/native-play";
 
 // ── Section identifiers ───────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ type SectionId =
   | "controllers"
   | "providers"
   | "familiar"
+  | "playback"
   | "appearance"
   | "retroarch";
 
@@ -60,6 +62,7 @@ const SECTIONS: Section[] = [
   { id: "controllers", label: "Controllers" },
   { id: "providers", label: "Providers" },
   { id: "familiar", label: "Familiar" },
+  { id: "playback", label: "Playback" },
   { id: "appearance", label: "Appearance" },
   { id: "retroarch", label: "RetroArch" },
 ];
@@ -616,6 +619,64 @@ function FamiliarPane() {
   );
 }
 
+// ── Playback pane (v0.21 "Bedrock", W215) ─────────────────────────────────────
+
+function PlaybackPane() {
+  const [nativeEnabled, setNativeEnabledState] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getNativePlayEnabled()
+      .then(setNativeEnabledState)
+      .catch((e: unknown) => setError(String(e)));
+  }, []);
+
+  async function handleToggle() {
+    if (nativeEnabled === null) return;
+    const next = !nativeEnabled;
+    setSaving(true);
+    setError(null);
+    try {
+      await setNativePlayEnabled(next);
+      setNativeEnabledState(next);
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="settings-pane" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <h3 style={{ margin: 0 }}>Playback</h3>
+      <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+        Native NES playback hosts the libretro core directly instead of
+        EmulatorJS — faster to start, and avoids the in-page audio engine's
+        cold-start crackle. Off by default; if it fails to start for any
+        reason, the game falls back to the EmulatorJS player automatically.
+      </p>
+
+      {error && (
+        <p style={{ color: "var(--aura-error)", margin: 0, fontSize: 13 }}>
+          {error}
+        </p>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <AuraButton
+          tabIndex={0}
+          variant={nativeEnabled ? "secondary" : "ghost"}
+          disabled={nativeEnabled === null || saving}
+          onClick={() => { void handleToggle(); }}
+        >
+          {nativeEnabled ? "Enabled (NES)" : "Disabled"}
+        </AuraButton>
+      </div>
+    </div>
+  );
+}
+
 // ── Appearance pane ───────────────────────────────────────────────────────────
 
 function AppearancePane() {
@@ -770,6 +831,8 @@ function SectionPane({ id }: { id: SectionId }) {
       return <ProvidersPane />;
     case "familiar":
       return <FamiliarPane />;
+    case "playback":
+      return <PlaybackPane />;
     case "appearance":
       return <AppearancePane />;
     case "retroarch":

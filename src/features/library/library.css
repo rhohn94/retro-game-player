@@ -425,6 +425,16 @@
     outline-offset: var(--harmony-focus-ring-offset);
   }
 
+  /* v0.21 "Bedrock" W214 — native libretro core player: a <canvas> instead of
+     the EmulatorJS <iframe>, scaled up from the core's native resolution
+     without smoothing so NES-era pixel art stays crisp. */
+  .harmony-native-player__canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
   /* #6: immersive mode — the player fills the viewport over the app chrome
      (paired with a Tauri window-fullscreen), so the overlay can sit above it. */
   .harmony-player--immersive {

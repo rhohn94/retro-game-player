@@ -1,6 +1,6 @@
 {
   "name": "harmony",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
   "description": "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher.",

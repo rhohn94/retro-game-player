@@ -44,6 +44,7 @@
 | [console-browse-design.md](console-browse-design.md) | v0.12 "Curator": the "By Console" browse + detail view, the static console catalog (name/maker/gen/year/Wikipedia), per-console media cache, and the bundled per-console title catalog (libretro-database, names-only, embedded) |
 | [presentation-shell-design.md](presentation-shell-design.md) | v0.14 "Lounge": wiring the W14 controller stack into the shell + library (spatial nav, global Back), the OS-fullscreen toggle (F11 + sidebar button), and the per-console CPU/GPU/RAM hardware-specs table |
 | [in-page-play-design.md](in-page-play-design.md) | v0.15 "Live play": embedded EmulatorJS via a loopback `http://127.0.0.1` origin + iframe (why `tauri://` fails, the `tiny_http`/`include_dir` play server, `/rom/<id>`), auto-boot with sound, load-speed (minified bundle + local WebGL2 core gotcha + cache headers), the in-game overlay + immersive mode (controller `setExclusiveHandler`, Esc bridge, pause-on-overlay), seamless transitions, and GPL-3.0 bundling |
+| [native-emulation-design.md](native-emulation-design.md) | v0.21: native libretro core hosting (NES `fceumm` first, behind a flag) to fix the EmulatorJS cold-start audio garble (#15) and WASM load time at the source — hand-rolled `libloading` FFI (no viable hosting crate exists), `cpal`/CoreAudio audio with ring-buffer + dynamic rate control, canvas/IPC frame delivery (NSView overlay deferred), EmulatorJS kept as the fallback for every other system |
 | *(add rows as docs are created)* | |
 
 ### UX tier (`docs/design/ux/`)

@@ -19,8 +19,7 @@ import type { Game } from "../../ipc/commands";
 import { artUrl } from "./art";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { useBoxart } from "./useBoxart";
-import { InPagePlayer } from "../play/InPagePlayer";
-import { inPageSystem } from "../play/ejs";
+import { PlaySwitch } from "../play/PlaySwitch";
 
 /** Human-readable byte size. */
 function formatSize(bytes: number): string {
@@ -138,13 +137,7 @@ export function GameDetailPage() {
           ◀ Back
         </AuraButton>
 
-        {inPageSystem(game.system) && (
-          <InPagePlayer
-            gameId={game.id}
-            ejsSystem={inPageSystem(game.system)!}
-            gameName={game.cleanName}
-          />
-        )}
+        <PlaySwitch gameId={game.id} system={game.system} gameName={game.cleanName} />
 
         <div className="harmony-detail__body">
           <AuraCard class="harmony-detail__cover">

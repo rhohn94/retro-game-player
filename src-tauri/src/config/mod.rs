@@ -38,6 +38,12 @@ pub struct AppConfig {
     /// Absolute path to the games directory Harmony created for the user, if any
     /// (W51). `None` until the user accepts the "create a games folder" offer.
     pub games_dir: Option<String>,
+    /// Opt-in to native libretro core hosting for NES instead of the in-page
+    /// EmulatorJS/WASM player (v0.21 "Bedrock", W215). Off by default — the
+    /// existing EmulatorJS path is unaffected until a user explicitly enables
+    /// this; native init failure for any reason falls back to EmulatorJS
+    /// automatically regardless of this flag's value once enabled.
+    pub native_play_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -48,6 +54,7 @@ impl Default for AppConfig {
             familiar_base_url: DEFAULT_FAMILIAR_BASE_URL.to_string(),
             launch_fullscreen: true,
             games_dir: None,
+            native_play_enabled: false,
         }
     }
 }
@@ -102,6 +109,20 @@ mod tests {
         assert!(cfg.retroarch_path.is_none());
         assert!(cfg.launch_fullscreen);
         assert!(cfg.games_dir.is_none());
+        assert!(!cfg.native_play_enabled);
+    }
+
+    #[test]
+    fn native_play_enabled_round_trips() {
+        let (paths, tmp) = temp_paths("native-play-enabled");
+        let cfg = AppConfig {
+            native_play_enabled: true,
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert!(loaded.native_play_enabled);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
