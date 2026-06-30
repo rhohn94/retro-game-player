@@ -1,18 +1,19 @@
 // NativePlayer — runs a game via Harmony's native libretro core host
 // (v0.21 "Bedrock") instead of EmulatorJS. The Rust backend owns the entire
 // emulation loop and the audio device (play::native::NativeRuntime); this
-// component's only job is starting/stopping that session and painting
-// whatever frame it last produced onto a <canvas> via `putImageData`.
+// component starts/stops that session, paints whatever frame it last
+// produced onto a <canvas> via `putImageData`, and pushes keyboard/gamepad
+// state into the core's input (W216 — see nativeInput.ts).
 //
-// Scope is deliberately narrow (W214 — frame delivery only): no overlay, no
-// fullscreen chrome, no controller input wiring. The runtime switch that
-// decides whether to mount this or InPagePlayer (W215), and real input
-// (W216), build on top of this.
+// Scope is deliberately narrow: no overlay, no fullscreen chrome. The
+// runtime switch that decides whether to mount this or InPagePlayer is
+// PlaySwitch.tsx (W215).
 
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getNativeFrame, startNativePlay, stopNativePlay } from "../../ipc/native-play";
+import { getNativeFrame, setNativeInput, startNativePlay, stopNativePlay } from "../../ipc/native-play";
 import { decodeRgba, isWellFormedRgba } from "./nativeFrame";
+import { computeJoypadBits, isBoundKey } from "./nativeInput";
 
 export interface NativePlayerProps {
   gameId: number;
@@ -31,9 +32,40 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
   useEffect(() => {
     let cancelled = false;
     let frameHandle = 0;
+    const heldKeys = new Set<string>();
+    let lastSentBits = -1; // -1 never matches a real bitmask, so the first tick always sends
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isBoundKey(e.code)) return;
+      e.preventDefault(); // arrows/Tab/Enter would otherwise scroll or shift page focus
+      heldKeys.add(e.code);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isBoundKey(e.code)) return;
+      e.preventDefault();
+      heldKeys.delete(e.code);
+    };
+    // Losing window focus (e.g. alt-tab) with a key physically held would
+    // otherwise leave it "stuck" pressed forever, since no keyup ever fires.
+    const onBlur = () => heldKeys.clear();
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+
+    const pollInput = () => {
+      const gamepad = navigator.getGamepads?.()[0] ?? null;
+      const bits = computeJoypadBits(heldKeys, gamepad);
+      if (bits !== lastSentBits) {
+        lastSentBits = bits;
+        void setNativeInput(bits).catch(() => {
+          /* a missed input tick isn't fatal — the next poll retries */
+        });
+      }
+    };
 
     const paintNextFrame = () => {
       if (cancelled) return;
+      pollInput();
       getNativeFrame()
         .then((frame) => {
           const canvas = canvasRef.current;
@@ -63,6 +95,10 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
     return () => {
       cancelled = true;
       cancelAnimationFrame(frameHandle);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      void setNativeInput(0).catch(() => undefined); // release all buttons before tearing down
       void stopNativePlay();
     };
   }, [gameId]); // intentionally re-subscribes per gameId only — onStartFailed is a stable callback in intended usage

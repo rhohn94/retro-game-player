@@ -1,6 +1,7 @@
-// Native play IPC (v0.21 "Bedrock" W214/W215). A native libretro core session
-// runs entirely in the Rust backend; the frontend starts/stops it and polls
-// decoded RGBA frames to paint onto a <canvas> (NativePlayer.tsx). Mirrors
+// Native play IPC (v0.21 "Bedrock" W214/W215/W216). A native libretro core
+// session runs entirely in the Rust backend; the frontend starts/stops it,
+// polls decoded RGBA frames to paint onto a <canvas>, and pushes joypad
+// input state (NativePlayer.tsx). Mirrors
 // docs/design/native-emulation-design.md §3/§4.
 
 import { invoke } from "./invoke";
@@ -36,4 +37,9 @@ export function stopNativePlay(): Promise<void> {
 /** The most recently produced frame, or `null` if none is available yet. */
 export function getNativeFrame(): Promise<NativeFrame | null> {
   return invoke<NativeFrame | null>("get_native_frame");
+}
+
+/** Pushes the current joypad bitmask (see `nativeInput.ts`'s `computeJoypadBits`). */
+export function setNativeInput(bits: number): Promise<void> {
+  return invoke<void>("set_native_input", { bits });
 }

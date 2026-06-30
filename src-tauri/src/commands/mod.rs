@@ -94,6 +94,7 @@ macro_rules! register_commands {
             $crate::commands::native_play::start_native_play,
             $crate::commands::native_play::stop_native_play,
             $crate::commands::native_play::get_native_frame,
+            $crate::commands::native_play::set_native_input,
         ])
     };
 }
