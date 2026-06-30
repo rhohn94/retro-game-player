@@ -28,6 +28,7 @@ crc32fast = "1"                                            # W6 (CRC32 ROM hashi
 dirs = "5"                                                 # W4 (app-support path resolution)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] } # W10 (vibrancy blur)
 keyring = { version = "3", features = ["apple-native"] }   # W12 (macOS Keychain for the Familiar key)
+libloading = "0.8"                                         # W210 (dlopen a native libretro core .dylib)
 md-5 = "0.10"                                              # W6 (MD5 ROM hashing)
 percent-encoding = "2"                                     # W8 (CDN URL encoding)
 quick-xml = "0.36"                                         # W6 (No-Intro Logiqx DAT parsing)

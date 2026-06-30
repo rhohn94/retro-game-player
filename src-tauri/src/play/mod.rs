@@ -5,7 +5,12 @@
 //!
 //! The native external-RetroArch launch (`commands::launch`) is unchanged; this
 //! is the embedded path for the cartridge systems whose cores are bundled.
+//!
+//! [`native`] (v0.21 "Bedrock") is a second embedded path — hosting a libretro
+//! core's `.dylib` directly instead of via EmulatorJS/WASM — landing
+//! incrementally behind a flag; see docs/design/native-emulation-design.md.
 
+pub mod native;
 pub mod server;
 
 pub use server::{start, PlayServer};
