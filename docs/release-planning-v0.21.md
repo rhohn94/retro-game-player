@@ -194,7 +194,7 @@ zero results) — nothing scope-trimmed under that rule.
 | `feat/w210-ffi-core-lifecycle` (W210) | ☑ | ☑ | ☐ | ☑ |
 | `feat/w211-callback-wiring` (W211) | ☑ | ☑ | ☐ | ☑ |
 | `feat/w212-runtime-cpal-audio` (W212) | ☑ | ☑ | ☐ | ☑ |
-| `feat/w213-core-path-resolution` (W213) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w213-core-path-resolution` (W213) | ☑ | ☑ | ☐ | ☑ |
 
 ### Pass 2 — UI wiring (parallel once Pass 1 merges)
 
