@@ -11,6 +11,29 @@ release; the integration master uses this file as the primary input to
 
 ---
 
+## v0.22 — Polish
+
+**Theme:** A code-quality and UX consistency pass, not a new feature — origin
+is a fresh 4-agent audit (coding-practices, architecture, dead-code/
+duplication, UX consistency) run against `docs/coding-standards.md`,
+`docs/architecture-guidelines.md`, and `docs/design/ux/design-language.md`
+after v0.21 shipped.
+
+- **Bug fixes:** a search-thread panic-on-join that could crash a whole search
+  instead of degrading one provider's result; the controller focus-ring
+  lingering on a stale element when mouse and gamepad input mix.
+- **Structure:** extract a shared `useCancellableEffect` hook (was hand-rolled
+  9+ times); split `SearchPage.tsx` and `SettingsPage.tsx` along their
+  components/panes; clean up two IPC-boundary leaks and one cross-feature
+  encapsulation violation (`play/` gains a public barrel).
+- **Consistency:** unify empty/error/loading states across Search/Cores to
+  match Library/Consoles; fix a hardcoded motion literal, a hand-rolled
+  button/selected-state in Settings' Appearance pane, and a spacing outlier.
+
+Plan: [`release-planning-v0.22.md`](release-planning-v0.22.md).
+
+---
+
 ## v0.1 — Foundation
 
 **Theme:** A runnable, beautiful native shell that scans a real library, manages
