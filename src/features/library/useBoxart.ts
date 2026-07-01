@@ -6,9 +6,10 @@
 // failure (no art on the CDN, offline, IPC error) degrades silently to `null`
 // so the tile/cover renders its placeholder — art is never load-bearing.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fetchBoxart, getCachedArt } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { artUrl } from "./art";
 
 /**
@@ -26,33 +27,31 @@ export function useBoxart(
 ): string | null {
   const [url, setUrl] = useState<string | null>(() => artUrl(game?.artPath));
 
-  useEffect(() => {
-    let cancelled = false;
-    const inline = artUrl(game?.artPath);
-    setUrl(inline);
-    if (!game || inline) return;
+  useCancellableEffect(
+    (isCancelled) => {
+      const inline = artUrl(game?.artPath);
+      setUrl(inline);
+      if (!game || inline) return;
 
-    void (async () => {
-      try {
-        const cached = await getCachedArt(game.id);
-        if (cancelled) return;
-        if (cached) {
-          setUrl(artUrl(cached));
-          return;
+      void (async () => {
+        try {
+          const cached = await getCachedArt(game.id);
+          if (isCancelled()) return;
+          if (cached) {
+            setUrl(artUrl(cached));
+            return;
+          }
+          if (!allowFetch) return;
+          const fetched = await fetchBoxart(game.id);
+          if (!isCancelled() && fetched) setUrl(artUrl(fetched));
+        } catch {
+          // Art is non-essential — fall through to the placeholder.
+          if (!isCancelled()) setUrl(null);
         }
-        if (!allowFetch) return;
-        const fetched = await fetchBoxart(game.id);
-        if (!cancelled && fetched) setUrl(artUrl(fetched));
-      } catch {
-        // Art is non-essential — fall through to the placeholder.
-        if (!cancelled) setUrl(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [game, allowFetch]);
+      })();
+    },
+    [game, allowFetch],
+  );
 
   return url;
 }

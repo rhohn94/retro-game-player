@@ -5,16 +5,19 @@
 // the full bundled title catalog browser. Back returns to the console grid.
 
 import { AuraButton, AuraCard } from "@aura/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../ipc/opener";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getConsole, listGames } from "../../ipc/commands";
 import type { ConsoleInfo, Game } from "../../ipc/commands";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { SPRING } from "../../lib/motion";
 import { artUrl } from "../library/art";
 import { GameTile } from "../library/GameTile";
 import { CatalogBrowser } from "./CatalogBrowser";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
 
 export function ConsoleDetailPage() {
   const { key } = useParams<{ key: string }>();
@@ -23,27 +26,26 @@ export function ConsoleDetailPage() {
   const [owned, setOwned] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!key) return;
-    let cancelled = false;
-    setInfo(null);
-    setError(null);
-    getConsole(key)
-      .then((c) => {
-        if (!cancelled) setInfo(c);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    listGames(key)
-      .then((rows) => {
-        if (!cancelled) setOwned(rows);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [key]);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!key) return;
+      setInfo(null);
+      setError(null);
+      getConsole(key)
+        .then((c) => {
+          if (!isCancelled()) setInfo(c);
+        })
+        .catch((err: unknown) => {
+          if (!isCancelled()) setError(err instanceof Error ? err.message : String(err));
+        });
+      listGames(key)
+        .then((rows) => {
+          if (!isCancelled()) setOwned(rows);
+        })
+        .catch(() => undefined);
+    },
+    [key],
+  );
 
   if (error) {
     return (
@@ -51,7 +53,7 @@ export function ConsoleDetailPage() {
         <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
-        <AuraCard class="harmony-notice">Could not load console: {error}</AuraCard>
+        <ErrorNotice>Could not load console: {error}</ErrorNotice>
       </div>
     );
   }
@@ -59,7 +61,7 @@ export function ConsoleDetailPage() {
   if (!info) {
     return (
       <div className="harmony-console-detail">
-        <p className="harmony-muted">Loading…</p>
+        <LoadingState>Loading…</LoadingState>
       </div>
     );
   }

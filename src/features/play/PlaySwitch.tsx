@@ -4,11 +4,12 @@
 // native hosting fails to start for any reason. W215 — see
 // docs/design/native-emulation-design.md §4.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
 import { inPageSystem } from "./ejs";
 import { getNativePlayEnabled } from "../../ipc/native-play";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
 /** Must match the Rust `play::native::NATIVE_SYSTEM` — the only system v0.21
  * "Bedrock" hosts natively. */
@@ -32,16 +33,15 @@ export function PlaySwitch({ gameId, system, gameName }: PlaySwitchProps) {
   const [nativeEnabled, setNativeEnabled] = useState<boolean | null>(null);
   const [nativeFailed, setNativeFailed] = useState(false);
 
-  useEffect(() => {
-    if (!isNativeCandidate) return;
-    let cancelled = false;
-    getNativePlayEnabled()
-      .then((enabled) => !cancelled && setNativeEnabled(enabled))
-      .catch(() => !cancelled && setNativeEnabled(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [isNativeCandidate]);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!isNativeCandidate) return;
+      getNativePlayEnabled()
+        .then((enabled) => !isCancelled() && setNativeEnabled(enabled))
+        .catch(() => !isCancelled() && setNativeEnabled(false));
+    },
+    [isNativeCandidate],
+  );
 
   // Resolving the flag for a system that *could* go native — wait rather
   // than flash EmulatorJS only to immediately swap to the native player.

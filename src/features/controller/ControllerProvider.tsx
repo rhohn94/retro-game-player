@@ -8,7 +8,6 @@
 import {
   createContext,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -16,6 +15,7 @@ import {
 } from "react";
 import type { DeviceFamily, SemanticAction } from "./actions";
 import { listBindings, type ControllerBinding } from "../../ipc/controllers";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { nextFocus, navDirection, type FocusTarget } from "./spatial";
 import { useGamepadPoll } from "./useGamepadPoll";
 
@@ -101,18 +101,14 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   );
 
   // Load persisted binding overrides once (best-effort; defaults work without them).
-  useEffect(() => {
-    let cancelled = false;
+  useCancellableEffect((isCancelled) => {
     listBindings()
       .then((rows) => {
-        if (!cancelled) setOverrides(rows);
+        if (!isCancelled()) setOverrides(rows);
       })
       .catch(() => {
         /* No DB / not in Tauri — compiled-in family defaults still apply. */
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const handleAction = useCallback((action: SemanticAction) => {

@@ -9,32 +9,32 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { DUR } from "../../lib/motion";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getBlurredHero } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
 /** Resolve the pre-blurred hero data URI for a game (or null). */
 function useBlurredHero(game: Game | null): string | null {
   const [uri, setUri] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!game || !game.artPath) {
-      setUri(null);
-      return;
-    }
-    void (async () => {
-      try {
-        const hero = await getBlurredHero({ gameId: game.id, artPath: game.artPath as string });
-        if (!cancelled) setUri(hero.dataUri);
-      } catch {
-        if (!cancelled) setUri(null);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!game || !game.artPath) {
+        setUri(null);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [game]);
+      void (async () => {
+        try {
+          const hero = await getBlurredHero({ gameId: game.id, artPath: game.artPath as string });
+          if (!isCancelled()) setUri(hero.dataUri);
+        } catch {
+          if (!isCancelled()) setUri(null);
+        }
+      })();
+    },
+    [game],
+  );
 
   return uri;
 }

@@ -119,11 +119,18 @@ pub fn probe_links(urls: &[String]) -> Vec<LinkStatus> {
             let client = &client;
             let handles: Vec<_> = chunk
                 .iter()
-                .map(|u| scope.spawn(move || probe_one(client, u)))
+                .map(|u| (u, scope.spawn(move || probe_one(client, u))))
                 .collect();
             handles
                 .into_iter()
-                .map(|h| h.join().expect("liveness probe thread panicked"))
+                .map(|(u, h)| {
+                    // A panicking probe thread degrades that one URL to `unknown`
+                    // (never `dead` on a maybe) rather than panicking the whole
+                    // batch — matches this module's own "never falsely condemn"
+                    // contract.
+                    h.join()
+                        .unwrap_or_else(|_| LinkStatus::new(u, LinkState::Unknown))
+                })
                 .collect::<Vec<_>>()
         });
         out.extend(batch);
@@ -159,6 +166,24 @@ mod tests {
     #[test]
     fn probe_links_empty_input_is_empty() {
         assert!(probe_links(&[]).is_empty());
+    }
+
+    /// W220 — a panicking probe thread must degrade to `Unknown`, never
+    /// propagate and crash the whole batch. Exercises the exact
+    /// `join().unwrap_or_else(...)` pattern `probe_links` uses, with a
+    /// closure that panics on purpose rather than trying to force a real
+    /// probe to panic over the network.
+    #[test]
+    fn a_panicking_probe_thread_degrades_to_unknown_instead_of_propagating() {
+        let url = "https://example.test/panics".to_string();
+        let result = std::thread::scope(|scope| {
+            let handle = scope.spawn(|| -> LinkStatus { panic!("simulated probe panic") });
+            handle
+                .join()
+                .unwrap_or_else(|_| LinkStatus::new(&url, LinkState::Unknown))
+        });
+        assert_eq!(result.url, url);
+        assert_eq!(result.state, LinkState::Unknown);
     }
 
     #[test]

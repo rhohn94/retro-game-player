@@ -17,6 +17,7 @@ import { HARMONY_ROUTES, type HarmonyRoute } from "./routes";
 import { pageTransition } from "./lib/motion";
 import { ControllerProvider, HintBar, useController, useFocusable } from "./features/controller";
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
+import { useCancellableEffect } from "./hooks/useCancellableEffect";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
 // inset — D2 §5) lives as `--harmony-*` tokens in theme/aura-theme.css so the
@@ -26,20 +27,16 @@ import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFul
 function IpcStatus() {
   const [pong, setPong] = useState<string>("…");
 
-  useEffect(() => {
-    let cancelled = false;
+  useCancellableEffect((isCancelled) => {
     ping()
       .then((reply) => {
-        if (!cancelled) setPong(reply);
+        if (!isCancelled()) setPong(reply);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (isCancelled()) return;
         const detail = isAppError(err) ? err.detail : String(err);
         setPong(`ping failed: ${detail}`);
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   return (
@@ -171,11 +168,20 @@ function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
  * the controller's B button always backs out. Registered once at shell mount.
  */
 function ShellControllerBindings() {
-  const { setActionHandlers } = useController();
+  const { setActionHandlers, setFocus } = useController();
   const navigate = useNavigate();
+  const location = useLocation();
   useEffect(() => {
     setActionHandlers({ back: () => navigate(-1) });
   }, [setActionHandlers, navigate]);
+  // A route change leaves the outgoing screen's focus id behind — the next
+  // screen's own elements re-claim focus as they register (ControllerProvider's
+  // register()), but nothing cleared the stale id in between, so a mid-crossfade
+  // frame (or a screen with no focusables) could keep showing a foreign ring
+  // (W221, controller-input-design.md).
+  useEffect(() => {
+    setFocus(null);
+  }, [location.pathname, setFocus]);
   return null;
 }
 

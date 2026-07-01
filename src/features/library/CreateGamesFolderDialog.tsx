@@ -10,11 +10,12 @@
  *
  * Reused by both empty states; each caller refreshes its own view in `onCreated`.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir } from "../../ipc/opener";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import {
   addContentFolder,
   createGamesFolder,
@@ -43,22 +44,21 @@ export function CreateGamesFolderDialog({
 
   // Pre-fill the suggested default path each time the dialog opens, and reset
   // any prior success/error state so a reopen starts on the form.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setError(null);
-    setCreatedPath(null);
-    suggestGamesDir()
-      .then((p) => {
-        if (!cancelled) setPath(p);
-      })
-      .catch(() => {
-        /* leave the field empty; the backend falls back to the default */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!open) return;
+      setError(null);
+      setCreatedPath(null);
+      suggestGamesDir()
+        .then((p) => {
+          if (!isCancelled()) setPath(p);
+        })
+        .catch(() => {
+          /* leave the field empty; the backend falls back to the default */
+        });
+    },
+    [open],
+  );
 
   async function handleConfirm() {
     setBusy(true);

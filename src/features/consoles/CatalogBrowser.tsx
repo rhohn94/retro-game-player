@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listCatalogTitles } from "../../ipc/commands";
 import type { CatalogPage } from "../../ipc/commands";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listContainer, listItem } from "../../lib/motion";
 
 const PAGE_SIZE = 60;
@@ -28,36 +29,35 @@ export function CatalogBrowser({ system }: { system: string }) {
     setOffset(0);
   }, [query, system]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    const trimmed = query.trim();
-    const handle = setTimeout(
-      () => {
-        listCatalogTitles(system, trimmed || undefined, offset, PAGE_SIZE)
-          .then((p) => {
-            if (!cancelled) {
-              setPage(p);
-              setError(null);
-            }
-          })
-          .catch((err: unknown) => {
-            if (!cancelled) {
-              setPage(null);
-              setError(err instanceof Error ? err.message : String(err));
-            }
-          })
-          .finally(() => {
-            if (!cancelled) setLoading(false);
-          });
-      },
-      trimmed ? 180 : 0,
-    );
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [system, query, offset]);
+  useCancellableEffect(
+    (isCancelled) => {
+      setLoading(true);
+      const trimmed = query.trim();
+      const handle = setTimeout(
+        () => {
+          listCatalogTitles(system, trimmed || undefined, offset, PAGE_SIZE)
+            .then((p) => {
+              if (!isCancelled()) {
+                setPage(p);
+                setError(null);
+              }
+            })
+            .catch((err: unknown) => {
+              if (!isCancelled()) {
+                setPage(null);
+                setError(err instanceof Error ? err.message : String(err));
+              }
+            })
+            .finally(() => {
+              if (!isCancelled()) setLoading(false);
+            });
+        },
+        trimmed ? 180 : 0,
+      );
+      return () => clearTimeout(handle);
+    },
+    [system, query, offset],
+  );
 
   const total = page?.total ?? 0;
   const hasPrev = offset > 0;

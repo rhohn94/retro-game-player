@@ -28,12 +28,21 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
   // Register with the controller's spatial-nav registry. When the controller
   // moves focus here, mirror it to native DOM focus so the tile scrolls into
   // view and fires onFocus (hero crossfade); `confirm` opens the game.
-  const { ref, isFocused } = useFocusable<HTMLButtonElement>(`game:${game.id}`, () =>
+  const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(`game:${game.id}`, () =>
     onOpen(game),
   );
   useEffect(() => {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
+
+  // Mouse-driven focus/hover must claim controller focus too, not just the
+  // local hero-crossfade state — otherwise the spatial-nav ring can keep
+  // showing a gamepad's last position while the mouse interacts elsewhere
+  // (W221, controller-input-design.md).
+  const claimFocus = () => {
+    focus();
+    onFocusGame(game);
+  };
 
   return (
     <motion.button
@@ -41,8 +50,8 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
       variants={listItem}
       type="button"
       className="harmony-tile"
-      onFocus={() => onFocusGame(game)}
-      onMouseEnter={() => onFocusGame(game)}
+      onFocus={claimFocus}
+      onMouseEnter={claimFocus}
       onClick={() => onOpen(game)}
       aria-label={`${game.cleanName} (${game.system})`}
     >

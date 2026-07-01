@@ -9,17 +9,20 @@
 // polling is W14). Panel uses --aura-panel-alpha so vibrancy reads through.
 
 import { AuraButton, AuraCard } from "@aura/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../ipc/opener";
 import { motion } from "framer-motion";
 import { SPRING } from "../../lib/motion";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrichGameMetadata, fetchBoxart, getGame, launchGame } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
 import { artUrl } from "./art";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { useBoxart } from "./useBoxart";
-import { PlaySwitch } from "../play/PlaySwitch";
+import { PlaySwitch } from "../play";
 
 /** Human-readable byte size. */
 function formatSize(bytes: number): string {
@@ -50,26 +53,25 @@ export function GameDetailPage() {
 
   const gameId = Number(id);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!Number.isFinite(gameId)) {
-      setError("Invalid game id");
-      return;
-    }
-    getGame(gameId)
-      .then((g) => {
-        if (!cancelled) {
-          setGame(g);
-          setError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [gameId]);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!Number.isFinite(gameId)) {
+        setError("Invalid game id");
+        return;
+      }
+      getGame(gameId)
+        .then((g) => {
+          if (!isCancelled()) {
+            setGame(g);
+            setError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          if (!isCancelled()) setError(err instanceof Error ? err.message : String(err));
+        });
+    },
+    [gameId],
+  );
 
   const resolvedArt = useBoxart(game, true);
   const art = artOverride ?? resolvedArt;
@@ -110,7 +112,7 @@ export function GameDetailPage() {
         <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
-        <AuraCard class="harmony-notice">Could not load game: {error}</AuraCard>
+        <ErrorNotice>Could not load game: {error}</ErrorNotice>
       </div>
     );
   }
@@ -118,7 +120,7 @@ export function GameDetailPage() {
   if (!game) {
     return (
       <div className="harmony-detail">
-        <p className="harmony-muted">Loading…</p>
+        <LoadingState>Loading…</LoadingState>
       </div>
     );
   }
@@ -183,7 +185,7 @@ export function GameDetailPage() {
             </div>
 
             {launchError && (
-              <AuraCard class="harmony-notice">Launch failed: {launchError}</AuraCard>
+              <ErrorNotice>Launch failed: {launchError}</ErrorNotice>
             )}
 
             {game.description && (

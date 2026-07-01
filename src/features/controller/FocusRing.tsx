@@ -13,7 +13,9 @@ export function focusRingStyle(focused: boolean): CSSProperties {
     outline: focused ? "2px solid var(--aura-focus)" : "2px solid transparent",
     outlineOffset: 2,
     boxShadow: focused ? "0 0 0 4px color-mix(in oklch, var(--aura-focus) 35%, transparent)" : "none",
-    transition: "outline-color 120ms ease, box-shadow 120ms ease",
+    transition:
+      "outline-color var(--harmony-dur-fast) var(--harmony-ease-out), " +
+      "box-shadow var(--harmony-dur-fast) var(--harmony-ease-out)",
   };
 }
 

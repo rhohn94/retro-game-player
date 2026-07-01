@@ -291,11 +291,24 @@ pub fn run_search(
         let (query, console, region) = (&query, &console, &region);
         let handles: Vec<_> = providers
             .iter()
-            .map(|p| scope.spawn(|| provider_results(p, query, console, region)))
+            .map(|p| (p, scope.spawn(|| provider_results(p, query, console, region))))
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("search worker thread panicked"))
+            .map(|(p, h)| {
+                // A panicking worker degrades just that provider's group to an
+                // error result — matches this function's own documented contract
+                // ("a per-provider failure ... never fails the whole search")
+                // instead of panicking the entire command via `.expect()`.
+                h.join().unwrap_or_else(|_| ProviderResults {
+                    provider_id: p.id,
+                    provider_name: p.name.clone(),
+                    search_url: String::new(),
+                    direct_download: p.direct_download,
+                    items: Vec::new(),
+                    error: Some("search worker thread panicked".to_string()),
+                })
+            })
             .collect()
     });
     Ok(groups)
@@ -401,7 +414,30 @@ pub fn probe_links(urls: Vec<String>) -> AppResult<Vec<liveness::LinkStatus>> {
 
 #[cfg(test)]
 mod tests {
-    use super::effective_query;
+    use super::{effective_query, ProviderResults};
+
+    /// W220 — a panicking search-worker thread must degrade that provider's
+    /// group to an error result, never propagate and crash the whole
+    /// `run_search` command. Exercises the exact `join().unwrap_or_else(...)`
+    /// pattern `run_search` uses, with a closure that panics on purpose
+    /// rather than trying to force a real fetch to panic over the network.
+    #[test]
+    fn a_panicking_search_worker_degrades_to_an_error_result_instead_of_propagating() {
+        let result = std::thread::scope(|scope| {
+            let handle = scope.spawn(|| -> ProviderResults { panic!("simulated worker panic") });
+            handle.join().unwrap_or_else(|_| ProviderResults {
+                provider_id: 7,
+                provider_name: "Test Provider".to_string(),
+                search_url: String::new(),
+                direct_download: false,
+                items: Vec::new(),
+                error: Some("search worker thread panicked".to_string()),
+            })
+        });
+        assert_eq!(result.provider_id, 7);
+        assert!(result.items.is_empty());
+        assert_eq!(result.error.as_deref(), Some("search worker thread panicked"));
+    }
 
     #[test]
     fn no_compose_returns_bare_query() {

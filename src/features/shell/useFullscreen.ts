@@ -8,6 +8,7 @@
 // API is unavailable.
 
 import { useCallback, useEffect, useState } from "react";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
 /** Resolve the current window handle, or null outside a Tauri webview. */
 async function currentWindow() {
@@ -37,21 +38,17 @@ export function useFullscreen(): UseFullscreenResult {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Sync the initial state from the real window (best-effort).
-  useEffect(() => {
-    let cancelled = false;
+  useCancellableEffect((isCancelled) => {
     void (async () => {
       const win = await currentWindow();
       if (!win) return;
       try {
         const on = await win.isFullscreen();
-        if (!cancelled) setIsFullscreen(on);
+        if (!isCancelled()) setIsFullscreen(on);
       } catch {
         /* window API unavailable — leave the default. */
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const setFullscreen = useCallback((on: boolean) => {

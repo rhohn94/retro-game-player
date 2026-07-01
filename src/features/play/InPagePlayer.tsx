@@ -27,6 +27,7 @@ import { useController } from "../controller";
 import type { SemanticAction } from "../controller/actions";
 import { DUR, dialogPop } from "../../lib/motion";
 import { getPlayOrigin } from "../../ipc/play";
+import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
 /** Toggle the Tauri window's fullscreen; a no-op outside Tauri (browser/mock). */
 async function setWindowFullscreen(on: boolean): Promise<void> {
@@ -66,14 +67,10 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
 
-  useEffect(() => {
-    let cancelled = false;
+  useCancellableEffect((isCancelled) => {
     getPlayOrigin()
-      .then((o) => !cancelled && setOrigin(o))
-      .catch(() => !cancelled && setOrigin(""));
-    return () => {
-      cancelled = true;
-    };
+      .then((o) => !isCancelled() && setOrigin(o))
+      .catch(() => !isCancelled() && setOrigin(""));
   }, []);
 
   /** Send a control message to the emulator iframe (same loopback origin). */

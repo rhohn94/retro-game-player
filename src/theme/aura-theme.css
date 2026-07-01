@@ -81,6 +81,12 @@
     /* ---- provider-chip enabled fill — derived from primary so it tracks the theme ---- */
     --harmony-provider-enabled-bg: var(--aura-primary-a15);
 
+    /* ---- selected-swatch state (Appearance theme picker) — derived from
+       primary so a selected pill/swatch tracks the active theme (W227) ---- */
+    --harmony-selected-bg: var(--aura-primary);
+    --harmony-selected-fg: var(--aura-on-primary);
+    --harmony-selected-border: var(--aura-primary);
+
     color-scheme: dark;
   }
 

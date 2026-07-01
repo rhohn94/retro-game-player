@@ -6,7 +6,7 @@
 // enrichment (cover art + Wikipedia) per newly added game — fire-and-forget so
 // the grid appears immediately.
 
-import { open } from "@tauri-apps/plugin-dialog";
+import { openFileDialog } from "../../ipc/dialog";
 import { enrichGameMetadata, importGames } from "../../ipc/commands";
 import type { ImportItem } from "../../ipc/commands";
 
@@ -27,7 +27,7 @@ export const ROM_EXTENSIONS = [
  */
 export async function pickRomFiles(): Promise<string[]> {
   try {
-    const selected = await open({
+    const selected = await openFileDialog({
       multiple: true,
       directory: false,
       title: "Import games",
