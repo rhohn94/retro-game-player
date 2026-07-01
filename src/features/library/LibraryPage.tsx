@@ -17,6 +17,9 @@ import { useNavigate } from "react-router-dom";
 import { launchGame, listGames } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
 import { listContainer, riseIn } from "../../lib/motion";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
+import { EmptyState } from "../../components/EmptyState";
 import { CreateGamesFolderDialog } from "./CreateGamesFolderDialog";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { GameTile } from "./GameTile";
@@ -179,10 +182,8 @@ export function LibraryPage() {
 
         <LibraryFilters facets={facets} criteria={criteria} onChange={setCriteria} />
 
-        {loading && <p className="harmony-muted">Loading library…</p>}
-        {error && (
-          <AuraCard class="harmony-notice">Could not load games: {error}</AuraCard>
-        )}
+        {loading && <LoadingState>Loading library…</LoadingState>}
+        {error && <ErrorNotice>Could not load games: {error}</ErrorNotice>}
         {!loading && !error && games.length === 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
             <p className="harmony-muted" style={{ margin: 0 }}>
@@ -200,7 +201,7 @@ export function LibraryPage() {
           </div>
         )}
         {!loading && !error && games.length > 0 && visible.length === 0 && (
-          <p className="harmony-muted">No games match your filters.</p>
+          <EmptyState>No games match your filters.</EmptyState>
         )}
 
         <motion.div

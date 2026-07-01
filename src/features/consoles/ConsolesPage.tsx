@@ -15,6 +15,9 @@ import type { ConsoleInfo } from "../../ipc/commands";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listContainer, listItem } from "../../lib/motion";
 import { artUrl } from "../library/art";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
+import { EmptyState } from "../../components/EmptyState";
 
 /** One focusable console card. */
 function ConsoleCard({
@@ -131,10 +134,10 @@ export function ConsolesPage() {
         </AuraField>
       </header>
 
-      {loading && <p className="harmony-muted">Loading consoles…</p>}
-      {error && <AuraCard class="harmony-notice">Could not load consoles: {error}</AuraCard>}
+      {loading && <LoadingState>Loading consoles…</LoadingState>}
+      {error && <ErrorNotice>Could not load consoles: {error}</ErrorNotice>}
       {!loading && !error && visible.length === 0 && (
-        <p className="harmony-muted">No consoles match “{query}”.</p>
+        <EmptyState>No consoles match “{query}”.</EmptyState>
       )}
 
       {groups.map(([generation, list]) => (

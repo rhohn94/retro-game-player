@@ -16,6 +16,9 @@ import { SystemList } from "./SystemList";
 import { CoreRow } from "./CoreRow";
 import { useCores } from "./useCores";
 import { filterCores, flattenCores, groupBySystem } from "./coreFilter";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
+import { EmptyState } from "../../components/EmptyState";
 import "./cores.css";
 
 /**
@@ -94,41 +97,15 @@ export function CoresPage() {
       )}
 
       {/* Global fetch error */}
-      {fetchError && (
-        <div
-          role="alert"
-          style={{
-            marginBottom: 16,
-            padding: "10px 14px",
-            borderRadius: 8,
-            background: "var(--aura-primary-a15)",
-            border: "1px solid var(--aura-primary-a40)",
-            fontSize: 13,
-            color: "var(--aura-on-surface)",
-          }}
-        >
-          Failed to load cores: {fetchError}
-        </div>
-      )}
+      {fetchError && <ErrorNotice>Failed to load cores: {fetchError}</ErrorNotice>}
 
-      {loading && (
-        <div
-          style={{
-            color: "var(--aura-on-surface-muted, var(--aura-primary-300))",
-            fontSize: 14,
-          }}
-        >
-          Loading cores…
-        </div>
-      )}
+      {loading && <LoadingState>Loading cores…</LoadingState>}
 
       {/* Browse-all / search results — a flat catalog across every system. */}
       {!loading && !fetchError && searching && (
         <div aria-label="Search results">
           {Object.keys(matchesBySystem).length === 0 ? (
-            <div style={{ color: "var(--aura-on-surface-muted)", fontSize: 14, padding: "10px 0" }}>
-              No cores match “{query.trim()}”.
-            </div>
+            <EmptyState>No cores match “{query.trim()}”.</EmptyState>
           ) : (
             systems
               .filter((sys) => matchesBySystem[sys]?.length)

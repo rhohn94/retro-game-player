@@ -16,6 +16,8 @@ import { SPRING } from "../../lib/motion";
 import { artUrl } from "../library/art";
 import { GameTile } from "../library/GameTile";
 import { CatalogBrowser } from "./CatalogBrowser";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
 
 export function ConsoleDetailPage() {
   const { key } = useParams<{ key: string }>();
@@ -51,7 +53,7 @@ export function ConsoleDetailPage() {
         <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
-        <AuraCard class="harmony-notice">Could not load console: {error}</AuraCard>
+        <ErrorNotice>Could not load console: {error}</ErrorNotice>
       </div>
     );
   }
@@ -59,7 +61,7 @@ export function ConsoleDetailPage() {
   if (!info) {
     return (
       <div className="harmony-console-detail">
-        <p className="harmony-muted">Loading…</p>
+        <LoadingState>Loading…</LoadingState>
       </div>
     );
   }

@@ -17,6 +17,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { enrichGameMetadata, fetchBoxart, getGame, launchGame } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
 import { artUrl } from "./art";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { useBoxart } from "./useBoxart";
@@ -110,7 +112,7 @@ export function GameDetailPage() {
         <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
-        <AuraCard class="harmony-notice">Could not load game: {error}</AuraCard>
+        <ErrorNotice>Could not load game: {error}</ErrorNotice>
       </div>
     );
   }
@@ -118,7 +120,7 @@ export function GameDetailPage() {
   if (!game) {
     return (
       <div className="harmony-detail">
-        <p className="harmony-muted">Loading…</p>
+        <LoadingState>Loading…</LoadingState>
       </div>
     );
   }
@@ -183,7 +185,7 @@ export function GameDetailPage() {
             </div>
 
             {launchError && (
-              <AuraCard class="harmony-notice">Launch failed: {launchError}</AuraCard>
+              <ErrorNotice>Launch failed: {launchError}</ErrorNotice>
             )}
 
             {game.description && (

@@ -55,6 +55,8 @@ import { computeVisible, computeMerged } from "./components/resultVisibility";
 import { EmptyState } from "./components/EmptyState";
 import { ProviderResultGroup } from "./components/ProviderResultGroup";
 import { MergedResultsView, ProviderChip } from "./components/MergedResultsView";
+import { ErrorNotice } from "../../components/ErrorNotice";
+import { EmptyState as NoResultsNotice } from "../../components/EmptyState";
 
 /** How results are grouped in the panel: by provider (default) or merged into
  *  one game-first row per title ("available from N providers"). */
@@ -447,11 +449,7 @@ export function SearchPage() {
       )}
 
       {/* Search error */}
-      {searchError && (
-        <p style={{ margin: 0, color: "var(--aura-error)", fontSize: 14 }}>
-          Search failed: {searchError}
-        </p>
-      )}
+      {searchError && <ErrorNotice>Search failed: {searchError}</ErrorNotice>}
 
       {/* Results — one previewed group per provider */}
       {results !== null && (
@@ -460,16 +458,9 @@ export function SearchPage() {
           style={{ padding: 0, overflow: "hidden" }}
         >
           {results.length === 0 ? (
-            <p
-              style={{
-                margin: 0,
-                padding: "20px 16px",
-                color: "var(--aura-on-surface-muted)",
-                fontSize: 14,
-              }}
-            >
-              No enabled providers to search.
-            </p>
+            <div style={{ padding: "20px 16px" }}>
+              <NoResultsNotice>No enabled providers to search.</NoResultsNotice>
+            </div>
           ) : (
             <>
               {/* Browse toolbar: filter + sort + summary + expand/collapse-all.
@@ -717,17 +708,12 @@ export function SearchPage() {
             </>
           )}
           {results.length > 0 && totalItems === 0 && (
-            <p
-              style={{
-                margin: 0,
-                padding: "4px 16px 16px",
-                color: "var(--aura-on-surface-muted)",
-                fontSize: 12,
-              }}
-            >
-              No previewable links found for "{query}". Use a provider's “open
-              search page” link to see full results in your browser.
-            </p>
+            <div style={{ padding: "4px 16px 16px", fontSize: 12 }}>
+              <NoResultsNotice>
+                No previewable links found for "{query}". Use a provider's “open
+                search page” link to see full results in your browser.
+              </NoResultsNotice>
+            </div>
           )}
         </AuraCard>
       )}
