@@ -4,7 +4,7 @@
  * error note). The open-search-page link and the direct-download marker sit
  * beside the toggle so they don't trigger a collapse. */
 import { AnimatePresence, motion } from "framer-motion";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../../ipc/opener";
 import { listContainer, DUR, EASE_OUT, EASE_STANDARD } from "../../../lib/motion";
 import { groupSelectionState } from "../resultSelection";
 import { matchStrength } from "../resultRanking";

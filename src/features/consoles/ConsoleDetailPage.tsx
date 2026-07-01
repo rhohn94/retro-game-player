@@ -5,7 +5,7 @@
 // the full bundled title catalog browser. Back returns to the console grid.
 
 import { AuraButton, AuraCard } from "@aura/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../ipc/opener";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";

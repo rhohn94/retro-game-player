@@ -13,7 +13,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../ipc/opener";
 import { AuraButton, AuraField, AuraCard } from "@aura/react";
 import {
   listProviders,

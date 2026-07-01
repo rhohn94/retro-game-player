@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { AuraButton, AuraField } from "@aura/react";
 
-import { invoke } from "../../../ipc/invoke";
-import { probeFamiliar, type FamiliarProbe } from "../../../ipc/familiar";
+import { probeFamiliar, saveFamiliarConfig, type FamiliarProbe } from "../../../ipc/familiar";
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
@@ -38,12 +37,9 @@ export function FamiliarPane() {
     setSaved(false);
     setError(null);
     try {
-      // The familiar backend persists base URL + stores the key in Keychain.
-      // We use the existing probe mechanism; the backend's save command is
-      // invoked here. If the backend doesn't yet expose a `save_familiar_config`
-      // command, this records config via probeFamiliar after a round-trip.
-      // The key is intentionally never stored client-side (W12 contract).
-      await invoke("save_familiar_config", {
+      // The key is intentionally never stored client-side (W12 contract) — it
+      // goes straight to the Keychain via the backend.
+      await saveFamiliarConfig({
         baseUrl: baseUrl.trim() || null,
         apiKey: apiKey.trim() || null,
       });

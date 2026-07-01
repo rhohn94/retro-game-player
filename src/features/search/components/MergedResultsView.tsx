@@ -2,7 +2,7 @@
  *  "available from N providers" expander, plus the provider chip toggle used
  *  in the provider-chips bar. */
 import { AnimatePresence, motion } from "framer-motion";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../../ipc/opener";
 import { listContainer, listItem, DUR, EASE_STANDARD } from "../../../lib/motion";
 import { parseBadges } from "../resultBadges";
 import { matchStrength } from "../resultRanking";

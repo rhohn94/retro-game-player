@@ -9,7 +9,7 @@
 // polling is W14). Panel uses --aura-panel-alpha so vibrancy reads through.
 
 import { AuraButton, AuraCard } from "@aura/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../ipc/opener";
 import { motion } from "framer-motion";
 import { SPRING } from "../../lib/motion";
 import { useCallback, useState } from "react";
@@ -20,7 +20,7 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { artUrl } from "./art";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { useBoxart } from "./useBoxart";
-import { PlaySwitch } from "../play/PlaySwitch";
+import { PlaySwitch } from "../play";
 
 /** Human-readable byte size. */
 function formatSize(bytes: number): string {

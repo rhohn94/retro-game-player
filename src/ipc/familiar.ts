@@ -54,3 +54,15 @@ export function probeFamiliar(): Promise<FamiliarProbe> {
 export function enrichGame(gameId: number): Promise<Game> {
   return invoke<Game>("enrich_game", { gameId });
 }
+
+/**
+ * Persist the Familiar connection settings from the Settings screen. `baseUrl`
+ * of `null` leaves the stored URL unchanged; `apiKey` of `null` leaves the
+ * stored Keychain key untouched, while `""` clears it (never written to disk).
+ */
+export function saveFamiliarConfig(args: {
+  baseUrl: string | null;
+  apiKey: string | null;
+}): Promise<void> {
+  return invoke<void>("save_familiar_config", { baseUrl: args.baseUrl, apiKey: args.apiKey });
+}

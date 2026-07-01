@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir } from "../../ipc/opener";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { AuraButton, AuraField } from "@aura/react";
 
-import { invoke } from "../../../ipc/invoke";
+import { locateRetroArch, setRetroArchPath } from "../../../ipc/launch";
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
@@ -22,10 +22,9 @@ export function RetroArchPane() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    // Load current retroarch path if the command exists
-    invoke<string | null>("get_retroarch_path")
+    locateRetroArch()
       .then((p) => { if (p) setPath(p); })
-      .catch(() => { /* command may not be wired yet — silent degrade */ });
+      .catch(() => { /* not installed / not found — leave the field empty */ });
   }, []);
 
   async function handleSave() {
@@ -33,7 +32,7 @@ export function RetroArchPane() {
     setSaved(false);
     setError(null);
     try {
-      await invoke("set_retroarch_path", { path: path.trim() || null });
+      await setRetroArchPath(path.trim());
       setSaved(true);
     } catch (e: unknown) {
       setError(String(e));

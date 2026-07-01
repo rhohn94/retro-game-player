@@ -1,7 +1,7 @@
 /** A single previewed result: a select checkbox + a focusable open-link button
  *  with title-parsed badges. */
 import { motion } from "framer-motion";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "../../../ipc/opener";
 import { listItem } from "../../../lib/motion";
 import { parseBadges } from "../resultBadges";
 import type { MatchStrength } from "../resultRanking";
