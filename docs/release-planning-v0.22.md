@@ -219,7 +219,7 @@ since).
 | `feat/w224-split-settings-panes` (W224) | n/a | ☑ | ☑ | ☑ |
 | `feat/w225-ipc-boundary-cleanup` (W225) | n/a | ☑ | ☑ | ☑ |
 | `feat/w226-unified-empty-error-states` (W226)* | n/a | ☑ | ☑ | ☑ |
-| `feat/w227-ux-consistency-pass` (W227) | n/a | ☐ | ☐ | ☐ |
+| `feat/w227-ux-consistency-pass` (W227) | n/a | ☑ | ☑ | ☑ |
 | `feat/w228-tests-docs-release` (W228) | n/a | ☐ | ☐ | ☐ |
 
 \* W226 was implemented and gate-verified as a direct commit on `version/0.22`
