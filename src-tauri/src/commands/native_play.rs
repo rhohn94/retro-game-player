@@ -10,9 +10,10 @@ use crate::db::repo::Repository;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::play::native;
+use crate::play::saves::{GameSaves, PlayPath};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -81,9 +82,78 @@ pub fn start_native_play(
     }
     let core_path = native::resolve_native_core_path(&db)?;
     let rom_path = PathBuf::from(&game.path);
-    let runtime = native::NativeRuntime::start(&core_path, &rom_path)?;
+    // Save persistence (W230): best-effort — an unavailable saves dir means
+    // the session plays without persistence rather than failing to boot.
+    let saves = Paths::app_support()
+        .and_then(|p| p.saves_dir())
+        .map(|root| GameSaves::new(&root, &game.system, &rom_path))
+        .ok();
+    let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves)?;
     *lock(&session) = Some(runtime);
     Ok(())
+}
+
+/// Saves the running native session's state into `slot` ("1"–"4" or "auto").
+#[tauri::command]
+pub fn save_native_state(slot: String, session: State<'_, NativeSession>) -> AppResult<()> {
+    GameSaves::validate_slot(&slot)?;
+    lock(&session)
+        .as_ref()
+        .ok_or_else(|| AppError::Validation("no native session is running".into()))?
+        .save_state(&slot)
+}
+
+/// Restores `slot` into the running native session.
+#[tauri::command]
+pub fn load_native_state(slot: String, session: State<'_, NativeSession>) -> AppResult<()> {
+    GameSaves::validate_slot(&slot)?;
+    lock(&session)
+        .as_ref()
+        .ok_or_else(|| AppError::Validation("no native session is running".into()))?
+        .load_state(&slot)
+}
+
+/// One recorded save slot, for the detail page / overlay (W232).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSlotDto {
+    pub slot: String,
+    /// "native" | "ejs" — states only load on the path that wrote them.
+    pub play_path: String,
+    pub created_at: u64,
+}
+
+/// Save inventory for a game, path-agnostic (works with no session running).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameSavesDto {
+    pub has_sram: bool,
+    pub slots: Vec<SaveSlotDto>,
+}
+
+/// Lists a game's on-disk saves (SRAM presence + state slots). Backs the
+/// "Continue" affordance and the overlay slot picker (W232); shared by both
+/// play paths since the layout is shared (W231).
+#[tauri::command]
+pub fn list_game_saves(game_id: i64, db: State<'_, Db>) -> AppResult<GameSavesDto> {
+    let game = LibraryRepo::new(&db).get_game(game_id)?;
+    let root = Paths::app_support()?.saves_dir()?;
+    let saves = GameSaves::new(&root, &game.system, Path::new(&game.path));
+    let (has_sram, slots) = saves.list();
+    Ok(GameSavesDto {
+        has_sram,
+        slots: slots
+            .into_iter()
+            .map(|s| SaveSlotDto {
+                slot: s.slot,
+                play_path: match s.play_path {
+                    PlayPath::Native => "native".into(),
+                    PlayPath::Ejs => "ejs".into(),
+                },
+                created_at: s.created_at,
+            })
+            .collect(),
+    })
 }
 
 /// Stops the in-flight native session, if any. A no-op if nothing is running.

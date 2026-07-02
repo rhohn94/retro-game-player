@@ -4,8 +4,8 @@
 //! an out-of-order call. W210 — see docs/design/native-emulation-design.md §1.
 
 use super::ffi::{
-    RawSymbols, RetroAudioSampleBatchFn, RetroEnvironmentFn, RetroGameInfo, RetroInputPollFn,
-    RetroInputStateFn, RetroSystemAvInfo, RetroSystemInfo, RetroVideoRefreshFn,
+    self, RawSymbols, RetroAudioSampleBatchFn, RetroEnvironmentFn, RetroGameInfo,
+    RetroInputPollFn, RetroInputStateFn, RetroSystemAvInfo, RetroSystemInfo, RetroVideoRefreshFn,
     RETRO_API_VERSION,
 };
 use crate::error::{AppError, AppResult};
@@ -89,6 +89,11 @@ impl LibretroCore {
             retro_run: load_symbol(&library, "retro_run")?,
             retro_load_game: load_symbol(&library, "retro_load_game")?,
             retro_unload_game: load_symbol(&library, "retro_unload_game")?,
+            retro_serialize_size: load_symbol(&library, "retro_serialize_size")?,
+            retro_serialize: load_symbol(&library, "retro_serialize")?,
+            retro_unserialize: load_symbol(&library, "retro_unserialize")?,
+            retro_get_memory_data: load_symbol(&library, "retro_get_memory_data")?,
+            retro_get_memory_size: load_symbol(&library, "retro_get_memory_size")?,
         };
 
         let api_version = unsafe { (symbols.retro_api_version)() };
@@ -228,6 +233,87 @@ impl LibretroCore {
         Ok(())
     }
 
+    fn require_loaded(&self, what: &str) -> AppResult<()> {
+        if !self.loaded_game {
+            return Err(AppError::Internal(format!(
+                "{what} called before load_game"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Snapshots the full core state (`retro_serialize`). Returns `Ok(None)`
+    /// when the core reports a serialize size of 0 — save states genuinely
+    /// unsupported, feature-detected rather than an error.
+    pub fn serialize(&mut self) -> AppResult<Option<Vec<u8>>> {
+        self.require_loaded("retro_serialize")?;
+        let size = unsafe { (self.symbols.retro_serialize_size)() };
+        if size == 0 {
+            return Ok(None);
+        }
+        let mut buf = vec![0u8; size];
+        let ok = unsafe { (self.symbols.retro_serialize)(buf.as_mut_ptr() as *mut _, size) };
+        if !ok {
+            return Err(AppError::Internal("retro_serialize failed".into()));
+        }
+        Ok(Some(buf))
+    }
+
+    /// Restores a state produced by [`Self::serialize`] on the same core.
+    pub fn unserialize(&mut self, state: &[u8]) -> AppResult<()> {
+        self.require_loaded("retro_unserialize")?;
+        let ok = unsafe {
+            (self.symbols.retro_unserialize)(state.as_ptr() as *const _, state.len())
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(AppError::Internal(format!(
+                "retro_unserialize rejected a {}-byte state",
+                state.len()
+            )))
+        }
+    }
+
+    /// Copies the core's battery save RAM out (`RETRO_MEMORY_SAVE_RAM`).
+    /// `None` when the loaded game has no battery RAM (null/zero region) —
+    /// normal for most non-battery titles, not an error.
+    pub fn sram(&self) -> Option<Vec<u8>> {
+        if !self.loaded_game {
+            return None;
+        }
+        let size = unsafe { (self.symbols.retro_get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM) };
+        let data = unsafe { (self.symbols.retro_get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM) };
+        if data.is_null() || size == 0 {
+            return None;
+        }
+        Some(unsafe { std::slice::from_raw_parts(data as *const u8, size) }.to_vec())
+    }
+
+    /// Copies previously persisted battery RAM into the core. A size mismatch
+    /// (e.g. a `.srm` from a different game/core revision) is rejected rather
+    /// than partially copied.
+    pub fn load_sram(&mut self, bytes: &[u8]) -> AppResult<()> {
+        self.require_loaded("load_sram")?;
+        let size = unsafe { (self.symbols.retro_get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM) };
+        let data = unsafe { (self.symbols.retro_get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM) };
+        if data.is_null() || size == 0 {
+            return Err(AppError::Unsupported(
+                "loaded game exposes no battery save RAM".into(),
+            ));
+        }
+        if bytes.len() != size {
+            return Err(AppError::Validation(format!(
+                "SRAM size mismatch: file is {} bytes, core expects {size}",
+                bytes.len()
+            )));
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), data as *mut u8, size);
+        }
+        Ok(())
+    }
+
     pub fn unload_game(&mut self) {
         if self.loaded_game {
             unsafe {
@@ -326,6 +412,28 @@ bool retro_load_game(const struct retro_game_info *game) {
 void retro_unload_game(void) {}
 
 void retro_run(void) { frame_count++; }
+
+/* Save-persistence surface (W230): a 4-byte "state" mirroring frame_count
+ * and an 8-byte battery SRAM region, so serialize/unserialize and
+ * SRAM read/write round-trips are testable without a real core. */
+static unsigned char sram[8] = {0};
+
+size_t retro_serialize_size(void) { return sizeof(frame_count); }
+
+bool retro_serialize(void *data, size_t size) {
+    if (size < sizeof(frame_count)) return false;
+    *(int *)data = frame_count;
+    return true;
+}
+
+bool retro_unserialize(const void *data, size_t size) {
+    if (size < sizeof(frame_count)) return false;
+    frame_count = *(const int *)data;
+    return true;
+}
+
+void *retro_get_memory_data(unsigned id) { return id == 0 ? sram : 0; }
+size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(sram) : 0; }
 "#;
 
     /// Compiles [`STUB_CORE_C`] to a `.dylib` in `dir`. Returns `None` (the
@@ -408,6 +516,75 @@ void retro_run(void) { frame_count++; }
         let mut core = LibretroCore::load(&dylib).expect("load stub core");
         let err = core.init().expect_err("init before set_environment must error");
         assert!(matches!(err, AppError::Internal(_)));
+    }
+
+    /// Boots the stub core to the ready-to-run state tests need.
+    fn booted_core(dir: &Path) -> Option<LibretroCore> {
+        let dylib = build_stub_core(dir)?;
+        let mut core = LibretroCore::load(&dylib).expect("load stub core");
+        core.set_environment(test_environment);
+        core.init().expect("init");
+        let rom = dir.join("game.nes");
+        std::fs::write(&rom, b"fake rom bytes").expect("write rom");
+        core.load_game(&rom).expect("load_game");
+        Some(core)
+    }
+
+    #[test]
+    fn serialize_round_trips_core_state() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(mut core) = booted_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        core.run_frame().expect("frame 1");
+        core.run_frame().expect("frame 2");
+        let state = core.serialize().expect("serialize").expect("supported");
+        core.run_frame().expect("frame 3 diverges the state");
+        core.unserialize(&state).expect("unserialize");
+        // The stub's state is its frame counter: after restore, a fresh
+        // serialize must equal the snapshot taken at frame 2.
+        let restored = core.serialize().expect("serialize").expect("supported");
+        assert_eq!(state, restored);
+    }
+
+    #[test]
+    fn sram_round_trips_through_the_core() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(mut core) = booted_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let initial = core.sram().expect("stub exposes battery RAM");
+        assert_eq!(initial, vec![0u8; 8]);
+        core.load_sram(&[1, 2, 3, 4, 5, 6, 7, 8]).expect("load_sram");
+        assert_eq!(core.sram().expect("sram"), vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn load_sram_rejects_a_size_mismatch() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(mut core) = booted_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let err = core.load_sram(&[1, 2, 3]).expect_err("wrong size must fail");
+        assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    #[test]
+    fn serialize_before_load_game_is_rejected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let mut core = LibretroCore::load(&dylib).expect("load stub core");
+        core.set_environment(test_environment);
+        core.init().expect("init");
+        let err = core.serialize().expect_err("serialize before load_game must error");
+        assert!(matches!(err, AppError::Internal(_)));
+        assert!(core.sram().is_none());
     }
 
     #[test]
