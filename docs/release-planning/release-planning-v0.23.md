@@ -193,9 +193,9 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.23 |
 |---|---|---|---|---|
-| `feat/w233-native-play-closeout` (W233) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w236-docs-refresh` (W236) | n/a | ☐ | ☐ | ☐ |
-| `feat/w237-license` (W237) | n/a | ☐ | ☐ | ☐ |
+| `feat/w233-native-play-closeout` (W233) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w236-docs-refresh` (W236) | n/a | ☑ | ☑ | ☑ |
+| `feat/w237-license` (W237) | n/a | ☑ | ☑ | ☑ |
 
 ### Phase 2
 
@@ -225,4 +225,20 @@ returned zero).
 
 ### Follow-ups discovered during implementation
 
-(empty)
+- **W233 found and fixed the v0.21 crash root cause:** `retro_init` was called
+  before `retro_set_environment` (inside `LibretroCore::load`), violating the
+  libretro contract — fceumm queries the environment during init and
+  SIGSEGV'd on the null callback. The stub-core test missed it (empty init);
+  it now queries the environment during init like a real core, plus two
+  safe-Rust ordering guards with regression tests. Real-device run passed
+  (SMB, 60.0988 fps, 256×240 frames, 48 kHz audio stream, clean exit).
+- **W233 kept two investigation artifacts deliberately:** the once-per-command
+  unhandled-environment log (cheap map of what cores ask for — feeds future
+  core-coverage work) and the vendored EmulatorJS change that surfaces the
+  WKWebView trusted-gesture start gate on desktop Safari-class hosts instead
+  of silently playing garbled audio.
+- **Native flag default stays off pending the maintainer's by-ear audio
+  confirmation** (the 5 s verification played on speakers 2026-07-01); if
+  confirmed clean, flip the default in W238 as a one-liner.
+- **W236 folded the README license paragraph in** (declares GPL-3.0) since the
+  W237 decision landed the same phase; the two items share README wording.
