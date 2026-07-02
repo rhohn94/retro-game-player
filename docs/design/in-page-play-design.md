@@ -146,3 +146,73 @@ visible without being noisy:
   local, **zero** legacy/CDN fetches, one minified bundle.
 - Overlay: Esc / ☰ / controller menu opens Resume·Full screen·Exit; game pauses;
   Full screen enters immersive (window fullscreen + fill); Exit returns to library.
+
+## 7. Multi-core coverage (v0.24, W241 — #17)
+
+v0.15 shipped exactly one in-page core (NES `fceumm`, embedded in the binary
+and served from the loopback origin). W241 extends in-page play to the rest
+of the high-value catalog **without growing the DMG**: every additional core
+is fetched on demand, verified, cached on disk, and served from the same
+loopback origin.
+
+### Curated core catalog (Rust, `play/ejs_cores.rs`)
+
+A static table mirroring `core/cores/system_map.rs`'s philosophy — one place,
+no magic strings. Each entry: EmulatorJS core name (passed as `?core=` /
+`EJS_core`), the Harmony system keys it covers, the CDN archive + report
+filenames, **pinned SHA-256 hashes** (curated 2026-07-01 against the
+version-pinned CDN), size, and license. Pinned source:
+`https://cdn.emulatorjs.org/4.2.3/data/cores/…` — the same EmulatorJS version
+as the vendored runtime (`version.json`), so runtime/core compatibility is
+frozen together and a vendored-EJS bump forces re-curation by construction.
+
+| EJS core | Harmony systems | ~Size | License |
+|---|---|---|---|
+| `snes9x` | snes | 1.1 MB | Snes9x (non-commercial) |
+| `genesis_plus_gx` | genesis, mastersystem | 1.2 MB | Genesis-Plus-GX (non-commercial) |
+| `mupen64plus_next` | n64 | 1.5 MB | GPL-3.0 |
+| `pcsx_rearmed` | ps1 | 1.0 MB | GPL-2.0 |
+| `stella2014` | atari2600 | 1.1 MB | GPL-2.0 |
+| `mednafen_pce` | pcengine | 1.0 MB | GPL-2.0 |
+
+NES stays embedded (`fceumm`, unchanged). All six cores are single-threaded
+(EmulatorJS `requiresThreads` lists only `ppsspp`/`dosbox_pure`), so the
+loopback server still needs **no COOP/COEP headers** and no
+`SharedArrayBuffer`.
+
+### Acquisition + serving
+
+- `install` command: streaming GET of archive + report (version-pinned URLs,
+  https-only), 8 MiB cap, SHA-256 verified against the pinned catalog hash
+  **before** the atomic write into
+  `app-support/ejs-cores/<ejs-version>/{<core>-wasm.data, reports/<core>.json}`.
+  A hash mismatch deletes the temp file and errors — never a partial cache.
+- The play server's `/emulatorjs/cores/<path>` lookup checks the disk cache
+  first, then the embedded bundle — the EmulatorJS loader is completely
+  unaware which tier served it. Path traversal is rejected before any disk
+  read.
+- Cache keyed by EJS version: a future runtime bump naturally starts a fresh
+  dir and re-downloads matching cores.
+
+### UI flow
+
+`PlaySwitch` now resolves three in-page outcomes per system:
+1. **Ready** (bundled or cached core) → `InPagePlayer` boots exactly as NES
+   does today (same overlay/immersive/save-bridge behavior — all of it is
+   core-agnostic already).
+2. **Available but not installed** → the player slot renders a "get core"
+   panel: one button naming the core and size ("Get SNES core · 1.1 MB"),
+   inline progress, then boots in place on success. RetroArch fallback text
+   sits alongside — never a dead end.
+3. **No in-page core** → unchanged (external RetroArch launch only).
+
+### Known limits (recorded, not hidden)
+
+- **PS1**: `pcsx_rearmed` runs HLE BIOS — many titles boot without a real
+  BIOS file, some don't; multi-file images (`.cue`+`.bin`) can't be served
+  through single-file `/rom/<id>` — single-file formats (`.chd`, `.pbp`,
+  single `.bin`) only. Both surfaced in the get-core panel copy.
+- **Licenses**: snes9x and genesis_plus_gx are non-commercial-licensed; they
+  are **not distributed with Harmony** — fetched at explicit user request
+  from the EmulatorJS CDN, mirroring the RetroArch core-downloader model.
+  Recorded in THIRD-PARTY-NOTICES.md.
