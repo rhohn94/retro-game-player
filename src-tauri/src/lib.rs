@@ -1,6 +1,7 @@
-//! Harmony backend library crate. `main.rs` is a thin shim calling `run()`.
-//! The app builder registers the full IPC surface via the append-only
-//! `register_commands!` macro (see `commands/mod.rs`). Master contract §1.2.
+//! Retro Game Player backend library crate. `main.rs` is a thin shim calling
+//! `run()`. The app builder registers the full IPC surface via the
+//! append-only `register_commands!` macro (see `commands/mod.rs`). Master
+//! contract §1.2.
 
 pub mod commands;
 pub mod config;
@@ -18,6 +19,18 @@ use tauri::Manager;
 /// database (running migrations) at the W4-resolved path and manages the `Db`
 /// handle in Tauri app state; W11 appends the fleet server below.
 fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // --- W269: one-time app-data migration for the Harmony -> Retro Game
+    // Player rename. MUST run before any DB/config init below — the new
+    // `com.retro-game-player.app` app-support dir doesn't exist yet on an
+    // upgrading user's machine until this moves it from the old
+    // `com.harmony.app` dir. Best-effort: an IO failure here degrades to a
+    // fresh-install experience rather than blocking startup. ---
+    if let Some(app_support_base) = dirs::data_dir() {
+        if let Err(e) = config::migrate::run(&app_support_base) {
+            eprintln!("[migrate] app-data migration failed (continuing): {e}");
+        }
+    }
+
     // --- W4: app-support layout, config, run-start telemetry ---
     let paths = config::paths::Paths::app_support()?;
     paths.ensure_all()?;
@@ -59,7 +72,7 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-/// Build, register commands, and run the Harmony application.
+/// Build, register commands, and run the Retro Game Player application.
 pub fn run() {
     // --- W17: opener plugin — allows the frontend to open URLs in the system browser ---
     let builder = tauri::Builder::default()
@@ -72,5 +85,5 @@ pub fn run() {
     // append their commands inside it (commands/mod.rs), never here.
     register_commands!(builder)
         .run(tauri::generate_context!())
-        .expect("error while running Harmony");
+        .expect("error while running Retro Game Player");
 }

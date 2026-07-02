@@ -1,13 +1,16 @@
-//! Canonical filesystem path resolver for Harmony (macOS / Apple Silicon).
+//! Canonical filesystem path resolver for Retro Game Player (macOS / Apple
+//! Silicon).
 //!
 //! This is the SINGLE source of truth for every on-disk location, per master
 //! contract architecture-design.md §4. Nothing else hard-codes a path; all
 //! consumers (W3 db, W8 art, W10 blur, W11 fleet, telemetry) go through
 //! `Paths`. The two layouts:
 //!
-//!   §4.1 app-support — `~/Library/Application Support/com.harmony.app/`
+//!   §4.1 app-support — `~/Library/Application Support/com.retro-game-player.app/`
 //!         (`harmony.db`, `config/`, `cores/`, `art-cache/`, `blur-cache/`,
-//!         `logs/`).
+//!         `logs/`). The identifier changed in the W269 rename (was
+//!         `com.harmony.app`); `config::migrate` moves existing users'
+//!         data into the new root on first launch — see its module doc.
 //!   §4.2 deployed-instance — `deployed-apps/harmony/versions/{vX.Y.Z}/` with a
 //!         `current` symlink the fleet reads.
 //!
@@ -17,8 +20,10 @@
 use crate::error::{AppError, AppResult};
 use std::path::{Path, PathBuf};
 
-/// macOS bundle identifier; the app-support root folder name (§4.1).
-pub const BUNDLE_ID: &str = "com.harmony.app";
+/// macOS bundle identifier; the app-support root folder name (§4.1). Changed
+/// from `com.harmony.app` in the W269 rename — see [`super::migrate`] for the
+/// in-place app-data move that preserves existing users' data.
+pub const BUNDLE_ID: &str = "com.retro-game-player.app";
 
 /// SQLite database filename under the app-support root (§3, §4.1).
 pub const DB_FILE_NAME: &str = "harmony.db";
@@ -41,9 +46,9 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// Resolve the app-support root `<app-support>/com.harmony.app/` and ensure
-    /// it exists. Returns [`AppError::Io`] if the OS application-support dir is
-    /// unavailable or the root cannot be created.
+    /// Resolve the app-support root `<app-support>/com.retro-game-player.app/`
+    /// and ensure it exists. Returns [`AppError::Io`] if the OS
+    /// application-support dir is unavailable or the root cannot be created.
     pub fn app_support() -> AppResult<Self> {
         let base = dirs::data_dir().ok_or_else(|| {
             AppError::Io("could not resolve the OS application-support directory".to_string())
@@ -52,15 +57,15 @@ impl Paths {
     }
 
     /// Anchor the resolver at an explicit root (must be the
-    /// `com.harmony.app`-equivalent dir) and ensure it exists. Used by tests and
-    /// any caller that wants a sandboxed layout.
+    /// `com.retro-game-player.app`-equivalent dir) and ensure it exists. Used
+    /// by tests and any caller that wants a sandboxed layout.
     pub fn with_root(root: impl Into<PathBuf>) -> AppResult<Self> {
         let root = root.into();
         ensure_dir(&root)?;
         Ok(Self { root })
     }
 
-    /// The app-support root dir (`…/com.harmony.app/`).
+    /// The app-support root dir (`…/com.retro-game-player.app/`).
     pub fn root(&self) -> &Path {
         &self.root
     }

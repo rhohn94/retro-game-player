@@ -1,7 +1,7 @@
 {
   "schema-version": 4,
   "framework-version": "v3.63",
-  "name": "Harmony",
+  "name": "Retro Game Player",
   "work-paradigm": {
     "value": "Noir"
   },
