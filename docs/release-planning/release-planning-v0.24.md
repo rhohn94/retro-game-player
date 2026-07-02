@@ -160,7 +160,7 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.24 |
 |---|---|---|---|---|
-| `feat/w243-player-conveniences` (W243) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w243-player-conveniences` (W243) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 4
 
