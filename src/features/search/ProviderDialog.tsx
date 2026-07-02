@@ -24,8 +24,8 @@ export interface ProviderFormData {
   /** `"reference"` (metadata/info) or `"download"` (links to obtainable content). */
   kind: string;
   /**
-   * Per-vendor opt-in for the future OPTIONAL direct-download feature (v0.16
-   * scaffolding). Persisted, but no direct-download action exists yet.
+   * Per-vendor opt-in for direct download (scaffolded v0.16, live since
+   * v0.24 W244): opted-in providers' result rows carry a ⬇ download action.
    */
   directDownload: boolean;
   /**
@@ -374,7 +374,11 @@ export function ProviderDialog({
               />
               <span>
                 Allow direct download from this vendor{" "}
-                <span style={{ opacity: 0.7 }}>(experimental — not available yet)</span>
+                <span style={{ opacity: 0.7 }}>
+                  (adds a ⬇ download action to this provider's results — files you
+                  click land in your library; legality of any source stays your
+                  responsibility)
+                </span>
               </span>
             </label>
           </div>

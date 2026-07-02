@@ -7,6 +7,7 @@ import { parseBadges } from "../resultBadges";
 import type { MatchStrength } from "../resultRanking";
 import type { SearchResultItem, LinkState } from "../../../ipc/search";
 import { MatchBadge, BadgeChip, LivenessDot } from "./ResultBadges";
+import { DownloadAction } from "./DownloadAction";
 
 export function ResultRow({
   result,
@@ -14,12 +15,16 @@ export function ResultRow({
   strength,
   status,
   onToggleSelect,
+  downloadProviderId,
 }: {
   result: SearchResultItem;
   selected: boolean;
   strength: MatchStrength;
   status: LinkState | undefined;
   onToggleSelect: (url: string) => void;
+  /** Set when this row's provider has direct download enabled (W244) —
+   * renders the in-row ⬇ Download action beside the open-link button. */
+  downloadProviderId?: number;
 }) {
   async function handleOpen() {
     await openUrl(result.url);
@@ -105,6 +110,11 @@ export function ResultRow({
           ↗ open
         </span>
       </button>
+      {downloadProviderId !== undefined && (
+        <span style={{ flexShrink: 0, paddingRight: 10 }}>
+          <DownloadAction providerId={downloadProviderId} url={result.url} />
+        </span>
+      )}
     </motion.li>
   );
 }
