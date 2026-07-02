@@ -4,8 +4,8 @@
 
 ## Overview
 
-Harmony's documentation tree. Each tier below has an index; start here and
-follow links down.
+Retro Game Player's documentation tree. Each tier below has an index; start
+here and follow links down.
 
 ## Tiers
 

@@ -2,21 +2,22 @@
 
 > **Up:** [↑ Docs](README.md)
 
-Harmony is a polished, Mac-native (Apple Silicon) retro-game player: it manages
-a local game library with cover art and metadata across 20 classic consoles,
-discovers and links (never downloads) game sources, and **plays games in-page**
-— an embedded EmulatorJS core or a natively-hosted libretro core, with external
-RetroArch as the fallback for everything else. It ships **no** game content — it
-scans folders the user provides. One `## vX.Y` section per planned release; the
-integration master uses this file as the primary input to
-`grm-release-planning`.
+Retro Game Player is a polished, Mac-native (Apple Silicon) retro-game player:
+it manages a local game library with cover art and metadata across 20 classic
+consoles, discovers and links (never downloads) game sources, and **plays
+games in-page** — an embedded EmulatorJS core or a natively-hosted libretro
+core, with external RetroArch as the fallback for everything else. It ships
+**no** game content — it scans folders the user provides. One `## vX.Y`
+section per planned release; the integration master uses this file as the
+primary input to `grm-release-planning`.
 
 **North star:** a genuinely amazing retro videogame experience — pick up a
 controller from the couch, browse a beautiful art-forward library, and be
 *playing* seconds later, with your progress always kept. The v0.23+ arc below
 works toward that in order of what hurts most today: progress is never lost →
-every game plays inside Harmony, fast → the library feels like *yours* → the
-couch/TV experience → authentic retro presentation → distribution to the world.
+every game plays inside Retro Game Player, fast → the library feels like
+*yours* → the couch/TV experience → authentic retro presentation →
+distribution to the world.
 Gap analysis of record: issues
 [#16](https://github.com/rhohn94/harmony/issues/16)–[#29](https://github.com/rhohn94/harmony/issues/29)
 (filed 2026-07-01) plus the standing TV epic
