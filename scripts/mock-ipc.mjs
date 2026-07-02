@@ -154,8 +154,11 @@ export const MOCK_FIXTURES = {
     { url: "https://www.pdroms.de/homebrew-mario", state: "unknown" },
   ],
 
-  // --- Controller (src/ipc/controllers.ts) ---
+  // --- Controller (src/ipc/controllers.ts; set_binding/reset_bindings added
+  //     by W267's remap UI) ---
   list_bindings: [],
+  set_binding: { id: 1, deviceFamily: "xbox", action: "confirm", button: "faceDown" },
+  reset_bindings: null,
 
   // --- Launch / RetroArch (src/ipc/launch.ts) ---
   locate_retroarch: "/Applications/RetroArch.app/Contents/MacOS/RetroArch",

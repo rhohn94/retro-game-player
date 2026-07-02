@@ -1,7 +1,8 @@
-// Typed wrappers for the `controllers` domain (W14). Thin calls through the IPC
-// chokepoint `invoke`, mirroring the Rust `controllers` command surface
-// (architecture-design.md §2.10). The frontend imports these from the barrel
-// `@/ipc/commands`, never `@tauri-apps/api` directly.
+// Typed wrappers for the `controllers` domain (W14; `resetBindings` added by
+// W267's remap UI). Thin calls through the IPC chokepoint `invoke`, mirroring
+// the Rust `controllers` command surface (architecture-design.md §2.10). The
+// frontend imports these from the barrel `@/ipc/commands`, never
+// `@tauri-apps/api` directly.
 
 import { invoke } from "./invoke";
 
@@ -29,4 +30,12 @@ export function setBinding(
   button: string,
 ): Promise<ControllerBinding> {
   return invoke<ControllerBinding>("set_binding", { deviceFamily, action, button });
+}
+
+/**
+ * Clear every override for one device family, restoring its compiled-in
+ * defaults ("Reset to defaults" — W267, controller-input-design.md §Remapping UI).
+ */
+export function resetBindings(deviceFamily: string): Promise<void> {
+  return invoke<void>("reset_bindings", { deviceFamily });
 }
