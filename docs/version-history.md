@@ -7,6 +7,18 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.25 — Scout (2026-07-02)
+
+Point Harmony at a site's home URL and it figures out how to search there.
+**Provider API auto-discovery** probes a site for standard search interfaces —
+an OpenSearch description, MediaWiki or WordPress APIs, or a plain HTML search
+form — and fills the Add-provider form with a ready-to-use template, best
+match first. Verified end-to-end: given only `en.wikipedia.org`, Harmony
+recovers Wikipedia's OpenSearch search template on its own. The **provider
+catalog** also grows with four live-verified legitimate sources — Lexaloffle
+BBS (PICO-8 homebrew), OpenGameArt, TheGamesDB, and Hardcore Gaming 101.
+Discovery only ever probes the site you name; it never crawls the open web.
+
 ## v0.24 — Everywhere (2026-07-02)
 
 Every found game can land inside Harmony, and more of the catalog plays
