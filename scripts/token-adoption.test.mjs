@@ -61,13 +61,13 @@ describe("token adoption (v0.3 W33)", () => {
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
-  it("declares the Harmony token layer in aura-theme.css", () => {
+  it("declares the Retro Game Player token layer in aura-theme.css", () => {
     const theme = readFileSync(join(SRC, "theme/aura-theme.css"), "utf8");
     for (const token of [
-      "--harmony-focus-ring",
-      "--harmony-section-gap",
-      "--harmony-font-hero-title",
-      "--harmony-tile-min-width",
+      "--rgp-focus-ring",
+      "--rgp-section-gap",
+      "--rgp-font-hero-title",
+      "--rgp-tile-min-width",
       "--aura-error",
     ]) {
       expect(theme.includes(`${token}:`), `missing ${token}`).toBe(true);

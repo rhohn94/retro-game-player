@@ -30,7 +30,7 @@ export function HintBar({ hints, showMove = true }: HintBarProps) {
   const { family } = useController();
   return (
     <footer
-      className="harmony-hintbar"
+      className="rgp-hintbar"
       style={{
         display: "flex",
         gap: 20,

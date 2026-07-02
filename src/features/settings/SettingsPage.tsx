@@ -1,4 +1,4 @@
-// SettingsPage — the Settings screen for Harmony (W15).
+// SettingsPage — the Settings screen for Retro Game Player (W15).
 //
 // Archetype: Sectioned-form (harmony-ux-design.md §3). Two-column layout:
 // left <aura-nav> section list, right pane renders the selected section.
@@ -82,7 +82,7 @@ export function SettingsPage() {
 
   return (
     <section
-      className="harmony-panel"
+      className="rgp-panel"
       style={{
         display: "flex",
         flexDirection: "column",

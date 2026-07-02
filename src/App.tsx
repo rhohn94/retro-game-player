@@ -20,7 +20,7 @@ import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFul
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
-// inset — D2 §5) lives as `--harmony-*` tokens in theme/aura-theme.css so the
+// inset — D2 §5) lives as `--rgp-*` tokens in theme/aura-theme.css so the
 // shell is token-driven like every other surface (v0.3 W32).
 
 /** IPC liveness chip — round-trips `ping` so the shell proves the seam works. */
@@ -41,10 +41,10 @@ function IpcStatus() {
 
   return (
     <div
-      className="harmony-panel"
+      className="rgp-panel"
       style={{
-        fontSize: "var(--harmony-font-chip)",
-        padding: "var(--harmony-chip-pad-sm)",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
         borderRadius: "var(--aura-radius-sm)",
         color: "var(--aura-on-surface-muted)",
       }}
@@ -74,7 +74,7 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
       to={route.path}
       end={route.index}
       style={({ isActive }) => ({
-        padding: "var(--aura-space-2) var(--harmony-space-2-5)",
+        padding: "var(--aura-space-2) var(--rgp-space-2-5)",
         borderRadius: "var(--aura-radius-sm)",
         textDecoration: "none",
         color: isActive ? "var(--aura-on-primary)" : "var(--aura-on-surface)",
@@ -82,7 +82,7 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
         outline: isFocused ? "2px solid var(--aura-focus)" : "none",
         outlineOffset: "2px",
         transition:
-          "background var(--harmony-dur-fast) var(--harmony-ease-out), color var(--harmony-dur-fast) var(--harmony-ease-out)",
+          "background var(--rgp-dur-fast) var(--rgp-ease-out), color var(--rgp-dur-fast) var(--rgp-ease-out)",
       })}
     >
       {route.navLabel}
@@ -104,14 +104,14 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
       ref={ref}
       type="button"
       onClick={fullscreen.toggle}
-      className="harmony-panel"
+      className="rgp-panel"
       title="Toggle fullscreen (F11)"
       style={{
         width: "100%",
         textAlign: "left",
         cursor: "pointer",
-        fontSize: "var(--harmony-font-chip)",
-        padding: "var(--harmony-chip-pad-sm)",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
         borderRadius: "var(--aura-radius-sm)",
         color: "var(--aura-on-surface)",
         border: "none",
@@ -128,9 +128,9 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
 function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     <nav
-      className="harmony-sidebar"
+      className="rgp-sidebar"
       style={{
-        width: "var(--harmony-sidebar-width)",
+        width: "var(--rgp-sidebar-width)",
         padding: "var(--aura-space-4)",
         display: "flex",
         flexDirection: "column",
@@ -139,11 +139,11 @@ function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
     >
       <h1
         style={{
-          fontSize: "var(--harmony-font-title)",
+          fontSize: "var(--rgp-font-title)",
           margin: "var(--aura-space-1) var(--aura-space-2) var(--aura-space-4)",
         }}
       >
-        Harmony
+        Retro Game Player
       </h1>
       {HARMONY_ROUTES.filter((r) => r.navLabel).map((r) => (
         <FocusableNavItem key={r.path} route={r} />
@@ -225,20 +225,20 @@ function Shell() {
     // AuraApp is the app-shell archetype root; it paints transparent so vibrancy
     // reads through (theme/aura-theme.css). The wrapper bridges React to the
     // custom element's events/class contract (design-language.md §7.2).
-    <AuraApp className="harmony-shell" style={{ display: "block", minHeight: "100vh" }}>
+    <AuraApp className="rgp-shell" style={{ display: "block", minHeight: "100vh" }}>
       <ShellControllerBindings />
       <div
         data-tauri-drag-region
         style={{
-          height: "var(--harmony-drag-strip-height)",
-          paddingLeft: "var(--harmony-traffic-light-inset)",
+          height: "var(--rgp-drag-strip-height)",
+          paddingLeft: "var(--rgp-traffic-light-inset)",
           width: "100%",
         }}
       />
       <div
         style={{
           display: "flex",
-          minHeight: "calc(100vh - var(--harmony-drag-strip-height))",
+          minHeight: "calc(100vh - var(--rgp-drag-strip-height))",
         }}
       >
         <Sidebar fullscreen={fullscreen} />

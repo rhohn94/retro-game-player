@@ -10,7 +10,7 @@ export function EmptyState({
 }) {
   return (
     <AuraCard
-      class="harmony-panel"
+      class="rgp-panel"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -46,8 +46,8 @@ export function EmptyState({
         >
           https://example.com?q={"{query}"}
         </code>
-        . Harmony constructs the link and opens it in your browser — it never
-        downloads anything automatically.
+        . Retro Game Player constructs the link and opens it in your browser —
+        it never downloads anything automatically.
       </p>
       <div style={{ display: "flex", gap: 8 }}>
         <AuraButton variant="primary" onClick={onBrowse}>

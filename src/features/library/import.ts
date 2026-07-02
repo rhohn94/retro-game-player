@@ -11,7 +11,7 @@ import { enrichGameMetadata, importGames } from "../../ipc/commands";
 import type { ImportItem } from "../../ipc/commands";
 
 /**
- * ROM file extensions Harmony can identify on import. Mirrors the scan map in
+ * ROM file extensions Retro Game Player can identify on import. Mirrors the scan map in
  * `core/library/mapper.rs` (SYSTEMS) — anything else is rejected by the backend.
  */
 export const ROM_EXTENSIONS = [

@@ -35,7 +35,7 @@ body,
  * Aura's <aura-field> only decorates a contained control — it renders no input
  * of its own — so the real <input> lives in the markup and carries this class.
  */
-.harmony-input {
+.rgp-input {
   width: 100%;
   box-sizing: border-box;
   padding: var(--aura-space-2) var(--aura-space-3);
@@ -47,11 +47,11 @@ body,
   font-size: 0.875rem;
 }
 
-.harmony-input::placeholder {
+.rgp-input::placeholder {
   color: var(--aura-on-surface-muted);
 }
 
-.harmony-input:focus-visible {
-  outline: var(--harmony-focus-ring);
+.rgp-input:focus-visible {
+  outline: var(--rgp-focus-ring);
   outline-offset: 2px;
 }

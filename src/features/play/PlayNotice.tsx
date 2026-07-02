@@ -10,14 +10,14 @@ export function PlayNotice({ notice }: { notice: DegradationNotice }) {
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
   return (
-    <div className="harmony-play-notice" role="status">
-      <div className="harmony-play-notice__text">
-        <p className="harmony-play-notice__message">{notice.message}</p>
-        <p className="harmony-play-notice__hint">{notice.hint}</p>
+    <div className="rgp-play-notice" role="status">
+      <div className="rgp-play-notice__text">
+        <p className="rgp-play-notice__message">{notice.message}</p>
+        <p className="rgp-play-notice__hint">{notice.hint}</p>
       </div>
       <button
         type="button"
-        className="harmony-play-notice__dismiss"
+        className="rgp-play-notice__dismiss"
         aria-label="Dismiss"
         onClick={() => setDismissed(true)}
       >

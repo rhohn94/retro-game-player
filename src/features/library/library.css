@@ -1,7 +1,7 @@
 /*
  * Library feature styles (W13) — gallery grid, hero teaser/backdrop, detail.
  *
- * Authored in the `harmony-theme` override layer (declared after Aura's barrel,
+ * Authored in the `rgp-theme` override layer (declared after Aura's barrel,
  * design-language.md §7.5) so these win without specificity fights. Shelves use
  * the translucent --aura-*-alpha tokens so native vibrancy reads through; there
  * is NO backdrop-filter (the soft hero is the backend's pre-blurred bitmap).
@@ -9,36 +9,36 @@
  * before the W14 spatial-nav layer lands.
  */
 
-@layer harmony-theme {
+@layer rgp-theme {
   /* ---- shared ---- */
-  .harmony-muted {
+  .rgp-muted {
     color: var(--aura-on-surface-muted);
   }
-  .harmony-notice {
+  .rgp-notice {
     display: block;
     padding: var(--aura-space-3) var(--aura-space-4);
     margin: var(--aura-space-3) 0;
-    border-radius: var(--harmony-radius-card);
+    border-radius: var(--rgp-radius-card);
     color: var(--aura-on-surface);
   }
 
   /* Visible focus ring for every focusable library control (W13; W14 drives it). */
-  .harmony-tile:focus-visible,
-  .harmony-tab:focus-visible,
-  .harmony-detail__row:focus-visible {
-    outline: var(--harmony-focus-ring);
-    outline-offset: var(--harmony-focus-ring-offset);
+  .rgp-tile:focus-visible,
+  .rgp-tab:focus-visible,
+  .rgp-detail__row:focus-visible {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
   }
 
   /* ---- hero backdrop (pre-blurred bitmap, NO css filter) ---- */
-  .harmony-hero-backdrop {
+  .rgp-hero-backdrop {
     position: absolute;
     inset: 0;
     z-index: 0;
     overflow: hidden;
     pointer-events: none;
   }
-  .harmony-hero-backdrop__layer {
+  .rgp-hero-backdrop__layer {
     position: absolute;
     inset: -5%;
     background-size: cover;
@@ -48,72 +48,72 @@
   }
 
   /* ---- library page ---- */
-  .harmony-library {
+  .rgp-library {
     position: relative;
     min-height: 100%;
   }
-  .harmony-library__content {
+  .rgp-library__content {
     position: relative;
     z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: var(--harmony-section-gap);
+    gap: var(--rgp-section-gap);
   }
 
   /* hero teaser */
-  .harmony-hero {
+  .rgp-hero {
     display: flex;
-    gap: var(--harmony-section-gap);
-    padding: var(--harmony-section-gap);
+    gap: var(--rgp-section-gap);
+    padding: var(--rgp-section-gap);
     border-radius: var(--aura-radius-lg);
   }
-  .harmony-hero__cover {
-    width: var(--harmony-hero-cover-width);
-    height: var(--harmony-hero-cover-height);
+  .rgp-hero__cover {
+    width: var(--rgp-hero-cover-width);
+    height: var(--rgp-hero-cover-height);
     flex: 0 0 auto;
-    border-radius: var(--harmony-radius-card);
+    border-radius: var(--rgp-radius-card);
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--aura-shelf-alpha);
   }
-  .harmony-hero__cover-img {
+  .rgp-hero__cover-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  .harmony-hero__cover-ph {
+  .rgp-hero__cover-ph {
     color: var(--aura-on-surface-muted);
-    font-size: var(--harmony-font-caption);
+    font-size: var(--rgp-font-caption);
   }
-  .harmony-hero__meta {
+  .rgp-hero__meta {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
     justify-content: center;
   }
-  .harmony-hero__title {
+  .rgp-hero__title {
     margin: 0;
-    font-size: var(--harmony-font-hero-title);
+    font-size: var(--rgp-font-hero-title);
   }
-  .harmony-hero__system {
+  .rgp-hero__system {
     margin: 0;
     color: var(--aura-on-surface-muted);
   }
-  .harmony-hero__play {
+  .rgp-hero__play {
     margin-top: var(--aura-space-2);
     align-self: flex-start;
   }
 
   /* system filter tabs */
-  .harmony-tabs {
+  .rgp-tabs {
     display: flex;
     flex-wrap: wrap;
     gap: var(--aura-space-2);
   }
-  .harmony-tab {
-    padding: var(--harmony-chip-pad);
+  .rgp-tab {
+    padding: var(--rgp-chip-pad);
     border-radius: var(--aura-radius-full);
     border: 1px solid var(--aura-border);
     background: var(--aura-shelf-alpha);
@@ -121,55 +121,55 @@
     cursor: pointer;
     font: inherit;
     transition:
-      background var(--harmony-dur-fast) var(--harmony-ease-out),
-      color var(--harmony-dur-fast) var(--harmony-ease-out),
-      border-color var(--harmony-dur-fast) var(--harmony-ease-out);
+      background var(--rgp-dur-fast) var(--rgp-ease-out),
+      color var(--rgp-dur-fast) var(--rgp-ease-out),
+      border-color var(--rgp-dur-fast) var(--rgp-ease-out);
   }
-  .harmony-tab--active {
+  .rgp-tab--active {
     background: var(--aura-primary);
     color: var(--aura-on-primary);
     border-color: var(--aura-primary);
   }
 
   /* ---- multi-facet filter bar (v0.6) ---- */
-  .harmony-filters {
+  .rgp-filters {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-3);
   }
-  .harmony-filters__row {
+  .rgp-filters__row {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--aura-space-3);
   }
-  .harmony-filters__search {
+  .rgp-filters__search {
     flex: 1 1 220px;
     min-width: 180px;
-    padding: var(--aura-space-2) var(--harmony-space-2-5);
+    padding: var(--aura-space-2) var(--rgp-space-2-5);
     border-radius: var(--aura-radius-sm);
     border: 1px solid var(--aura-border);
     background: var(--aura-surface-2);
     color: var(--aura-on-surface);
     font: inherit;
-    transition: border-color var(--harmony-dur-fast) var(--harmony-ease-out);
+    transition: border-color var(--rgp-dur-fast) var(--rgp-ease-out);
   }
-  .harmony-filters__search:focus-visible {
-    outline: var(--harmony-focus-ring);
-    outline-offset: var(--harmony-focus-ring-offset);
+  .rgp-filters__search:focus-visible {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
     border-color: var(--aura-primary);
   }
-  .harmony-facet {
+  .rgp-facet {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-1);
   }
-  .harmony-facet__label {
-    font-size: var(--harmony-font-caption);
+  .rgp-facet__label {
+    font-size: var(--rgp-font-caption);
     color: var(--aura-on-surface-muted);
   }
-  .harmony-facet__select {
-    padding: var(--aura-space-2) var(--harmony-space-2-5);
+  .rgp-facet__select {
+    padding: var(--aura-space-2) var(--rgp-space-2-5);
     border-radius: var(--aura-radius-sm);
     border: 1px solid var(--aura-border);
     background: var(--aura-surface-2);
@@ -177,18 +177,18 @@
     font: inherit;
     cursor: pointer;
   }
-  .harmony-facet__select:focus-visible {
-    outline: var(--harmony-focus-ring);
-    outline-offset: var(--harmony-focus-ring-offset);
+  .rgp-facet__select:focus-visible {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
   }
 
   /* gallery grid */
-  .harmony-grid {
+  .rgp-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--harmony-tile-min-width), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--rgp-tile-min-width), 1fr));
     gap: var(--aura-space-4);
   }
-  .harmony-tile {
+  .rgp-tile {
     padding: 0;
     border: none;
     background: none;
@@ -196,26 +196,26 @@
     border-radius: var(--aura-radius-md);
     text-align: left;
   }
-  .harmony-tile__card {
+  .rgp-tile__card {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
     padding: var(--aura-space-2);
     border-radius: var(--aura-radius-md);
-    transition: transform var(--harmony-dur-fast) var(--harmony-ease-out);
+    transition: transform var(--rgp-dur-fast) var(--rgp-ease-out);
   }
-  .harmony-tile:hover .harmony-tile__card,
-  .harmony-tile:focus-visible .harmony-tile__card {
+  .rgp-tile:hover .rgp-tile__card,
+  .rgp-tile:focus-visible .rgp-tile__card {
     transform: translateY(-2px);
   }
-  .harmony-tile__art {
+  .rgp-tile__art {
     width: 100%;
     aspect-ratio: 3 / 4;
     object-fit: cover;
     border-radius: var(--aura-radius-sm);
     display: block;
   }
-  .harmony-tile__placeholder {
+  .rgp-tile__placeholder {
     width: 100%;
     aspect-ratio: 3 / 4;
     display: flex;
@@ -224,10 +224,10 @@
     border-radius: var(--aura-radius-sm);
     background: var(--aura-shelf-alpha);
     color: var(--aura-on-surface-muted);
-    font-size: var(--harmony-font-caption);
+    font-size: var(--rgp-font-caption);
   }
-  .harmony-tile__title {
-    font-size: var(--harmony-font-caption);
+  .rgp-tile__title {
+    font-size: var(--rgp-font-caption);
     line-height: 1.3;
     color: var(--aura-on-surface);
     overflow: hidden;
@@ -241,100 +241,100 @@
      honoured centrally by the global media query in theme/motion.css. */
 
   /* ---- detail page ---- */
-  .harmony-detail {
+  .rgp-detail {
     position: relative;
     min-height: 100%;
   }
-  .harmony-detail__content {
+  .rgp-detail__content {
     position: relative;
     z-index: 1;
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-4);
   }
-  .harmony-detail__back {
+  .rgp-detail__back {
     align-self: flex-start;
   }
-  .harmony-detail__body {
+  .rgp-detail__body {
     display: flex;
     gap: var(--aura-space-5);
   }
-  .harmony-detail__cover {
-    width: var(--harmony-detail-cover-width);
-    height: var(--harmony-detail-cover-height);
+  .rgp-detail__cover {
+    width: var(--rgp-detail-cover-width);
+    height: var(--rgp-detail-cover-height);
     flex: 0 0 auto;
-    border-radius: var(--harmony-radius-cover);
+    border-radius: var(--rgp-radius-cover);
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .harmony-detail__cover-img {
+  .rgp-detail__cover-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  .harmony-detail__cover-ph {
+  .rgp-detail__cover-ph {
     color: var(--aura-on-surface-muted);
   }
-  .harmony-detail__info {
+  .rgp-detail__info {
     flex: 1;
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
   }
-  .harmony-detail__title {
+  .rgp-detail__title {
     margin: 0;
-    font-size: var(--harmony-font-detail-title);
+    font-size: var(--rgp-font-detail-title);
   }
-  .harmony-detail__subtitle,
-  .harmony-detail__core {
+  .rgp-detail__subtitle,
+  .rgp-detail__core {
     margin: 0;
     color: var(--aura-on-surface-muted);
   }
-  .harmony-detail__actions {
+  .rgp-detail__actions {
     display: flex;
     gap: var(--aura-space-3);
     margin: var(--aura-space-3) 0;
   }
-  .harmony-detail__meta {
+  .rgp-detail__meta {
     display: flex;
     flex-direction: column;
     gap: 2px;
     margin-top: var(--aura-space-2);
   }
-  .harmony-detail__row {
+  .rgp-detail__row {
     display: flex;
     gap: var(--aura-space-4);
-    padding: var(--aura-space-2) var(--harmony-space-2-5);
+    padding: var(--aura-space-2) var(--rgp-space-2-5);
     border-radius: var(--aura-radius-sm);
     background: var(--aura-shelf-alpha);
   }
-  .harmony-detail__row-label {
-    flex: 0 0 var(--harmony-detail-label-width);
+  .rgp-detail__row-label {
+    flex: 0 0 var(--rgp-detail-label-width);
     color: var(--aura-on-surface-muted);
   }
-  .harmony-detail__row-value {
+  .rgp-detail__row-value {
     flex: 1;
     overflow-wrap: anywhere;
   }
 
   /* ---- v0.12: import toolbar + drag-drop overlay ---- */
-  .harmony-library__toolbar {
+  .rgp-library__toolbar {
     display: flex;
     align-items: center;
     gap: var(--aura-space-3);
     flex-wrap: wrap;
   }
-  .harmony-library__hint {
+  .rgp-library__hint {
     font-size: 13px;
   }
-  .harmony-library__note {
+  .rgp-library__note {
     font-size: 13px;
     color: var(--aura-primary);
     font-weight: 600;
   }
-  .harmony-dropzone {
+  .rgp-dropzone {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -344,7 +344,7 @@
     background: color-mix(in srgb, var(--aura-surface) 60%, transparent);
     pointer-events: none;
   }
-  .harmony-dropzone__inner {
+  .rgp-dropzone__inner {
     padding: var(--aura-space-5) var(--aura-space-6);
     border: 2px dashed var(--aura-primary);
     border-radius: var(--aura-radius-lg);
@@ -355,19 +355,19 @@
   }
 
   /* ---- v0.12: game description / Wikipedia link on the detail page ---- */
-  .harmony-detail__about {
+  .rgp-detail__about {
     margin-top: var(--aura-space-3);
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
     max-width: 60ch;
   }
-  .harmony-detail__desc {
+  .rgp-detail__desc {
     margin: 0;
     line-height: 1.5;
     color: var(--aura-on-surface);
   }
-  .harmony-detail__wiki {
+  .rgp-detail__wiki {
     align-self: flex-start;
     background: none;
     border: none;
@@ -376,18 +376,18 @@
     font-size: 13px;
     color: var(--aura-primary);
   }
-  .harmony-detail__wiki:hover {
+  .rgp-detail__wiki:hover {
     text-decoration: underline;
   }
 
   /* ---- in-page WASM player (v0.15) — an <iframe> on the loopback play origin ---- */
-  .harmony-player {
+  .rgp-player {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
     margin-bottom: var(--aura-space-4);
   }
-  .harmony-player__frame {
+  .rgp-player__frame {
     width: 100%;
     max-width: 760px;
     aspect-ratio: 4 / 3;
@@ -396,9 +396,9 @@
     border-radius: var(--aura-radius-md);
     overflow: hidden;
     /* #7: the frame fades in as the game boots (seamless start). */
-    animation: harmony-player-in var(--harmony-dur-slow, 0.4s) var(--harmony-ease-out);
+    animation: rgp-player-in var(--rgp-dur-slow, 0.4s) var(--rgp-ease-out);
   }
-  @keyframes harmony-player-in {
+  @keyframes rgp-player-in {
     from {
       opacity: 0;
     }
@@ -406,13 +406,13 @@
       opacity: 1;
     }
   }
-  .harmony-player__bar {
+  .rgp-player__bar {
     display: flex;
     gap: var(--aura-space-2);
   }
   /* Player chrome controls (Full screen / Menu) — chip styling like the tabs. */
-  .harmony-player__fs {
-    padding: var(--harmony-chip-pad);
+  .rgp-player__fs {
+    padding: var(--rgp-chip-pad);
     border-radius: var(--aura-radius-full);
     border: 1px solid var(--aura-border);
     background: var(--aura-shelf-alpha);
@@ -420,15 +420,15 @@
     cursor: pointer;
     font: inherit;
   }
-  .harmony-player__fs:focus-visible {
-    outline: var(--harmony-focus-ring);
-    outline-offset: var(--harmony-focus-ring-offset);
+  .rgp-player__fs:focus-visible {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
   }
 
   /* v0.21 "Bedrock" W214 — native libretro core player: a <canvas> instead of
      the EmulatorJS <iframe>, scaled up from the core's native resolution
      without smoothing so NES-era pixel art stays crisp. */
-  .harmony-native-player__canvas {
+  .rgp-native-player__canvas {
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -437,14 +437,14 @@
 
   /* #6: immersive mode — the player fills the viewport over the app chrome
      (paired with a Tauri window-fullscreen), so the overlay can sit above it. */
-  .harmony-player--immersive {
+  .rgp-player--immersive {
     position: fixed;
     inset: 0;
     z-index: 1000;
     margin: 0;
     background: black;
   }
-  .harmony-player--immersive .harmony-player__frame {
+  .rgp-player--immersive .rgp-player__frame {
     max-width: none;
     width: 100vw;
     height: 100vh;
@@ -457,14 +457,14 @@
      the content's stacking context: above the hero backdrop, below every
      content child). A placeholder keeps the slot's height so the scroll
      position doesn't jump; the chrome bar hides while backgrounded. */
-  .harmony-player--attract::before {
+  .rgp-player--attract::before {
     content: "";
     display: block;
     width: 100%;
     max-width: 760px;
     aspect-ratio: 4 / 3;
   }
-  .harmony-player--attract .harmony-player__frame {
+  .rgp-player--attract .rgp-player__frame {
     position: fixed;
     inset: 0;
     z-index: -1;
@@ -472,19 +472,19 @@
     aspect-ratio: auto;
     border-radius: 0;
   }
-  .harmony-player--attract .harmony-native-player__canvas {
+  .rgp-player--attract .rgp-native-player__canvas {
     object-fit: cover;
     filter: brightness(0.45) saturate(0.85);
   }
-  .harmony-native-player__canvas {
-    transition: filter var(--harmony-dur-slow, 0.4s) var(--harmony-ease-out);
+  .rgp-native-player__canvas {
+    transition: filter var(--rgp-dur-slow, 0.4s) var(--rgp-ease-out);
   }
-  .harmony-player--attract .harmony-player__bar {
+  .rgp-player--attract .rgp-player__bar {
     display: none;
   }
 
   /* #6: in-game overlay (Resume / Full screen / Exit) over the running game. */
-  .harmony-overlay {
+  .rgp-overlay {
     position: fixed;
     inset: 0;
     z-index: 1100;
@@ -493,7 +493,7 @@
     justify-content: center;
     background: color-mix(in srgb, var(--aura-surface) 72%, transparent);
   }
-  .harmony-overlay__panel {
+  .rgp-overlay__panel {
     min-width: 280px;
     padding: var(--aura-space-5) var(--aura-space-6);
     border-radius: var(--aura-radius-lg);
@@ -503,16 +503,16 @@
     flex-direction: column;
     gap: var(--aura-space-4);
   }
-  .harmony-overlay__title {
+  .rgp-overlay__title {
     margin: 0;
-    font-size: var(--harmony-font-detail-title, 22px);
+    font-size: var(--rgp-font-detail-title, 22px);
   }
-  .harmony-overlay__actions {
+  .rgp-overlay__actions {
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
   }
-  .harmony-overlay__btn {
+  .rgp-overlay__btn {
     padding: var(--aura-space-3) var(--aura-space-4);
     border-radius: var(--aura-radius-md);
     border: 1px solid var(--aura-border);
@@ -522,22 +522,22 @@
     font: inherit;
     font-size: 16px;
     text-align: left;
-    transition: background var(--harmony-dur-fast) var(--harmony-ease-out);
+    transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
   }
-  .harmony-overlay__btn--active,
-  .harmony-overlay__btn:hover {
+  .rgp-overlay__btn--active,
+  .rgp-overlay__btn:hover {
     background: var(--aura-primary);
     color: var(--aura-on-primary);
     border-color: var(--aura-primary);
   }
-  .harmony-overlay__hint {
+  .rgp-overlay__hint {
     margin: 0;
     font-size: 12px;
     color: var(--aura-on-surface-muted);
   }
 
   /* Transient save/load result line (W232), between the actions and the hint. */
-  .harmony-overlay__status {
+  .rgp-overlay__status {
     margin: 0;
     font-size: 12px;
     color: var(--aura-on-surface);
@@ -545,30 +545,30 @@
 
   /* Play-path degradation notice (W234) — info tone, dismissible, above the
      player slot; the fallback player keeps working beneath it. */
-  .harmony-play-notice {
+  .rgp-play-notice {
     display: flex;
     align-items: flex-start;
     gap: var(--aura-space-3);
     padding: var(--aura-space-3) var(--aura-space-4);
     margin-bottom: var(--aura-space-3);
-    border-radius: var(--harmony-radius-card);
+    border-radius: var(--rgp-radius-card);
     background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
     color: var(--aura-on-surface);
   }
-  .harmony-play-notice__text {
+  .rgp-play-notice__text {
     flex: 1;
     min-width: 0;
   }
-  .harmony-play-notice__message {
+  .rgp-play-notice__message {
     margin: 0;
     font-size: 13px;
   }
-  .harmony-play-notice__hint {
+  .rgp-play-notice__hint {
     margin: var(--aura-space-1) 0 0;
     font-size: 12px;
     color: var(--aura-on-surface-muted);
   }
-  .harmony-play-notice__dismiss {
+  .rgp-play-notice__dismiss {
     border: none;
     background: none;
     color: var(--aura-on-surface-muted);
@@ -579,46 +579,46 @@
 
   /* Get-core panel (v0.24 W241) — the player slot's "core not installed"
      affordance; sits where the player would mount. */
-  .harmony-getcore {
+  .rgp-getcore {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: var(--aura-space-3);
     padding: var(--aura-space-5) var(--aura-space-5);
-    border-radius: var(--harmony-radius-card);
+    border-radius: var(--rgp-radius-card);
     background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
     color: var(--aura-on-surface);
   }
-  .harmony-getcore__message {
+  .rgp-getcore__message {
     margin: 0;
     font-size: 14px;
   }
-  .harmony-getcore__button {
+  .rgp-getcore__button {
     border: none;
-    border-radius: var(--harmony-radius-card);
+    border-radius: var(--rgp-radius-card);
     padding: var(--aura-space-2) var(--aura-space-4);
     background: var(--aura-primary);
     color: var(--aura-on-primary);
     font-size: 14px;
     cursor: pointer;
   }
-  .harmony-getcore__button:disabled {
+  .rgp-getcore__button:disabled {
     opacity: 0.6;
     cursor: default;
   }
-  .harmony-getcore__error {
+  .rgp-getcore__error {
     margin: 0;
     font-size: 13px;
     color: var(--aura-error);
   }
-  .harmony-getcore__hint {
+  .rgp-getcore__hint {
     margin: 0;
     font-size: 13px;
     color: var(--aura-on-surface-muted);
   }
 
   /* Overlay volume row (v0.24 W243). */
-  .harmony-overlay__volume {
+  .rgp-overlay__volume {
     display: flex;
     align-items: center;
     gap: var(--aura-space-3);
@@ -626,11 +626,11 @@
     font-size: 13px;
     color: var(--aura-on-surface);
   }
-  .harmony-overlay__volume input[type="range"] {
+  .rgp-overlay__volume input[type="range"] {
     flex: 1;
     accent-color: var(--aura-primary);
   }
-  .harmony-overlay__volume-pct {
+  .rgp-overlay__volume-pct {
     min-width: 4ch;
     text-align: right;
     color: var(--aura-on-surface-muted);

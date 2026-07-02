@@ -44,12 +44,12 @@ export function HeroBackdrop({ game }: { game: Game | null }) {
   const uri = useBlurredHero(game);
 
   return (
-    <div className="harmony-hero-backdrop" aria-hidden>
+    <div className="rgp-hero-backdrop" aria-hidden>
       <AnimatePresence>
         {uri && (
           <motion.div
             key={uri}
-            className="harmony-hero-backdrop__layer"
+            className="rgp-hero-backdrop__layer"
             style={{ backgroundImage: `url("${uri}")` }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

@@ -1,5 +1,5 @@
 /*
- * Harmony's Aura theme — the 3-knob OKLCH brand model + dark surface tokens,
+ * Retro Game Player's Aura theme — the 3-knob OKLCH brand model + dark surface tokens,
  * declared per named theme. Values mirror docs/design/ux/design-language.md §3
  * exactly. Authored in an app-override cascade layer declared AFTER Aura's
  * barrel (design-language.md §7.5) so these win deterministically over Aura's
@@ -13,13 +13,13 @@
  * plus the Rust pre-blurred hero handoff.
  */
 
-@layer harmony-theme;
+@layer rgp-theme;
 
-@layer harmony-theme {
+@layer rgp-theme {
   /* Default named theme — also applied at :root so first paint is themed even
      before the head script (defence in depth). Dark cinematic console vibe. */
   :root,
-  .theme-harmony-noir {
+  .theme-rgp-noir {
     /* ---- the three brand knobs ---- */
     --aura-primary: oklch(0.78 0.15 215); /* console-cyan accent */
     --aura-secondary: oklch(0.8 0.13 65); /* warm amber highlight */
@@ -43,56 +43,56 @@
     --aura-shelf-alpha: oklch(0.18 0.012 250 / 0.48);
 
     /* ---- semantic status alias ---- */
-    /* Aura ships --aura-danger; Harmony's screens reference --aura-error. Alias
+    /* Aura ships --aura-danger; this app's screens reference --aura-error. Alias
        it (instead of leaving a hard-coded hex fallback) so the error colour is
        theme-driven, not a literal. */
     --aura-error: var(--aura-danger);
 
-    /* ---- Harmony geometry tokens (W31) ----
+    /* ---- Retro Game Player geometry tokens (W31) ----
        Named values Aura's 4px scale / radius scale does not own, kept exact so
        v0.3 tokenisation is visually identical to v0.2 (no rounding drift). */
-    --harmony-sidebar-width: 220px;
-    --harmony-drag-strip-height: 36px;
-    --harmony-traffic-light-inset: 80px; /* native traffic lights (D2 §5) */
-    --harmony-hero-cover-width: 140px;
-    --harmony-hero-cover-height: 196px;
-    --harmony-detail-cover-width: 220px;
-    --harmony-detail-cover-height: 308px;
-    --harmony-tile-min-width: 132px;
-    --harmony-detail-label-width: 80px;
-    --harmony-section-gap: 1.25rem; /* 20px — between space-4 (16) and space-5 (24) */
-    --harmony-space-2-5: 0.625rem; /* 10px — between space-2 (8) and space-3 (12) */
-    --harmony-chip-pad: 0.375rem 0.875rem; /* 6px 14px — pill tab padding (off-scale) */
-    --harmony-chip-pad-sm: 0.375rem 0.625rem; /* 6px 10px — status chip padding */
-    --harmony-radius-card: 0.625rem; /* 10px — between radius-sm (8) and radius-md (12) */
-    --harmony-radius-cover: 0.875rem; /* 14px */
+    --rgp-sidebar-width: 220px;
+    --rgp-drag-strip-height: 36px;
+    --rgp-traffic-light-inset: 80px; /* native traffic lights (D2 §5) */
+    --rgp-hero-cover-width: 140px;
+    --rgp-hero-cover-height: 196px;
+    --rgp-detail-cover-width: 220px;
+    --rgp-detail-cover-height: 308px;
+    --rgp-tile-min-width: 132px;
+    --rgp-detail-label-width: 80px;
+    --rgp-section-gap: 1.25rem; /* 20px — between space-4 (16) and space-5 (24) */
+    --rgp-space-2-5: 0.625rem; /* 10px — between space-2 (8) and space-3 (12) */
+    --rgp-chip-pad: 0.375rem 0.875rem; /* 6px 14px — pill tab padding (off-scale) */
+    --rgp-chip-pad-sm: 0.375rem 0.625rem; /* 6px 10px — status chip padding */
+    --rgp-radius-card: 0.625rem; /* 10px — between radius-sm (8) and radius-md (12) */
+    --rgp-radius-cover: 0.875rem; /* 14px */
 
-    /* ---- Harmony typography scale (W31) ---- */
-    --harmony-font-chip: 0.75rem; /* 12px */
-    --harmony-font-caption: 0.8125rem; /* 13px */
-    --harmony-font-title: 1.125rem; /* 18px shell / section title */
-    --harmony-font-hero-title: 1.625rem; /* 26px */
-    --harmony-font-detail-title: 1.875rem; /* 30px */
+    /* ---- Retro Game Player typography scale (W31) ---- */
+    --rgp-font-chip: 0.75rem; /* 12px */
+    --rgp-font-caption: 0.8125rem; /* 13px */
+    --rgp-font-title: 1.125rem; /* 18px shell / section title */
+    --rgp-font-hero-title: 1.625rem; /* 26px */
+    --rgp-font-detail-title: 1.875rem; /* 30px */
 
-    /* ---- Harmony focus ring (W31) — single source shared by every screen ---- */
-    --harmony-focus-ring: 2px solid var(--aura-focus);
-    --harmony-focus-ring-offset: 2px;
+    /* ---- Retro Game Player focus ring (W31) — single source shared by every screen ---- */
+    --rgp-focus-ring: 2px solid var(--aura-focus);
+    --rgp-focus-ring-offset: 2px;
 
     /* ---- provider-chip enabled fill — derived from primary so it tracks the theme ---- */
-    --harmony-provider-enabled-bg: var(--aura-primary-a15);
+    --rgp-provider-enabled-bg: var(--aura-primary-a15);
 
     /* ---- selected-swatch state (Appearance theme picker) — derived from
        primary so a selected pill/swatch tracks the active theme (W227) ---- */
-    --harmony-selected-bg: var(--aura-primary);
-    --harmony-selected-fg: var(--aura-on-primary);
-    --harmony-selected-border: var(--aura-primary);
+    --rgp-selected-bg: var(--aura-primary);
+    --rgp-selected-fg: var(--aura-on-primary);
+    --rgp-selected-border: var(--aura-primary);
 
     color-scheme: dark;
   }
 
   /* Optional lighter companion. Re-declares only the brand knobs + surfaces;
      nothing else changes (design-language.md §3.3). */
-  .theme-harmony-dusk {
+  .theme-rgp-dusk {
     --aura-primary: oklch(0.6 0.13 215);
     --aura-secondary: oklch(0.68 0.13 65);
     --aura-on-primary: oklch(0.98 0.005 230);
@@ -115,19 +115,19 @@
 
   /* App-shell root paints transparent so vibrancy reads through (NO filter). */
   aura-app,
-  .harmony-shell {
+  .rgp-shell {
     background: transparent;
     color: var(--aura-on-surface);
   }
 
   /* Translucent sidebar / shelves — OKLCH-alpha fills, no backdrop-filter. */
-  .harmony-sidebar {
+  .rgp-sidebar {
     background: var(--aura-shelf-alpha);
     border-right: 1px solid var(--aura-border);
     color: var(--aura-on-surface);
   }
 
-  .harmony-panel,
+  .rgp-panel,
   aura-card {
     background: var(--aura-panel-alpha);
     border: 1px solid var(--aura-border);

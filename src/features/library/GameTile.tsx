@@ -49,19 +49,19 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
       ref={ref}
       variants={listItem}
       type="button"
-      className="harmony-tile"
+      className="rgp-tile"
       onFocus={claimFocus}
       onMouseEnter={claimFocus}
       onClick={() => onOpen(game)}
       aria-label={`${game.cleanName} (${game.system})`}
     >
-      <AuraCard class="harmony-tile__card">
+      <AuraCard class="rgp-tile__card">
         {art ? (
-          <img className="harmony-tile__art" src={art} alt="" loading="lazy" />
+          <img className="rgp-tile__art" src={art} alt="" loading="lazy" />
         ) : (
-          <span className="harmony-tile__placeholder">{game.system}</span>
+          <span className="rgp-tile__placeholder">{game.system}</span>
         )}
-        <span className="harmony-tile__title">{game.cleanName}</span>
+        <span className="rgp-tile__title">{game.cleanName}</span>
       </AuraCard>
     </motion.button>
   );
