@@ -511,4 +511,38 @@
     font-size: 12px;
     color: var(--aura-on-surface);
   }
+
+  /* Play-path degradation notice (W234) — info tone, dismissible, above the
+     player slot; the fallback player keeps working beneath it. */
+  .harmony-play-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aura-space-3);
+    padding: var(--aura-space-3) var(--aura-space-4);
+    margin-bottom: var(--aura-space-3);
+    border-radius: var(--harmony-radius-card);
+    background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
+    color: var(--aura-on-surface);
+  }
+  .harmony-play-notice__text {
+    flex: 1;
+    min-width: 0;
+  }
+  .harmony-play-notice__message {
+    margin: 0;
+    font-size: 13px;
+  }
+  .harmony-play-notice__hint {
+    margin: var(--aura-space-1) 0 0;
+    font-size: 12px;
+    color: var(--aura-on-surface-muted);
+  }
+  .harmony-play-notice__dismiss {
+    border: none;
+    background: none;
+    color: var(--aura-on-surface-muted);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+  }
 }

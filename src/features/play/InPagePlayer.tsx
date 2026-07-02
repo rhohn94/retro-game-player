@@ -52,10 +52,13 @@ export interface InPagePlayerProps {
   ejsSystem: string;
   /** Display name passed to EmulatorJS (UI title, save-state id). */
   gameName: string;
+  /** Called once if the play server is unavailable (origin "") — the caller
+   * surfaces the degradation (W234); this player renders nothing. */
+  onUnavailable?: () => void;
 }
 
 /** Mounts the in-page emulator for one game; auto-starts on load. */
-export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps) {
+export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InPagePlayerProps) {
   const navigate = useNavigate();
   const { setExclusiveHandler } = useController();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -74,10 +77,20 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
 
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
   useCancellableEffect((isCancelled) => {
     getPlayOrigin()
-      .then((o) => !isCancelled() && setOrigin(o))
-      .catch(() => !isCancelled() && setOrigin(""));
+      .then((o) => {
+        if (isCancelled()) return;
+        setOrigin(o);
+        if (o === "") onUnavailableRef.current?.();
+      })
+      .catch(() => {
+        if (isCancelled()) return;
+        setOrigin("");
+        onUnavailableRef.current?.();
+      });
   }, []);
 
   /** Send a control message to the emulator iframe (same loopback origin). */
