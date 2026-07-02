@@ -1,42 +1,50 @@
-// Unit tests for the in-page-play system mapping (v0.15). This is the gate that
-// decides whether a game plays in-page (bundled WASM core) or falls back to the
-// native external-RetroArch launch, so the contract is worth pinning down: only
-// systems with a vendored core resolve, and the two helpers stay consistent.
-import { describe, it, expect } from "vitest";
-import { EJS_SYSTEM, inPageSystem, canPlayInPage } from "./ejs";
+// Guards the system→EJS_core mapping (v0.15; multi-core since v0.24 W241) —
+// especially the own-property check that keeps prototype-key system strings
+// from ever resolving to a "core".
+
+import { describe, expect, it } from "vitest";
+import { EJS_SYSTEM, inPageSystem, canPlayInPage, isEmbeddedInPage } from "./ejs";
 
 describe("inPageSystem", () => {
-  it("maps a bundled-core system to its EmulatorJS key", () => {
+  it("maps NES to the embedded EJS system alias", () => {
     expect(inPageSystem("nes")).toBe("nes");
+    expect(isEmbeddedInPage("nes")).toBe(true);
   });
 
-  it("returns undefined for a system with no bundled in-page core", () => {
-    // gen-6 / BIOS-gated systems fall back to the native launch.
-    expect(inPageSystem("psx")).toBeUndefined();
-    expect(inPageSystem("snes")).toBeUndefined();
+  it("maps the v0.24 on-demand systems to explicit core names", () => {
+    expect(inPageSystem("snes")).toBe("snes9x");
+    expect(inPageSystem("genesis")).toBe("genesis_plus_gx");
+    expect(inPageSystem("mastersystem")).toBe("genesis_plus_gx");
+    expect(inPageSystem("n64")).toBe("mupen64plus_next");
+    expect(inPageSystem("ps1")).toBe("pcsx_rearmed");
+    expect(inPageSystem("atari2600")).toBe("stella2014");
+    expect(inPageSystem("pcengine")).toBe("mednafen_pce");
+    expect(isEmbeddedInPage("snes")).toBe(false);
+  });
+
+  it("returns undefined for systems with no in-page core", () => {
+    expect(inPageSystem("dreamcast")).toBeUndefined();
+    expect(inPageSystem("ps2")).toBeUndefined();
     expect(inPageSystem("")).toBeUndefined();
   });
 
-  it("does not resolve inherited Object keys", () => {
+  it("never resolves Object.prototype keys as systems", () => {
     expect(inPageSystem("toString")).toBeUndefined();
     expect(inPageSystem("constructor")).toBeUndefined();
+    expect(canPlayInPage("hasOwnProperty")).toBe(false);
+  });
+
+  it("keeps every mapped value a plain core/system token", () => {
+    for (const value of Object.values(EJS_SYSTEM)) {
+      expect(value).toMatch(/^[a-z0-9_]+$/);
+    }
   });
 });
 
 describe("canPlayInPage", () => {
-  it("is true exactly for the systems in the mapping", () => {
+  it("is true exactly for mapped systems", () => {
     expect(canPlayInPage("nes")).toBe(true);
-    expect(canPlayInPage("psx")).toBe(false);
-    expect(canPlayInPage("")).toBe(false);
-  });
-
-  it("agrees with inPageSystem for every mapped and unmapped key", () => {
-    for (const system of Object.keys(EJS_SYSTEM)) {
-      expect(canPlayInPage(system)).toBe(true);
-      expect(inPageSystem(system)).toBeDefined();
-    }
-    for (const system of ["psx", "saturn", "3do", "n64", "unknown"]) {
-      expect(canPlayInPage(system)).toBe(inPageSystem(system) !== undefined);
-    }
+    expect(canPlayInPage("snes")).toBe(true);
+    expect(canPlayInPage("gamecube")).toBe(false);
   });
 });

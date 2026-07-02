@@ -29,6 +29,7 @@ import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { usePlayerPrefs } from "./playerPrefs";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
@@ -126,6 +127,21 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     [postToGame],
   );
 
+  // Stable postMessage handle so once-installed callbacks (prefs hook,
+  // blur handlers) always target the current iframe/origin.
+  const postRef = useRef(postToGame);
+  postRef.current = postToGame;
+
+  // Player prefs (W243): volume changes stream to the game bridge; the
+  // initial value lands via the same channel once the emulator starts
+  // (player.html holds it until then). Pause-on-blur reads the pref live.
+  const prefs = usePlayerPrefs((volume) => postRef.current("harmony-volume", { value: volume }));
+  const pauseOnBlurRef = useRef(true);
+  pauseOnBlurRef.current = prefs.pauseOnBlur;
+  const volumeRef = useRef(1);
+  volumeRef.current = prefs.volume;
+  const [fastForward, setFastForward] = useState(false);
+
   const openOverlay = useCallback(() => {
     setSelection(0);
     setOverlayOpen(true);
@@ -188,6 +204,32 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     open: overlayOpen,
     resume: { key: "resume", label: "Resume", run: () => closeOverlay() },
     extras: [
+      // EJS-only conveniences (W243, #22): rewind + fast-forward ride the
+      // emulator's built-ins via the player.html bridge; mute rides the
+      // shared persisted volume. The native path hides all three (rewind/FF
+      // need the frame-history machinery only EmulatorJS has today).
+      {
+        key: "rewind",
+        label: "⏪ Rewind 5 s",
+        run: () => {
+          closeOverlay(); // watch the rewind happen
+          postToGame("harmony-rewind", { seconds: 5 });
+        },
+      },
+      {
+        key: "fastforward",
+        label: fastForward ? "⏩ Fast-forward: on" : "⏩ Fast-forward: off",
+        run: () => {
+          const next = !fastForward;
+          setFastForward(next);
+          postToGame("harmony-fastforward", { active: next });
+        },
+      },
+      {
+        key: "mute",
+        label: prefs.volume === 0 ? "🔇 Unmute" : "🔇 Mute",
+        run: () => prefs.toggleMute(),
+      },
       {
         key: "immersive",
         label: immersive ? "Exit full screen" : "Full screen",
@@ -265,6 +307,30 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     };
   }, [origin, toggleOverlay]);
 
+  // Pause-on-blur (W243): freeze the game when the window loses focus,
+  // resume on refocus — unless the overlay already owns the pause.
+  useEffect(() => {
+    if (!origin) return;
+    let blurPaused = false;
+    const onBlur = () => {
+      if (pauseOnBlurRef.current && !overlayOpenRef.current) {
+        blurPaused = true;
+        postRef.current("harmony-pause");
+      }
+    };
+    const onFocus = () => {
+      if (!blurPaused) return;
+      blurPaused = false;
+      if (!overlayOpenRef.current) postRef.current("harmony-resume");
+    };
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [origin]);
+
   // Always leave fullscreen if the player unmounts (SPA navigation away).
   useEffect(() => () => void setWindowFullscreen(false), []);
 
@@ -316,6 +382,7 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
         onScrimClick={closeOverlay}
         status={status}
         hint="Esc or ☰ to toggle"
+        volume={{ value: prefs.volume, onChange: prefs.setVolume }}
       />
     </div>
   );

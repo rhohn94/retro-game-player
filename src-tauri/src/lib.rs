@@ -34,7 +34,13 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // own read-only connection to the same db file, so it never contends for the
     // managed Db handle. v0.23 W231: also bridges EmulatorJS saves to the
     // shared on-disk saves layout. ---
-    app.manage(play::start(db_path, paths.saves_dir()?));
+    app.manage(play::start(db_path.clone(), paths.saves_dir()?, paths.ejs_cores_dir()?));
+
+    // --- v0.24 W244: direct-download registry + staging-dir orphan sweep.
+    // Worker threads open their own db connection via `db_path`. ---
+    let downloads_dir = paths.downloads_dir()?;
+    core::search::download::sweep_orphans(&downloads_dir);
+    app.manage(commands::downloads::Downloads::new(db_path, downloads_dir));
 
     // --- v0.21 "Bedrock" W214: holds the single in-flight native libretro
     // core session, if any (see commands::native_play). ---

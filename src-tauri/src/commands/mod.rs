@@ -21,6 +21,9 @@ pub mod controllers; // W14
 pub mod console; // v0.12 — console catalog (browse + detail + bundled titles)
 pub mod play; // v0.15 — in-page WASM emulator ROM delivery
 pub mod native_play; // v0.21 "Bedrock" W214 — native libretro core frame delivery
+pub mod inpage_cores; // v0.24 W241 — on-demand EmulatorJS core acquisition (#17)
+pub mod player_prefs; // v0.24 W243 — volume + pause-on-blur prefs (#22)
+pub mod downloads; // v0.24 W244 — direct download (#30)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -103,6 +106,16 @@ macro_rules! register_commands {
             $crate::commands::native_play::set_native_paused,
             // attract-mode audio duck (v0.23 "Continuity" W235)
             $crate::commands::native_play::set_native_volume,
+            // on-demand in-page cores (v0.24 "Everywhere" W241)
+            $crate::commands::inpage_cores::list_inpage_cores,
+            $crate::commands::inpage_cores::install_inpage_core,
+            // player conveniences (v0.24 "Everywhere" W243)
+            $crate::commands::player_prefs::get_player_prefs,
+            $crate::commands::player_prefs::set_player_prefs,
+            // direct download (v0.24 "Everywhere" W244)
+            $crate::commands::downloads::start_download,
+            $crate::commands::downloads::cancel_download,
+            $crate::commands::downloads::discard_staged_download,
         ])
     };
 }

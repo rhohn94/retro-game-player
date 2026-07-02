@@ -204,6 +204,16 @@ export const MOCK_FIXTURES = {
   set_native_volume: null,
   // W239 raw-bytes frame poll — null parses as "nothing to paint".
   get_native_frame: null,
+  // v0.24 W241 on-demand in-page cores — fresh install has none cached.
+  list_inpage_cores: [],
+  install_inpage_core: null,
+  // v0.24 W243 player conveniences.
+  get_player_prefs: { volume: 1, pauseOnBlur: true },
+  set_player_prefs: null,
+  // v0.24 W244 direct download.
+  start_download: 1,
+  cancel_download: null,
+  discard_staged_download: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before

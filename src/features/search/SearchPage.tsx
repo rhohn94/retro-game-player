@@ -350,9 +350,11 @@ export function SearchPage() {
       <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
         Find games and info across your providers. Harmony{" "}
         <strong>previews what each provider found</strong> and opens your chosen
-        link in your browser — it <strong>never downloads files for you</strong>.{" "}
-        <span aria-hidden>⬇</span> marks download sources. Providers vary in what
-        they host; you're responsible for how you use any link you open.
+        link in your browser — or, for providers you've enabled direct download
+        for, downloads your chosen file straight into your library.{" "}
+        <span aria-hidden>⬇</span> marks download sources. Harmony never fetches
+        content on its own initiative; providers vary in what they host, and
+        you're responsible for how you use any link you open or file you download.
       </p>
 
       {/* Query + structured filters + run */}
