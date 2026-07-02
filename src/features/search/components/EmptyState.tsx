@@ -1,5 +1,7 @@
 /** Empty state shown when no providers are configured. */
+import { useEffect } from "react";
 import { AuraButton, AuraCard } from "@aura/react";
+import { FocusRing, useFocusable } from "../../controller";
 
 export function EmptyState({
   onAddProvider,
@@ -8,6 +10,17 @@ export function EmptyState({
   onAddProvider: () => void;
   onBrowse: () => void;
 }) {
+  // Registers both call-to-action buttons with the spatial-nav registry
+  // (W268) so a controller-only user isn't stuck on the empty-providers state.
+  const browse = useFocusable<HTMLElement>("search:empty:browse", onBrowse);
+  const add = useFocusable<HTMLElement>("search:empty:add", onAddProvider);
+  useEffect(() => {
+    if (browse.isFocused) browse.ref.current?.focus();
+  }, [browse.isFocused, browse.ref]);
+  useEffect(() => {
+    if (add.isFocused) add.ref.current?.focus();
+  }, [add.isFocused, add.ref]);
+
   return (
     <AuraCard
       class="rgp-panel"
@@ -50,12 +63,16 @@ export function EmptyState({
         it never downloads anything automatically.
       </p>
       <div style={{ display: "flex", gap: 8 }}>
-        <AuraButton variant="primary" onClick={onBrowse}>
-          ⊞ Browse providers
-        </AuraButton>
-        <AuraButton variant="ghost" onClick={onAddProvider}>
-          + Add your own
-        </AuraButton>
+        <FocusRing focused={browse.isFocused}>
+          <AuraButton ref={browse.ref} variant="primary" onClick={onBrowse}>
+            ⊞ Browse providers
+          </AuraButton>
+        </FocusRing>
+        <FocusRing focused={add.isFocused}>
+          <AuraButton ref={add.ref} variant="ghost" onClick={onAddProvider}>
+            + Add your own
+          </AuraButton>
+        </FocusRing>
       </div>
     </AuraCard>
   );
