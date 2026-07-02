@@ -56,7 +56,7 @@ Single item, single phase.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.23.1 |
 |---|---|---|---|---|
-| `feat/w239-frame-ipc` (W239) | ☑ | ☑ | ☑ | ☐ |
+| `feat/w239-frame-ipc` (W239) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
