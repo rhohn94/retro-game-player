@@ -1,4 +1,4 @@
-// Flat ESLint config for the Harmony frontend (TS + React).
+// Flat ESLint config for the Retro Game Player frontend (TS + React).
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
@@ -14,13 +14,13 @@ export default tseslint.config(
       // Grimoire framework-internal trees (archives, golden baseline, sync
       // provenance/backups) hold workflow `.js` scripts that use top-level
       // `return` — valid in their execution harness, not as plain modules. They
-      // are not Harmony source and must not be linted.
+      // are not this app's source and must not be linted.
       ".grimoire-archive/**",
       ".grimoire-golden/**",
       ".scaffold-base/**",
       ".scaffold-sync-backup/**",
       // The Aura design language is vendored as a git submodule (W2); it is
-      // third-party source pinned at v3.20 and is not linted by Harmony.
+      // third-party source pinned at v3.20 and is not linted by this app.
       "vendor/**",
       "*.config.js",
       "*.config.ts",

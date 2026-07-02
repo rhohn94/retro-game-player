@@ -1,4 +1,4 @@
-// Harmony visual-inspection CLI (W18; upgraded in v0.2 "Sight") — the
+// Retro Game Player visual-inspection CLI (W18; upgraded in v0.2 "Sight") — the
 // framework-required `gui-visual-inspection-cli` capability.
 //
 // A Tauri app cannot open its native window in headless CI, so this command
@@ -151,7 +151,7 @@ async function assertRendered(page, route) {
     const root = document.getElementById("root");
     const rootChildren = root ? root.children.length : 0;
     const bodyText = document.body.innerText || "";
-    const hasShell = !!document.querySelector(".harmony-sidebar, .harmony-shell, aura-app");
+    const hasShell = !!document.querySelector(".rgp-sidebar, .rgp-shell, aura-app");
     return {
       rootChildren,
       rootHtmlLen: root ? root.innerHTML.length : 0,
