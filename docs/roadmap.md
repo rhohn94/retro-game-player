@@ -96,43 +96,45 @@ against a real OpenSearch provider (Wikipedia).
 
 ---
 
-## v0.26 — Keepsake (planned)
+## v0.26 — Theater (in flight)
 
-**Theme:** The library becomes *yours* — and your controller obeys you. Also
-lays the data foundation the TV home shelves need.
+**Theme:** The couch release, user-directed (2026-07-02): the **entire 10-foot
+TV epic** ([#8](https://github.com/rhohn94/harmony/issues/8)) lands in one
+pass — absorbing the formerly-planned v0.27 Theater and v0.28 Marquee — plus
+controller completion and the product rename to **Retro Game Player**.
 
-- **Library life:** favorites, collections, recently played, play-time
-  tracking across all three play paths
-  ([#21](https://github.com/rhohn94/harmony/issues/21)).
-- **Controller remapping UI:** replace the ControllersPane stub with a real
-  press-to-rebind editor ([#20](https://github.com/rhohn94/harmony/issues/20)).
+- **TV mode (leanback):** TV-safe margins + 10-foot type scale
+  ([#9](https://github.com/rhohn94/harmony/issues/9)), cover-art shelves with
+  key-art hero ([#10](https://github.com/rhohn94/harmony/issues/10)),
+  distance-legible focus + snap navigation
+  ([#11](https://github.com/rhohn94/harmony/issues/11)), full-bleed
+  ([#12](https://github.com/rhohn94/harmony/issues/12)) high-resolution
+  ([#13](https://github.com/rhohn94/harmony/issues/13)) artwork, seamless
+  game entry/exit transitions, optional auto-enter at startup.
+- **Library-life data foundation** (subset of
+  [#21](https://github.com/rhohn94/harmony/issues/21)): favorites, recently
+  played, play-time tracking across all three play paths (collections stay
+  deferred).
+- **Controller completion:** press-to-rebind remapping UI
+  ([#20](https://github.com/rhohn94/harmony/issues/20)) and an
+  Xbox / PS4 (DualShock 4) / PS5 (DualSense) macOS compatibility audit.
+- **Rename:** Harmony → **Retro Game Player** (configs, identifier with
+  app-data migration, UI strings, docs, CSS token codemod; GitHub repo
+  renamed at ship time).
+
+**Non-goals:** collections UI (rest of #21), CRT gameplay filters (#23),
+keyboard a11y (#29), notarized DMG (#27).
+
+Plan: [`release-planning-v0.26.md`](release-planning/release-planning-v0.26.md).
 
 ---
 
-## v0.27 — Theater (planned)
+## v0.27 / v0.28 — absorbed into v0.26 Theater
 
-**Theme:** The couch experience, part 1 of the 10-foot TV epic
-([#8](https://github.com/rhohn94/harmony/issues/8)) — structure first.
-
-- **Leanback layout mode** with TV-safe margins and larger type
-  ([#9](https://github.com/rhohn94/harmony/issues/9)).
-- **Distance-legible focus states + snap navigation** for controller use
-  ([#11](https://github.com/rhohn94/harmony/issues/11)).
-
----
-
-## v0.28 — Marquee (planned)
-
-**Theme:** The couch experience, part 2 — content & art forward. Closes epic
-[#8](https://github.com/rhohn94/harmony/issues/8).
-
-- **Home/library as large cover-art shelves** with a key-art hero (Continue
-  playing / Favorites / Recently added — data from v0.26)
-  ([#10](https://github.com/rhohn94/harmony/issues/10)).
-- **Full-bleed game art** on detail and hero screens
-  ([#12](https://github.com/rhohn94/harmony/issues/12)).
-- **Higher-resolution cover art, fanart, and screenshots** for big screens
-  ([#13](https://github.com/rhohn94/harmony/issues/13)).
+The former v0.27 "Theater" (leanback structure) and v0.28 "Marquee"
+(art-forward shelves) were pulled forward wholesale into v0.26 by user
+direction; see the v0.26 entry above. Next planned versions remain v0.29
+Craft and v0.30 Passport.
 
 ---
 
