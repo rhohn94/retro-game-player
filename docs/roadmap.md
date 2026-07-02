@@ -711,6 +711,9 @@ notarized DMG (T2) → [#27](https://github.com/rhohn94/harmony/issues/27)):
 - **Windows / Linux** ports (Tauri is cross-platform; the vibrancy seam and
   RetroArch locator are the macOS-bound pieces).
 - **Localization (i18n)** — all UI strings are hard-coded English today.
+- **JS-render fetch tier** (carried from the v0.21/v0.22 ledgers): offscreen
+  WebView render-then-scrape so JS-only providers (itch.io, GameJolt, GOG)
+  become previewable; pairs naturally with direct download (#30).
 - More art fallbacks; search size/age columns; search history.
 
 ---
