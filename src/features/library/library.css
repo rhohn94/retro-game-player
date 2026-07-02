@@ -616,4 +616,23 @@
     font-size: 13px;
     color: var(--aura-on-surface-muted);
   }
+
+  /* Overlay volume row (v0.24 W243). */
+  .harmony-overlay__volume {
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-3);
+    margin-top: var(--aura-space-3);
+    font-size: 13px;
+    color: var(--aura-on-surface);
+  }
+  .harmony-overlay__volume input[type="range"] {
+    flex: 1;
+    accent-color: var(--aura-primary);
+  }
+  .harmony-overlay__volume-pct {
+    min-width: 4ch;
+    text-align: right;
+    color: var(--aura-on-surface-muted);
+  }
 }

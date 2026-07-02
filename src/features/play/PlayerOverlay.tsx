@@ -26,6 +26,9 @@ export interface PlayerOverlayProps {
   /** A transient status line (e.g. "Saved to slot 2"), shown under the menu. */
   status?: string | null;
   hint?: string;
+  /** Volume slider row (W243) — mouse-driven; keyboard/controller users get
+   * the Mute item the players add to `items`. */
+  volume?: { value: number; onChange: (volume: number) => void };
 }
 
 /** The overlay scrim + panel; renders nothing while closed. */
@@ -38,6 +41,7 @@ export function PlayerOverlay({
   onScrimClick,
   status,
   hint,
+  volume,
 }: PlayerOverlayProps) {
   return (
     <AnimatePresence>
@@ -74,6 +78,23 @@ export function PlayerOverlay({
                 </button>
               ))}
             </div>
+            {volume && (
+              <label className="harmony-overlay__volume">
+                <span>🔊 Volume</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volume.value}
+                  aria-label="Volume"
+                  onChange={(e) => volume.onChange(Number(e.target.value))}
+                />
+                <span className="harmony-overlay__volume-pct">
+                  {Math.round(volume.value * 100)}%
+                </span>
+              </label>
+            )}
             {status && <p className="harmony-overlay__status">{status}</p>}
             {hint && <p className="harmony-overlay__hint">{hint}</p>}
           </motion.div>
