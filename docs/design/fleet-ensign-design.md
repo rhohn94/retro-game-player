@@ -167,6 +167,18 @@ corrupt-file recovery; edge assembly via a stub resolver; manifest write +
 routes over an **ephemeral** bound port (no dependency on `8420` being free in
 CI), asserting the integer `schema_version` in the served body.
 
+## Post-rename note (W269B, v0.26)
+
+`INSTANCE_ID_PREFIX` (`src-tauri/src/fleet/identity.rs`, `"harmony"`) stays
+**"harmony" permanently** post-rename — it is not left over from an
+in-progress migration. It is the stable fleet wire-identifier: external
+Mission Control tooling may pattern-match on the `harmony-{env}-{ordinal}`
+shape, and a fleet with a mix of `harmony-*` and `retro-game-player-*`
+instance ids would be harder to reason about than one with a single,
+consistent prefix. See `app-infrastructure-design.md` §Post-rename identifier
+decisions for the full decision record across all three post-rename
+identifiers.
+
 ## Open questions
 
 - Whether the status server should bind a configurable port (resolve if `8420`
