@@ -194,6 +194,29 @@ export function validateProvider(args: {
   });
 }
 
+/** One programmatically-discovered search capability (mirrors Rust
+ *  `Discovered`, v0.25 "Scout" W250). */
+export interface DiscoveredProvider {
+  /** How it was found: "open-search" | "media-wiki" | "word-press" | "search-form". */
+  mechanism: string;
+  /** The site's own name for itself, when the mechanism supplies one. */
+  name: string | null;
+  /** Ready-to-store provider template containing {query}. */
+  urlTemplate: string;
+  /** One-line human note ("OpenSearch description at …"). */
+  note: string;
+}
+
+/**
+ * Auto-discover a provider's search capability from a site's base URL (W250):
+ * probes OpenSearch / MediaWiki / WordPress / HTML forms and returns
+ * ready-to-store templates, best mechanism first. An empty array means
+ * nothing was discovered. Only ever fetches the given site's own pages.
+ */
+export function discoverProvider(baseUrl: string): Promise<DiscoveredProvider[]> {
+  return invoke<DiscoveredProvider[]>("discover_provider", { baseUrl });
+}
+
 /** List the curated provider catalog (v0.20), each flagged `added`. */
 export function listProviderCatalog(): Promise<CatalogProvider[]> {
   return invoke<CatalogProvider[]>("list_provider_catalog");

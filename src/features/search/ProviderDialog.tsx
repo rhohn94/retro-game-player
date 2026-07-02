@@ -13,7 +13,8 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
-import { validateProvider } from "../../ipc/search";
+import { discoverProvider, validateProvider } from "../../ipc/search";
+import type { DiscoveredProvider } from "../../ipc/search";
 import type { SearchProvider, ProviderValidation } from "../../ipc/search";
 import { isAppError } from "../../ipc/commands";
 import { detectTemplate } from "./detectTemplate";
@@ -74,6 +75,11 @@ export function ProviderDialog({
   const [pasteUrl, setPasteUrl] = useState("");
   const [pasteTerm, setPasteTerm] = useState("");
   const [detectNote, setDetectNote] = useState<string | null>(null);
+  // Auto-discover-from-base-URL state (W250).
+  const [discoverUrl, setDiscoverUrl] = useState("");
+  const [discovering, setDiscovering] = useState(false);
+  const [discovered, setDiscovered] = useState<DiscoveredProvider[] | null>(null);
+  const [discoverNote, setDiscoverNote] = useState<string | null>(null);
   // Test-provider validator state.
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderValidation | null>(null);
@@ -91,6 +97,10 @@ export function ProviderDialog({
       setPasteUrl("");
       setPasteTerm("");
       setDetectNote(null);
+      setDiscoverUrl("");
+      setDiscovering(false);
+      setDiscovered(null);
+      setDiscoverNote(null);
       setTesting(false);
       setTestResult(null);
     }
@@ -128,6 +138,43 @@ export function ProviderDialog({
       setUrlTemplate(r.template);
       setTestResult(null);
     }
+  }
+
+  async function handleDiscover() {
+    const base = discoverUrl.trim();
+    if (!base) {
+      setDiscoverNote("Enter a site URL to discover.");
+      return;
+    }
+    setDiscovering(true);
+    setDiscovered(null);
+    setDiscoverNote(null);
+    try {
+      const results = await discoverProvider(base);
+      setDiscovered(results);
+      setDiscoverNote(
+        results.length === 0
+          ? "No search API was discovered on that site. Try Detect from a results URL instead."
+          : `Discovered ${results.length} search ${results.length === 1 ? "capability" : "capabilities"}.`,
+      );
+      // Best candidate first — pre-fill so one click discovers-and-fills.
+      const best = results[0];
+      if (best) {
+        setUrlTemplate(best.urlTemplate);
+        if (best.name && !name.trim()) setName(best.name);
+        setTestResult(null);
+      }
+    } catch (err) {
+      setDiscoverNote(isAppError(err) ? err.detail : String(err));
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  function applyDiscovered(d: DiscoveredProvider) {
+    setUrlTemplate(d.urlTemplate);
+    if (d.name) setName(d.name);
+    setTestResult(null);
   }
 
   async function handleTest() {
@@ -237,9 +284,68 @@ export function ProviderDialog({
           </AuraField>
         </div>
 
+        {/* Auto-discover from a base URL (W250) — the standards path: paste a
+            site's home URL and let Harmony probe its search API. */}
+        <details style={{ fontSize: 12, color: "var(--aura-on-surface-muted)" }} open>
+          <summary style={{ cursor: "pointer" }}>Discover search API from a site URL</summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <AuraField style={{ flex: 1 }}>
+                <input
+                  name="provider-discover-url"
+                  className="harmony-input"
+                  type="text"
+                  value={discoverUrl}
+                  placeholder="Site home URL, e.g. en.wikipedia.org"
+                  onChange={(e) => setDiscoverUrl(e.target.value)}
+                />
+              </AuraField>
+              <AuraButton variant="ghost" onClick={handleDiscover} disabled={discovering}>
+                {discovering ? "Discovering…" : "Discover"}
+              </AuraButton>
+            </div>
+            {discoverNote && (
+              <span style={{ fontSize: 11, color: "var(--aura-on-surface-muted)" }}>
+                {discoverNote}
+              </span>
+            )}
+            {discovered && discovered.length > 0 && (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                {discovered.map((d) => (
+                  <li key={`${d.mechanism}:${d.urlTemplate}`}>
+                    <button
+                      type="button"
+                      onClick={() => applyDiscovered(d)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        background: "var(--aura-surface-raised)",
+                        border: "none",
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                        cursor: "pointer",
+                        color: "var(--aura-on-surface)",
+                        fontSize: 11,
+                      }}
+                      title={d.note}
+                    >
+                      <strong style={{ textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--aura-primary)" }}>
+                        {d.mechanism.replace(/-/g, " ")}
+                      </strong>
+                      {d.name ? ` · ${d.name}` : ""}
+                      <br />
+                      <code style={{ fontFamily: "monospace", wordBreak: "break-all" }}>{d.urlTemplate}</code>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
+
         {/* Detect from URL helper */}
         <details style={{ fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-          <summary style={{ cursor: "pointer" }}>Detect template from a URL</summary>
+          <summary style={{ cursor: "pointer" }}>Detect template from a results URL</summary>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
             <AuraField>
               <input
