@@ -208,7 +208,7 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w260-tv-shell` (W260) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w260-tv-shell` (W260) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 4
 
