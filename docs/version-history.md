@@ -7,6 +7,21 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.24 — Everywhere (2026-07-02)
+
+Every found game can land inside Harmony, and more of the catalog plays
+in-page. **In-page cores for 7 more systems** (SNES, Genesis, Master System,
+N64, PlayStation, Atari 2600, PC Engine): a one-click, hash-verified core
+download unlocks the same auto-boot-with-sound player NES has — RetroArch
+fallback untouched. **Direct download**: providers you explicitly opt in
+carry a ⬇ action that streams your chosen file (capped, cancellable, staged)
+through the import pipeline to a "✓ In library — Play" link; every provider
+ships with it off. **Player conveniences**: persisted volume + mute in the
+overlay on both paths, rewind/fast-forward on the EmulatorJS path, and
+pause-when-Harmony-loses-focus (Settings toggle, default on). Native NES
+play is now **on by default** (audio + smoothness confirmed on-device), and
+the boot-latency spike (#14) closed with a go/no-go record (follow-up #31).
+
 ## v0.23.1 — Hotfix: native-play frame delivery (2026-07-01)
 
 Smooth native gameplay. The first real play sessions after v0.23's crash fix
