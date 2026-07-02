@@ -38,11 +38,12 @@ pub struct AppConfig {
     /// Absolute path to the games directory Harmony created for the user, if any
     /// (W51). `None` until the user accepts the "create a games folder" offer.
     pub games_dir: Option<String>,
-    /// Opt-in to native libretro core hosting for NES instead of the in-page
-    /// EmulatorJS/WASM player (v0.21 "Bedrock", W215). Off by default — the
-    /// existing EmulatorJS path is unaffected until a user explicitly enables
-    /// this; native init failure for any reason falls back to EmulatorJS
-    /// automatically regardless of this flag's value once enabled.
+    /// Native libretro core hosting for NES instead of the in-page
+    /// EmulatorJS/WASM player (v0.21 "Bedrock", W215). **On by default since
+    /// v0.24 (W240)** — audio cleanliness and gameplay smoothness were both
+    /// confirmed on-device (2026-07-01, post-W233/W239). A persisted `false`
+    /// (user opt-out) is respected; native init failure for any reason falls
+    /// back to EmulatorJS automatically regardless of this flag's value.
     pub native_play_enabled: bool,
 }
 
@@ -54,7 +55,7 @@ impl Default for AppConfig {
             familiar_base_url: DEFAULT_FAMILIAR_BASE_URL.to_string(),
             launch_fullscreen: true,
             games_dir: None,
-            native_play_enabled: false,
+            native_play_enabled: true,
         }
     }
 }
@@ -109,19 +110,21 @@ mod tests {
         assert!(cfg.retroarch_path.is_none());
         assert!(cfg.launch_fullscreen);
         assert!(cfg.games_dir.is_none());
-        assert!(!cfg.native_play_enabled);
+        assert!(cfg.native_play_enabled); // on by default since v0.24 (W240)
     }
 
     #[test]
     fn native_play_enabled_round_trips() {
+        // A persisted opt-out must survive load — the new-in-v0.24 `true`
+        // default only applies to configs that never stored the field's value.
         let (paths, tmp) = temp_paths("native-play-enabled");
         let cfg = AppConfig {
-            native_play_enabled: true,
+            native_play_enabled: false,
             ..AppConfig::default()
         };
         cfg.save(&paths).expect("save");
         let loaded = AppConfig::load(&paths).expect("load");
-        assert!(loaded.native_play_enabled);
+        assert!(!loaded.native_play_enabled);
         std::fs::remove_dir_all(&tmp).ok();
     }
 
