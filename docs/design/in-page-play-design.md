@@ -216,3 +216,24 @@ loopback server still needs **no COOP/COEP headers** and no
   are **not distributed with Harmony** — fetched at explicit user request
   from the EmulatorJS CDN, mirroring the RetroArch core-downloader model.
   Recorded in THIRD-PARTY-NOTICES.md.
+
+## 8. Player conveniences (v0.24, W243 — #22)
+
+- **Volume + mute, both paths, persisted.** `AppConfig` gains
+  `player_volume` (default 1.0) and the overlay gains a mouse-driven slider
+  row plus a keyboard/controller "Mute" item (`usePlayerPrefs`, debounced
+  persist). The native path applies it as the `AudioRing` gain
+  (`set_native_volume`, multiplied with the W235 attract duck); the
+  EmulatorJS path streams it over the bridge (`harmony-volume` →
+  `EJS_emulator.setVolume`), with a pre-start value held until the "start"
+  event.
+- **Rewind / fast-forward (EmulatorJS only).** `player.html` boots with
+  `rewindEnabled` and the overlay adds "⏪ Rewind 5 s" (`harmony-rewind` →
+  `toggleRewind(1)`, timed `toggleRewind(0)`) and a fast-forward toggle
+  (`harmony-fastforward` → `toggleFastForward`). The native path hides both
+  — rewind needs frame-history machinery only EmulatorJS carries today
+  (see release plan §4).
+- **Pause on window blur, both paths, default on.** `AppConfig.pause_on_blur`
+  (Settings → Playback toggle). Window `blur` freezes the game
+  (`set_native_paused` / `harmony-pause`) unless the overlay already owns
+  the pause; `focus` resumes only what blur paused.

@@ -58,7 +58,9 @@
         // don't bundle — it would be fetched from the public CDN on every boot
         // (slow, and breaks offline play). WKWebView supports WebGL2, so the
         // non-legacy core renders fine and loads instantly from the loopback origin.
-        window.EJS_defaultOptions = { webgl2Enabled: "enabled" };
+        // rewindEnabled turns on the retroarch-side frame history that the
+        // overlay's "Rewind 5 s" action (W243) drives via toggle_rewind.
+        window.EJS_defaultOptions = { webgl2Enabled: "enabled", rewindEnabled: "enabled" };
         // notWithPath=true for the game download (emulator.js), so this relative
         // URL resolves directly against this same loopback origin.
         window.EJS_gameUrl = "/rom/" + game;
@@ -74,13 +76,46 @@
         // doesn't drive the game behind the menu); we forward the in-iframe
         // Escape key up so the parent can open the overlay even while the game
         // holds keyboard focus.
+        // Volume asked for before the emulator exists is held here and
+        // applied on the "start" event (W243).
+        var pendingVolume = null;
+        function applyVolume(v) {
+          if (typeof v !== "number" || !isFinite(v)) return;
+          v = Math.min(1, Math.max(0, v));
+          if (window.EJS_emulator && typeof EJS_emulator.setVolume === "function") {
+            EJS_emulator.volume = v;
+            EJS_emulator.setVolume(v);
+          } else {
+            pendingVolume = v;
+          }
+        }
+
         window.addEventListener("message", function (e) {
           var t = e.data && e.data.type;
-          if (!t || !window.EJS_emulator) return;
+          if (!t) return;
+          if (t === "harmony-volume") {
+            applyVolume(e.data.value);
+            return;
+          }
+          if (!window.EJS_emulator) return;
           if (t === "harmony-pause" && typeof EJS_emulator.pause === "function") {
             EJS_emulator.pause();
           } else if (t === "harmony-resume" && typeof EJS_emulator.play === "function") {
             EJS_emulator.play();
+          } else if (t === "harmony-fastforward" && gm()) {
+            // W243: EmulatorJS's built-in fast-forward, toggled from the
+            // Harmony overlay.
+            gm().toggleFastForward(e.data.active ? 1 : 0);
+          } else if (t === "harmony-rewind" && gm() && gm().functions) {
+            // W243: run the retroarch rewind for N seconds, then resume
+            // normal play. Requires rewindEnabled (set above).
+            var seconds = Math.min(30, Math.max(1, Number(e.data.seconds) || 5));
+            try {
+              gm().functions.toggleRewind(1);
+              setTimeout(function () {
+                try { gm().functions.toggleRewind(0); } catch (err) { /* best-effort */ }
+              }, seconds * 1000);
+            } catch (err) { /* best-effort — rewind unsupported by this core */ }
           }
         });
         window.addEventListener("keydown", function (e) {
@@ -198,6 +233,12 @@
           EJS_emulator.on("start", function () {
             restoreSram();
             setInterval(flushSram, SRAM_FLUSH_MS);
+            // W243: apply a volume that arrived before the emulator existed.
+            if (pendingVolume !== null) {
+              var v = pendingVolume;
+              pendingVolume = null;
+              applyVolume(v);
+            }
           });
         }, 250);
         window.addEventListener("pagehide", flushSram);

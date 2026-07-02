@@ -45,6 +45,12 @@ pub struct AppConfig {
     /// (user opt-out) is respected; native init failure for any reason falls
     /// back to EmulatorJS automatically regardless of this flag's value.
     pub native_play_enabled: bool,
+    /// In-game audio volume [0, 1], applied on both play paths and persisted
+    /// from the overlay's volume control (v0.24 W243, #22).
+    pub player_volume: f32,
+    /// Pause the running game when the Harmony window loses focus, resuming
+    /// on refocus (v0.24 W243, #22). On by default.
+    pub pause_on_blur: bool,
 }
 
 impl Default for AppConfig {
@@ -56,6 +62,8 @@ impl Default for AppConfig {
             launch_fullscreen: true,
             games_dir: None,
             native_play_enabled: true,
+            player_volume: 1.0,
+            pause_on_blur: true,
         }
     }
 }
@@ -111,6 +119,23 @@ mod tests {
         assert!(cfg.launch_fullscreen);
         assert!(cfg.games_dir.is_none());
         assert!(cfg.native_play_enabled); // on by default since v0.24 (W240)
+        assert_eq!(cfg.player_volume, 1.0);
+        assert!(cfg.pause_on_blur);
+    }
+
+    #[test]
+    fn player_prefs_round_trip() {
+        let (paths, tmp) = temp_paths("player-prefs");
+        let cfg = AppConfig {
+            player_volume: 0.35,
+            pause_on_blur: false,
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert_eq!(loaded.player_volume, 0.35);
+        assert!(!loaded.pause_on_blur);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
