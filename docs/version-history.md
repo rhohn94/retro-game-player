@@ -7,6 +7,17 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.25.1 — Hotfix: Aura Dependency Channel migration (2026-07-02)
+
+The Aura design-language runtime moves from a git submodule (v3.20) to a
+verified Dependency Channel asset bundle (v3.541.0) — no more submodule
+checkout step for a fresh clone. Fixes a packaging gap this migration
+surfaced: the committed Aura runtime bundle (`vendor/aura/dist/`, the exact
+file `vite.config.ts` aliases the app's Aura import to) was being silently
+swallowed by a blanket `.gitignore` rule, which would have broken the build
+on any fresh checkout. Also pulls in the latest Grimoire workflow tooling
+(framework v3.63).
+
 ## v0.25 — Scout (2026-07-02)
 
 Point Harmony at a site's home URL and it figures out how to search there.
