@@ -182,6 +182,30 @@ architecture — it keeps serving every other system.
 - Controller/keyboard input drives the native-hosted game the same way it
   already drives the EmulatorJS one (reuses `src/features/controller/`).
 
+### Verification record (v0.23, W233 — the stop-and-reassess point)
+
+The v0.21 real-device criteria were finally exercisable in v0.23 (an installed
+`fceumm_libretro.dylib` + real ROMs were available on the dev machine):
+
+- **Root cause of the v0.21 crash found and fixed.** Native play SIGSEGV'd
+  inside fceumm's `retro_init`: `LibretroCore::load()` called `retro_init`
+  before the environment callback was registered, violating the libretro
+  contract (`retro_set_environment` must precede `retro_init`; real cores
+  query the environment during init). The stub-core test missed it because
+  its `retro_init` was empty. Fixed by splitting `init()` out of `load()`,
+  enforcing the order in safe Rust (`init` errors before `set_environment`;
+  `load_game` errors before `init`), installing the callback channels before
+  bring-up so negotiation events aren't dropped, and making the stub core
+  query the environment during init like a real core. Regression tests:
+  `init_before_set_environment_is_rejected`, `load_game_before_init_is_rejected`.
+- **Real-device run (2026-07-01, MacBook Pro Speakers, SMB World ROM):**
+  boots, negotiates, runs at 60.0988 fps, produces 256×240 RGBA frames,
+  audio stream plays (48 kHz F32), clean exit. Harness:
+  `manual_play_produces_audible_output` (`--ignored`, env-var driven).
+- **By-ear audio-cleanliness + load-time comparison:** pending maintainer
+  confirmation; the flag default stays **off** until confirmed, then flipping
+  is a one-line default change (tracked in the v0.23 ledger).
+
 ## Open questions
 
 - **Combined-work license question** (already open, not created by this
@@ -198,6 +222,62 @@ native libretro `fceumm` core for the existing external-RetroArch launch path
 artifact, same install flow, no new bundling/build pipeline. If the core isn't
 installed yet, the existing Cores UI install flow covers it; the native player
 should surface that prompt rather than auto-installing silently.
+
+## Attract mode (v0.23, W235)
+
+Scroll-driven handoff of the live native session into the detail-page
+background. The retro "vibe" intent (in-page play design) is that a game boots
+with sound on detail-page entry; attract mode extends that: when the user
+scrolls down to read metadata/description, the running boot/attract sequence
+doesn't stop — it becomes the page's ambient, full-bleed backdrop, and
+reattaches as the foreground player when the user scrolls back up.
+
+### Mechanism
+
+The Rust `NativeRuntime` is untouched by fore/background transitions — the
+core keeps running and producing frames either way. The whole feature is a
+front-end presentation-state change plus one new backend affordance (volume).
+
+- **One canvas, two presentations.** `NativePlayer` keeps a single `<canvas>`
+  (avoids 2D-context loss and double-decode). A `presentation: "foreground" |
+  "background"` prop drives a wrapper class: foreground = the existing in-flow
+  `harmony-player__frame`; background = `position: fixed; inset: 0` full-bleed
+  layer behind the detail content (`z-index` under `harmony-detail__content`,
+  above `HeroBackdrop`), scaled to cover, with a dim/scrim overlay
+  (`--harmony-attract-dim`, ~55% + slight saturation drop) so foreground text
+  keeps contrast. The transition animates via the shared motion presets
+  (`SPRING.gentle` layout transition); `prefers-reduced-motion` gets a plain
+  crossfade.
+- **Scroll driver.** `GameDetailPage` observes the player's in-flow slot with
+  an `IntersectionObserver` (threshold with hysteresis: background when less
+  than ~35% of the slot is visible, foreground again when ~65% is visible — two
+  thresholds so the boundary doesn't flap). The in-flow slot keeps its layout
+  height while the canvas is backgrounded so scroll position doesn't jump.
+- **Input detach.** While backgrounded: key handlers stop calling
+  `preventDefault()` and stop collecting keys (arrows/space must scroll the
+  page again), the gamepad poll stops feeding `set_native_input`, and one
+  `setNativeInput(0)` releases all buttons at the transition so nothing sticks.
+  Controller navigation of the page itself resumes (the player no longer owns
+  the controller). On reattach, input capture resumes.
+- **Audio duck.** New IPC command `set_native_volume(gain: f32)` — a
+  clamped [0,1] multiplier applied where samples are drained from the ring
+  buffer into the cpal output callback (an atomic read per callback; no
+  locking). Background ducks to 0.3, foreground restores 1.0. Full mute stays a
+  user choice for later (#22 volume control builds on the same command).
+- **Lifecycle.** Navigation away unmounts and stops the session exactly as
+  today; overlay/Escape behavior is foreground-only (Escape while backgrounded
+  does nothing special). EmulatorJS path: out of scope this release (the iframe
+  cannot become a page background without reworking the loopback player;
+  revisit after W231/W232 settle the EJS glue).
+
+### Acceptance
+
+- Scrolling down past the player migrates the live canvas into the dimmed
+  full-bleed background with no reboot/frame stall; scrolling back reattaches.
+- While backgrounded: page scroll keys work, controller navigates the page,
+  no input reaches the core, audio sits at the ducked gain.
+- Hysteresis prevents flapping at the boundary; reduced-motion crossfades.
+- `set_native_volume` is covered by a unit test (clamping, atomic application).
 
 ## Follow-ups
 

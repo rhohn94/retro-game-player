@@ -106,6 +106,12 @@ impl Paths {
         self.subdir("logs")
     }
 
+    /// `saves/` dir (created) — battery SRAM + save states, one subdir per
+    /// system (v0.23; docs/design/save-persistence-design.md §1).
+    pub fn saves_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("saves")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -115,6 +121,7 @@ impl Paths {
         self.blur_cache_dir()?;
         self.console_art_dir()?;
         self.logs_dir()?;
+        self.saves_dir()?;
         Ok(())
     }
 

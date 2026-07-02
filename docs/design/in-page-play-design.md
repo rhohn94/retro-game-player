@@ -114,6 +114,29 @@ notices. Two items are flagged there as open questions for the maintainer:
 Harmony's own combined-work license (GPL copyleft over the single binary) and the
 UnRAR license's GPL-incompatibility.
 
+## 6. Degradation surfacing (v0.23, W234)
+
+The play stack degrades in three places, all silent today: the loopback server
+fails to bind (stderr only — in-page play quietly becomes an external RetroArch
+launch), native init fails (quietly becomes EmulatorJS via `PlaySwitch`'s
+`onStartFailed`), and the no-path case (no bundled in-page core + no RetroArch
+found) leaves a Play button that appears to do nothing. v0.23 makes each
+visible without being noisy:
+
+- **Structured reason, one place.** The play-path decision points return a
+  `degradation: { from, to, reason } | null` field on their existing IPC
+  responses (`get_play_origin` grows a reason for the empty-string case;
+  `start_native_play` failure carries its error through `PlaySwitch`). The
+  frontend logs every degradation through one helper.
+- **Detail-page notice.** A dismissible, non-blocking notice (shared
+  `ErrorNotice`-family styling, info tone) renders above the player slot:
+  *what failed → what Harmony is doing instead → where to fix it* (deep-link
+  to Settings → Playback / RetroArch pane). Shown once per session per cause.
+- **No-path error state.** When neither an in-page core nor RetroArch can run
+  the title, the player slot renders a real empty/error state (unified W226
+  primitives) naming both missing pieces, instead of a dead Play action.
+- **Normal operation renders nothing new.**
+
 ## Verification
 
 - `pnpm test` — motion single-source, token-adoption, mock-IPC guards stay green;

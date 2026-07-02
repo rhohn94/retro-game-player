@@ -20,14 +20,21 @@
 //
 // Teardown is unmounting the iframe (disposes the emulator, audio, workers).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useController } from "../controller";
 import type { SemanticAction } from "../controller/actions";
-import { DUR, dialogPop } from "../../lib/motion";
 import { getPlayOrigin } from "../../ipc/play";
+import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { listGameSaves } from "../../ipc/native-play";
+import { PlayerOverlay } from "./PlayerOverlay";
+import { continueSlot } from "./saveSlots";
+import { useOverlayMenu } from "./useOverlayMenu";
+
+/** How long a save/load round-trip to the game iframe may take before the
+ * overlay reports it failed (the bridge answers in milliseconds normally). */
+const SAVE_RESULT_TIMEOUT_MS = 5000;
 
 /** Toggle the Tauri window's fullscreen; a no-op outside Tauri (browser/mock). */
 async function setWindowFullscreen(on: boolean): Promise<void> {
@@ -45,10 +52,13 @@ export interface InPagePlayerProps {
   ejsSystem: string;
   /** Display name passed to EmulatorJS (UI title, save-state id). */
   gameName: string;
+  /** Called once if the play server is unavailable (origin "") — the caller
+   * surfaces the degradation (W234); this player renders nothing. */
+  onUnavailable?: () => void;
 }
 
 /** Mounts the in-page emulator for one game; auto-starts on load. */
-export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps) {
+export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InPagePlayerProps) {
   const navigate = useNavigate();
   const { setExclusiveHandler } = useController();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -67,20 +77,53 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
 
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
   useCancellableEffect((isCancelled) => {
     getPlayOrigin()
-      .then((o) => !isCancelled() && setOrigin(o))
-      .catch(() => !isCancelled() && setOrigin(""));
+      .then((o) => {
+        if (isCancelled()) return;
+        setOrigin(o);
+        if (o === "") onUnavailableRef.current?.();
+      })
+      .catch(() => {
+        if (isCancelled()) return;
+        setOrigin("");
+        onUnavailableRef.current?.();
+      });
   }, []);
 
   /** Send a control message to the emulator iframe (same loopback origin). */
   const postToGame = useCallback(
-    (type: string) => {
+    (type: string, extra?: Record<string, unknown>) => {
       if (origin && iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({ type }, origin);
+        iframeRef.current.contentWindow.postMessage({ type, ...extra }, origin);
       }
     },
     [origin],
+  );
+
+  // Save/load round-trips to the game iframe (W232): the player.html bridge
+  // answers each harmony-save-state / harmony-load-state request with a
+  // harmony-save-result — correlate by op+slot so the overlay can await it.
+  const pendingSaves = useRef(new Map<string, (error: string | null) => void>());
+  const requestSaveOp = useCallback(
+    (op: "save" | "load", slot: SaveSlot) =>
+      new Promise<void>((resolve, reject) => {
+        const key = `${op}:${slot}`;
+        const timer = window.setTimeout(() => {
+          pendingSaves.current.delete(key);
+          reject(new Error("the game did not answer — try again"));
+        }, SAVE_RESULT_TIMEOUT_MS);
+        pendingSaves.current.set(key, (error) => {
+          window.clearTimeout(timer);
+          pendingSaves.current.delete(key);
+          if (error) reject(new Error(error));
+          else resolve();
+        });
+        postToGame(op === "save" ? "harmony-save-state" : "harmony-load-state", { slot });
+      }),
+    [postToGame],
   );
 
   const openOverlay = useCallback(() => {
@@ -99,6 +142,28 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
     else openOverlay();
   }, [openOverlay, closeOverlay]);
 
+  // "Continue" (W232): restore the newest EJS-written state into the
+  // freshly-booted session. Dismisses itself once used.
+  const [continueTarget, setContinueTarget] = useState<SaveSlot | null>(null);
+  useCancellableEffect(
+    (isCancelled) => {
+      listGameSaves(gameId)
+        .then((saves) => {
+          if (isCancelled()) return;
+          setContinueTarget((continueSlot(saves, "ejs")?.slot as SaveSlot | undefined) ?? null);
+        })
+        .catch(() => undefined);
+    },
+    [gameId],
+  );
+  const onContinue = useCallback(() => {
+    const slot = continueTarget;
+    if (!slot) return;
+    requestSaveOp("load", slot)
+      .then(() => setContinueTarget(null))
+      .catch(() => undefined);
+  }, [continueTarget, requestSaveOp]);
+
   const enterImmersive = useCallback(() => {
     setImmersive(true);
     void setWindowFullscreen(true);
@@ -114,10 +179,15 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
     navigate(-1);
   }, [navigate]);
 
-  // Overlay menu items (index order drives controller selection).
-  const items = useMemo(
-    () => [
-      { key: "resume", label: "Resume", run: () => closeOverlay() },
+  // Overlay menu (index order drives controller selection): Resume / Save
+  // state / Load state / Full screen / Exit, with the slot sub-views owned
+  // by the shared menu hook (W232).
+  const { items, status, resetView } = useOverlayMenu({
+    gameId,
+    activePath: "ejs",
+    open: overlayOpen,
+    resume: { key: "resume", label: "Resume", run: () => closeOverlay() },
+    extras: [
       {
         key: "immersive",
         label: immersive ? "Exit full screen" : "Full screen",
@@ -127,12 +197,20 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
           closeOverlay();
         },
       },
-      { key: "exit", label: "Exit game", run: () => exitGame() },
     ],
-    [immersive, closeOverlay, enterImmersive, exitImmersive, exitGame],
-  );
+    exit: { key: "exit", label: "Exit game", run: () => exitGame() },
+    saveSlot: (slot) => requestSaveOp("save", slot),
+    loadSlot: (slot) => requestSaveOp("load", slot),
+    onLoaded: () => closeOverlay(),
+    onViewChange: () => setSelection(0),
+  });
   const itemsRef = useRef(items);
   itemsRef.current = items;
+
+  // Back to the main view whenever the overlay opens fresh.
+  useEffect(() => {
+    if (overlayOpen) resetView();
+  }, [overlayOpen, resetView]); // resetView is a stable callback
 
   // While the player is mounted it owns the controller: the gamepad drives the
   // game, and menu/back summon the overlay; when the overlay is open the gamepad
@@ -150,7 +228,10 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
       const n = itemsRef.current.length;
       if (action === "nav_up") setSelection((s) => (s - 1 + n) % n);
       else if (action === "nav_down") setSelection((s) => (s + 1) % n);
-      else if (action === "confirm") itemsRef.current[selectionRef.current]?.run();
+      else if (action === "confirm") {
+        const item = itemsRef.current[selectionRef.current];
+        if (item && !item.disabled) item.run();
+      }
       else if (action === "back" || action === "menu") closeOverlay();
     };
     setExclusiveHandler(handler);
@@ -168,8 +249,12 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
       }
     };
     const onMsg = (e: MessageEvent) => {
-      if (origin && e.origin === origin && (e.data as { type?: string })?.type === "harmony-overlay-toggle") {
+      if (!origin || e.origin !== origin) return;
+      const data = e.data as { type?: string; op?: string; slot?: string; error?: string | null };
+      if (data?.type === "harmony-overlay-toggle") {
         toggleOverlay();
+      } else if (data?.type === "harmony-save-result" && data.op && data.slot) {
+        pendingSaves.current.get(`${data.op}:${data.slot}`)?.(data.error ?? null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -208,6 +293,11 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
 
       {!immersive && (
         <div className="harmony-player__bar">
+          {continueTarget && (
+            <button type="button" className="harmony-player__fs" onClick={onContinue}>
+              ⟳ Continue
+            </button>
+          )}
           <button type="button" className="harmony-player__fs" onClick={enterImmersive}>
             ⤢ Full screen
           </button>
@@ -217,42 +307,16 @@ export function InPagePlayer({ gameId, ejsSystem, gameName }: InPagePlayerProps)
         </div>
       )}
 
-      <AnimatePresence>
-        {overlayOpen && (
-          <motion.div
-            className="harmony-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: DUR.fast }}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) closeOverlay();
-            }}
-          >
-            <motion.div className="harmony-overlay__panel" {...dialogPop}>
-              <p className="harmony-overlay__title">{gameName}</p>
-              <div className="harmony-overlay__actions">
-                {items.map((it, i) => (
-                  <button
-                    key={it.key}
-                    type="button"
-                    className={
-                      i === selection
-                        ? "harmony-overlay__btn harmony-overlay__btn--active"
-                        : "harmony-overlay__btn"
-                    }
-                    onMouseEnter={() => setSelection(i)}
-                    onClick={() => it.run()}
-                  >
-                    {it.label}
-                  </button>
-                ))}
-              </div>
-              <p className="harmony-overlay__hint">Esc or ☰ to toggle · save states live in the player bar</p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <PlayerOverlay
+        gameName={gameName}
+        open={overlayOpen}
+        items={items}
+        selection={selection}
+        setSelection={setSelection}
+        onScrimClick={closeOverlay}
+        status={status}
+        hint="Esc or ☰ to toggle"
+      />
     </div>
   );
 }

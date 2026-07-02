@@ -43,3 +43,48 @@ export function getNativeFrame(): Promise<NativeFrame | null> {
 export function setNativeInput(bits: number): Promise<void> {
   return invoke<void>("set_native_input", { bits });
 }
+
+/** Pauses/resumes the running native session (overlay open = frozen game). */
+export function setNativePaused(paused: boolean): Promise<void> {
+  return invoke<void>("set_native_paused", { paused });
+}
+
+/** Sets the native session's audio gain [0,1] (attract-mode duck, W235). */
+export function setNativeVolume(gain: number): Promise<void> {
+  return invoke<void>("set_native_volume", { gain });
+}
+
+// --- Save persistence (v0.23 "Continuity" W230; save-persistence-design.md) ---
+
+/** A save slot name: manual slots "1"–"4", or the exit auto-save. */
+export type SaveSlot = "1" | "2" | "3" | "4" | "auto";
+
+/** One recorded state slot (mirrors Rust `SaveSlotDto`). */
+export interface SaveSlotInfo {
+  slot: string;
+  /** "native" | "ejs" — states only load on the path that wrote them. */
+  playPath: string;
+  /** Unix seconds. */
+  createdAt: number;
+}
+
+/** A game's on-disk save inventory (mirrors Rust `GameSavesDto`). */
+export interface GameSaves {
+  hasSram: boolean;
+  slots: SaveSlotInfo[];
+}
+
+/** Saves the running native session's state into `slot`. */
+export function saveNativeState(slot: SaveSlot): Promise<void> {
+  return invoke<void>("save_native_state", { slot });
+}
+
+/** Restores `slot` into the running native session. */
+export function loadNativeState(slot: SaveSlot): Promise<void> {
+  return invoke<void>("load_native_state", { slot });
+}
+
+/** Lists a game's saves (SRAM + state slots); works with no session running. */
+export function listGameSaves(gameId: number): Promise<GameSaves> {
+  return invoke<GameSaves>("list_game_saves", { gameId });
+}

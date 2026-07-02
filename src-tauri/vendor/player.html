@@ -89,6 +89,118 @@
             window.parent.postMessage({ type: "harmony-overlay-toggle" }, "*");
           }
         });
+
+        // --- Save bridge (v0.23 W231; save-persistence-design.md §3) ---
+        // Battery SRAM and save states persist through the loopback server's
+        // /saves/<id>/* routes into the same on-disk layout the native path
+        // uses. Everything here is best-effort: any failure logs and play
+        // continues — the bridge must never block the game.
+        var SRAM_FLUSH_MS = 30000;
+        var lastSramB64 = null;
+
+        function gm() {
+          return window.EJS_emulator && EJS_emulator.gameManager;
+        }
+
+        function toB64(bytes) {
+          // Chunked so a large region can't overflow the argument list.
+          var s = "";
+          for (var i = 0; i < bytes.length; i += 0x8000) {
+            s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+          }
+          return btoa(s);
+        }
+
+        function bytesEqualB64(bytes) {
+          // Compare via base64 to avoid keeping a second big buffer around.
+          var b64 = toB64(bytes);
+          if (b64 === lastSramB64) return true;
+          lastSramB64 = b64;
+          return false;
+        }
+
+        function postBytes(path, bytes) {
+          return fetch(path, { method: "POST", body: bytes }).then(function (r) {
+            if (!r.ok) throw new Error(path + " -> " + r.status);
+          });
+        }
+
+        function flushSram() {
+          try {
+            var m = gm();
+            if (!m) return;
+            var data = m.getSaveFile(); // triggers saveSaveFiles() internally
+            if (!data || !data.length) return;
+            if (bytesEqualB64(data)) return;
+            postBytes("/saves/" + game + "/sram", data).catch(function (e) {
+              console.warn("harmony save bridge: SRAM flush failed", e);
+            });
+          } catch (e) {
+            console.warn("harmony save bridge: SRAM read failed", e);
+          }
+        }
+
+        function restoreSram() {
+          fetch("/saves/" + game + "/sram").then(function (r) {
+            if (!r.ok) return; // nothing saved yet — fresh session
+            return r.arrayBuffer().then(function (buf) {
+              var m = gm();
+              if (!m) return;
+              var bytes = new Uint8Array(buf);
+              m.FS.writeFile(m.getSaveFilePath(), bytes);
+              m.loadSaveFiles();
+              bytesEqualB64(bytes); // seed the dirty check
+            });
+          }).catch(function () { /* fresh session */ });
+        }
+
+        // W232's overlay drives states via postMessage; each request answers
+        // with harmony-save-result so the overlay can confirm or show why not.
+        function answer(op, slot, error) {
+          window.parent.postMessage(
+            { type: "harmony-save-result", op: op, slot: slot, error: error || null },
+            "*"
+          );
+        }
+
+        window.addEventListener("message", function (e) {
+          var d = e.data || {};
+          var m = gm();
+          if (!m) return;
+          if (d.type === "harmony-save-state") {
+            try {
+              var state = m.getState();
+              postBytes("/saves/" + game + "/state/" + d.slot, state)
+                .then(function () { answer("save", d.slot); })
+                .catch(function (err) { answer("save", d.slot, String(err)); });
+            } catch (err) {
+              answer("save", d.slot, String(err));
+            }
+          } else if (d.type === "harmony-load-state") {
+            fetch("/saves/" + game + "/state/" + d.slot)
+              .then(function (r) {
+                if (!r.ok) throw new Error("no save in slot " + d.slot);
+                return r.arrayBuffer();
+              })
+              .then(function (buf) {
+                m.loadState(new Uint8Array(buf));
+                answer("load", d.slot);
+              })
+              .catch(function (err) { answer("load", d.slot, String(err)); });
+          }
+        });
+
+        // Wire the lifecycle once the emulator exists: restore on start,
+        // flush periodically and when the page is torn down (iframe unmount).
+        var wireTimer = setInterval(function () {
+          if (!window.EJS_emulator || typeof EJS_emulator.on !== "function") return;
+          clearInterval(wireTimer);
+          EJS_emulator.on("start", function () {
+            restoreSram();
+            setInterval(flushSram, SRAM_FLUSH_MS);
+          });
+        }, 250);
+        window.addEventListener("pagehide", flushSram);
       })();
     </script>
   </body>

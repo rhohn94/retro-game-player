@@ -4,9 +4,9 @@ Harmony bundles third-party software in its distributable. This file lists each
 bundled component, its license, and a pointer to its corresponding source, as
 required by those licenses (notably the **GNU GPL v3.0** of EmulatorJS).
 
-Harmony's own source code is **not** covered by this file — its licensing has
-not yet been declared by the maintainer. See the
-[Open question for maintainer](#-open-question-for-maintainer) at the bottom.
+Harmony's own source code is licensed under **GPL-3.0-only** — see
+[`LICENSE`](LICENSE) at the repository root. (Resolved in v0.23; see
+[Resolved maintainer decisions](#resolved-maintainer-decisions) at the bottom.)
 
 Harmony ships **no game content** of any kind. The in-page player only serves
 ROM files the user has imported into their own local library.
@@ -61,17 +61,17 @@ distributed application.
 - **License:** **MIT**.
 - **Upstream / corresponding source:** https://github.com/yoannmoinet/nipplejs
 
-### libunrar.js
+### libunrar.js — REMOVED in v0.23
 
-- **What it is:** An Emscripten/WebAssembly port of RARLab's UnRAR library, used
-  by EmulatorJS to extract RAR-packed content.
-- **Bundled at:** `src-tauri/vendor/emulatorjs/compression/libunrar.js`,
-  `src-tauri/vendor/emulatorjs/compression/libunrar.wasm`.
-- **License:** Derived from the **UnRAR license** (RARLab). The UnRAR license
-  permits use and redistribution but **forbids using the source to develop a
-  RAR (de)compressor** and carries other restrictions; it is *not* an OSI-approved
-  open-source license. See the [Open question for maintainer](#-open-question-for-maintainer).
-- **Upstream / corresponding source:** https://github.com/tnikolai2/libunrar-js
+- **What it was:** An Emscripten/WebAssembly port of RARLab's UnRAR library
+  (`compression/libunrar.js` / `.wasm`), previously embedded because
+  `include_dir!` swept the whole `vendor/emulatorjs` tree.
+- **Status:** **Excluded from the vendored tree and the distributed binary**
+  as of v0.23. The restrictive UnRAR license is GPL-incompatible, and
+  Harmony's flows never invoke RAR extraction (`.rar` content is not
+  supported). If RAR support is ever wanted, a GPL-compatible extractor must
+  be used instead.
+- **Historical upstream:** https://github.com/tnikolai2/libunrar-js
   (UnRAR source: https://www.rarlab.com/rar_add.htm).
 
 ---
@@ -97,26 +97,18 @@ The full GPL-3.0 license text is reproduced verbatim in
 
 ---
 
-## ⚠️ Open question for maintainer
+## Resolved maintainer decisions
 
-The following items require a maintainer decision and have **not** been acted on
-in this attribution work:
+Both former open questions were resolved in v0.23 (issue
+[#26](https://github.com/rhohn94/harmony/issues/26)):
 
-1. **Harmony's own combined-work license.** Harmony bundles GPL-3.0 software
-   (EmulatorJS) directly into a single distributed binary. GPL-3.0 is a strong
-   copyleft license, and combining it into one conveyed work generally requires
-   the **entire combined work** to be licensed under GPL-3.0-compatible terms.
-   Harmony has not declared a license for its own code. A maintainer needs to
-   decide how to license Harmony's own code (e.g. adopt GPL-3.0, restructure so
-   EmulatorJS is not a derived/combined work, or seek another arrangement). This
-   file deliberately does **not** add a project `LICENSE`, since that is the
-   maintainer's call.
+1. **Harmony's own combined-work license → GPL-3.0-only.** Harmony bundles
+   GPL-3.0 software (EmulatorJS) into a single distributed binary, so the
+   combined work is conveyed under GPL-3.0. `LICENSE` at the repo root carries
+   the license text; `package.json` and `src-tauri/Cargo.toml` declare
+   `GPL-3.0-only`.
 
-2. **UnRAR license compatibility.** The bundled `libunrar.js` / `libunrar.wasm`
-   carry the restrictive **UnRAR license**, which is generally considered
-   **incompatible with the GPL** and is not an open-source license. Because
-   `include_dir!` embeds the whole `vendor/emulatorjs` tree, these files ship in
-   the binary even though Harmony's NES-only flow may not invoke RAR extraction.
-   The maintainer should decide whether to (a) keep and separately comply with
-   the UnRAR terms, or (b) exclude the `compression/libunrar.*` files from the
-   embedded vendor set if RAR support is not needed.
+2. **UnRAR blob → removed.** `compression/libunrar.js` / `.wasm` are excluded
+   from the vendored EmulatorJS tree (see the component entry above), so no
+   GPL-incompatible code ships in the binary. Harmony does not support `.rar`
+   content.

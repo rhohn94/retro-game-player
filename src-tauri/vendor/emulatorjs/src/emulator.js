@@ -1023,8 +1023,14 @@ class EmulatorJS {
                 }
             }
             this.menu.open();
-            if (this.isSafari && this.isMobile) {
-                //Safari is --- funny
+            if (this.isSafari) {
+                // Safari/WebKit is --- funny, including desktop WKWebView
+                // hosts (e.g. Harmony's Tauri player) where startOnLoad's
+                // synthetic click never carries the trusted-gesture flag a
+                // real click would, leaving the AudioContext suspended and
+                // audio garbled until any real click resumes it. Surfacing
+                // the popup here at least tells the user why, instead of
+                // silent garble with no explanation.
                 this.checkStarted();
             }
         } catch(e) {

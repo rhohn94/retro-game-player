@@ -1,12 +1,16 @@
 # Harmony
 
-A polished, Mac-native (Apple Silicon) emulator **frontend and launcher** built on
+A polished, Mac-native (Apple Silicon) **retro game player** built on
 [Tauri 2](https://tauri.app/) + React + the [Aura](https://github.com/rhohn94/design-language)
-design language. Harmony manages a local game library and libretro cores, fetches
-cover art and metadata, and runs games by orchestrating **RetroArch** — it does not
-contain any emulation code of its own.
+design language. Harmony manages a local game library across **20 classic
+consoles** (generations 1–6), fetches cover art and metadata, helps you
+*find* games (links and previews — see the contract below), and **plays
+games in-page**: NES titles boot inside the app with sound, via an embedded
+EmulatorJS core or (opt-in) a natively-hosted libretro core, with an external
+RetroArch launch as the fallback for every other system.
 
-**Harmony ships no game content.** It scans folders you provide.
+**Harmony ships no game content.** It scans folders you provide and imports
+files you choose.
 
 ---
 
@@ -28,40 +32,40 @@ contain any emulation code of its own.
 
 ## What Harmony is
 
-Harmony is the frontend layer of a classic Mac emulation stack:
+Harmony is a library-first frontend with three ways to play, tried in order:
 
 ```
-Your ROM files  →  Harmony (library + UI)
-                       ↓
-                   RetroArch  (launched by Harmony)
-                       ↓
-                   libretro core  (managed by Harmony)
-                       ↓
-                   Emulated game
+Your ROM files → Harmony (library + UI)
+                     ↓
+        1. Native core host (opt-in) — fceumm NES hosted directly in
+           Harmony's Rust backend, CoreAudio output          [v0.21]
+        2. In-page EmulatorJS — NES boots inside the detail
+           screen, with sound, from a loopback origin        [v0.15]
+        3. External RetroArch launch — every other system    [v0.1]
 ```
 
-It is a **Tauri 2 / Rust + React / TypeScript** application that runs natively on
-macOS Apple Silicon (arm64). The UI uses the **Aura** design language (a git
-submodule pin of `rhohn94/design-language`) for 3-knob OKLCH theming and
-translucent shelves, with native `NSVisualEffectView` window vibrancy — not CSS
-`backdrop-filter` (which is broken in transparent WKWebView). Cover-art blurs are
-pre-computed in Rust and handed off to the React layer.
+It is a **Tauri 2 / Rust + React / TypeScript** application for macOS Apple
+Silicon (arm64). The UI uses the **Aura** design language (3-knob OKLCH
+theming, translucent shelves) with native `NSVisualEffectView` window
+vibrancy — not CSS `backdrop-filter`. Cover-art blurs are pre-computed in
+Rust. The whole UI is navigable by controller alone (Xbox · PlayStation ·
+8BitDo · Switch Pro).
 
-**v0.1 supports:** NES · SNES · Nintendo 64.
-
-**v0.1 controllers:** Xbox · PlayStation · 8BitDo · Switch Pro (full
-controller-first navigation — no mouse required).
+**Consoles:** 20 home consoles of generations 1–6 (NES, SNES, N64, Genesis,
+PlayStation, Saturn, Dreamcast, and more), each with curated libretro cores
+verified against the live arm64 buildbot.
 
 ---
 
 ## What it is not
 
-- **Not an emulator.** Harmony contains no emulation code. All emulation is
-  performed by RetroArch + the libretro cores it manages.
-- **Not a game store.** Harmony never downloads, bundles, or distributes game
-  content of any kind.
-- **Not a ROM downloader.** The file-search feature constructs and opens links
-  in your browser — it never fetches files for you.
+- **Not a game store.** Harmony never bundles or distributes game content.
+- **Not a ROM downloader.** Search previews what your configured providers
+  list and opens your chosen link in **your browser** — Harmony itself
+  downloads no content files. (An optional, strictly per-provider, off-by-
+  default direct-download feature is planned — see the roadmap.)
+- **Not only an emulator.** Emulation is performed by libretro cores —
+  embedded (EmulatorJS/WASM), natively hosted (v0.21, NES), or via RetroArch.
 
 ---
 
@@ -79,8 +83,9 @@ pnpm install
 pnpm tauri dev
 ```
 
-On first launch, open **Settings → RetroArch** and point Harmony at your
-RetroArch installation. Then add a content folder under **Settings → Library**.
+On first launch, add a content folder under **Settings → Folders** (or let
+Harmony create a games directory for you from the empty-library prompt), then
+drop ROM files in — or import them by drag-and-drop onto the window.
 
 ---
 
@@ -88,10 +93,10 @@ RetroArch installation. Then add a content folder under **Settings → Library**
 
 | Requirement | Notes |
 |---|---|
-| **macOS (Apple Silicon)** | arm64 only; Intel is not supported in v0.1 |
-| **RetroArch** | Install separately — [retroarch.com](https://www.retroarch.com/). Harmony locates it automatically or you can set the path in Settings. |
-| **Rust** (stable, via [rustup](https://rustup.rs/)) | Tauri's backend |
-| **Node.js** >= 20 | Frontend toolchain |
+| **macOS (Apple Silicon)** | arm64 only; Intel is not supported |
+| **RetroArch** (optional) | Only needed for systems without an in-page core — [retroarch.com](https://www.retroarch.com/). Harmony locates it automatically or set the path in Settings. |
+| **Rust** (stable, via [rustup](https://rustup.rs/)) | Tauri's backend (building from source) |
+| **Node.js** >= 20 | Frontend toolchain (building from source) |
 | **pnpm** | `npm install -g pnpm` |
 | **Xcode Command Line Tools** | `xcode-select --install` |
 
@@ -103,101 +108,80 @@ Aura ships as a git submodule (`vendor/aura`). Initialize it after cloning:
 git submodule update --init
 ```
 
-If you cloned with `--recurse-submodules` this is already done.
-
 ---
 
 ## Building from source
 
 ```bash
-# Development (hot-reload)
-pnpm tauri dev
-
-# Production build (universal macOS app)
-pnpm tauri build
-
-# Apple Silicon release DMG
-pnpm tauri build --target aarch64-apple-darwin
-
-# Type-check
-pnpm typecheck && cargo check --manifest-path src-tauri/Cargo.toml
-
-# Lint
-pnpm lint && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-
-# Tests
-pnpm test && cargo test --manifest-path src-tauri/Cargo.toml
+pnpm tauri dev                                   # development (hot-reload)
+pnpm tauri build                                 # production build
+pnpm tauri build --target aarch64-apple-darwin   # Apple Silicon release DMG
+pnpm typecheck && cargo check --manifest-path src-tauri/Cargo.toml   # type-check
+pnpm lint && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings  # lint
+pnpm test && cargo test --manifest-path src-tauri/Cargo.toml         # tests
 ```
 
-All three verification commands (typecheck, lint, test) must pass cleanly before
-any branch is merged.
+All verification commands must pass cleanly before any branch is merged.
 
 ---
 
 ## Setup and first use
 
-### 1. Point Harmony at RetroArch
+### 1. Add your games
 
-Open **Settings → RetroArch**. Harmony probes common installation paths
-(`/Applications/RetroArch.app`, `~/Applications/RetroArch.app`) automatically.
-If it does not find RetroArch, click **Browse** and select the `.app` bundle.
+**Settings → Folders** (or the empty-library prompt) points Harmony at your
+ROM folders — it can create a managed games directory for you. Harmony walks
+the folders, hashes each file (CRC32 / MD5), matches against
+[No-Intro](https://www.no-intro.org/) DAT files for clean titles and dedupe,
+and stores results in a local SQLite database. You can also **import** games
+by drag-and-drop or the file picker; imports are copied into the managed
+directory, hash-deduped, and enriched (cover art + Wikipedia description)
+automatically. Harmony never modifies your ROM files.
 
-### 2. Install cores
+### 2. Play
 
-Go to **Cores** and install the cores for the systems you want. Cores are
-arm64 `.dylib` files downloaded from the
-[libretro buildbot](https://buildbot.libretro.com/) and stored under
+Open a game. NES titles **auto-boot in-page with sound** — that boot screen
+is part of the retro vibe. The overlay (Escape, the controller menu button)
+offers Resume / Full screen / Exit. Other systems launch through RetroArch;
+install it and the right cores under **Cores** if you want those systems.
+An opt-in **Settings → Playback** toggle hosts NES natively in Harmony's
+backend (cleaner audio, faster boot), falling back to the in-page core
+automatically if it can't start.
+
+### 3. Cores (for the RetroArch path)
+
+**Cores** browses, searches, installs, and updates arm64 cores from the
+[libretro buildbot](https://buildbot.libretro.com/), stored under
 `~/Library/Application Support/com.harmony.app/cores/`.
 
-| System | Recommended cores |
-|---|---|
-| NES | Mesen, FCEUmm |
-| SNES | Snes9x, bsnes |
-| N64 | Mupen64Plus-Next |
+### 4. Browse by console
 
-### 3. Add content folders
+**Consoles** is a generation-grouped grid of all 20 systems — photos,
+hardware specs (CPU/GPU/RAM), Wikipedia summaries, your games per console,
+and each console's full known-title catalog (~28.6k titles).
 
-Go to **Settings → Library** and add the folders that contain your ROM files.
-Harmony walks the folders, hashes each file (CRC32 / MD5), and matches against
-[No-Intro](https://www.no-intro.org/) DAT files to produce clean titles and
-remove duplicates. Results are stored in a local SQLite database.
+### 5. Find games (search)
 
-Harmony never modifies your ROM files.
-
-### 4. Box art
-
-Box art is fetched from the free
-[libretro-thumbnails](https://github.com/libretro-thumbnails) repositories using
-the No-Intro name. Images are cached locally under
-`~/Library/Application Support/com.harmony.app/art-cache/`. No account or API
-key is required.
-
-### 5. File search providers (optional)
-
-The **Search** screen lets you configure URL-template providers for finding
-files. Go to **Settings → Search Providers** and add a provider with a
-`{query}` placeholder in the URL. Harmony substitutes your search term
-(percent-encoded) and opens the resulting link in your browser.
-
-**Harmony ships with an empty provider list and never auto-downloads anything.**
-It returns links only; you decide what to open.
+The **Search** screen queries your configured providers and **previews the
+candidate links in-app** (with relevance ranking, Match badges, per-provider
+grouping, filters, and optional link-liveness dots). Add providers from the
+curated **Browse providers** catalog or author your own URL template with
+Detect-from-URL and a live validator. Harmony opens your chosen result in
+your browser — it downloads nothing itself. Legality of any linked source is
+your responsibility.
 
 ### 6. Controller navigation
 
-Harmony is designed to be navigated entirely by controller. Focus states,
-button hints, and grid navigation all work without a mouse. Default bindings
-cover Xbox, PlayStation, 8BitDo, and Switch Pro layouts, stored in the local
-SQLite database. Remap actions in **Settings → Controller**.
+Harmony is fully navigable by controller — focus states, button hints, grid
+navigation, and in-game input. Default bindings cover Xbox, PlayStation,
+8BitDo, and Switch Pro layouts. (A remapping UI is on the roadmap.)
 
-### 7. Familiar AI enrichment (optional, v0.2+)
+### 7. Familiar AI enrichment (optional)
 
 [Familiar](https://github.com/rhohn94/familiar) is an optional, locally-running
-AI companion that enriches library metadata — fuzzy title matching, ambiguous
-dump disambiguation. It is a **soft dependency**: Harmony probes for it at
-startup and works fully without it. If Familiar is absent or unauthorized,
-AI affordances are hidden and all other features continue normally.
-
-Familiar integration is planned for v0.2.
+AI companion Harmony probes for at startup; if absent, all AI affordances are
+hidden and everything else works normally. Deeper enrichment wiring is on the
+roadmap.
 
 ---
 
@@ -205,38 +189,39 @@ Familiar integration is planned for v0.2.
 
 | Feature | Notes |
 |---|---|
-| Library scan | CRC32 / MD5 hash, No-Intro DAT matching, SQLite persistence |
-| Core management | Download / update arm64 cores from the libretro buildbot |
-| Game launch | Shells out to RetroArch with the correct core + content path |
-| Box art | Fetched from libretro-thumbnails; cached locally |
-| Native vibrancy | `NSVisualEffectView` window blur + Rust pre-blurred hero backdrop |
-| Controller input | Full grid/menu navigation; Xbox / PS / 8BitDo / Switch Pro |
-| File search | User-configured URL-template providers; links only, never downloads |
-| Fleet identity | Ensign instance ID + version manifest; compatible with Mission Control |
-| Familiar enrichment | Soft dependency — silently absent if not installed (v0.2 target) |
+| Library scan + import | CRC32/MD5 hashing, No-Intro DAT matching, drag-drop import with hash dedupe, SQLite |
+| In-page play | NES auto-boots with sound in the detail screen (EmulatorJS, loopback origin); overlay + immersive fullscreen |
+| Native core host (opt-in) | fceumm NES hosted in the Rust backend, CoreAudio output, automatic fallback |
+| RetroArch launch | Fallback path for systems without an in-page core |
+| Console browse | 20 consoles, gen-grouped, specs + photos + full title catalogs |
+| Core management | Browse/search/install/update arm64 cores from the libretro buildbot |
+| Metadata & art | libretro-thumbnails box art, Wikipedia descriptions, auto-enrich on import |
+| Search | Provider previews in-app, relevance ranking + Match badges, dedupe by game, liveness dots, curated provider catalog |
+| Controller-first UI | Full navigation + in-game input; Xbox / PS / 8BitDo / Switch Pro |
+| Native vibrancy | `NSVisualEffectView` window blur + Rust pre-blurred hero backdrops |
+| Fleet identity | Ensign instance ID + version manifest; Mission Control compatible |
 
 ---
 
 ## Distribution
 
-Harmony is distributed as a **notarized Developer-ID DMG** for Apple Silicon
-Macs. It is not available on the Mac App Store — the `macOSPrivateApi: true`
-Tauri flag required for native vibrancy is incompatible with App Store
-sandboxing.
+Harmony is distributed as a **Developer-ID DMG** for Apple Silicon Macs
+(notarization is on the roadmap). It is not on the Mac App Store — the
+`macOSPrivateApi: true` flag required for native vibrancy is incompatible
+with App Store sandboxing.
 
-GitHub Releases are cut from the `main` branch after the integration master
-merges and tags a version. See [docs/version-design.md](docs/version-design.md).
+GitHub Releases are cut from `main` after the integration master merges and
+tags a version.
 
 ---
 
 ## License and attribution
 
-Harmony's in-page player bundles **EmulatorJS** (GPL-3.0) and the **fceumm**
-NES core into the distributable. Bundled third-party software, its licenses, and
-pointers to corresponding source are listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the full GPL-3.0 text is in
-[licenses/GPL-3.0.txt](licenses/GPL-3.0.txt). Harmony's own code has no declared
-license yet (see the open question in the notices file).
+Harmony is licensed under **GPL-3.0** (see [LICENSE](LICENSE)) — the natural
+choice for a distributable that bundles **EmulatorJS** (GPL-3.0) and the
+**fceumm** NES core (GPL-2.0-or-later). Bundled third-party software and
+licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the
+full GPL-3.0 text is in [licenses/GPL-3.0.txt](licenses/GPL-3.0.txt).
 
 ---
 
@@ -257,31 +242,14 @@ work/wNN-*    <- task-agent feature branches (merge into version/X.Y)
 Work-item agents commit on isolated worktree branches. An **integration
 master** merges all feature branches into `version/X.Y`, then promotes to
 `dev` and `main`. **Push to origin is human-gated** — agents never push.
-
-Force-push, rebase, and history-rewriting commands are prohibited on
-`dev` / `main` / `version/*` by the `protected-branch-guard.sh` hook.
-Use `git switch -c <branch> <ref>` + `git merge --no-ff` and
-`git revert` to undo landed commits.
-
-### Key commands
-
-```bash
-pnpm tauri dev                              # run with hot-reload
-pnpm tauri build                            # production build
-pnpm test && cargo test ...                 # full test suite
-pnpm typecheck && cargo check ...           # type-check both halves
-pnpm lint && cargo clippy ...               # lint both halves
-```
-
-See [CLAUDE.md](CLAUDE.md) for the full project-commands table and the
-Grimoire workflow guide.
+Force-push, rebase, and history rewriting are prohibited on protected
+branches by guard hooks; use branch-and-merge and `git revert`.
 
 ### Release planning
 
-Release scope is agreed as a `docs/release-planning-vX.Y.md` document.
-See [docs/roadmap.md](docs/roadmap.md) for the feature roadmap and
-[docs/integration-workflow.md](docs/integration-workflow.md) for the
-integration-master pipeline.
+Release scope is agreed as `docs/release-planning/release-planning-vX.Y.md`.
+See [docs/roadmap.md](docs/roadmap.md) for the roadmap and
+[CLAUDE.md](CLAUDE.md) for the full project-commands table and workflow guide.
 
 ---
 
@@ -289,21 +257,18 @@ integration-master pipeline.
 
 | Document | What it covers |
 |---|---|
-| [docs/roadmap.md](docs/roadmap.md) | Feature roadmap (v0.1, v0.2, v0.3) |
-| [docs/design/architecture-design.md](docs/design/architecture-design.md) | Master architecture contract — module map, IPC surface, SQLite schema, directory layouts |
-| [docs/design/native-vibrancy-design.md](docs/design/native-vibrancy-design.md) | NSVisualEffectView seam + Rust pre-blur pipeline |
-| [docs/design/ux/design-language.md](docs/design/ux/design-language.md) | Aura submodule wiring, 3-knob OKLCH theming |
-| [docs/design/harmony-ux-design.md](docs/design/harmony-ux-design.md) | Screen layout, hero backdrop, Framer Motion choreography |
-| [docs/design/core-management-design.md](docs/design/core-management-design.md) | Libretro buildbot client, arm64 core install |
-| [docs/design/library-identification-design.md](docs/design/library-identification-design.md) | ROM scanner, hashing, No-Intro DAT matching |
-| [docs/design/emulation-launch-design.md](docs/design/emulation-launch-design.md) | RetroArch locate + launch |
-| [docs/design/metadata-art-design.md](docs/design/metadata-art-design.md) | libretro-thumbnails fetch + art cache |
-| [docs/design/file-search-design.md](docs/design/file-search-design.md) | URL-template search providers |
+| [docs/roadmap.md](docs/roadmap.md) | Shipped releases + the planned v0.23+ arc |
+| [docs/version-history.md](docs/version-history.md) | One-line-per-release changelog |
+| [docs/design/architecture-design.md](docs/design/architecture-design.md) | Master architecture contract |
+| [docs/design/harmony-ux-design.md](docs/design/harmony-ux-design.md) | Screen layout, hero backdrop, motion |
+| [docs/design/in-page-play-design.md](docs/design/in-page-play-design.md) | Embedded EmulatorJS player, overlay, loopback origin |
+| [docs/design/native-emulation-design.md](docs/design/native-emulation-design.md) | Native libretro core hosting (v0.21) + attract mode |
+| [docs/design/save-persistence-design.md](docs/design/save-persistence-design.md) | Save states + SRAM (v0.23) |
+| [docs/design/direct-download-design.md](docs/design/direct-download-design.md) | Per-vendor direct download (planned, v0.24) |
+| [docs/design/console-browse-design.md](docs/design/console-browse-design.md) | By-console grid + title catalogs |
+| [docs/design/download-browsing-ux-design.md](docs/design/download-browsing-ux-design.md) | Search preview/browse UX |
+| [docs/design/provider-discovery-design.md](docs/design/provider-discovery-design.md) | Curated provider catalog |
 | [docs/design/controller-input-design.md](docs/design/controller-input-design.md) | Controller bindings + spatial navigation |
-| [docs/design/familiar-enrichment-design.md](docs/design/familiar-enrichment-design.md) | Optional AI enrichment via Familiar |
-| [docs/design/fleet-ensign-design.md](docs/design/fleet-ensign-design.md) | Fleet identity + localhost status endpoint |
 | [docs/coding-standards.md](docs/coding-standards.md) | Cross-language coding standards |
 | [docs/architecture-guidelines.md](docs/architecture-guidelines.md) | Architectural principles |
-| [docs/integration-workflow.md](docs/integration-workflow.md) | Integration-master pipeline |
-| [docs/version-design.md](docs/version-design.md) | Versioning conventions + release procedure |
 | [CLAUDE.md](CLAUDE.md) | Grimoire agent guide + project commands |

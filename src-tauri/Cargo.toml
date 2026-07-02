@@ -1,8 +1,9 @@
 [package]
 name = "harmony"
-version = "0.22.0"
-description = "Harmony — a Mac-native (Apple Silicon) emulator frontend / launcher."
+version = "0.23.0"
+description = "Harmony — a Mac-native (Apple Silicon) retro game player."
 authors = ["Harmony"]
+license = "GPL-3.0-only"
 edition = "2021"
 
 # The library the binary calls into. `cdylib`/`staticlib` are required by the

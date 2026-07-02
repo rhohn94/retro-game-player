@@ -20,10 +20,19 @@
 #![allow(dead_code)]
 
 use super::ffi;
+use std::collections::HashSet;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
+
+/// Environment-command IDs already logged as unhandled, so the log below
+/// prints each distinct unhandled `cmd` once per session rather than flooding
+/// stderr on every `retro_run` tick. Kept beyond the v0.21 crash
+/// investigation: the once-per-command trace is the cheapest map of what a
+/// core actually asks for, which is exactly what broadening core coverage
+/// (roadmap Backlog) needs.
+static LOGGED_UNHANDLED_ENV_CMDS: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
 
 /// A decoded video frame, copied out of the core's buffer (which is only
 /// valid for the duration of the `retro_video_refresh_t` call).
@@ -250,7 +259,13 @@ pub unsafe extern "C" fn environment(cmd: u32, data: *mut c_void) -> bool {
             }
             true
         }
-        _ => false,
+        cmd => {
+            let mut logged = LOGGED_UNHANDLED_ENV_CMDS.lock().unwrap_or_else(|p| p.into_inner());
+            if logged.get_or_insert_with(HashSet::new).insert(cmd) {
+                eprintln!("[harmony-native] unhandled environment cmd {cmd} (core queried, Harmony returned false)");
+            }
+            false
+        }
     }
 }
 

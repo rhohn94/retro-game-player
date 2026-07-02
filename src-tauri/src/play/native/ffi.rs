@@ -4,9 +4,11 @@
 //! Field order and types must match the header exactly: this is the one place
 //! in the codebase where a wrong line silently corrupts memory across the FFI
 //! boundary instead of tripping a compiler error. Scope is intentionally
-//! narrow — only the ~13 functions [`super::host::LibretroCore`] actually
-//! calls (no save-state/serialize, no controller-port/device switching; see
-//! docs/design/native-emulation-design.md "Scope").
+//! narrow — only the functions [`super::host::LibretroCore`] actually calls:
+//! the original ~13 lifecycle/callback functions plus the five
+//! serialize/memory functions save persistence needs (v0.23 W230, see
+//! docs/design/save-persistence-design.md). Still no controller-port/device
+//! switching.
 
 #![allow(dead_code)]
 
@@ -18,6 +20,9 @@ use std::os::raw::{c_char, c_void};
 pub const RETRO_API_VERSION: u32 = 1;
 
 pub const RETRO_DEVICE_JOYPAD: u32 = 1;
+
+/// `retro_get_memory_data`/`_size` id for battery-backed save RAM (`.srm`).
+pub const RETRO_MEMORY_SAVE_RAM: u32 = 0;
 
 pub const RETRO_DEVICE_ID_JOYPAD_B: u32 = 0;
 pub const RETRO_DEVICE_ID_JOYPAD_Y: u32 = 1;
@@ -124,4 +129,9 @@ pub struct RawSymbols {
     pub retro_run: unsafe extern "C" fn(),
     pub retro_load_game: unsafe extern "C" fn(*const RetroGameInfo) -> bool,
     pub retro_unload_game: unsafe extern "C" fn(),
+    pub retro_serialize_size: unsafe extern "C" fn() -> usize,
+    pub retro_serialize: unsafe extern "C" fn(*mut c_void, usize) -> bool,
+    pub retro_unserialize: unsafe extern "C" fn(*const c_void, usize) -> bool,
+    pub retro_get_memory_data: unsafe extern "C" fn(u32) -> *mut c_void,
+    pub retro_get_memory_size: unsafe extern "C" fn(u32) -> usize,
 }

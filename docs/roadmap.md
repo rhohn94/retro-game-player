@@ -2,12 +2,141 @@
 
 > **Up:** [↑ Docs](README.md)
 
-Harmony is a polished, Mac-native (Apple Silicon) emulator **frontend**: a
-launcher that manages libretro cores and a local game library with cover art and
-metadata, and runs content by orchestrating RetroArch. It ships **no** game
-content — it scans folders the user provides. One `## vX.Y` section per planned
-release; the integration master uses this file as the primary input to
+Harmony is a polished, Mac-native (Apple Silicon) retro-game player: it manages
+a local game library with cover art and metadata across 20 classic consoles,
+discovers and links (never downloads) game sources, and **plays games in-page**
+— an embedded EmulatorJS core or a natively-hosted libretro core, with external
+RetroArch as the fallback for everything else. It ships **no** game content — it
+scans folders the user provides. One `## vX.Y` section per planned release; the
+integration master uses this file as the primary input to
 `grm-release-planning`.
+
+**North star:** a genuinely amazing retro videogame experience — pick up a
+controller from the couch, browse a beautiful art-forward library, and be
+*playing* seconds later, with your progress always kept. The v0.23+ arc below
+works toward that in order of what hurts most today: progress is never lost →
+every game plays inside Harmony, fast → the library feels like *yours* → the
+couch/TV experience → authentic retro presentation → distribution to the world.
+Gap analysis of record: issues
+[#16](https://github.com/rhohn94/harmony/issues/16)–[#29](https://github.com/rhohn94/harmony/issues/29)
+(filed 2026-07-01) plus the standing TV epic
+[#8](https://github.com/rhohn94/harmony/issues/8).
+
+---
+
+## v0.23 — Continuity (released — see version-history.md)
+
+**Theme:** Never lose progress, never lie to the user. Closes the biggest
+implementation-vs-ambition gap: today *nothing* persists — no battery saves, no
+save states, on any play path — and play-path failures degrade silently.
+
+- **Save states + SRAM/battery saves** on both the in-page and native paths,
+  stored on disk under app-support; slot save/load in the in-game overlay; a
+  "Continue" affordance on the detail page
+  ([#16](https://github.com/rhohn94/harmony/issues/16)).
+- **Native-play closeout:** land/remove the in-flight crash-investigation
+  diagnostics, run the real-device audio/load-time verification deferred from
+  v0.21, and decide the default
+  ([#18](https://github.com/rhohn94/harmony/issues/18)).
+- **Honest degradation:** visible in-app notice when a play path falls back
+  (loopback bind failure, native-init failure, missing RetroArch)
+  ([#19](https://github.com/rhohn94/harmony/issues/19)).
+- **Docs tell the truth:** refresh the v0.1-era README, populate
+  `version-history.md`, and decide the license question
+  ([#25](https://github.com/rhohn94/harmony/issues/25),
+  [#26](https://github.com/rhohn94/harmony/issues/26) — decision + mechanical).
+
+**Non-goals:** rewind, shaders, new cores.
+
+Plan: [`release-planning-v0.23.md`](release-planning/release-planning-v0.23.md).
+
+---
+
+## v0.24 — Everywhere (planned)
+
+**Theme:** Every game plays *inside* Harmony, and it starts fast. Today only
+NES boots in-page; the other ~19 catalogued systems shell out to an external
+RetroArch the user must install.
+
+- **In-page cores for the catalog:** bundle or on-demand-fetch EmulatorJS cores
+  for the high-value systems (SNES, Genesis, N64, PS1, Atari 2600, …), with
+  RetroArch fallback intact ([#17](https://github.com/rhohn94/harmony/issues/17)).
+- **Boot-latency spike:** warm-emulator ROM swap + decompressed-core cache
+  ([#14](https://github.com/rhohn94/harmony/issues/14)).
+- **Player conveniences:** rewind / fast-forward / volume / pause-on-blur in
+  the overlay ([#22](https://github.com/rhohn94/harmony/issues/22)).
+- **Direct download (user-requested):** wire the v0.16 per-vendor
+  `direct_download` seam into a real, user-initiated download → import → play
+  loop — off for every provider until the user enables it per vendor; streams
+  through safeguards into the existing v0.12 import pipeline. Design:
+  [`direct-download-design.md`](design/direct-download-design.md).
+
+**Non-goals:** native (non-WASM) hosting beyond NES; torrents/resume/queue
+manager for direct download.
+
+---
+
+## v0.25 — Keepsake (planned)
+
+**Theme:** The library becomes *yours* — and your controller obeys you. Also
+lays the data foundation the TV home shelves need.
+
+- **Library life:** favorites, collections, recently played, play-time
+  tracking across all three play paths
+  ([#21](https://github.com/rhohn94/harmony/issues/21)).
+- **Controller remapping UI:** replace the ControllersPane stub with a real
+  press-to-rebind editor ([#20](https://github.com/rhohn94/harmony/issues/20)).
+
+---
+
+## v0.26 — Theater (planned)
+
+**Theme:** The couch experience, part 1 of the 10-foot TV epic
+([#8](https://github.com/rhohn94/harmony/issues/8)) — structure first.
+
+- **Leanback layout mode** with TV-safe margins and larger type
+  ([#9](https://github.com/rhohn94/harmony/issues/9)).
+- **Distance-legible focus states + snap navigation** for controller use
+  ([#11](https://github.com/rhohn94/harmony/issues/11)).
+
+---
+
+## v0.27 — Marquee (planned)
+
+**Theme:** The couch experience, part 2 — content & art forward. Closes epic
+[#8](https://github.com/rhohn94/harmony/issues/8).
+
+- **Home/library as large cover-art shelves** with a key-art hero (Continue
+  playing / Favorites / Recently added — data from v0.25)
+  ([#10](https://github.com/rhohn94/harmony/issues/10)).
+- **Full-bleed game art** on detail and hero screens
+  ([#12](https://github.com/rhohn94/harmony/issues/12)).
+- **Higher-resolution cover art, fanart, and screenshots** for big screens
+  ([#13](https://github.com/rhohn94/harmony/issues/13)).
+
+---
+
+## v0.28 — Craft (planned)
+
+**Theme:** Authentic retro presentation and engineering depth.
+
+- **CRT / scanline display filters** (presets, both paths where feasible)
+  ([#23](https://github.com/rhohn94/harmony/issues/23)).
+- **Keyboard accessibility:** focus-visible + full keyboard operability
+  ([#29](https://github.com/rhohn94/harmony/issues/29)).
+- **Play-path integration tests** so a broken player fails CI, not manual QA
+  ([#28](https://github.com/rhohn94/harmony/issues/28)).
+
+---
+
+## v0.29 — Passport (planned)
+
+**Theme:** Ready for hands that aren't the developer's.
+
+- **Notarized, stapled Developer-ID DMG** that launches clean on a fresh Mac
+  ([#27](https://github.com/rhohn94/harmony/issues/27)).
+- License follow-through if not already closed in v0.23
+  ([#26](https://github.com/rhohn94/harmony/issues/26)).
 
 ---
 
@@ -564,16 +693,28 @@ Plan: [`release-planning-v0.14.md`](release-planning-v0.14.md).
 
 ## Backlog
 
-Deferred until after the GUI-and-cores program (v0.2–v0.7):
+Beyond the v0.23–v0.29 arc (unscheduled; former backlog rows now live as
+scheduled tickets — enrichment → [#24](https://github.com/rhohn94/harmony/issues/24),
+controller-binding UI → [#20](https://github.com/rhohn94/harmony/issues/20),
+collections/favorites/play-time → [#21](https://github.com/rhohn94/harmony/issues/21),
+notarized DMG (T2) → [#27](https://github.com/rhohn94/harmony/issues/27)):
 
-- **Enrichment & polish** (was v0.2): optional ScreenScraper support
-  (user-supplied API key); optional AI-assisted enrichment (fuzzy title
-  matching, ambiguous-dump disambiguation) via **Familiar**'s OpenAI-compatible
-  API as a soft, capability-discovered dependency; refined controller-binding
-  configuration UI and more art fallbacks.
-- **Beyond the core three** (was v0.3): additional systems beyond NES / SNES /
-  N64; collections, favorites, play-time tracking, and richer filtering.
-- **Notarized DMG** (T2): signed + notarized arm64 DMG for distribution.
+- **Metadata enrichment** ([#24](https://github.com/rhohn94/harmony/issues/24)):
+  ScreenScraper (user API key) + Familiar AI fuzzy matching / dump
+  disambiguation; candidate for v0.30.
+- **Native hosting beyond NES:** SNES/Genesis/N64 cores on the v0.21 FFI layer;
+  native NSView/Metal frame overlay; preview-then-play attract mode
+  (native-emulation-design.md follow-ups).
+- **RetroAchievements** integration (retroachievements.org) — the strongest
+  unclaimed community differentiator.
+- **Netplay** (research-class; likely via RetroArch orchestration first).
+- **Windows / Linux** ports (Tauri is cross-platform; the vibrancy seam and
+  RetroArch locator are the macOS-bound pieces).
+- **Localization (i18n)** — all UI strings are hard-coded English today.
+- **JS-render fetch tier** (carried from the v0.21/v0.22 ledgers): offscreen
+  WebView render-then-scrape so JS-only providers (itch.io, GameJolt, GOG)
+  become previewable; pairs naturally with direct download (#30).
+- More art fallbacks; search size/age columns; search history.
 
 ---
 

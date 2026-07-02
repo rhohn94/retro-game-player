@@ -11,6 +11,7 @@
 //! incrementally behind a flag; see docs/design/native-emulation-design.md.
 
 pub mod native;
+pub mod saves;
 pub mod server;
 
 pub use server::{start, PlayServer};
