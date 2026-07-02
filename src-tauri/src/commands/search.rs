@@ -18,7 +18,9 @@
 
 use tauri::State;
 
-use crate::core::search::{catalog, fetch, liveness, provider as provider_core, template};
+use crate::core::search::{
+    catalog, discovery, fetch, liveness, provider as provider_core, template,
+};
 use crate::db::{
     repo::{
         search_providers::{NewSearchProvider, SearchProvidersRepo},
@@ -378,6 +380,16 @@ pub fn validate_provider(
             error: Some(e.to_string()),
         }),
     }
+}
+
+/// Auto-discover a provider's search capability from a site's **base URL**
+/// (v0.25 "Scout", W250). Probes OpenSearch / MediaWiki / WordPress / HTML
+/// forms and returns ready-to-store `{query}` templates, best mechanism
+/// first; an empty list is the honest "nothing discovered". Only ever
+/// fetches the given site's own pages (never an open-web crawl).
+#[tauri::command]
+pub fn discover_provider(base_url: String) -> AppResult<Vec<discovery::Discovered>> {
+    discovery::discover(&base_url)
 }
 
 /// List the curated provider catalog (v0.20), each entry flagged `added` when a

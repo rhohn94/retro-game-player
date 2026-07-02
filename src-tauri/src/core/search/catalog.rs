@@ -44,6 +44,8 @@ const CATALOG: &[CatalogProvider] = &[
     CatalogProvider { name: "GameJolt", url_template: "https://gamejolt.com/search?q={query}", kind: "download", media: "Indie & homebrew", description: "Indie game community and storefront with many free and homebrew titles.", js_rendered: true },
     // --- Public-domain & homebrew ROMs ---
     CatalogProvider { name: "PDRoms", url_template: "https://www.pdroms.de/?s={query}", kind: "download", media: "Homebrew & public-domain", description: "Curated homebrew and public-domain games and ports for retro systems.", js_rendered: false },
+    CatalogProvider { name: "Lexaloffle BBS", url_template: "https://www.lexaloffle.com/bbs/?search={query}", kind: "download", media: "Homebrew & public-domain", description: "Community board for PICO-8 and Voxatron — thousands of author-released fantasy-console games (v0.25, live-verified).", js_rendered: false },
+    CatalogProvider { name: "OpenGameArt", url_template: "https://opengameart.org/art-search?keys={query}", kind: "download", media: "Homebrew & public-domain", description: "Free/CC-licensed and public-domain game art, sprites, and audio for creators (v0.25, live-verified).", js_rendered: false },
     // --- Demoscene ---
     CatalogProvider { name: "Demozoo", url_template: "https://demozoo.org/productions/?q={query}", kind: "download", media: "Demoscene", description: "Demoscene database — author-released demos, intros, and games.", js_rendered: false },
     CatalogProvider { name: "Pouet", url_template: "https://www.pouet.net/prodlist.php?prod={query}", kind: "download", media: "Demoscene", description: "Long-running demoscene production database.", js_rendered: false },
@@ -61,6 +63,8 @@ const CATALOG: &[CatalogProvider] = &[
     CatalogProvider { name: "Wikipedia", url_template: "https://en.wikipedia.org/w/index.php?search={query}", kind: "reference", media: "Reference", description: "Encyclopedia articles for games, systems, and developers.", js_rendered: false },
     CatalogProvider { name: "GameFAQs", url_template: "https://gamefaqs.gamespot.com/search?game={query}", kind: "reference", media: "Guides & data", description: "Guides, FAQs, and release data across platforms.", js_rendered: false },
     CatalogProvider { name: "Lemon Amiga", url_template: "https://www.lemonamiga.com/games/list.php?list_title={query}", kind: "reference", media: "Reference", description: "Reference database for Amiga games (metadata only; no files hosted).", js_rendered: false },
+    CatalogProvider { name: "TheGamesDB", url_template: "https://thegamesdb.net/search.php?name={query}", kind: "reference", media: "Reference", description: "Open, community-maintained game metadata and artwork database (v0.25, live-verified).", js_rendered: false },
+    CatalogProvider { name: "Hardcore Gaming 101", url_template: "https://hg101.kontek.net/?s={query}", kind: "reference", media: "Guides & data", description: "In-depth articles and histories on retro and obscure games (v0.25, live-verified).", js_rendered: false },
 ];
 
 /// The full catalog, in display order.

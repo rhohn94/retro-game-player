@@ -93,3 +93,44 @@ missing term, or a term not present in the URL.
 - **Open-web provider discovery** — not built (see §2).
 - **Per-provider API adapters** — deferred behind the JS-render tier ("APIs
   later").
+
+## 9. API auto-discovery from a base URL (v0.25 "Scout", W250)
+
+v0.20's Detect (§5) derives a template from a *results* URL the user already
+has. W250 goes one step earlier: given only a site's **base URL**, probe its
+search API programmatically. New module `core/search/discovery.rs`;
+`discover_provider(base_url) -> Vec<Discovered>` command.
+
+**Mechanisms, ranked best-first** (union returned; per-mechanism failures
+swallowed; empty = honest "nothing found"):
+
+1. **OpenSearch description** — homepage `<link rel="search"
+   type="application/opensearchdescription+xml">` + `/opensearch.xml`
+   fallback; parse the description's `text/html` `<Url template>`
+   (`{searchTerms}` → `{query}`, optional `{param?}` stripped, XML entities
+   unescaped). The standards path.
+2. **MediaWiki** — `/api.php?action=opensearch&format=json` returning a JSON
+   array ⇒ store the wiki's HTML `index.php?search={query}` page.
+3. **WordPress** — `/wp-json/` returning a JSON object ⇒ `/?s={query}`.
+4. **HTML search form** — a homepage GET `<form>` with a text/search input ⇒
+   `action?…&name={query}`, hidden fields preserved. Weakest, hence last.
+
+**HTML-first, by design:** `run_search` scrapes HTML, so discovery yields HTML
+`{query}` templates (MediaWiki's search *page*, not its JSON API). A JSON
+result pipeline is out of scope (Backlog).
+
+**Boundary unchanged (§2):** discovery fetches only the user-supplied site's
+own pages over the `fetch.rs` safeguards — never an open-web provider crawl.
+
+**Surface:** ProviderDialog gains "Discover search API from a site URL" (open
+by default, above Detect): the best candidate fills name + template in place;
+all candidates are one-click apply rows. The existing Test-provider validator
+then confirms links before Save.
+
+**Verification:** fixture unit tests per mechanism + the ranking (local
+`tiny_http` site); real-provider acceptance
+(`manual_discovers_wikipedia_from_its_base_url`, `--ignored`) — base URL
+`https://en.wikipedia.org` alone recovers
+`https://en.wikipedia.org/w/index.php?title=Special:Search&search={query}`
+(run 2026-07-02). archive.org is a true negative (no OpenSearch descriptor,
+JS-rendered homepage search).
