@@ -139,10 +139,20 @@ impl AudioRing {
     }
 }
 
+/// The shared latest-frame slot. Each stored frame is stamped with a
+/// monotonically increasing sequence number so pollers can tell "new frame"
+/// from "the frame I already painted" without comparing pixel data — the IPC
+/// layer returns an empty body for an unchanged sequence (W239).
+#[derive(Default)]
+struct FrameSlot {
+    seq: u64,
+    frame: Option<Rgba8Frame>,
+}
+
 /// A live, running native core session. `Drop` signals both threads to stop
 /// and joins them, so a session never outlives the struct that owns it.
 pub struct NativeRuntime {
-    latest_frame: Arc<Mutex<Option<Rgba8Frame>>>,
+    latest_frame: Arc<Mutex<FrameSlot>>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     ring: Arc<AudioRing>,
@@ -200,7 +210,7 @@ impl NativeRuntime {
             }
         };
 
-        let latest_frame = Arc::new(Mutex::new(None));
+        let latest_frame = Arc::new(Mutex::new(FrameSlot::default()));
         // Libretro's implicit default before a core negotiates otherwise.
         let pixel_format = Arc::new(Mutex::new(PixelFormat::Rgb1555));
         let ring = Arc::new(AudioRing::new());
@@ -285,14 +295,13 @@ impl NativeRuntime {
     }
 
     /// A clone of the most recently produced video frame, already decoded to
-    /// RGBA8888. Cheap to poll — backs a Tauri command (W214) that pulls
-    /// frames on a UI-driven cadence rather than being pushed one for one
-    /// with the core.
-    pub fn latest_frame(&self) -> Option<Rgba8Frame> {
-        self.latest_frame
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
+    /// RGBA8888, paired with its sequence number. Backs a Tauri command
+    /// (W214/W239) that pulls frames on a UI-driven cadence rather than being
+    /// pushed one for one with the core; the sequence number lets that poller
+    /// skip frames it has already painted.
+    pub fn latest_frame(&self) -> Option<(u64, Rgba8Frame)> {
+        let slot = self.latest_frame.lock().unwrap_or_else(|p| p.into_inner());
+        slot.frame.clone().map(|frame| (slot.seq, frame))
     }
 }
 
@@ -315,7 +324,7 @@ struct CoreLoop<'a> {
     fps: f64,
     saves: Option<GameSaves>,
     commands: Receiver<CoreCommand>,
-    latest_frame: &'a Mutex<Option<Rgba8Frame>>,
+    latest_frame: &'a Mutex<FrameSlot>,
     pixel_format: &'a Mutex<PixelFormat>,
     ring: &'a AudioRing,
     stop: &'a AtomicBool,
@@ -449,7 +458,7 @@ fn drain_environment(
 /// stale frames (or pays the conversion cost for frames nobody will see).
 fn drain_video(
     channels: &callbacks::CallbackChannels,
-    latest_frame: &Mutex<Option<Rgba8Frame>>,
+    latest_frame: &Mutex<FrameSlot>,
     pixel_format: &Mutex<PixelFormat>,
 ) {
     let mut newest = None;
@@ -459,7 +468,9 @@ fn drain_video(
     if let Some(frame) = newest {
         let format = *pixel_format.lock().unwrap_or_else(|p| p.into_inner());
         let rgba = to_rgba8(&frame, format);
-        *latest_frame.lock().unwrap_or_else(|p| p.into_inner()) = Some(rgba);
+        let mut slot = latest_frame.lock().unwrap_or_else(|p| p.into_inner());
+        slot.seq = slot.seq.wrapping_add(1);
+        slot.frame = Some(rgba);
     }
 }
 
@@ -568,7 +579,9 @@ mod manual {
         let frame = runtime.latest_frame();
         println!(
             "latest frame present: {}",
-            frame.map(|f| format!("{}x{}", f.width, f.height)).unwrap_or_else(|| "none".into())
+            frame
+                .map(|(seq, f)| format!("{}x{} (seq {seq})", f.width, f.height))
+                .unwrap_or_else(|| "none".into())
         );
         drop(runtime);
     }

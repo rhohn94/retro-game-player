@@ -1,32 +1,41 @@
-// Pure helpers for decoding the native-play IPC frame payload (v0.21
-// "Bedrock" W214) — kept framework-free so they're unit-testable without a
+// Pure helpers for parsing the native-play raw-bytes IPC frame payload
+// (v0.23.1 W239) — kept framework-free so they're unit-testable without a
 // DOM, unlike the canvas painting itself (NativePlayer.tsx).
 
-/**
- * Decodes a base64 RGBA8888 payload into raw bytes, ready for `ImageData`.
- * Typed `Uint8ClampedArray<ArrayBuffer>` (not the bare/`ArrayBufferLike`
- * default) because `ImageData`'s constructor specifically rejects a
- * `SharedArrayBuffer`-backed array — `new Uint8ClampedArray(length)` always
- * allocates a plain `ArrayBuffer` at runtime, this just makes that visible
- * to the type checker.
- */
-export function decodeRgba(base64: string): Uint8ClampedArray<ArrayBuffer> {
-  const binary = atob(base64);
-  const bytes = new Uint8ClampedArray(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+/** Bytes of header before the RGBA pixels — mirrors the Rust encoder
+ * (`commands/native_play.rs`): `[seq: u64 LE][width: u32 LE][height: u32 LE]`. */
+export const FRAME_HEADER_BYTES = 16;
+
+/** One parsed frame, with `bytes` viewing the transferred buffer directly
+ * (zero-copy — no decode loop, unlike the retired base64 path). */
+export interface ParsedFrame {
+  /** The backend's frame sequence number; echo it into the next poll so an
+   * unchanged frame comes back as an empty body instead of 245 KB. */
+  seq: number;
+  width: number;
+  height: number;
+  /** Tightly-packed RGBA8888, exactly `width * height * 4` long — a view
+   * into the IPC buffer, ready for `new ImageData(bytes, width, height)`. */
+  bytes: Uint8ClampedArray<ArrayBuffer>;
 }
 
 /**
- * True when `bytes` is exactly `width * height * 4` long — a mismatch means
- * a truncated or corrupt IPC payload that must not be handed to `ImageData`
- * (it throws on a length that doesn't match `width * height * 4`).
+ * Parses a `get_native_frame` response buffer. Returns `null` for "nothing
+ * to paint": an empty/absent body (no session, no frame yet, or the caller
+ * already painted this sequence) or a malformed payload whose length doesn't
+ * match its declared dimensions (never handed to `ImageData`, which throws).
  */
-export function isWellFormedRgba(
-  frame: { width: number; height: number },
-  bytes: Uint8ClampedArray<ArrayBuffer>,
-): boolean {
-  return bytes.length === frame.width * frame.height * 4;
+export function parseFrameBuffer(buf: ArrayBuffer | null | undefined): ParsedFrame | null {
+  if (!buf || buf.byteLength <= FRAME_HEADER_BYTES) return null;
+  const view = new DataView(buf);
+  const seq = Number(view.getBigUint64(0, true));
+  const width = view.getUint32(8, true);
+  const height = view.getUint32(12, true);
+  if (buf.byteLength !== FRAME_HEADER_BYTES + width * height * 4) return null;
+  return {
+    seq,
+    width,
+    height,
+    bytes: new Uint8ClampedArray(buf, FRAME_HEADER_BYTES) as Uint8ClampedArray<ArrayBuffer>,
+  };
 }

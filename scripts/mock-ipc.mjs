@@ -202,6 +202,8 @@ export const MOCK_FIXTURES = {
   load_native_state: null,
   set_native_paused: null,
   set_native_volume: null,
+  // W239 raw-bytes frame poll — null parses as "nothing to paint".
+  get_native_frame: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before

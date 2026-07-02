@@ -7,6 +7,14 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.23.1 — Hotfix: native-play frame delivery (2026-07-01)
+
+Smooth native gameplay. The first real play sessions after v0.23's crash fix
+exposed the v0.21 frame pipeline (base64-in-JSON per frame, per-byte JS
+decode) as a heavy stutter source. Frames now cross the IPC boundary as raw
+binary with zero-copy painting, and unchanged frames cost a near-empty
+round trip.
+
 ## v0.23 — Continuity (2026-07-01)
 
 Progress is never lost, and the player never lies. Battery/SRAM saves and
@@ -20,6 +28,8 @@ live native gameplay to a dimmed full-bleed page background (input detached,
 audio ducked) and reattaches on scroll-up. Harmony is now licensed GPL-3.0;
 the GPL-incompatible UnRAR blob no longer ships; README and this file tell
 the truth.
+
+## v0.22 — Polish (2026-06-30)
 
 Code-quality and UX consistency pass; no new features. Fixed a search-thread
 panic that could crash a whole search and a lingering controller focus ring;

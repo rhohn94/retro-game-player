@@ -158,6 +158,23 @@ v1 ships the canvas/IPC path. The NSView overlay is the documented escalation
 if canvas paint proves to be a bottleneck in practice (see Follow-ups) — no
 need to pay that complexity cost until proven necessary.
 
+**v0.23.1 (W239) — raw-bytes polling.** The v0.21 implementation shipped the
+frame as base64 inside a JSON response (mirroring the vibrancy blurred-hero
+convention), which is pathological at 60 Hz: a ~327 KB string per frame
+through the JSON IPC layer plus a per-byte `atob` decode loop in JS, with the
+next poll serialized behind the previous round trip. First real gameplay
+(post-crash-fix) showed it as heavy stutter. The fix keeps the poll model but
+moves to Tauri 2's raw-binary channel: `get_native_frame` returns a
+`tauri::ipc::Response` whose body is a 16-byte header
+(`[seq: u64 LE][width: u32 LE][height: u32 LE]`) followed by the tightly
+packed RGBA8888 pixels, received frontend-side as an `ArrayBuffer` and viewed
+zero-copy into `ImageData`. The runtime stamps each stored frame with a
+monotonically increasing sequence number; the poller echoes the last painted
+one and an unchanged frame answers with an **empty body**, so paused /
+overlay / idle polls are near-free. The rAF tick is scheduled up-front with
+an in-flight guard, so a slow round trip degrades to a skipped paint rather
+than a halved frame rate.
+
 ### 4. Coexistence with EmulatorJS
 
 `src/features/play/` gains a runtime switch: NES games behind the feature flag
