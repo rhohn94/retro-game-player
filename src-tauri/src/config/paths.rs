@@ -112,6 +112,13 @@ impl Paths {
         self.subdir("saves")
     }
 
+    /// `ejs-cores/` dir (created) — on-demand EmulatorJS WASM core cache,
+    /// one subdir per vendored EJS version (v0.24 W241;
+    /// docs/design/in-page-play-design.md §7).
+    pub fn ejs_cores_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("ejs-cores")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -122,6 +129,7 @@ impl Paths {
         self.console_art_dir()?;
         self.logs_dir()?;
         self.saves_dir()?;
+        self.ejs_cores_dir()?;
         Ok(())
     }
 

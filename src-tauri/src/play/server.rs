@@ -91,7 +91,7 @@ impl PlayServer {
 /// EmulatorJS runtime + player page + ROMs resolved from `db_path`. Binds an
 /// ephemeral `127.0.0.1` port. Binding is best-effort: on failure an unavailable
 /// handle is returned so app startup is never blocked.
-pub fn start(db_path: PathBuf, saves_root: PathBuf) -> PlayServer {
+pub fn start(db_path: PathBuf, saves_root: PathBuf, ejs_cores_root: PathBuf) -> PlayServer {
     let server = match tiny_http::Server::http(format!("{BIND_HOST}:0")) {
         Ok(s) => s,
         Err(e) => {
@@ -107,7 +107,7 @@ pub fn start(db_path: PathBuf, saves_root: PathBuf) -> PlayServer {
 
     if std::thread::Builder::new()
         .name("harmony-play-server".to_string())
-        .spawn(move || serve_loop(server, db_path, saves_root))
+        .spawn(move || serve_loop(server, db_path, saves_root, ejs_cores_root))
         .is_err()
     {
         return PlayServer::unavailable();
@@ -117,9 +117,14 @@ pub fn start(db_path: PathBuf, saves_root: PathBuf) -> PlayServer {
 
 /// Blocking accept loop: route each request and respond. Per-request errors are
 /// swallowed — a dropped client must never kill the server.
-fn serve_loop(server: tiny_http::Server, db_path: PathBuf, saves_root: PathBuf) {
+fn serve_loop(
+    server: tiny_http::Server,
+    db_path: PathBuf,
+    saves_root: PathBuf,
+    ejs_cores_root: PathBuf,
+) {
     for request in server.incoming_requests() {
-        let _ = handle_request(request, &db_path, &saves_root);
+        let _ = handle_request(request, &db_path, &saves_root, &ejs_cores_root);
     }
 }
 
@@ -131,6 +136,7 @@ fn handle_request(
     request: tiny_http::Request,
     db_path: &Path,
     saves_root: &Path,
+    ejs_cores_root: &Path,
 ) -> std::io::Result<()> {
     let raw = request.url().to_string();
     let path = raw.split('?').next().unwrap_or("").to_string();
@@ -154,6 +160,16 @@ fn handle_request(
         return respond_bytes(request, PLAYER_HTML.as_bytes(), "text/html; charset=utf-8");
     }
     if let Some(rest) = path.strip_prefix(EJS_PREFIX) {
+        // On-demand core cache first (W241): a downloaded core shadows the
+        // embedded bundle for `cores/…` paths; the EmulatorJS loader cannot
+        // tell the tiers apart. `cached_file` rejects path traversal.
+        if let Some(core_rel) = rest.strip_prefix("cores/") {
+            if let Some(disk) = crate::play::ejs_cores::cached_file(ejs_cores_root, core_rel) {
+                if let Ok(bytes) = std::fs::read(&disk) {
+                    return respond_cached(request, &bytes, content_type(rest));
+                }
+            }
+        }
         return match EJS_DATA.get_file(rest) {
             Some(file) => respond_cached(request, file.contents(), content_type(rest)),
             None => not_found(request),
@@ -366,9 +382,14 @@ mod tests {
 
     /// Bind an ephemeral server over a given db and run `serve_loop` on a thread.
     fn spawn(db_path: PathBuf, saves_root: PathBuf) -> u16 {
+        spawn_with_cores(db_path, saves_root, std::env::temp_dir().join("harmony-no-ejs-cache"))
+    }
+
+    /// Like [`spawn`] but with an explicit on-demand core cache root (W241).
+    fn spawn_with_cores(db_path: PathBuf, saves_root: PathBuf, ejs_cores_root: PathBuf) -> u16 {
         let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
         let port = server.server_addr().to_ip().unwrap().port();
-        std::thread::spawn(move || serve_loop(server, db_path, saves_root));
+        std::thread::spawn(move || serve_loop(server, db_path, saves_root, ejs_cores_root));
         port
     }
 
@@ -486,6 +507,35 @@ mod tests {
 
         let _ = std::fs::remove_file(&rom);
         let _ = std::fs::remove_file(&db);
+    }
+
+    #[test]
+    fn downloaded_core_cache_shadows_the_embedded_bundle() {
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("core-shadow", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        // Place a fake downloaded core where W241's installer would.
+        let vdir = crate::play::ejs_cores::version_dir(cores_root.path());
+        std::fs::create_dir_all(vdir.join("reports")).unwrap();
+        std::fs::write(vdir.join("snes9x-wasm.data"), b"DISK-CORE").unwrap();
+        let port = spawn_with_cores(
+            db,
+            saves_root.path().to_path_buf(),
+            cores_root.path().to_path_buf(),
+        );
+
+        // Cached core served from disk; embedded assets still work; a
+        // traversal never escapes the cache dir; uncached cores 404.
+        let (code, body) = http_get(port, "/emulatorjs/cores/snes9x-wasm.data");
+        assert_eq!((code, body.as_slice()), (200, b"DISK-CORE".as_slice()));
+        let (code, _) = http_get(port, "/emulatorjs/cores/fceumm-wasm.data");
+        assert_eq!(code, 200); // embedded fallback
+        let (code, _) = http_get(port, "/emulatorjs/cores/../secrets");
+        assert_ne!(code, 200);
+        let (code, _) = http_get(port, "/emulatorjs/cores/mgba-wasm.data");
+        assert_eq!(code, 404);
     }
 
     #[test]
