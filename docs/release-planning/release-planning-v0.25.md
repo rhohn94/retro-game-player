@@ -109,8 +109,8 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.25 |
 |---|---|---|---|---|
-| `feat/w250-api-discovery` (W250) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w251-catalog-expansion` (W251) | n/a | ☐ | ☐ | ☐ |
+| `feat/w250-api-discovery` (W250) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w251-catalog-expansion` (W251) | n/a | ☑ | ☑ | ☑ |
 
 ### Phase 2
 
@@ -120,4 +120,17 @@ returned zero).
 
 ### Follow-ups discovered during implementation
 
-- (populated as branches land)
+- **W250 real-provider verification:** discovering from base URL
+  `https://en.wikipedia.org` alone recovered its OpenSearch capability →
+  `https://en.wikipedia.org/w/index.php?title=Special:Search&search={query}`
+  (`manual_discovers_wikipedia_from_its_base_url`, ignored, run 2026-07-02).
+  archive.org (the first candidate) is a true negative — no OpenSearch
+  descriptor + JS-rendered homepage search — so the test targets Wikipedia,
+  which cleanly adheres to the OpenSearch shape.
+- **W251 boundary note:** live-probed abandonware sites (Retrostic,
+  MyAbandonware) were **excluded** — they host copyrighted ROMs, violating
+  the legitimate-sources-only catalog boundary; manual Add-provider remains
+  the user's path. Flathub was skipped (JS-rendered search). The 4 added are
+  all server-rendered and legitimate.
+- **Discovery issue not filed:** the permission gate declined creating a
+  GitHub issue for the feature this session — left for the maintainer.
