@@ -30,6 +30,7 @@ import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { usePlayerPrefs } from "./playerPrefs";
+import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
@@ -60,6 +61,11 @@ export function NativePlayer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
+
+  // Library-life play-session tracking (v0.26 W264): brackets the native
+  // session's start/stop lifetime (the effect below re-subscribes per
+  // `gameId` only — matching this hook's own dependency).
+  usePlaySession(gameId);
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.

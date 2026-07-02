@@ -59,6 +59,10 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // core session, if any (see commands::native_play). ---
     app.manage(commands::native_play::NativeSession::default());
 
+    // --- v0.26 "library life" W264: in-memory play-session tracker shared
+    // across all three play paths (see commands::play_stats). ---
+    app.manage(commands::play_stats::PlayStatsState::default());
+
     // --- W11: Fleet/Ensign identity, manifest, localhost status server ---
     // (borrows `paths` before W10 moves it into managed state below).
     let version = env!("CARGO_PKG_VERSION");

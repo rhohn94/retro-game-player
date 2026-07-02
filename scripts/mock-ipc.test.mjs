@@ -11,6 +11,8 @@ const GAME_KEYS = [
   "datMatched", "coreHint", "artPath", "sizeBytes", "addedAt",
   // v0.6 metadata facets
   "year", "developer", "publisher", "aliases",
+  // v0.26 W264 "library life" facets
+  "favorite", "lastPlayedAt", "playCount", "totalPlayTimeMs",
 ];
 const CORE_KEYS = [
   "id", "system", "coreId", "installedPath", "version",

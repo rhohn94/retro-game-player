@@ -55,6 +55,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 9,
         sql: include_str!("migrations/009_seed_legal_search_providers.sql"),
     },
+    Migration {
+        version: 10,
+        sql: include_str!("migrations/010_library_life.sql"),
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -232,6 +236,92 @@ mod tests {
                 "{name} must be an https {{query}} link, got {tmpl}"
             );
         }
+    }
+
+    #[test]
+    fn games_table_has_library_life_columns_on_a_fresh_db() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(games)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for c in ["favorite", "last_played_at", "play_count", "total_play_time_ms"] {
+            assert!(cols.iter().any(|x| x == c), "missing column {c}");
+        }
+    }
+
+    #[test]
+    fn library_life_columns_default_correctly_on_a_fresh_row() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/a.nes', 'nes', 'A', 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+        let (favorite, last_played_at, play_count, total_play_time_ms): (
+            i64,
+            Option<i64>,
+            i64,
+            i64,
+        ) = conn
+            .query_row(
+                "SELECT favorite, last_played_at, play_count, total_play_time_ms FROM games",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(favorite, 0);
+        assert_eq!(last_played_at, None);
+        assert_eq!(play_count, 0);
+        assert_eq!(total_play_time_ms, 0);
+    }
+
+    #[test]
+    fn migration_010_applies_to_an_existing_db_without_data_loss() {
+        // Simulate an upgrading user: apply only migrations 1-9, insert a real
+        // row, THEN apply migration 10 — the additive-only contract must leave
+        // the existing row's data untouched while adding the new columns.
+        let mut conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version < 10) {
+            conn.execute_batch(migration.sql).expect("pre-010 migrate");
+        }
+        set_version(&conn, 9).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/old.nes', 'nes', 'Old Game', 1, 4096, 100)",
+            [],
+        )
+        .unwrap();
+
+        run(&mut conn).expect("apply remaining migrations including 010");
+
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+        let (clean_name, favorite, play_count): (String, i64, i64) = conn
+            .query_row(
+                "SELECT clean_name, favorite, play_count FROM games WHERE path = '/roms/old.nes'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(clean_name, "Old Game", "pre-existing data must survive");
+        assert_eq!(favorite, 0);
+        assert_eq!(play_count, 0);
     }
 
     #[test]

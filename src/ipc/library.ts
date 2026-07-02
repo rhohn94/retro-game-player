@@ -29,6 +29,16 @@ export interface Game {
   description: string | null;
   /** Canonical Wikipedia article URL, if known. */
   wikipediaUrl: string | null;
+  /** User-toggled favorite flag (v0.26 "library life"). */
+  favorite: boolean;
+  /** Unix epoch seconds of the most recent play session's end, or null if
+   * the game has never been played (v0.26 "library life"). */
+  lastPlayedAt: number | null;
+  /** Number of completed play sessions (v0.26 "library life"). */
+  playCount: number;
+  /** Cumulative server-measured play time, in milliseconds (v0.26 "library
+   * life"). */
+  totalPlayTimeMs: number;
 }
 
 /** Per-file outcome of an import (mirrors Rust `ImportItemDto`). */

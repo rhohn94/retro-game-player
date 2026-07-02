@@ -24,6 +24,7 @@ pub mod native_play; // v0.21 "Bedrock" W214 — native libretro core frame deli
 pub mod inpage_cores; // v0.24 W241 — on-demand EmulatorJS core acquisition (#17)
 pub mod player_prefs; // v0.24 W243 — volume + pause-on-blur prefs (#22)
 pub mod downloads; // v0.24 W244 — direct download (#30)
+pub mod play_stats; // v0.26 W264 — favorites, recently-played, play-time (#21 subset)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -117,6 +118,12 @@ macro_rules! register_commands {
             $crate::commands::downloads::start_download,
             $crate::commands::downloads::cancel_download,
             $crate::commands::downloads::discard_staged_download,
+            // library life: favorites, recently-played, play-time (v0.26 W264)
+            $crate::commands::play_stats::record_play_start,
+            $crate::commands::play_stats::record_play_end,
+            $crate::commands::play_stats::set_favorite,
+            $crate::commands::play_stats::list_recently_played,
+            $crate::commands::play_stats::list_favorites,
         ])
     };
 }
