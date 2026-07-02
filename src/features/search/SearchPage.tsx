@@ -5,7 +5,7 @@
  *
  * Key contracts:
  *  - v0.16 PREVIEWS results: the backend fetches each provider's search page and
- *    returns the links it found, grouped by provider. Harmony NEVER downloads
+ *    returns the links it found, grouped by provider. Retro Game Player NEVER downloads
  *    the content — each item's `url` is opened in the system browser via
  *    tauri-plugin-opener. (download-search-design.md)
  *  - Ships with an empty user-provider list; guides the user to add one.
@@ -348,13 +348,14 @@ export function SearchPage() {
       {/* Header */}
       <h1 style={{ margin: 0, fontSize: 22 }}>Search</h1>
       <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-        Find games and info across your providers. Harmony{" "}
+        Find games and info across your providers. Retro Game Player{" "}
         <strong>previews what each provider found</strong> and opens your chosen
         link in your browser — or, for providers you've enabled direct download
         for, downloads your chosen file straight into your library.{" "}
-        <span aria-hidden>⬇</span> marks download sources. Harmony never fetches
-        content on its own initiative; providers vary in what they host, and
-        you're responsible for how you use any link you open or file you download.
+        <span aria-hidden>⬇</span> marks download sources. Retro Game Player
+        never fetches content on its own initiative; providers vary in what
+        they host, and you're responsible for how you use any link you open or
+        file you download.
       </p>
 
       {/* Query + structured filters + run */}
@@ -363,7 +364,7 @@ export function SearchPage() {
           <input
             ref={queryRef}
             name="search-query"
-            className="harmony-input"
+            className="rgp-input"
             type="search"
             value={query}
             placeholder="Game name…"
@@ -375,7 +376,7 @@ export function SearchPage() {
             to a provider's query only when it has compose-filters enabled. */}
         <select
           name="search-console"
-          className="harmony-input"
+          className="rgp-input"
           aria-label="Console"
           value={consoleKey}
           onChange={(e) => setConsoleKey(e.target.value)}
@@ -390,7 +391,7 @@ export function SearchPage() {
         </select>
         <select
           name="search-region"
-          className="harmony-input"
+          className="rgp-input"
           aria-label="Region"
           value={region}
           onChange={(e) => setRegion(e.target.value)}
@@ -456,7 +457,7 @@ export function SearchPage() {
       {/* Results — one previewed group per provider */}
       {results !== null && (
         <AuraCard
-          class="harmony-panel"
+          class="rgp-panel"
           style={{ padding: 0, overflow: "hidden" }}
         >
           {results.length === 0 ? (
@@ -481,7 +482,7 @@ export function SearchPage() {
                   <AuraField style={{ flex: 1, minWidth: 160 }}>
                     <input
                       name="result-filter"
-                      className="harmony-input"
+                      className="rgp-input"
                       type="search"
                       value={filter}
                       placeholder="Filter results…"
@@ -500,7 +501,7 @@ export function SearchPage() {
                     Sort
                     <select
                       name="result-sort"
-                      className="harmony-input"
+                      className="rgp-input"
                       value={sortKey}
                       onChange={(e) =>
                         isSortKey(e.target.value) && handleSortChange(e.target.value)
@@ -528,7 +529,7 @@ export function SearchPage() {
                     Group
                     <select
                       name="result-groupby"
-                      className="harmony-input"
+                      className="rgp-input"
                       value={groupBy}
                       onChange={(e) =>
                         setGroupBy(e.target.value === "game" ? "game" : "provider")

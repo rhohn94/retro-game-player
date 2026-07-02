@@ -1,4 +1,4 @@
-// NativePlayer — runs a game via Harmony's native libretro core host
+// NativePlayer — runs a game via the app's native libretro core host
 // (v0.21 "Bedrock") instead of EmulatorJS. The Rust backend owns the entire
 // emulation loop and the audio device (play::native::NativeRuntime); this
 // component starts/stops that session, paints whatever frame it last
@@ -294,20 +294,20 @@ export function NativePlayer({
   }, [gameId]); // intentionally re-subscribes per gameId only — open/close callbacks are stable
 
   return (
-    <div className={backgrounded ? "harmony-player harmony-player--attract" : "harmony-player"}>
-      <div className="harmony-player__frame">
-        <canvas ref={canvasRef} className="harmony-native-player__canvas" aria-label={`Play ${gameName}`} />
+    <div className={backgrounded ? "rgp-player rgp-player--attract" : "rgp-player"}>
+      <div className="rgp-player__frame">
+        <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
-      <div className="harmony-player__bar">
+      <div className="rgp-player__bar">
         {continueTarget && (
-          <button type="button" className="harmony-player__fs" onClick={onContinue}>
+          <button type="button" className="rgp-player__fs" onClick={onContinue}>
             ⟳ Continue
           </button>
         )}
-        <button type="button" className="harmony-player__fs" onClick={openOverlay}>
+        <button type="button" className="rgp-player__fs" onClick={openOverlay}>
           ☰ Menu
         </button>
-        <button type="button" className="harmony-player__fs" onClick={exitGame}>
+        <button type="button" className="rgp-player__fs" onClick={exitGame}>
           ✕ Exit
         </button>
       </div>

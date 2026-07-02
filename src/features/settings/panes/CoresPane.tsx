@@ -85,7 +85,7 @@ export function CoresPane() {
             </span>
             <AuraField tabIndex={0}>
               <select
-                className="harmony-input"
+                className="rgp-input"
                 style={{ maxWidth: 280 }}
                 tabIndex={0}
                 value={activeCore?.coreId ?? ""}

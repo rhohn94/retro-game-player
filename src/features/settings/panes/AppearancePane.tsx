@@ -13,7 +13,7 @@ export function AppearancePane() {
 
       <AuraField label="Theme" tabIndex={0}>
         <select
-          className="harmony-input"
+          className="rgp-input"
           style={{ maxWidth: 280 }}
           tabIndex={0}
           value={theme.className}
@@ -48,9 +48,9 @@ export function AppearancePane() {
               style={{
                 fontSize: 13,
                 ...(selected && {
-                  background: "var(--harmony-selected-bg)",
-                  color: "var(--harmony-selected-fg)",
-                  borderColor: "var(--harmony-selected-border)",
+                  background: "var(--rgp-selected-bg)",
+                  color: "var(--rgp-selected-fg)",
+                  borderColor: "var(--rgp-selected-border)",
                 }),
               }}
             >

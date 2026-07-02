@@ -1,5 +1,5 @@
-// InPagePlayer — runs a supported game's EmulatorJS core inside the Harmony
-// detail screen (v0.15, features #6/#7/#8).
+// InPagePlayer — runs a supported game's EmulatorJS core inside the Retro Game
+// Player detail screen (v0.15, features #6/#7/#8).
 //
 // The emulator runs in an <iframe> on the loopback play origin (see the Rust
 // `play::server`) because EmulatorJS's Worker/WASM pipeline doesn't work under
@@ -9,10 +9,10 @@
 //    EJS_startOnLoaded) with sound.
 //  * #6 in-game overlay + immersive mode: while the player is mounted it owns the
 //    controller (the gamepad belongs to the game). The menu/Start button, the
-//    controller "back", or Escape open a Harmony overlay — Resume / Full screen /
+//    controller "back", or Escape open an in-app overlay — Resume / Full screen /
 //    Exit — that pauses the emulator (so the gamepad doesn't drive the game
 //    behind the menu) and traps input via the controller exclusive handler.
-//    "Full screen" is a Harmony immersive mode (window fullscreen + the player
+//    "Full screen" is the app's immersive mode (window fullscreen + the player
 //    fills the viewport over the app chrome) rather than iframe element-
 //    fullscreen, so the overlay can render over the running game.
 //  * #7 seamless transitions: the frame fades in as the game boots and the
@@ -280,7 +280,7 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     return () => setExclusiveHandler(null);
   }, [origin, setExclusiveHandler, openOverlay, closeOverlay]);
 
-  // Escape opens the overlay from the keyboard — directly when Harmony holds
+  // Escape opens the overlay from the keyboard — directly when the app holds
   // focus, and via a forwarded postMessage when the game iframe holds focus.
   useEffect(() => {
     if (!origin) return;
@@ -336,8 +336,8 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
 
   if (origin === null) {
     return (
-      <div className="harmony-player">
-        <div className="harmony-player__frame" />
+      <div className="rgp-player">
+        <div className="rgp-player__frame" />
       </div>
     );
   }
@@ -348,26 +348,26 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     `&game=${gameId}&name=${encodeURIComponent(gameName)}`;
 
   return (
-    <div className={immersive ? "harmony-player harmony-player--immersive" : "harmony-player"}>
+    <div className={immersive ? "rgp-player rgp-player--immersive" : "rgp-player"}>
       <iframe
         ref={iframeRef}
-        className="harmony-player__frame"
+        className="rgp-player__frame"
         src={src}
         title={`Play ${gameName}`}
         allow="autoplay; fullscreen; gamepad"
       />
 
       {!immersive && (
-        <div className="harmony-player__bar">
+        <div className="rgp-player__bar">
           {continueTarget && (
-            <button type="button" className="harmony-player__fs" onClick={onContinue}>
+            <button type="button" className="rgp-player__fs" onClick={onContinue}>
               ⟳ Continue
             </button>
           )}
-          <button type="button" className="harmony-player__fs" onClick={enterImmersive}>
+          <button type="button" className="rgp-player__fs" onClick={enterImmersive}>
             ⤢ Full screen
           </button>
-          <button type="button" className="harmony-player__fs" onClick={openOverlay}>
+          <button type="button" className="rgp-player__fs" onClick={openOverlay}>
             ☰ Menu
           </button>
         </div>

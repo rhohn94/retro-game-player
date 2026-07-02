@@ -78,8 +78,8 @@ export function PlaybackPane() {
       </div>
 
       <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-        Pause the game whenever Harmony loses focus, resuming when you come
-        back. Applies to both play paths.
+        Pause the game whenever Retro Game Player loses focus, resuming when you
+        come back. Applies to both play paths.
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <AuraButton

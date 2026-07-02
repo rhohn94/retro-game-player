@@ -115,7 +115,7 @@ function MergedRow({
             marginRight: 12,
             borderRadius: 10,
             border: `1px solid ${multi ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
-            background: multi ? "var(--harmony-provider-enabled-bg)" : "transparent",
+            background: multi ? "var(--rgp-provider-enabled-bg)" : "transparent",
             color: multi ? "var(--aura-primary)" : "var(--aura-on-surface-muted)",
             cursor: multi ? "pointer" : "default",
             flexShrink: 0,
@@ -284,7 +284,7 @@ export function ProviderChip({
         fontWeight: provider.enabled ? 600 : 400,
         border: `1.5px solid ${provider.enabled ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
         background: provider.enabled
-          ? "var(--harmony-provider-enabled-bg)"
+          ? "var(--rgp-provider-enabled-bg)"
           : "transparent",
         color: provider.enabled
           ? "var(--aura-primary)"

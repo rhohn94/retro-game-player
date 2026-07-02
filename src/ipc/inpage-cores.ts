@@ -9,7 +9,7 @@ import { invoke } from "./invoke";
 export interface InPageCore {
   /** EmulatorJS core name — also the player page's `?core=` value. */
   core: string;
-  /** Harmony system keys this core covers. */
+  /** Retro Game Player system keys this core covers. */
   systems: string[];
   installed: boolean;
   sizeBytes: number;

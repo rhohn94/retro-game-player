@@ -112,3 +112,40 @@ self-contained so W3 (db open/migrate) and W11 (fleet) append independently.
 - `RunRecord` is stamped on start; clean-shutdown `mark_stopped` + re-write is
   modeled but not yet hooked to a Tauri exit event (deferred to W11, which owns
   run lifecycle alongside the fleet server).
+
+## §Rename (W269, v0.26) — Harmony → Retro Game Player
+
+The v0.26 product rename changed the Tauri `identifier` from `com.harmony.app`
+to `com.retro-game-player.app`. Since macOS keys the app-support root
+(§4.1) off the identifier, this moves `Paths::app_support()`'s root from
+`~/Library/Application Support/com.harmony.app/` to
+`~/Library/Application Support/com.retro-game-player.app/` — an existing
+user's DB, `config/app-config.json`, `art-cache/`, `cores/`, `saves/`, etc.
+would otherwise appear to vanish on first launch of the renamed build.
+
+**Migration (`src-tauri/src/config/migrate.rs`):** `config::migrate::run` is
+called from `harmony_setup` **before** `Paths::app_support()` (and therefore
+before any DB/config init). It resolves both the legacy (`com.harmony.app`)
+and new (`com.retro-game-player.app`) roots under the OS app-support base and:
+
+- new root missing/empty + old root exists → `fs::rename` the old root into
+  the new root's path (falls back to a recursive copy on a cross-device
+  rename failure, leaving the old root in place rather than risking data loss
+  on a partial copy);
+- both roots already have data → no-op, logged (never silently merges or
+  deletes either copy);
+- neither root exists → no-op (genuinely fresh install).
+
+The move logic (`migrate_app_data(old_dir, new_dir)`) is a plain
+`Path`-in/`Result`-out function with no Tauri dependency, unit-tested for all
+three cases above plus nested-subdirectory and empty-new-dir edge cases (see
+the `#[cfg(test)]` module in `migrate.rs`).
+
+**Left unchanged by this rename:** `DB_FILE_NAME` (`harmony.db`) and the
+`deployed-apps/harmony/` fleet subtree (`DEPLOYED_APP_DIR`) — only the
+bundle `identifier` (and therefore the app-support root folder name) changed;
+renaming the on-disk DB filename or the deployed-instance tree was out of
+scope for W269.
+
+Everything else in this document (§1–§5) describes the W4-era design as
+originally shipped and is otherwise unaffected by the rename.

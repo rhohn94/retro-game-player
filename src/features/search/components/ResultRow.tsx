@@ -67,7 +67,7 @@ export function ResultRow({
           color: "var(--aura-on-surface)",
           textAlign: "left",
           fontSize: 14,
-          transition: "background var(--harmony-dur-fast) var(--harmony-ease-out)",
+          transition: "background var(--rgp-dur-fast) var(--rgp-ease-out)",
         }}
         onMouseEnter={(e) =>
           ((e.currentTarget as HTMLButtonElement).style.background =

@@ -4,7 +4,7 @@
 // title lists come from the community-maintained libretro-database datfiles
 // (https://github.com/libretro/libretro-database) — these carry game NAMES and
 // checksums only (no game content), are freely redistributable, and are the same
-// ecosystem Harmony already uses for cover-art thumbnails. Harmony ships no ROMs.
+// ecosystem this app already uses for cover-art thumbnails. It ships no ROMs.
 //
 // For each curated system this script:
 //   1. fetches the system's clrmamepro datfile from libretro-database,
@@ -105,7 +105,7 @@ function parseTitles(text) {
 }
 
 async function fetchText(url) {
-  const res = await fetch(url, { headers: { "User-Agent": "harmony-catalog-build" } });
+  const res = await fetch(url, { headers: { "User-Agent": "retro-game-player-catalog-build" } });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.text();
 }

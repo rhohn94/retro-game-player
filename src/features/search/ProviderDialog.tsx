@@ -208,7 +208,7 @@ export function ProviderDialog({
 
   return (
     <AuraDialog
-      class="harmony-provider-dialog"
+      class="rgp-provider-dialog"
       open
       style={{ "--aura-dialog-width": "460px" } as React.CSSProperties}
     >
@@ -243,9 +243,9 @@ export function ProviderDialog({
           >
             {"{query}"}
           </code>
-          . Harmony builds the link and previews the results — it never downloads
-          anything. Not sure of the format? Paste a real results URL below and let
-          it detect the template.
+          . Retro Game Player builds the link and previews the results — it never
+          downloads anything. Not sure of the format? Paste a real results URL
+          below and let it detect the template.
         </div>
 
         {/* Name */}
@@ -255,7 +255,7 @@ export function ProviderDialog({
             <input
               ref={nameRef}
               name="provider-name"
-              className="harmony-input"
+              className="rgp-input"
               type="text"
               value={name}
               placeholder="e.g. My ROM Site"
@@ -272,7 +272,7 @@ export function ProviderDialog({
           <AuraField>
             <input
               name="provider-url"
-              className="harmony-input"
+              className="rgp-input"
               type="text"
               value={urlTemplate}
               placeholder="https://example.com/search?q={query}"
@@ -285,7 +285,7 @@ export function ProviderDialog({
         </div>
 
         {/* Auto-discover from a base URL (W250) — the standards path: paste a
-            site's home URL and let Harmony probe its search API. */}
+            site's home URL and let Retro Game Player probe its search API. */}
         <details style={{ fontSize: 12, color: "var(--aura-on-surface-muted)" }} open>
           <summary style={{ cursor: "pointer" }}>Discover search API from a site URL</summary>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
@@ -293,7 +293,7 @@ export function ProviderDialog({
               <AuraField style={{ flex: 1 }}>
                 <input
                   name="provider-discover-url"
-                  className="harmony-input"
+                  className="rgp-input"
                   type="text"
                   value={discoverUrl}
                   placeholder="Site home URL, e.g. en.wikipedia.org"
@@ -350,7 +350,7 @@ export function ProviderDialog({
             <AuraField>
               <input
                 name="provider-detect-url"
-                className="harmony-input"
+                className="rgp-input"
                 type="text"
                 value={pasteUrl}
                 placeholder="Paste a results URL, e.g. https://site.com/search?q=mario"
@@ -361,7 +361,7 @@ export function ProviderDialog({
               <AuraField style={{ flex: 1 }}>
                 <input
                   name="provider-detect-term"
-                  className="harmony-input"
+                  className="rgp-input"
                   type="text"
                   value={pasteTerm}
                   placeholder="The term you searched (e.g. mario)"
@@ -385,7 +385,7 @@ export function ProviderDialog({
           <label style={labelStyle}>Type</label>
           <select
             name="provider-kind"
-            className="harmony-input"
+            className="rgp-input"
             value={kind}
             onChange={(e) => setKind(e.target.value)}
             style={{ fontSize: 13, padding: "6px 8px" }}

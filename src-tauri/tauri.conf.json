@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Harmony",
+  "productName": "Retro Game Player",
   "version": "0.25.1",
-  "identifier": "com.harmony.app",
+  "identifier": "com.retro-game-player.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harmony",
+        "title": "Retro Game Player",
         "width": 1280,
         "height": 800,
         "transparent": true,

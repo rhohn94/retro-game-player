@@ -84,7 +84,7 @@ function Spinner() {
         border: "2px solid var(--aura-primary-a40)",
         borderTopColor: "var(--aura-primary)",
         borderRadius: "50%",
-        animation: "cores-spin var(--harmony-dur-spinner) linear infinite",
+        animation: "cores-spin var(--rgp-dur-spinner) linear infinite",
         verticalAlign: "middle",
         marginLeft: 6,
       }}

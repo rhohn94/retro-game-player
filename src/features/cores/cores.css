@@ -9,14 +9,14 @@
 
 /* Focus ring for keyboard/controller nav on system list items. */
 .cores-page [role="option"]:focus-visible {
-  outline: var(--harmony-focus-ring);
-  outline-offset: var(--harmony-focus-ring-offset);
+  outline: var(--rgp-focus-ring);
+  outline-offset: var(--rgp-focus-ring-offset);
 }
 
 /* Focus ring on action buttons. */
 .cores-page aura-button:focus-visible {
-  outline: var(--harmony-focus-ring);
-  outline-offset: var(--harmony-focus-ring-offset);
+  outline: var(--rgp-focus-ring);
+  outline-offset: var(--rgp-focus-ring-offset);
 }
 
 /* Shelf row hover lift (pointer-optional affordance; does not break gamepad). */
@@ -29,16 +29,16 @@
   width: 100%;
   max-width: 420px;
   margin-bottom: var(--aura-space-4);
-  padding: var(--aura-space-2) var(--harmony-space-2-5);
+  padding: var(--aura-space-2) var(--rgp-space-2-5);
   border-radius: var(--aura-radius-sm);
   border: 1px solid var(--aura-border);
   background: var(--aura-surface-2);
   color: var(--aura-on-surface);
   font: inherit;
-  transition: border-color var(--harmony-dur-fast) var(--harmony-ease-out);
+  transition: border-color var(--rgp-dur-fast) var(--rgp-ease-out);
 }
 .cores-search:focus-visible {
-  outline: var(--harmony-focus-ring);
-  outline-offset: var(--harmony-focus-ring-offset);
+  outline: var(--rgp-focus-ring);
+  outline-offset: var(--rgp-focus-ring-offset);
   border-color: var(--aura-primary);
 }

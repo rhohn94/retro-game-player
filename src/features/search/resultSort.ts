@@ -58,15 +58,22 @@ export function sortItems<T extends Titled>(items: T[], key: SortKey): T[] {
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-const SORT_PREF_KEY = "harmony.search.sort";
+const SORT_PREF_KEY = "rgp.search.sort";
+
+/** W269 rename: legacy pre-rename key, read once as a migration fallback so
+ *  an upgrading user's chosen sort order survives. Never written to again. */
+const LEGACY_SORT_PREF_KEY = "harmony.search.sort";
 
 /** Load the saved sort preference, defaulting to "relevance" (v0.18) when
  *  absent, invalid, or when localStorage is unavailable (e.g. a non-browser
- *  test env). */
+ *  test env). Falls back to the legacy storage key (W269 rename) if the
+ *  current key has never been written. */
 export function loadSortPref(): SortKey {
   try {
     const raw = globalThis.localStorage?.getItem(SORT_PREF_KEY);
     if (raw && isSortKey(raw)) return raw;
+    const legacy = globalThis.localStorage?.getItem(LEGACY_SORT_PREF_KEY);
+    if (legacy && isSortKey(legacy)) return legacy;
   } catch {
     // Ignore storage access errors (private mode, disabled, SSR/test).
   }

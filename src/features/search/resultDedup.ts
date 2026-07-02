@@ -1,7 +1,7 @@
 /**
  * Cross-provider result dedupe (W192 / v0.19 "Reach").
  *
- * NZBHydra's signature move, adapted to Harmony's scraped links: the same game
+ * NZBHydra's signature move, adapted to this app's scraped links: the same game
  * often appears across several providers, each as its own row. This module
  * normalizes scraped titles to a canonical key and merges matching rows into one
  * logical result that lists every provider it is "available from" — inverting the

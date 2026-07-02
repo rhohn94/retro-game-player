@@ -130,7 +130,7 @@ export function FoldersPane() {
         {folders.map((f) => (
           <div
             key={f.id}
-            className="harmony-panel"
+            className="rgp-panel"
             style={{
               display: "flex",
               alignItems: "center",
