@@ -6,14 +6,6 @@
 
 import { invoke } from "./invoke";
 
-/** Mirrors the Rust `NativeFrameDto` (commands::native_play). */
-export interface NativeFrame {
-  width: number;
-  height: number;
-  /** Base64-encoded RGBA8888 bytes, `width * height * 4` long once decoded. */
-  rgbaBase64: string;
-}
-
 /** Whether native hosting is enabled (off by default — W215). */
 export function getNativePlayEnabled(): Promise<boolean> {
   return invoke<boolean>("get_native_play_enabled");
@@ -34,9 +26,14 @@ export function stopNativePlay(): Promise<void> {
   return invoke<void>("stop_native_play");
 }
 
-/** The most recently produced frame, or `null` if none is available yet. */
-export function getNativeFrame(): Promise<NativeFrame | null> {
-  return invoke<NativeFrame | null>("get_native_frame");
+/**
+ * Polls the most recent frame as **raw bytes** (W239): a 16-byte header +
+ * RGBA8888 pixels, parsed by `nativeFrame.ts`'s `parseFrameBuffer`. Pass the
+ * last painted sequence number — an unchanged frame (or no session/frame)
+ * comes back as an empty body, so idle polls cost nothing.
+ */
+export function getNativeFrame(lastSeq: number): Promise<ArrayBuffer | null> {
+  return invoke<ArrayBuffer | null>("get_native_frame", { lastSeq });
 }
 
 /** Pushes the current joypad bitmask (see `nativeInput.ts`'s `computeJoypadBits`). */

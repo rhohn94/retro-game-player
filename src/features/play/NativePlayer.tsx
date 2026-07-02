@@ -26,7 +26,7 @@ import {
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
-import { decodeRgba, isWellFormedRgba } from "./nativeFrame";
+import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { continueSlot } from "./saveSlots";
@@ -203,24 +203,34 @@ export function NativePlayer({
       }
     };
 
+    // Raw-bytes frame polling (W239). The rAF tick is scheduled up-front so a
+    // slow IPC round trip degrades to a skipped paint, never a halved frame
+    // rate; the in-flight guard keeps at most one request crossing the
+    // boundary. `lastSeq` echoes the backend's frame counter — an unchanged
+    // frame answers with an empty body instead of a 245 KB payload.
+    let lastSeq = 0;
+    let inFlight = false;
     const paintNextFrame = () => {
       if (cancelled) return;
+      frameHandle = requestAnimationFrame(paintNextFrame);
       pollInput();
-      getNativeFrame()
-        .then((frame) => {
+      if (inFlight) return;
+      inFlight = true;
+      getNativeFrame(lastSeq)
+        .then((buf) => {
+          const frame = parseFrameBuffer(buf);
           const canvas = canvasRef.current;
-          if (!frame || !canvas) return;
-          const bytes = decodeRgba(frame.rgbaBase64);
-          if (!isWellFormedRgba(frame, bytes)) return; // a truncated/corrupt frame — skip, try again next tick
+          if (!frame || !canvas) return; // nothing new (or malformed) — paint again next tick
+          lastSeq = frame.seq;
           if (canvas.width !== frame.width) canvas.width = frame.width;
           if (canvas.height !== frame.height) canvas.height = frame.height;
-          canvas.getContext("2d")?.putImageData(new ImageData(bytes, frame.width, frame.height), 0, 0);
+          canvas.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
         })
         .catch(() => {
           /* a poll failing isn't fatal — try again next tick */
         })
         .finally(() => {
-          if (!cancelled) frameHandle = requestAnimationFrame(paintNextFrame);
+          inFlight = false;
         });
     };
 
