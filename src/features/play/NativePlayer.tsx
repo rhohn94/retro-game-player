@@ -19,6 +19,7 @@ import {
   saveNativeState,
   setNativeInput,
   setNativePaused,
+  setNativeVolume,
   startNativePlay,
   stopNativePlay,
 } from "../../ipc/native-play";
@@ -31,9 +32,16 @@ import { PlayerOverlay } from "./PlayerOverlay";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
+/** Ducked audio gain while the game plays as the page background (W235). */
+const ATTRACT_GAIN = 0.3;
+
 export interface NativePlayerProps {
   gameId: number;
   gameName: string;
+  /** W235 attract mode: "background" re-presents the live canvas as a
+   * dimmed, full-bleed page backdrop — input detaches, audio ducks, the
+   * session keeps running. Default "foreground" (the interactive player). */
+  presentation?: "foreground" | "background";
   /** Called once if the native session fails to start — the caller (the
    * runtime-switch component, W215) decides what to do (typically: fall
    * back to InPagePlayer rather than show an error state). */
@@ -41,16 +49,38 @@ export interface NativePlayerProps {
 }
 
 /** Mounts a native libretro core session for one game; auto-starts on load. */
-export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerProps) {
+export function NativePlayer({
+  gameId,
+  gameName,
+  presentation = "foreground",
+  onStartFailed,
+}: NativePlayerProps) {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
 
-  // Live mirror so the input handlers (installed once per session) read
-  // current overlay state without re-subscribing.
+  // Live mirrors so the input handlers (installed once per session) read
+  // current overlay/presentation state without re-subscribing.
   const overlayOpenRef = useRef(overlayOpen);
   overlayOpenRef.current = overlayOpen;
+  const backgrounded = presentation === "background";
+  const backgroundedRef = useRef(backgrounded);
+  backgroundedRef.current = backgrounded;
+
+  // Attract transitions (W235): release every held button exactly once at
+  // the handoff (nothing sticks), duck the audio while backgrounded, restore
+  // it on reattach. The core keeps running throughout — no reboot.
+  useEffect(() => {
+    if (backgrounded) {
+      setOverlayOpen(false); // attract shows the running game, never a menu
+      void setNativePaused(false).catch(() => undefined);
+      void setNativeInput(0).catch(() => undefined);
+      void setNativeVolume(ATTRACT_GAIN).catch(() => undefined);
+    } else {
+      void setNativeVolume(1.0).catch(() => undefined);
+    }
+  }, [backgrounded]);
 
   const openOverlay = useCallback(() => {
     setSelection(0);
@@ -117,6 +147,9 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
     let lastSentBits = -1; // -1 never matches a real bitmask, so the first tick always sends
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Backgrounded (attract mode): the page owns the keyboard entirely —
+      // no capture, no preventDefault (arrows/space must scroll), no overlay.
+      if (backgroundedRef.current) return;
       if (e.key === "Escape") {
         e.preventDefault();
         if (overlayOpenRef.current) closeOverlay();
@@ -145,7 +178,7 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
       heldKeys.add(e.code);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (overlayOpenRef.current) return;
+      if (backgroundedRef.current || overlayOpenRef.current) return;
       if (!isBoundKey(e.code)) return;
       e.preventDefault();
       heldKeys.delete(e.code);
@@ -158,7 +191,8 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
     window.addEventListener("blur", onBlur);
 
     const pollInput = () => {
-      if (overlayOpenRef.current) return; // paused — nothing reaches the core
+      // Paused behind the overlay or backgrounded — nothing reaches the core.
+      if (overlayOpenRef.current || backgroundedRef.current) return;
       const gamepad = navigator.getGamepads?.()[0] ?? null;
       const bits = computeJoypadBits(heldKeys, gamepad);
       if (bits !== lastSentBits) {
@@ -210,7 +244,7 @@ export function NativePlayer({ gameId, gameName, onStartFailed }: NativePlayerPr
   }, [gameId]); // intentionally re-subscribes per gameId only — open/close callbacks are stable
 
   return (
-    <div className="harmony-player">
+    <div className={backgrounded ? "harmony-player harmony-player--attract" : "harmony-player"}>
       <div className="harmony-player__frame">
         <canvas ref={canvasRef} className="harmony-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>

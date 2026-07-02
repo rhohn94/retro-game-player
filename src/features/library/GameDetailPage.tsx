@@ -12,7 +12,7 @@ import { AuraButton, AuraCard } from "@aura/react";
 import { openUrl } from "../../ipc/opener";
 import { motion } from "framer-motion";
 import { SPRING } from "../../lib/motion";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrichGameMetadata, fetchBoxart, getGame, launchGame } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
@@ -23,6 +23,7 @@ import { artUrl } from "./art";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { useBoxart } from "./useBoxart";
 import { PlaySwitch } from "../play";
+import { useAttractPresentation } from "../play/useAttractPresentation";
 
 /** Human-readable byte size. */
 function formatSize(bytes: number): string {
@@ -52,6 +53,12 @@ export function GameDetailPage() {
   const [enriching, setEnriching] = useState(false);
 
   const gameId = Number(id);
+
+  // W235 attract mode: scrolling the player slot mostly out of view hands
+  // the live native game to the page background (dimmed, input detached,
+  // audio ducked); scrolling back reattaches it. Hysteresis lives in the hook.
+  const playSlotRef = useRef<HTMLDivElement>(null);
+  const presentation = useAttractPresentation(playSlotRef);
 
   useCancellableEffect(
     (isCancelled) => {
@@ -139,7 +146,14 @@ export function GameDetailPage() {
           ◀ Back
         </AuraButton>
 
-        <PlaySwitch gameId={game.id} system={game.system} gameName={game.cleanName} />
+        <div ref={playSlotRef}>
+          <PlaySwitch
+            gameId={game.id}
+            system={game.system}
+            gameName={game.cleanName}
+            presentation={presentation}
+          />
+        </div>
 
         <div className="harmony-detail__body">
           <AuraCard class="harmony-detail__cover">

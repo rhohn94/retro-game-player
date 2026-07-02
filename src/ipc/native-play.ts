@@ -49,6 +49,11 @@ export function setNativePaused(paused: boolean): Promise<void> {
   return invoke<void>("set_native_paused", { paused });
 }
 
+/** Sets the native session's audio gain [0,1] (attract-mode duck, W235). */
+export function setNativeVolume(gain: number): Promise<void> {
+  return invoke<void>("set_native_volume", { gain });
+}
+
 // --- Save persistence (v0.23 "Continuity" W230; save-persistence-design.md) ---
 
 /** A save slot name: manual slots "1"–"4", or the exit auto-save. */

@@ -101,6 +101,8 @@ macro_rules! register_commands {
             $crate::commands::native_play::list_game_saves,
             // overlay pause (v0.23 "Continuity" W232)
             $crate::commands::native_play::set_native_paused,
+            // attract-mode audio duck (v0.23 "Continuity" W235)
+            $crate::commands::native_play::set_native_volume,
         ])
     };
 }

@@ -21,7 +21,7 @@ use crate::play::saves::{GameSaves, PlayPath, AUTO_SLOT};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -65,16 +65,30 @@ const FALLBACK_FPS: f64 = 60.0;
 /// Producer (core thread) pushes whole [`AudioBatch`]es; consumer (cpal's
 /// realtime callback) pops individual samples. Backed by a `Mutex` rather
 /// than a lock-free structure — simple and correct for v1; revisit only if
-/// profiling shows contention.
+/// profiling shows contention. Carries the output gain (W235 attract-mode
+/// duck / future volume control, #22) as atomic f32 bits so the realtime
+/// callback reads it without locking.
 struct AudioRing {
     samples: Mutex<VecDeque<i16>>,
+    gain_bits: AtomicU32,
 }
 
 impl AudioRing {
     fn new() -> Self {
         AudioRing {
             samples: Mutex::new(VecDeque::with_capacity(RING_CAPACITY_SAMPLES)),
+            gain_bits: AtomicU32::new(1.0_f32.to_bits()),
         }
+    }
+
+    /// Sets the output gain, clamped to [0, 1].
+    fn set_gain(&self, gain: f32) {
+        self.gain_bits
+            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    fn gain(&self) -> f32 {
+        f32::from_bits(self.gain_bits.load(Ordering::Relaxed))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<i16>> {
@@ -94,17 +108,23 @@ impl AudioRing {
         }
     }
 
-    /// Fills `out` from the ring, oldest samples first; pads any shortfall
-    /// with silence (`0`) rather than repeating samples, matching the
-    /// standard libretro/RetroArch underrun behavior (a brief gap, not a
-    /// glitch-loop). Returns how many real samples were copied.
+    /// Fills `out` from the ring, oldest samples first, applying the current
+    /// gain; pads any shortfall with silence (`0`) rather than repeating
+    /// samples, matching the standard libretro/RetroArch underrun behavior
+    /// (a brief gap, not a glitch-loop). Returns how many real samples were
+    /// copied.
     fn pop_into(&self, out: &mut [i16]) -> usize {
+        let gain = self.gain();
         let mut buf = self.lock();
         let mut copied = 0;
         for slot in out.iter_mut() {
             match buf.pop_front() {
                 Some(sample) => {
-                    *slot = sample;
+                    *slot = if gain >= 1.0 {
+                        sample
+                    } else {
+                        (f32::from(sample) * gain) as i16
+                    };
                     copied += 1;
                 }
                 None => *slot = 0,
@@ -125,6 +145,7 @@ pub struct NativeRuntime {
     latest_frame: Arc<Mutex<Option<Rgba8Frame>>>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
+    ring: Arc<AudioRing>,
     commands: Sender<CoreCommand>,
     core_thread: Option<JoinHandle<()>>,
     audio_thread: Option<JoinHandle<AppResult<()>>>,
@@ -220,10 +241,18 @@ impl NativeRuntime {
             latest_frame,
             stop,
             paused,
+            ring,
             commands,
             core_thread: Some(core_thread),
             audio_thread: Some(audio_thread),
         })
+    }
+
+    /// Sets the audio output gain, clamped to [0, 1] — the attract-mode duck
+    /// (W235) and the seam #22's volume control builds on. Applied atomically
+    /// in the realtime output callback; no locking, no click.
+    pub fn set_volume(&self, gain: f32) {
+        self.ring.set_gain(gain);
     }
 
     /// Pauses/resumes the core tick (the overlay opens → the game freezes
@@ -583,6 +612,28 @@ mod tests {
         let mut out = [0i16; 1];
         ring.pop_into(&mut out);
         assert_eq!(out, [9]); // the oldest sentinel, not 42 — front wasn't dropped twice
+    }
+
+    #[test]
+    fn gain_scales_popped_samples_and_clamps_to_unit_range() {
+        let ring = AudioRing::new();
+        ring.push(&[1000, -1000]);
+        ring.set_gain(0.5);
+        let mut out = [0i16; 2];
+        ring.pop_into(&mut out);
+        assert_eq!(out, [500, -500]);
+
+        ring.push(&[1000]);
+        ring.set_gain(7.5); // clamped to 1.0 — never amplifies
+        let mut out = [0i16; 1];
+        ring.pop_into(&mut out);
+        assert_eq!(out, [1000]);
+
+        ring.push(&[1000]);
+        ring.set_gain(-3.0); // clamped to 0.0 — full mute
+        let mut out = [0i16; 1];
+        ring.pop_into(&mut out);
+        assert_eq!(out, [0]);
     }
 
     #[test]

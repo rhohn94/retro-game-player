@@ -452,6 +452,37 @@
     border-radius: 0;
   }
 
+  /* W235 attract mode — scrolling past the player hands the live canvas to a
+     dimmed, full-bleed layer behind the detail content (z-index -1 inside
+     the content's stacking context: above the hero backdrop, below every
+     content child). A placeholder keeps the slot's height so the scroll
+     position doesn't jump; the chrome bar hides while backgrounded. */
+  .harmony-player--attract::before {
+    content: "";
+    display: block;
+    width: 100%;
+    max-width: 760px;
+    aspect-ratio: 4 / 3;
+  }
+  .harmony-player--attract .harmony-player__frame {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    max-width: none;
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+  .harmony-player--attract .harmony-native-player__canvas {
+    object-fit: cover;
+    filter: brightness(0.45) saturate(0.85);
+  }
+  .harmony-native-player__canvas {
+    transition: filter var(--harmony-dur-slow, 0.4s) var(--harmony-ease-out);
+  }
+  .harmony-player--attract .harmony-player__bar {
+    display: none;
+  }
+
   /* #6: in-game overlay (Resume / Full screen / Exit) over the running game. */
   .harmony-overlay {
     position: fixed;

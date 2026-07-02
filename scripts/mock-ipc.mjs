@@ -201,6 +201,7 @@ export const MOCK_FIXTURES = {
   save_native_state: null,
   load_native_state: null,
   set_native_paused: null,
+  set_native_volume: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before

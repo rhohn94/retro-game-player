@@ -27,6 +27,9 @@ export interface PlaySwitchProps {
   gameId: number;
   system: string;
   gameName: string;
+  /** W235 attract mode — forwarded to the native player only (the EmulatorJS
+   * iframe cannot become a page background; explicit v0.23 non-goal). */
+  presentation?: "foreground" | "background";
 }
 
 /**
@@ -34,7 +37,7 @@ export interface PlaySwitchProps {
  * system with no in-page path at all (native external RetroArch launch only
  * — unaffected by this switch).
  */
-export function PlaySwitch({ gameId, system, gameName }: PlaySwitchProps) {
+export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitchProps) {
   const isNativeCandidate = system === NATIVE_SYSTEM;
   // null = still resolving the flag; true/false once known. Only matters for
   // the native-candidate system — every other system ignores it entirely.
@@ -77,7 +80,12 @@ export function PlaySwitch({ gameId, system, gameName }: PlaySwitchProps) {
     return (
       <>
         {noticeEl}
-        <NativePlayer gameId={gameId} gameName={gameName} onStartFailed={onNativeFailed} />
+        <NativePlayer
+          gameId={gameId}
+          gameName={gameName}
+          presentation={presentation}
+          onStartFailed={onNativeFailed}
+        />
       </>
     );
   }

@@ -93,6 +93,16 @@ pub fn start_native_play(
     Ok(())
 }
 
+/// Sets the native session's audio gain [0, 1] — the attract-mode duck
+/// (W235). No-op with no session.
+#[tauri::command]
+pub fn set_native_volume(gain: f32, session: State<'_, NativeSession>) -> AppResult<()> {
+    if let Some(runtime) = lock(&session).as_ref() {
+        runtime.set_volume(gain);
+    }
+    Ok(())
+}
+
 /// Pauses/resumes the running native session (the in-game overlay freezes
 /// the game behind it, matching the EmulatorJS path). No-op with no session.
 #[tauri::command]
