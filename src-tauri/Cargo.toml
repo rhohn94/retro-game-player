@@ -1,6 +1,6 @@
 [package]
 name = "harmony"
-version = "0.22.0"
+version = "0.23.0"
 description = "Harmony — a Mac-native (Apple Silicon) retro game player."
 authors = ["Harmony"]
 license = "GPL-3.0-only"

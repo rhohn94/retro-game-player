@@ -24,7 +24,7 @@ Gap analysis of record: issues
 
 ---
 
-## v0.23 — Continuity (planned)
+## v0.23 — Continuity (released — see version-history.md)
 
 **Theme:** Never lose progress, never lie to the user. Closes the biggest
 implementation-vs-ambition gap: today *nothing* persists — no battery saves, no

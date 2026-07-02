@@ -7,7 +7,19 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
-## v0.22 — Polish (2026-07-01)
+## v0.23 — Continuity (2026-07-01)
+
+Progress is never lost, and the player never lies. Battery/SRAM saves and
+4-slot save states on both play paths (natively-hosted core + EmulatorJS),
+persisted to one shared on-disk layout with an exit auto-save and a
+"Continue" affordance. The v0.21 native-play crash was root-caused (libretro
+callback-ordering contract) and fixed with real-device verification.
+Play-path fallbacks now show a dismissible explanation instead of degrading
+silently. **Attract mode:** scrolling down the game detail page hands the
+live native gameplay to a dimmed full-bleed page background (input detached,
+audio ducked) and reattaches on scroll-up. Harmony is now licensed GPL-3.0;
+the GPL-incompatible UnRAR blob no longer ships; README and this file tell
+the truth.
 
 Code-quality and UX consistency pass; no new features. Fixed a search-thread
 panic that could crash a whole search and a lingering controller focus ring;
