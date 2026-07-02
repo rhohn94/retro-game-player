@@ -215,13 +215,13 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.23 |
 |---|---|---|---|---|
-| `feat/w235-attract-mode` (W235) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w235-attract-mode` (W235) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 5
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.23 |
 |---|---|---|---|---|
-| `feat/w238-release-ritual` (W238) | n/a | ☐ | ☐ | ☐ |
+| `feat/w238-release-ritual` (W238) | n/a | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
