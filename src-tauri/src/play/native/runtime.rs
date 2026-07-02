@@ -124,6 +124,7 @@ impl AudioRing {
 pub struct NativeRuntime {
     latest_frame: Arc<Mutex<Option<Rgba8Frame>>>,
     stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     commands: Sender<CoreCommand>,
     core_thread: Option<JoinHandle<()>>,
     audio_thread: Option<JoinHandle<AppResult<()>>>,
@@ -183,6 +184,7 @@ impl NativeRuntime {
         let pixel_format = Arc::new(Mutex::new(PixelFormat::Rgb1555));
         let ring = Arc::new(AudioRing::new());
         let stop = Arc::new(AtomicBool::new(false));
+        let paused = Arc::new(AtomicBool::new(false));
         let (commands, command_rx) = mpsc::channel();
 
         let core_thread = {
@@ -190,6 +192,7 @@ impl NativeRuntime {
             let pixel_format = Arc::clone(&pixel_format);
             let ring = Arc::clone(&ring);
             let stop = Arc::clone(&stop);
+            let paused = Arc::clone(&paused);
             std::thread::spawn(move || {
                 run_core_loop(CoreLoop {
                     core,
@@ -201,6 +204,7 @@ impl NativeRuntime {
                     pixel_format: &pixel_format,
                     ring: &ring,
                     stop: &stop,
+                    paused: &paused,
                 });
                 callbacks::uninstall();
             })
@@ -215,10 +219,18 @@ impl NativeRuntime {
         Ok(NativeRuntime {
             latest_frame,
             stop,
+            paused,
             commands,
             core_thread: Some(core_thread),
             audio_thread: Some(audio_thread),
         })
+    }
+
+    /// Pauses/resumes the core tick (the overlay opens → the game freezes
+    /// behind it, exactly like the EmulatorJS path's pause). Save/load
+    /// commands still execute while paused.
+    pub fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::Relaxed);
     }
 
     fn round_trip(&self, make: impl FnOnce(Sender<AppResult<()>>) -> CoreCommand) -> AppResult<()> {
@@ -278,6 +290,7 @@ struct CoreLoop<'a> {
     pixel_format: &'a Mutex<PixelFormat>,
     ring: &'a AudioRing,
     stop: &'a AtomicBool,
+    paused: &'a AtomicBool,
 }
 
 /// Drives `retro_run` at a fixed cadence (`1/fps` per frame, no
@@ -291,6 +304,13 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
     let mut last_flush_check = Instant::now();
     while !ctx.stop.load(Ordering::Relaxed) {
         let tick_start = Instant::now();
+        if ctx.paused.load(Ordering::Relaxed) {
+            // Frozen behind the overlay: no frames tick, but save/load
+            // commands still answer so the slot picker works while paused.
+            handle_commands(&mut ctx);
+            std::thread::sleep(frame_duration);
+            continue;
+        }
         if ctx.core.run_frame().is_err() {
             // A bug (run before load_game), not a runtime fault a retry can
             // fix — stop rather than spin.

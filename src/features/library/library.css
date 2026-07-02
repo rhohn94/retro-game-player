@@ -504,4 +504,11 @@
     font-size: 12px;
     color: var(--aura-on-surface-muted);
   }
+
+  /* Transient save/load result line (W232), between the actions and the hint. */
+  .harmony-overlay__status {
+    margin: 0;
+    font-size: 12px;
+    color: var(--aura-on-surface);
+  }
 }

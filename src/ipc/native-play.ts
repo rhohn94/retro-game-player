@@ -44,6 +44,11 @@ export function setNativeInput(bits: number): Promise<void> {
   return invoke<void>("set_native_input", { bits });
 }
 
+/** Pauses/resumes the running native session (overlay open = frozen game). */
+export function setNativePaused(paused: boolean): Promise<void> {
+  return invoke<void>("set_native_paused", { paused });
+}
+
 // --- Save persistence (v0.23 "Continuity" W230; save-persistence-design.md) ---
 
 /** A save slot name: manual slots "1"–"4", or the exit auto-save. */

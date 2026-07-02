@@ -196,6 +196,11 @@ export const MOCK_FIXTURES = {
   // loopback origin that doesn't exist under the smoke harness).
   get_play_origin: "",
   get_blurred_hero: null,
+  // v0.23 save persistence (W230/W232) — a fresh install has no saves.
+  list_game_saves: { hasSram: false, slots: [] },
+  save_native_state: null,
+  load_native_state: null,
+  set_native_paused: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before
