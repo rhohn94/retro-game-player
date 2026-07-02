@@ -76,6 +76,25 @@ distributed application.
 
 ---
 
+## On-demand components (not distributed with Harmony)
+
+Since v0.24 (W241, #17), Harmony can download additional EmulatorJS WASM
+cores **at the user's explicit request** from the version-pinned EmulatorJS
+CDN (`https://cdn.emulatorjs.org/4.2.3/data/cores/`), verified against
+SHA-256 hashes pinned in `src-tauri/src/play/ejs_cores.rs` and cached under
+the user's application-support directory. These cores are *not* part of the
+Harmony distribution (mirroring the RetroArch core-downloader model); their
+licenses are listed for the user's information:
+
+| Core | Upstream | License |
+|---|---|---|
+| snes9x | https://github.com/snes9xgit/snes9x | Snes9x license (non-commercial) |
+| genesis_plus_gx | https://github.com/ekeeke/Genesis-Plus-GX | Genesis-Plus-GX license (non-commercial) |
+| mupen64plus_next | https://github.com/libretro/mupen64plus-libretro-nx | GPL-3.0 |
+| pcsx_rearmed | https://github.com/libretro/pcsx_rearmed | GPL-2.0 |
+| stella2014 | https://github.com/libretro/stella2014-libretro | GPL-2.0 |
+| mednafen_pce | https://github.com/libretro/beetle-pce-libretro | GPL-2.0 |
+
 ## Written offer for corresponding source (GPL §6)
 
 For the GPL-3.0 component (EmulatorJS) and the GPL-2.0-or-later component

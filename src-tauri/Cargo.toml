@@ -37,6 +37,7 @@ quick-xml = "0.36"                                         # W6 (No-Intro Logiqx
 reqwest = { version = "0.12", features = ["json", "blocking"] } # W5/W8/W12 (network)
 rusqlite = { version = "0.32", features = ["bundled"] }    # W3 (db)
 scraper = "0.20"                                           # v0.16 (parse provider search-result HTML for in-app preview)
+sha2 = "0.10"                                              # W241 (SHA-256 verify of on-demand EmulatorJS cores)
 tiny_http = "0.12"                                         # W11 (localhost fleet status server)
 tauri-plugin-opener = "2"                                  # W17 (open search result URLs in system browser)
 include_dir = "0.7"                                       # v0.12 (embed the bundled console title catalog)
