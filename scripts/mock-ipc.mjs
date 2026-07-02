@@ -192,6 +192,11 @@ export const MOCK_FIXTURES = {
   probe_familiar: { available: false },
   get_cached_art: null,
   fetch_boxart: null,
+  // v0.26 W263 — per-tier hi-res pipeline. A fresh/mocked install has no
+  // cached tiers yet; fetch_game_art mirrors fetch_boxart's "no art on the
+  // CDN" empty-string miss signal.
+  get_cached_art_tiers: [],
+  fetch_game_art: "",
   enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   import_games: [],
   // v0.15 in-page play — empty origin means "play server unavailable", so the

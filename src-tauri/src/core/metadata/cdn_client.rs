@@ -54,6 +54,19 @@ impl ArtTier {
     pub fn fallback_sequence() -> &'static [ArtTier] {
         &[ArtTier::Boxart, ArtTier::Title, ArtTier::Snap]
     }
+
+    /// Parse a tier from its DB/IPC key (the inverse of [`Self::db_key`]).
+    ///
+    /// Returns `None` for any string that isn't one of `"boxart"`, `"title"`,
+    /// or `"snap"` — callers surface that as `AppError::Validation`.
+    pub fn from_db_key(key: &str) -> Option<Self> {
+        match key {
+            "boxart" => Some(ArtTier::Boxart),
+            "title" => Some(ArtTier::Title),
+            "snap" => Some(ArtTier::Snap),
+            _ => None,
+        }
+    }
 }
 
 /// Map an internal Harmony system slug to the CDN folder name used by
@@ -188,5 +201,17 @@ mod tests {
     #[test]
     fn unknown_system_returns_none() {
         assert!(system_to_cdn_folder("unknown_system_xyz").is_none());
+    }
+
+    #[test]
+    fn from_db_key_round_trips_every_tier() {
+        for tier in ArtTier::fallback_sequence() {
+            assert_eq!(ArtTier::from_db_key(tier.db_key()), Some(*tier));
+        }
+    }
+
+    #[test]
+    fn from_db_key_rejects_unknown_string() {
+        assert!(ArtTier::from_db_key("not_a_tier").is_none());
     }
 }
