@@ -37,7 +37,7 @@ export function PlaybackPane() {
       <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
         Native NES playback hosts the libretro core directly instead of
         EmulatorJS — faster to start, and avoids the in-page audio engine's
-        cold-start crackle. Off by default; if it fails to start for any
+        cold-start crackle. On by default; if it fails to start for any
         reason, the game falls back to the EmulatorJS player automatically.
       </p>
 
