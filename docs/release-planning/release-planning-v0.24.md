@@ -172,7 +172,7 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.24 |
 |---|---|---|---|---|
-| `feat/w245-release-ritual` (W245) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w245-release-ritual` (W245) | n/a | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -184,3 +184,12 @@ returned zero).
   serve-pre-extracted variant can be weighed against W241's disk cache.
 - **W242 drive-by:** docs/design/README.md was missing index rows for the
   v0.23 design docs (save-persistence, direct-download) — added.
+- **W243 deferral of record:** native-path rewind/fast-forward stays out (needs
+  a serialize-seam frame-history ring; §4) — the overlay hides both on native.
+- **W244 scope notes:** multi-file images (`.cue`+`.bin`) can't stream through
+  the single-file download → import path (single-file `.chd`/`.pbp` fine);
+  `.rar` errors with a pointer to the dropped UnRAR support (#26).
+- **W241 verification note:** the real-CDN install path was verified once
+  in-session (`manual_install_verifies_and_caches_a_real_core`, `--ignored`);
+  in-page boots of the new systems still need a first real-device play (no
+  non-NES ROMs were present on this machine).
