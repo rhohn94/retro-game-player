@@ -1,0 +1,75 @@
+/*
+ * TV mode ("10-foot") tokens — the `--rgp-tv-*` scale consumed exclusively by
+ * `src/features/tv/` (tv-mode-design.md §Tokens, W260).
+ *
+ * A leanback surface is read from ~3m instead of ~50cm, so nothing from the
+ * desktop scale is reused directly: type is stepped up ×1.6-2.0, tiles are
+ * bigger (320x440, a touch taller than the desktop 3:4 tile so cover art reads
+ * as a "box" at distance), and the whole shell sits inside a 5% overscan
+ * safe-area inset so content never runs under a TV's bezel/scan cutoff.
+ *
+ * Declared in the SAME `rgp-theme` cascade layer as the rest of the app's
+ * overrides (styles/layer-order.css) — TV mode does not need its own layer,
+ * it needs to win the same way every other rgp-theme rule does. Values here
+ * feed the token-adoption guard (scripts/token-adoption.test.mjs) like any
+ * other --rgp-* token: components reference these vars, never literals.
+ */
+
+@layer rgp-theme {
+  :root {
+    /* ---- overscan safe area ----
+       5% of the viewport on every edge, matching the TV industry's standard
+       "title-safe" guideline so nothing is clipped by a bezel or scan cutoff. */
+    --rgp-tv-safe-area: 5vmin;
+
+    /* ---- 10-foot type ramp ----
+       Desktop --rgp-font-* stepped ×1.6-2.0 for distance legibility. Named by
+       role (not by raw px) so a shell/rail/hero can each opt into the right
+       step without recomputing a multiplier at every call site. */
+    --rgp-tv-font-body: 1.25rem; /* 20px — ×1.67 over --rgp-font-caption (12px) */
+    --rgp-tv-font-label: 1.5rem; /* 24px — section-label / rail title, ×1.6 over --rgp-font-chip (12px, rounded) */
+    --rgp-tv-font-title: 2.25rem; /* 36px — tile/rail item title, ×2.0 over --rgp-font-hero-title (26px, rounded) */
+    --rgp-tv-font-hero-title: 3.5rem; /* 56px — the hero region's game title, ×~1.9 over --rgp-detail-title (30px) */
+
+    /* ---- tile + rail geometry ---- */
+    --rgp-tv-tile-width: 320px;
+    --rgp-tv-tile-height: 440px;
+    --rgp-tv-rail-gap: 2rem; /* 32px between tiles in a rail */
+    --rgp-tv-rail-row-gap: 3rem; /* 48px between stacked rails */
+    --rgp-tv-radius-tile: 1rem; /* 16px — chunkier than the desktop card radius */
+
+    /* ---- distance-legible focus treatment ----
+       Consumed by W262 (focus/snap engine); declared here so the whole
+       10-foot scale lives in one file. Scale exceeds the design's "≥1.08"
+       floor for headroom; the ring is thicker + higher-contrast than the
+       desktop --rgp-focus-ring so it reads from the couch. */
+    --rgp-tv-focus-scale: 1.12;
+    --rgp-tv-focus-ring-width: 4px;
+    --rgp-tv-focus-glow: 0 0 2rem color-mix(in oklch, var(--aura-primary) 65%, transparent);
+
+    /* ---- controller long-press ----
+       Shared by every long-press-gated affordance in TV mode (menu-hold to
+       toggle TV mode, W260; any future press-and-hold) so the "how long is a
+       hold" answer lives in exactly one token-backed constant. Mirrored in JS
+       as TV_MENU_LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
+       CSS custom properties can't be read by the rAF poll loop, so the
+       millisecond number is intentionally duplicated in the two single
+       sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
+    --rgp-tv-long-press-ms: 600ms;
+
+    /* ---- retro-accent section label chrome ----
+       The chunky pixel-adjacent label treatment tv-mode-design.md's
+       "Retro-but-Aura aesthetic" calls for — expressed via existing Aura
+       tokens (letter-spacing + the secondary brand knob), never a hardcoded
+       font family or literal color. */
+    --rgp-tv-label-tracking: 0.08em;
+    --rgp-tv-label-color: var(--aura-secondary);
+
+    /* ---- crossfade entry/exit ----
+       TV mode's shell-level enter/exit crossfade duration. References the
+       existing slow duration token (motion.css) rather than a new literal;
+       named here so TvShell reads intent ("tv-transition") not "just reuse
+       dur-slow because it happens to look right". */
+    --rgp-tv-transition-dur: var(--rgp-dur-slow);
+  }
+}

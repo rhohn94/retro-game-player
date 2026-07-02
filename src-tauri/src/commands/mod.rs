@@ -25,6 +25,7 @@ pub mod inpage_cores; // v0.24 W241 — on-demand EmulatorJS core acquisition (#
 pub mod player_prefs; // v0.24 W243 — volume + pause-on-blur prefs (#22)
 pub mod downloads; // v0.24 W244 — direct download (#30)
 pub mod play_stats; // v0.26 W264 — favorites, recently-played, play-time (#21 subset)
+pub mod app_config; // v0.26 W260 — general AppConfig IPC (auto_tv_mode)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -128,6 +129,9 @@ macro_rules! register_commands {
             $crate::commands::play_stats::set_favorite,
             $crate::commands::play_stats::list_recently_played,
             $crate::commands::play_stats::list_favorites,
+            // general AppConfig (v0.26 W260 — TV mode auto-enter)
+            $crate::commands::app_config::get_auto_tv_mode,
+            $crate::commands::app_config::set_auto_tv_mode,
         ])
     };
 }

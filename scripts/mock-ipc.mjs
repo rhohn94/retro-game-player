@@ -230,6 +230,11 @@ export const MOCK_FIXTURES = {
   record_play_end: null,
   list_recently_played: [],
   list_favorites: [],
+  // v0.26 W260 — TV mode auto-enter. The dedicated `tv-home` mock route
+  // (scripts/visual-inspect.mjs) overrides this to `true`; every other route
+  // keeps the desktop default of `false`.
+  get_auto_tv_mode: false,
+  set_auto_tv_mode: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before
