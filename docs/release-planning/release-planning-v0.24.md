@@ -166,7 +166,7 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.24 |
 |---|---|---|---|---|
-| `feat/w244-direct-download` (W244) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w244-direct-download` (W244) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 5
 
