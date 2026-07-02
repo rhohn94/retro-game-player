@@ -202,6 +202,7 @@ zero results), so no framework-required scope is trimmed here.
 | `feat/w267-remap-ui` (W267) | ☐ | ☐ | ☐ | ☐ |
 | `feat/w268-controller-compat` (W268) | ☐ | ☐ | ☐ | ☐ |
 | `feat/w263-hires-art` (W263) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w269b-identifier-decisions` (W269B) | ☐ | ☐ | ☐ | ☐ |
 
 ### Pass 3
 
