@@ -84,7 +84,7 @@ pub fn fetch_diagnostics(search_url: &str) -> AppResult<FetchDiagnostics> {
 /// Fetch a search page's HTML body over http(s), enforcing the scheme, status,
 /// timeout, and body-size safeguards. Shared by `fetch_results` and
 /// `fetch_diagnostics`.
-fn fetch_body(search_url: &str) -> AppResult<String> {
+pub(crate) fn fetch_body(search_url: &str) -> AppResult<String> {
     // Only ever fetch over http(s); never file://, data:, etc.
     if !is_http_url(search_url) {
         return Err(AppError::Validation(format!(
