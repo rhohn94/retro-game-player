@@ -111,25 +111,24 @@ export function ProviderResultGroup({
           </span>
           <GroupCountBadge group={group} count={visible.length} />
         </button>
-        {/* v0.16 scaffolding: a vendor with the future direct-download
-            capability shows a clearly-disabled marker — no action is wired yet. */}
+        {/* Direct download is live for opted-in providers (v0.24 W244): the
+            chip marks the group; each row carries the actual ⬇ action. */}
         {group.directDownload && (
           <span
-            title="Direct download is not available yet — coming in a future release."
+            title="Direct download is enabled for this provider — use ⬇ download on a result row."
             style={{
               fontSize: 10,
               fontWeight: 600,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: "var(--aura-on-surface-muted)",
-              border: "1px solid var(--aura-on-surface-muted)",
+              color: "var(--aura-primary)",
+              border: "1px solid var(--aura-primary)",
               borderRadius: 4,
               padding: "1px 5px",
-              opacity: 0.6,
               flexShrink: 0,
             }}
           >
-            ⬇ Direct download · soon
+            ⬇ Direct download
           </span>
         )}
         {group.searchUrl && (
@@ -213,6 +212,7 @@ export function ProviderResultGroup({
                     strength={matchStrength(item, rankQuery)}
                     status={statusMap.get(item.url)}
                     onToggleSelect={onToggleItem}
+                    downloadProviderId={group.directDownload ? group.providerId : undefined}
                   />
                 ))}
               </motion.ul>

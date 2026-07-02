@@ -210,6 +210,10 @@ export const MOCK_FIXTURES = {
   // v0.24 W243 player conveniences.
   get_player_prefs: { volume: 1, pauseOnBlur: true },
   set_player_prefs: null,
+  // v0.24 W244 direct download.
+  start_download: 1,
+  cancel_download: null,
+  discard_staged_download: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before

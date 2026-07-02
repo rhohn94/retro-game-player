@@ -119,6 +119,12 @@ impl Paths {
         self.subdir("ejs-cores")
     }
 
+    /// `downloads/` staging dir (created) — in-flight and unresolved direct
+    /// downloads (v0.24 W244); never inside the games library.
+    pub fn downloads_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("downloads")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -130,6 +136,7 @@ impl Paths {
         self.logs_dir()?;
         self.saves_dir()?;
         self.ejs_cores_dir()?;
+        self.downloads_dir()?;
         Ok(())
     }
 
