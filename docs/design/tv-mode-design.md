@@ -60,6 +60,19 @@ product is a library manager, not a living-room console.
   shell renders `<TvShell/>` (own router outlet: TV home, TV game detail)
   instead of the desktop sidebar+routes tree. Desktop state is untouched
   behind it; exit restores the previous route.
+  - **Implementation note (W260):** rather than keeping the desktop route
+    tree mounted-behind while TV mode is active, `App.tsx`'s `Root` component
+    conditionally renders `<TvShell/>` OR `<Shell/>` (never both) based on
+    `tvMode.active`, inside a single `<AnimatePresence mode="wait">`. The
+    desktop tree fully unmounts on enter (stopping its gamepad-focus
+    registrations, IPC polls, etc. from running invisibly under the TV
+    surface) and remounts fresh on exit. `TvModeProvider` snapshots the exact
+    route (`pathname + search`) and the fullscreen state at `enter()` time and
+    restores both on `exit()`, so nothing is lost despite the unmount — the
+    user returns to the same screen they left. A single shared `useFullscreen()`
+    instance (hoisted in `App`) is passed to both `Shell` and
+    `TvModeProvider` so the desktop fullscreen button and TV mode's own
+    enter/exit stay in sync.
 - **Tokens**: `src/theme/tv.css` defines the `*-tv` scale (type ramp ×1.6–2.0,
   tile 320×440, safe-area insets, rail gap) inside the existing cascade
   layers; components consume tokens only (token-adoption guard applies).
@@ -81,6 +94,22 @@ product is a library manager, not a living-room console.
 - **Controller**: TV mode raises no new input layer — it registers ordinary
   focus targets; `back` at TV home exits TV mode (with confirm), `menu`
   long-press toggles TV mode anywhere outside gameplay.
+  - **Implementation note (W260):** `useGamepadPoll` only emits rising-edge
+    semantic actions (one fire per press — the right behavior for
+    confirm/back/nav) and has no notion of held-duration, so the long-press
+    detector is a small, independent hook
+    (`src/features/controller/useLongPress.ts`) rather than an extension of
+    the shared poll. It reads the same raw Gamepad API and the same pure
+    `resolveBindings`/`detectFamily` helpers, tracks one action's
+    continuously-held duration via its own rAF loop, and fires once at the
+    `LONG_PRESS_MS` (600ms) threshold — mirrored as the
+    `--rgp-tv-long-press-ms` token in `theme/tv.css` for any CSS-side
+    consumer. `useTvModeControllerToggle` (in `src/features/tv/`) wires it to
+    `menu`; "outside gameplay" holds by construction because the in-page/
+    native player installs an exclusive controller handler
+    (`ControllerProvider.setExclusiveHandler`) while a game is running, which
+    makes every other action source — including this poll — a no-op until
+    released.
 
 ## Acceptance
 

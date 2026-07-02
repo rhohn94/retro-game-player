@@ -18,6 +18,13 @@ import { pageTransition } from "./lib/motion";
 import { ControllerProvider, HintBar, useController, useFocusable } from "./features/controller";
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
+import {
+  TvModeProvider,
+  TvShell,
+  useAutoTvModeOnStartup,
+  useTvMode,
+  useTvModeControllerToggle,
+} from "./features/tv";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
 // inset — D2 §5) lives as `--rgp-*` tokens in theme/aura-theme.css so the
@@ -124,6 +131,38 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   );
 }
 
+/** Focusable TV-mode entry button in the sidebar footer (also bound to Cmd+T). */
+function TvModeButton() {
+  const { enter } = useTvMode();
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>("shell:tv-mode", enter);
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={enter}
+      className="rgp-panel"
+      title="Enter TV mode (Cmd+T)"
+      style={{
+        width: "100%",
+        textAlign: "left",
+        cursor: "pointer",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
+        borderRadius: "var(--aura-radius-sm)",
+        color: "var(--aura-on-surface)",
+        border: "none",
+        outline: isFocused ? "2px solid var(--aura-focus)" : "none",
+        outlineOffset: "2px",
+      }}
+    >
+      📺 TV mode
+    </button>
+  );
+}
+
 /** The translucent primary navigation, built from the route table's nav entries. */
 function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
@@ -156,6 +195,7 @@ function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
           gap: "var(--aura-space-2)",
         }}
       >
+        <TvModeButton />
         <FullscreenButton fullscreen={fullscreen} />
         <IpcStatus />
       </div>
@@ -215,12 +255,41 @@ function RoutedOutlet() {
   );
 }
 
+/** Cmd+T (or Ctrl+T off-macOS) toggles TV mode from anywhere in the desktop
+ * shell (tv-mode-design.md §Design "Mode model": sidebar button / Cmd+T /
+ * controller menu long-press are the three entry affordances). Registered
+ * once at the shell so it works regardless of which route/focus has the
+ * page — matches F11's existing app-wide binding in `useFullscreen`. */
+function useTvModeAccelerator() {
+  const { active, enter, exit } = useTvMode();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (active) exit();
+        else enter();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, enter, exit]);
+}
+
 /**
- * The app shell inside the controller provider. Owns the fullscreen toggle
- * (F11 + sidebar button) and the app-level controller bindings.
+ * The desktop app shell: sidebar + routed content. Owns the app-level
+ * controller bindings; the fullscreen toggle (F11 + sidebar button) is passed
+ * in rather than owned here because `TvModeProvider` needs the SAME
+ * fullscreen instance (entering TV mode calls `fullscreen.setFullscreen`,
+ * and exiting restores whatever state was captured) — see `App` below.
+ * Rendered while TV mode is inactive; TvShell takes over the full viewport
+ * instead while it's active (see `Root` below) — the desktop route tree
+ * unmounts rather than staying mounted-behind, so its own gamepad-focus
+ * registrations and IPC polls don't keep running invisibly under the TV
+ * surface (documented deviation from a "stays mounted behind" reading of the
+ * design doc; TV mode's own exit restores the exact prior route via
+ * `TvModeProvider`'s route snapshot, so nothing is lost by unmounting).
  */
-function Shell() {
-  const fullscreen = useFullscreen();
+function Shell({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     // AuraApp is the app-shell archetype root; it paints transparent so vibrancy
     // reads through (theme/aura-theme.css). The wrapper bridges React to the
@@ -265,16 +334,47 @@ function Shell() {
   );
 }
 
+/**
+ * Switches between the desktop `Shell` and the full-viewport `TvShell` based
+ * on TV-mode's active state; wires the startup auto-enter read and the
+ * controller menu long-press toggle. Split out from `App` so `TvModeProvider`
+ * (mounted just above it) is already in scope.
+ */
+function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
+  const tvMode = useTvMode();
+  useTvModeAccelerator();
+  useAutoTvModeOnStartup(tvMode);
+  useTvModeControllerToggle();
+
+  return (
+    <AnimatePresence mode="wait">
+      {tvMode.active ? (
+        <TvShell key="tv" onExit={tvMode.exit} />
+      ) : (
+        <Shell key="desktop" fullscreen={fullscreen} />
+      )}
+    </AnimatePresence>
+  );
+}
+
 function App() {
+  // Hoisted above both Shell and TvModeProvider so entering/exiting TV mode
+  // and the desktop sidebar's fullscreen button drive the SAME window state
+  // (tv-mode-design.md: "Entering TV mode also enters OS fullscreen; exiting
+  // restores").
+  const fullscreen = useFullscreen();
   return (
     // ControllerProvider owns spatial focus + gamepad polling so the whole app
     // is navigable by controller alone (W14, wired into the shell + library in
     // v0.14). MotionConfig reducedMotion="user" makes every Framer animation
     // honour the OS "reduce motion" setting from one place (the CSS side is the
-    // media query in theme/motion.css).
+    // media query in theme/motion.css). TvModeProvider sits inside the router
+    // (via HashRouter in main.tsx) so it can snapshot/restore the desktop route.
     <ControllerProvider>
       <MotionConfig reducedMotion="user">
-        <Shell />
+        <TvModeProvider fullscreen={fullscreen}>
+          <Root fullscreen={fullscreen} />
+        </TvModeProvider>
       </MotionConfig>
     </ControllerProvider>
   );

@@ -59,6 +59,18 @@ const ROUTES = [
   { name: "cores", hash: "#/cores", expect: "Cores" },
   { name: "search", hash: "#/search", expect: "Search" },
   { name: "settings", hash: "#/settings", expect: "Settings" },
+  // v0.26 W260 — TV mode auto-enter (tv-mode-design.md §Acceptance bullet 2):
+  // with `auto_tv_mode: true`, a fresh launch (any/no hash — App.tsx's
+  // startup read fires regardless of route) must land in the TV shell
+  // instead of the desktop library. `mockOverrides` gets its own page + init
+  // script (see captureWithBrowser) since every other route needs the
+  // default `false`.
+  {
+    name: "tv-home",
+    hash: "#/",
+    expect: "TV HOME",
+    mockOverrides: { get_auto_tv_mode: true },
+  },
 ];
 
 const MIME = {
@@ -151,7 +163,9 @@ async function assertRendered(page, route) {
     const root = document.getElementById("root");
     const rootChildren = root ? root.children.length : 0;
     const bodyText = document.body.innerText || "";
-    const hasShell = !!document.querySelector(".rgp-sidebar, .rgp-shell, aura-app");
+    // .rgp-tv-shell covers TV mode's full-viewport takeover (v0.26 W260),
+    // which replaces the desktop sidebar/aura-app chrome entirely while active.
+    const hasShell = !!document.querySelector(".rgp-sidebar, .rgp-shell, aura-app, .rgp-tv-shell");
     return {
       rootChildren,
       rootHtmlLen: root ? root.innerHTML.length : 0,
@@ -188,19 +202,35 @@ async function captureWithBrowser(useMock) {
 
     const routeResults = [];
     for (const route of ROUTES) {
+      // A route with its own `mockOverrides` (e.g. tv-home's auto_tv_mode:
+      // true) needs a FRESH page with its own init script — addInitScript on
+      // the shared page applies to every navigation, so every other route
+      // would inherit the override too. Regular routes reuse the shared page.
+      const routePage = route.mockOverrides
+        ? await browser.newPage({ viewport: { width: 1280, height: 832 }, deviceScaleFactor: 2 })
+        : page;
+      if (route.mockOverrides) {
+        if (useMock) await routePage.addInitScript(buildMockIpcInitScript(route.mockOverrides));
+        routePage.on("console", (m) => {
+          if (m.type() === "error") consoleErrors.push(m.text());
+        });
+        routePage.on("pageerror", (e) => pageErrors.push(e.message));
+      }
+
       const before = pageErrors.length;
-      await page.goto(`http://127.0.0.1:${port}/${route.hash}`, {
+      await routePage.goto(`http://127.0.0.1:${port}/${route.hash}`, {
         waitUntil: "networkidle",
         timeout: 30000,
       });
-      await page.waitForTimeout(700); // let the route mount + paint
-      const checks = await assertRendered(page, route);
+      await routePage.waitForTimeout(700); // let the route mount + paint
+      const checks = await assertRendered(routePage, route);
       const shot = join(OUT_DIR, `${route.name}.png`);
-      await page.screenshot({ path: shot, fullPage: false });
+      await routePage.screenshot({ path: shot, fullPage: false });
       if (route.name === "library") {
-        await page.screenshot({ path: PNG_PATH, fullPage: false });
-        await writeFile(DOM_PATH, await page.content(), "utf-8");
+        await routePage.screenshot({ path: PNG_PATH, fullPage: false });
+        await writeFile(DOM_PATH, await routePage.content(), "utf-8");
       }
+      if (route.mockOverrides) await routePage.close().catch(() => {});
       const routeErrors = pageErrors.slice(before);
       const rendered =
         checks.rootChildren > 0 && checks.hasShell && checks.hasExpectedText;
