@@ -1,0 +1,86 @@
+/* ==========================================================================
+   Aura — aura-tag-input (#111): token / multi-value chip entry.
+
+   The host is an input-styled box (matching the text-input recipe) that wraps
+   its chips and a flush text input. Each chip reuses the shared chip recipe
+   defined in css/components.css plus a trailing × remove button. The text input
+   is borderless and grows to fill the remaining row, so the whole control reads
+   as one field.
+   ========================================================================== */
+@layer tag-input {
+  .aura-tag-input {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--aura-space-2);
+    inline-size: 100%;
+    min-block-size: 2.75rem; /* match .aura-input height */
+    padding: var(--aura-space-1) var(--aura-space-2);
+    background: var(--aura-surface-1);
+    border: var(--aura-border-width) var(--aura-border-style, solid) var(--aura-surface-stroke);
+    border-radius: var(--aura-radius-md);
+    cursor: text;
+    transition: border-color var(--aura-dur-base) var(--aura-ease-standard);
+  }
+  .aura-tag-input:focus-within { border-color: var(--aura-primary); }
+
+  .aura-tag-input__chips {
+    display: contents; /* chips participate in the host's flex row directly */
+  }
+
+  .aura-tag-input__chip {
+    gap: var(--aura-space-1);
+    padding-inline-end: var(--aura-space-1);
+  }
+
+  .aura-tag-input__remove {
+    /* Proximity glow (v3.2): js/aura-tag-input.js adds .aura-glow so the chip ×
+       lights + leans on approach. A compact detection radius suits the tiny
+       round button; the subtle global magnet-shift (1px) is inherited. */
+    --aura-glow-radius: var(--aura-glow-radius-compact);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+    padding: 0;
+    font-size: var(--aura-text-sm);
+    line-height: 1;
+    color: var(--aura-text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--aura-radius-full);
+    cursor: pointer;
+  }
+  .aura-tag-input__remove:hover { color: var(--aura-text); background: var(--aura-surface-3); }
+
+  .aura-tag-input__input {
+    flex: 1 1 6rem;
+    min-inline-size: 6rem;
+    padding: 0;
+    color: var(--aura-text);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font: inherit;
+  }
+  .aura-tag-input__input::placeholder { color: var(--aura-text-subtle); }
+
+  .aura-tag-input.is-disabled {
+    opacity: var(--aura-disabled-opacity);
+    pointer-events: none;
+  }
+
+  @media (forced-colors: active) {
+    .aura-tag-input { border: 1px solid CanvasText; }
+    .aura-tag-input:focus-within { border-color: Highlight; }
+    .aura-tag-input__remove { color: ButtonText; }
+  }
+
+  /* Motion-sensitive users: suppress the box's transitions (matches every other
+     component CSS). The glow rim/magnet motion is gated separately by glow.css's
+     own reduced-motion block. */
+  @media (prefers-reduced-motion: reduce) {
+    .aura-tag-input { transition: none; }
+  }
+}

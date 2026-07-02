@@ -72,8 +72,8 @@ verified against the live arm64 buildbot.
 ## Quick start
 
 ```bash
-# 1. Clone with the Aura submodule
-git clone --recurse-submodules https://github.com/rhohn94/harmony.git
+# 1. Clone (Aura is committed under vendor/aura — no submodules)
+git clone https://github.com/rhohn94/harmony.git
 cd harmony
 
 # 2. Install dependencies
@@ -100,12 +100,15 @@ drop ROM files in — or import them by drag-and-drop onto the window.
 | **pnpm** | `npm install -g pnpm` |
 | **Xcode Command Line Tools** | `xcode-select --install` |
 
-### Aura submodule
+### Aura (design language)
 
-Aura ships as a git submodule (`vendor/aura`). Initialize it after cloning:
+Aura is vendored from its GitHub Release channel via the Dependency Channel
+(`vendor.toml` `[deps.aura]`, pinned v3.541.0); the bytes are committed under
+`vendor/aura`, so a plain clone is complete — no submodule init needed. To
+re-sync or bump the pin:
 
 ```bash
-git submodule update --init
+python3 .claude/skills/grm-sync-deps/sync_deps.py --dep aura
 ```
 
 ---

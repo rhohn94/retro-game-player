@@ -1,0 +1,243 @@
+/* ==========================================================================
+   Aura — theming engine: modes + wallpaper.
+
+   Dark is defined in tokens.css. Here we:
+     - override neutrals/text for the LIGHT theme,
+     - paint the WALLPAPER layer (image / gradient / generated aurora) + scrim.
+
+   Theme is selected with [data-aura-theme] on <html> or any aura-app scope:
+     dark (default) | light | auto (follows the OS).
+   ========================================================================== */
+
+/* The theme-mode override blocks below are GENERATED from the `themes` set in
+   tokens.json by gen_tokens.py (`just tokens`) — one authored source renders
+   both the explicit light block and the auto/prefers block, so the two copies
+   can never drift (#413). Edit tokens.json, regenerate, and commit both. */
+/* BEGIN GENERATED: themes (gen_tokens.py — edit tokens.json, not this block) */
+/* ---- Light theme overrides (brand colors stay constant) --------------- */
+:root[data-aura-theme="light"],
+[data-aura-theme="light"] {
+  color-scheme: light;
+
+  --aura-bg: #eceef5;
+  --aura-bg-2: #e3e6f0;
+  --aura-surface-2: color-mix(in srgb, white 58%, transparent);
+  --aura-surface-3: color-mix(in srgb, white 68%, transparent);
+  --aura-surface-4: color-mix(in srgb, white 76%, transparent);
+  --aura-surface-5: color-mix(in srgb, white 84%, transparent);
+  --aura-surface-solid: #ffffff;
+  /* Light-mode controls need a stronger boundary than the airy dark theme:
+     translucent navy at ~52/66% clears the WCAG 3:1 non-text contrast bar
+     against both the white control fill and the page bg, restoring the
+     affordance strength dark mode gets for free from its luminous surfaces
+     (#66). Translucent so it still adapts over any surface it edges. */
+  --aura-surface-stroke: color-mix(in srgb, #1a2240 52%, transparent);
+  --aura-surface-stroke-strong: color-mix(in srgb, #1a2240 66%, transparent);
+  /* Opaque fill so inputs/selects/textareas read as distinct controls, not
+     near-invisible cut-outs of the page (#66) — the one deliberate exception
+     to the translucent surface scale. */
+  --aura-surface-1: var(--aura-surface-solid);
+  --aura-text: oklch(0.26 0.03 270);
+  --aura-text-muted: oklch(0.44 0.03 270);
+  /* Subtle text (also the ::placeholder colour) nudged darker so the
+     placeholder meets AA (~4.5:1) on the white control fill while staying
+     clearly secondary to entered text (#80). */
+  --aura-text-subtle: oklch(0.52 0.03 270);
+  /* Switch thumb reads as a consistent light/elevated surface in BOTH modes;
+     in dark it already inherits the light --aura-text, here we pin it so the
+     "on" (lavender) track no longer shows a dark, inverted thumb (#78). */
+  --aura-switch-thumb-bg: var(--aura-surface-solid);
+  /* #442: the dark-default semantic palette is authored bright (mid-
+     lightness) to read as TEXT on the dark surfaces; on a near-white light
+     surface those pale colours land at ~1.5:1 — far below AA. Light mode
+     overrides all four status hues with darker, higher-chroma values that
+     clear 4.5:1 as chip/badge text on their own 15% tint over white. The
+     -a15/-a25 derivatives forward to these bases, so the tints re-derive
+     automatically and only the four seeds need overriding. */
+  --aura-success: #065f46;
+  --aura-warning: #7a4f01;
+  --aura-danger: #a30b22;
+  --aura-info: #0c5e74;
+  /* #839: secondary-button text — the same problem as the status seeds, on
+     the light/dark MODE axis. The default --aura-secondary-100 is a pale tint
+     that, over the --aura-secondary-a40 tint on the white surface, lands at
+     ≈1.1:1 (the base cyan brand is unchanged in light mode). Deepen to the
+     -800 ramp tone (cyan over white clears AA at -800: 5.62:1 rest / 5.01:1
+     hover). Mirrors the named-light-theme overrides in css/themes/. */
+  --aura-btn-secondary-text: var(--aura-secondary-800);
+  /* #841-class: timepicker selected-cell text — the same light-surface defect
+     on the MODE axis. The default pale --aura-primary-100 over the --aura-
+     primary-a15 tile on the white surface lands at ≈1.2:1. Deepen to the -800
+     primary ramp tone (dark on near-white clears AA). Mirrors the named-
+     light-theme overrides in css/themes/. */
+  --aura-timepicker-cell-active-text: var(--aura-primary-800);
+  /* Light surfaces over a light wallpaper carry little shadow signal; boost
+     the whole ramp so levels 1-5 read as distinct planes (#48). The monotonic
+     blur ramp (#47) reinforces the same separation. */
+  --aura-shadow-boost: 1.6;
+  --aura-shadow-color: 230 35% 40%;
+  --aura-edge-light: color-mix(in srgb, white 80%, transparent);
+  --aura-ring-offset: 0 0 0 2px var(--aura-bg);
+  /* #248: the default --aura-edge-rim-color mixes the glow color with white
+     (tokens.css), which is always a bright highlight — correct for dark mode
+     (rimlight reads against a dark surface) but disappears on a light surface
+     (white-on-white). Override to mix with a dark primary-hued tone so the
+     rim is visible in light mode. --aura-edge-color (= --aura-glow-color =
+     primary) is kept as the tint source; only the mix target switches from
+     white to a dark near-black so the rim contrasts with the light backdrop. */
+  --aura-edge-rim-color: color-mix(in srgb, var(--aura-edge-color) 55%, oklch(0.2 0.04 270));
+  /* #452: proximity glow derives from --aura-glow-color (= --aura-primary, a
+     mid-lightness lavender). Its low-alpha gradient washes out against the
+     light surfaces/wallpaper, so the signature glow reads far weaker than in
+     dark. Deepen the glow seed toward black for light mode so the gradient
+     retains visible chroma against the pale backdrop; --aura-edge-color
+     forwards to this, so the rim picks up the same deepening (the rim's mix
+     target was already darkened above). */
+  --aura-glow-color: color-mix(in srgb, var(--aura-primary) 78%, black);
+  /* #552: the keyboard-focus ring (--aura-ring, painted as a box-shadow on
+     every focus-visible control) defaults to primary at 40% alpha — over the
+     dark surfaces that clears WCAG 2.2 SC 1.4.11 (3:1 non-text contrast), but
+     composited over the light theme's near-white surfaces it falls to
+     ~1.76:1. Light mode re-derives it to an OPAQUE darker primary (--aura-
+     primary-700) so the ring reaches ≥3:1 against both --aura-surface-1
+     (#fff, ~7.9:1) and --aura-bg (#eceef5, ~6.8:1), mirroring the #442
+     status-color light treatment. The --aura-ring-offset (set above) keeps
+     the 2px bg gap so the ring stays separated from the control edge. */
+  --aura-ring: 0 0 0 3px var(--aura-primary-700);
+  /* #552: --aura-focus-ring is the `outline`-style variant of the same
+     affordance (disclosure, form, range), defaulting to a light primary-300
+     tint that also lands below 3:1 on light surfaces. Re-derive to the same
+     opaque --aura-primary-700 used for --aura-ring so every focus path clears
+     the 3:1 bar in light + auto-light. */
+  --aura-focus-ring: 2px solid var(--aura-primary-700);
+}
+
+/* Auto mode: adopt the light overrides only under (prefers-color-scheme:
+   light). Emitted from the SAME themes.light set as the explicit block above
+   — the two cannot drift. */
+@media (prefers-color-scheme: light) {
+  :root[data-aura-theme="auto"],
+  [data-aura-theme="auto"] {
+    color-scheme: light;
+    --aura-bg: #eceef5;
+    --aura-bg-2: #e3e6f0;
+    --aura-surface-2: color-mix(in srgb, white 58%, transparent);
+    --aura-surface-3: color-mix(in srgb, white 68%, transparent);
+    --aura-surface-4: color-mix(in srgb, white 76%, transparent);
+    --aura-surface-5: color-mix(in srgb, white 84%, transparent);
+    --aura-surface-solid: #ffffff;
+    --aura-surface-stroke: color-mix(in srgb, #1a2240 52%, transparent);
+    --aura-surface-stroke-strong: color-mix(in srgb, #1a2240 66%, transparent);
+    --aura-surface-1: var(--aura-surface-solid);
+    --aura-text: oklch(0.26 0.03 270);
+    --aura-text-muted: oklch(0.44 0.03 270);
+    --aura-text-subtle: oklch(0.52 0.03 270);
+    --aura-switch-thumb-bg: var(--aura-surface-solid);
+    --aura-success: #065f46;
+    --aura-warning: #7a4f01;
+    --aura-danger: #a30b22;
+    --aura-info: #0c5e74;
+    --aura-btn-secondary-text: var(--aura-secondary-800);
+    --aura-timepicker-cell-active-text: var(--aura-primary-800);
+    --aura-shadow-boost: 1.6;
+    --aura-shadow-color: 230 35% 40%;
+    --aura-edge-light: color-mix(in srgb, white 80%, transparent);
+    --aura-ring-offset: 0 0 0 2px var(--aura-bg);
+    --aura-edge-rim-color: color-mix(in srgb, var(--aura-edge-color) 55%, oklch(0.2 0.04 270));
+    --aura-glow-color: color-mix(in srgb, var(--aura-primary) 78%, black);
+    --aura-ring: 0 0 0 3px var(--aura-primary-700);
+    --aura-focus-ring: 2px solid var(--aura-primary-700);
+  }
+}
+/* END GENERATED: themes */
+
+/* ==========================================================================
+   Wallpaper
+   --------------------------------------------------------------------------
+   An aura-app paints a fixed wallpaper behind its content via ::before, and a
+   contrast scrim via ::after. A bare .aura-wallpaper element does the same.
+   No JS is required for the wallpaper itself; js/aura-app.js only forwards an
+   image/gradient string into --aura-wallpaper when the attribute calls for it.
+   ========================================================================== */
+
+:root {
+  /* default static wallpaper used by the image/gradient code path */
+  --aura-wallpaper: radial-gradient(120% 120% at 50% 0%, var(--aura-bg-2), var(--aura-bg) 60%);
+  --aura-wallpaper-scrim: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--aura-bg) 30%, transparent),
+    color-mix(in srgb, var(--aura-bg) 62%, transparent)
+  );
+}
+
+aura-app {
+  display: block;
+  position: relative;
+  min-height: 100dvh;
+  isolation: isolate;          /* own stacking context for the layers below */
+  color: var(--aura-text);
+  background: var(--aura-bg);
+}
+
+aura-app::before,
+aura-app::after,
+.aura-wallpaper::before,
+.aura-wallpaper::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* wallpaper paint (image or custom gradient) */
+aura-app::before,
+.aura-wallpaper::before {
+  background: var(--aura-wallpaper);
+  background-size: cover;
+  background-position: center;
+}
+
+/* contrast scrim above the wallpaper, below content */
+aura-app::after,
+.aura-wallpaper::after {
+  z-index: -1;
+  background: var(--aura-wallpaper-scrim);
+}
+
+/* #567: "none" must fully neutralise the wallpaper SYSTEM — flatten ::before to
+   the page background AND clear the ::after contrast scrim, which otherwise kept
+   painting a semi-opaque bg-tinted vertical veil (visible especially under
+   themes that re-tint --aura-bg). The result is a uniform --aura-bg page. */
+aura-app[wallpaper="none"]::before { background: var(--aura-bg); }
+aura-app[wallpaper="none"]::after { background: none; }
+
+/* ---- Aurora: a generated, slowly drifting gradient mesh from the brand --
+   Default when no wallpaper attribute is given, or wallpaper="aurora".      */
+aura-app:not([wallpaper])::before,
+aura-app[wallpaper="aurora"]::before,
+.aura-wallpaper--aurora::before {
+  background:
+    radial-gradient(40% 55% at 18% 22%, var(--aura-primary-a40), transparent 70%),
+    radial-gradient(38% 50% at 82% 18%, var(--aura-secondary-a40), transparent 70%),
+    radial-gradient(46% 60% at 72% 82%, var(--aura-primary-a25), transparent 72%),
+    radial-gradient(40% 52% at 26% 86%, var(--aura-secondary-a25), transparent 72%),
+    var(--aura-bg);
+  background-size: 200% 200%, 200% 200%, 200% 200%, 200% 200%, 100% 100%;
+  background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0 0;
+  /* Very slow ambient drift — long enough that the mesh reads as atmosphere,
+     not motion. Override --aura-wallpaper-drift-dur to re-skin. */
+  animation: aura-aurora-drift var(--aura-wallpaper-drift-dur, 26s) ease-in-out infinite alternate;
+}
+
+@keyframes aura-aurora-drift {
+  0%   { background-position: 0% 0%,   100% 0%,   100% 100%, 0% 100%,   0 0; }
+  50%  { background-position: 24% 18%, 70% 26%,   78% 72%,   22% 64%,   0 0; }
+  100% { background-position: 8% 30%,  92% 8%,    64% 88%,   34% 80%,   0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  aura-app:not([wallpaper])::before,
+  aura-app[wallpaper="aurora"]::before,
+  .aura-wallpaper--aurora::before { animation: none; }
+}

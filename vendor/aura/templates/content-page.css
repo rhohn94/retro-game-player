@@ -1,0 +1,373 @@
+/* ==========================================================================
+   Aura blueprint — Content-page chrome  (templates/content-page.css)
+
+   The in-page patterns every Aura demo was hand-rolling inline: a brand
+   lockup, a page header with eyebrow, a vertical nav list, a responsive card
+   grid, list / property / timeline rows, a keyboard-hint footer, and a colour
+   swatch. None are a whole *page* on their own (app-shell / form-page /
+   list-page are) — they are the reusable content-level building blocks those
+   pages and the demos compose. Promoted into the distribution in v2.5 so the
+   demos consume them instead of re-declaring them (see
+   docs/design/demo-distribution-parity-design.md).
+
+   CASCADE LAYER: content-page  (declared in css/aura.css)
+   Sits above core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply.
+
+   ── CANONICAL SELECTORS ───────────────────────────────────────────────────
+   .aura-content-page          Block  — centered content column: max-width,
+                                        outer padding, vertical rhythm.
+   .aura-brand                 Block  — brand lockup (logo mark + wordmark).
+   .aura-brand__mark           Element — gradient app-mark square.
+   .aura-brand__title          Element — wordmark text.
+   .aura-page-head             Block  — page title block.
+   .aura-page-head__eyebrow    Element — small uppercase kicker above the title.
+   .aura-page-head__lead       Element — muted lead paragraph under the title.
+   .aura-nav-list              Block  — vertical navigation list.
+   .aura-nav-list__section     Element — label above a group of items.
+   .aura-nav-list__item        Element — a nav row (anchor/button); .is-active
+                                        marks the current item; __dot is a
+                                        leading status/colour dot.
+   .aura-card-grid             Block  — responsive auto-fill card grid; column
+                                        floor is --aura-content-page-min-col.
+   .aura-list-row              Block  — horizontal list item: leading slot
+                                        (avatar) + __meta (title + sub) +
+                                        trailing slot; .is-active highlights.
+   .aura-prop-row              Block  — label / value definition row.
+   .aura-timeline              Block  — vertical event feed; __item rows carry a
+                                        __dot marker and a __time stamp.
+   .aura-key-hint              Block  — muted keyboard-hint strip; styles nested
+                                        <kbd> as key caps.
+   .aura-swatch                Block  — colour swatch chip (swatch + label).
+
+   ── TUNABLE CUSTOM PROPERTIES ─────────────────────────────────────────────
+   Override on any scope that wraps the patterns. Defaults sit on :where(:root)
+   so they carry zero specificity and override trivially.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Max width of the centered .aura-content-page column. */
+  --aura-content-page-size: var(--aura-size-2xl);
+  /* Minimum column width for .aura-card-grid (auto-fill). */
+  --aura-content-page-min-col: 14rem;
+}
+
+/* ── .aura-content-page — centered content column ───────────────────────── */
+.aura-content-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  inline-size: 100%;
+  max-inline-size: var(--aura-content-page-size);
+  margin-inline: auto;
+  padding: var(--aura-space-6) var(--aura-space-5);
+  box-sizing: border-box;
+}
+
+/* Cap the body PROSE stream at the readable measure (~66ch) on wide screens —
+   the column itself can run wide (so card grids, tables, and full-width
+   structural rows fill it), but running text never stretches past a comfortable
+   line length. Targets the page's own direct-child paragraphs; nested
+   components (cards, rows, grids) keep the full column width by construction. */
+.aura-content-page > p {
+  max-inline-size: var(--aura-measure);
+}
+
+/* ── .aura-brand — logo mark + wordmark lockup ──────────────────────────── */
+.aura-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  min-inline-size: 0;
+}
+
+.aura-brand__mark {
+  flex: none;
+  inline-size: 2rem;
+  block-size: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--aura-radius-md);
+  color: #fff;
+  font-weight: 800;
+  /* Signature Aura primary→secondary diagonal. */
+  background: linear-gradient(135deg, var(--aura-primary), var(--aura-secondary));
+}
+
+.aura-brand__title {
+  margin: 0;
+  font-size: var(--aura-text-md);
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── .aura-page-head — page title block ─────────────────────────────────── */
+.aura-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+}
+
+.aura-page-head > :is(h1, h2, h3) {
+  margin: 0;
+  line-height: 1.15;
+}
+
+.aura-page-head__eyebrow {
+  font-size: var(--aura-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}
+
+.aura-page-head__lead {
+  margin: 0;
+  /* Lead/intro paragraphs hold a slightly wider readable measure than body
+     prose; token-driven (in ch, not a magic rem) so it tracks the same
+     line-length construction as --aura-measure. */
+  max-inline-size: var(--aura-measure-lead);
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-lg);
+}
+
+/* ── .aura-nav-list — vertical navigation ───────────────────────────────── */
+.aura-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aura-nav-list__section {
+  padding: var(--aura-space-3) var(--aura-space-3) var(--aura-space-1);
+  font-size: var(--aura-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}
+
+.aura-nav-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-2) var(--aura-space-3);
+  border-radius: var(--aura-radius-md);
+  color: var(--aura-text-muted);
+  text-decoration: none;
+  font-size: var(--aura-text-sm);
+  cursor: pointer;
+}
+
+.aura-nav-list__item:hover {
+  background: var(--aura-surface-2);
+  color: var(--aura-text);
+}
+
+.aura-nav-list__item.is-active {
+  background: var(--aura-surface-2);
+  color: var(--aura-text);
+  font-weight: 600;
+}
+
+.aura-nav-list__dot {
+  flex: none;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: var(--aura-radius-round, 50%);
+  background: var(--aura-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .aura-nav-list__item {
+    transition: background var(--aura-dur-fast) var(--aura-ease-out),
+                color var(--aura-dur-fast) var(--aura-ease-out);
+  }
+}
+
+/* ── .aura-card-grid — responsive auto-fill card grid ───────────────────── */
+.aura-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--aura-content-page-min-col), 1fr));
+  gap: var(--aura-space-4);
+}
+
+/* ── .aura-list-row — leading slot + meta + trailing slot ───────────────── */
+.aura-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-3);
+  border-radius: var(--aura-radius-md);
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.aura-list-row:hover {
+  background: var(--aura-surface-2);
+}
+
+.aura-list-row.is-active {
+  background: var(--aura-surface-2);
+}
+
+.aura-list-row__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-inline-size: 0;
+  margin-inline-end: auto;
+}
+
+.aura-list-row__title {
+  font-weight: 600;
+  color: var(--aura-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aura-list-row__sub {
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .aura-list-row {
+    transition: background var(--aura-dur-fast) var(--aura-ease-out);
+  }
+}
+
+/* ── .aura-prop-row — label / value definition row ──────────────────────── */
+.aura-prop-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+  padding-block: var(--aura-space-2);
+  border-block-end: 1px solid var(--aura-surface-stroke);
+}
+
+.aura-prop-row:last-child {
+  border-block-end: 0;
+}
+
+.aura-prop-row__label {
+  flex: none;
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-sm);
+}
+
+.aura-prop-row__value {
+  text-align: end;
+  color: var(--aura-text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+/* ── .aura-timeline — vertical event feed ───────────────────────────────── */
+.aura-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aura-timeline__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-inline-start: var(--aura-space-5);
+  padding-block: var(--aura-space-3);
+}
+
+/* Connecting rail drawn behind the dots; trimmed at the last item. */
+.aura-timeline__item::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0.3125rem;
+  inline-size: 1px;
+  background: var(--aura-surface-stroke);
+}
+
+.aura-timeline__item:last-child::before {
+  block-size: var(--aura-space-3);
+}
+
+.aura-timeline__dot {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: calc(var(--aura-space-3) + 0.35rem);
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: var(--aura-radius-round, 50%);
+  background: var(--aura-primary);
+  box-shadow: 0 0 0 3px var(--aura-bg);
+}
+
+.aura-timeline__time {
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-subtle);
+}
+
+/* ── .aura-key-hint — muted keyboard-hint strip ─────────────────────────── */
+.aura-key-hint {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--aura-space-2);
+  color: var(--aura-text-subtle);
+  font-size: var(--aura-text-sm);
+}
+
+.aura-key-hint kbd {
+  display: inline-block;
+  padding: 0.1em 0.45em;
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-surface-stroke);
+  background: var(--aura-surface-2);
+  color: var(--aura-text);
+  font-family: var(--aura-font-mono);
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
+/* ── .aura-swatch — colour swatch chip ──────────────────────────────────── */
+.aura-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-muted);
+}
+
+.aura-swatch::before,
+.aura-swatch > i {
+  content: "";
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  flex: none;
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-surface-stroke);
+  /* Authors set the fill via --aura-swatch-color or a background on <i>. */
+  background: var(--aura-swatch-color, var(--aura-surface-3));
+}
+
+/* When an explicit <i> swatch chip is provided, suppress the ::before. */
+.aura-swatch:has(> i)::before {
+  display: none;
+}

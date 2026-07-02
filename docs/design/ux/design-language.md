@@ -1,8 +1,8 @@
 ---
-source: submodule
+source: release-asset
 source-url: https://github.com/rhohn94/design-language
-source-sha: "83c50b3fa0014433abd0ce783ae5911b8a29f1d4"  # W2 pinned (v3.20 channel)
-source-pin: "v3.20"  # stable release channel; bare vX.Y.Z tags carry no assets
+source-sha: "d389da5cbabb1a4ee08834f2066b4631c867663b"  # release v3.541.0 git_sha (vendor.lock)
+source-pin: "v3.541.0"  # stable release channel; channel-vendored via vendor.toml [deps.aura]
 adaptation-status: draft
 ---
 

@@ -1,0 +1,129 @@
+/* ==========================================================================
+   Aura theme — "frutiger-aero" (Frutiger Aero).
+
+   An homage to the Frutiger Aero visual era (c. 2004–2013): airy frosted glass,
+   deep sky blues, vivid nature greens, heavy blur, generous radii, and soft
+   cloud-like depth. The palette evokes Windows Vista/7 and the nature-meets-
+   technology optimism of that period. It is a TOKEN SET ONLY — every value is an
+   existing --aura-* dial; no component CSS is overridden.
+
+   This theme is a LIGHT, glass-heavy re-skin. It overrides all dark-default
+   surface tokens (exactly as retro-pc does), pins color-scheme: light so native
+   UA chrome matches, and applies the WCAG AA light-mode status seeds to keep
+   badge text readable over the bright surfaces. All focus-ring tokens are
+   also overridden to an opaque, darker-primary value (same #552 treatment as
+   light mode in theme.css) so keyboard focus clears 3:1 on light backgrounds.
+
+   Activate: Aura.theme.setTheme("frutiger-aero") (or pin()), which flips
+   [data-aura-theme-name] on a scope. Register it for switchers with
+   Aura.theme.registerTheme("frutiger-aero", { label: "Frutiger Aero" }).
+   ========================================================================== */
+
+[data-aura-theme-name="frutiger-aero"] {
+  /* Light-mode native chrome (date pickers, scrollbars, select popups). */
+  color-scheme: light;
+
+  /* ---- Sky palette — deep cerulean primary, leaf-green secondary --------- */
+  --aura-primary:    oklch(0.50 0.22 234);    /* deep Aero sky blue          */
+  --aura-secondary:  oklch(0.58 0.19 148);    /* vivid nature green          */
+  --aura-on-primary: #ffffff;
+
+  /* ---- Light, airy backgrounds ------------------------------------------ */
+  --aura-bg:            oklch(0.97 0.014 228);  /* near-white sky             */
+  --aura-bg-2:          oklch(0.93 0.022 228);  /* soft cloud-shadow          */
+  --aura-surface-solid: #ffffff;
+  --aura-surface-1:     var(--aura-surface-solid);
+  --aura-surface-2:     color-mix(in srgb, white 70%, transparent);
+  --aura-surface-3:     color-mix(in srgb, white 60%, transparent);
+  --aura-surface-4:     color-mix(in srgb, white 50%, transparent);
+  --aura-surface-5:     color-mix(in srgb, white 40%, transparent);
+  /* Sky-tinted borders so panel edges carry the blue hue. */
+  --aura-surface-stroke:        color-mix(in srgb, oklch(0.50 0.22 234) 18%, transparent);
+  --aura-surface-stroke-strong: color-mix(in srgb, oklch(0.50 0.22 234) 32%, transparent);
+
+  /* ---- Text — dark blue-gray on light surfaces --------------------------- */
+  --aura-text:        oklch(0.24 0.035 248);
+  --aura-text-muted:  oklch(0.44 0.03  248);
+  --aura-text-subtle: oklch(0.57 0.025 248);
+  /* #697 light-mode switch thumb: white so it reads on the blue "on" track. */
+  --aura-switch-thumb-bg: var(--aura-surface-solid);
+
+  /* ---- WCAG AA status colors for light surfaces (#442 / #552 treatment) -- */
+  --aura-success: #065f46;    /* dark teal-green — AA on white              */
+  --aura-warning: #7a4f01;    /* dark amber — AA on white                   */
+  --aura-danger:  #a30b22;    /* deep red — AA on white                     */
+  --aura-info:    #0c5e74;    /* dark cerulean — AA on white                */
+
+  /* Secondary-button text: the default --aura-secondary-100 is a pale green
+     that fails WCAG AA on the light secondary-a40 tint over near-white (≈1.2:1,
+     #839). Deepen to the -800 ramp tone — a dark nature green clearing 7.07:1
+     over the tint while staying on-brand. Token swap only; no component CSS. */
+  --aura-btn-secondary-text: var(--aura-secondary-800);
+  /* Same light-surface defect for the timepicker selected cell: the default pale
+     --aura-primary-100 text on the --aura-primary-a15 tile reads ≈1.2:1 here.
+     Deepen to the -800 primary ramp tone (token swap only; no component CSS). */
+  --aura-timepicker-cell-active-text: var(--aura-primary-800);
+
+  /* ---- Focus rings — opaque primary for light (#552) -------------------- */
+  --aura-ring:        0 0 0 3px oklch(0.50 0.22 234);
+  --aura-ring-offset: 0 0 0 2px var(--aura-bg);
+  --aura-focus-ring:  2px solid oklch(0.50 0.22 234);
+
+  /* ---- Shadows and edges — boosted for light-mode legibility (#48 / #47) - */
+  --aura-shadow-boost: 1.6;
+  --aura-shadow-color: 220 55% 38%;
+  --aura-edge-light:   color-mix(in srgb, white 80%, transparent);
+  /* Rim needs to be DARK on light glass (white-on-white disappears). */
+  --aura-edge-rim-color:
+    color-mix(in srgb, oklch(0.50 0.22 234) 55%, oklch(0.2 0.04 248));
+  /* Glow seed deepened so it reads on the pale background (#452 light fix). */
+  --aura-glow-color: color-mix(in srgb, oklch(0.50 0.22 234) 78%, black);
+
+  /* ---- Frutiger Aero glass — the defining visual feature ----------------- */
+  /* Heavy blur and saturation recreate the translucent frosted glass panels. */
+  --aura-blur-1: 3px;
+  --aura-blur-2: 8px;
+  --aura-blur-3: 14px;
+  --aura-blur-4: 22px;
+  --aura-blur-5: 32px;
+  --aura-glass-saturate:      2.0;     /* vivid chromatic saturation behind glass */
+  --aura-glass-tint:          oklch(0.50 0.22 234);
+  --aura-glass-tint-strength: 0.05;    /* subtle sky-blue tint wash               */
+
+  /* ---- Generous, cloud-soft radii --------------------------------------- */
+  --aura-radius-xs:   0.375rem;
+  --aura-radius-sm:   0.625rem;
+  --aura-radius-md:   1rem;
+  --aura-radius-lg:   1.5rem;
+  --aura-radius-xl:   2rem;
+  --aura-radius-2xl:  2.75rem;
+  --aura-radius-full: 9999px;
+
+  /* ---- Depth and motion — airy, light-footed feel ----------------------- */
+  --aura-depth:       1.8;
+  --aura-hover-lift:  3px;
+  --aura-dur-fast:    100ms;
+  --aura-dur-base:    220ms;
+  --aura-dur-slow:    400ms;
+  --aura-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* bouncy expansion */
+
+  /* ---- Wallpaper: layered sky, clouds, and nature greens ---------------- */
+  /* Aura-app::before picks this up when wallpaper="custom". On the default
+     aurora path the aurora gradient adapts automatically to the primary
+     (sky-blue) and secondary (green) seeds, which already looks thematic. */
+  --aura-wallpaper:
+    radial-gradient(60% 45% at 22% 8%,  color-mix(in srgb, white 90%, oklch(0.87 0.06 220)) 0%, transparent 70%),
+    radial-gradient(50% 35% at 68% 3%,  color-mix(in srgb, white 95%, transparent)           0%, transparent 65%),
+    radial-gradient(45% 40% at 85% 80%, color-mix(in srgb, oklch(0.82 0.12 148) 60%, transparent) 0%, transparent 70%),
+    radial-gradient(55% 50% at 15% 90%, color-mix(in srgb, oklch(0.82 0.12 148) 50%, transparent) 0%, transparent 70%),
+    linear-gradient(180deg,
+      oklch(0.87 0.07 225)  0%,
+      oklch(0.93 0.04 225) 30%,
+      oklch(0.97 0.014 228) 60%,
+      oklch(0.97 0.014 228) 100%);
+  --aura-wallpaper-scrim: linear-gradient(
+    180deg,
+    color-mix(in srgb, oklch(0.97 0.014 228) 32%, transparent),
+    color-mix(in srgb, oklch(0.97 0.014 228) 58%, transparent)
+  );
+}

@@ -1,0 +1,253 @@
+/* ==========================================================================
+   Aura — aura-datepicker: calendar date input.
+
+   CSS owns all appearance; JS (js/datepicker.js) adds behaviour and ARIA only.
+   The popup is positioned/animated by the shared overlay primitive
+   (css/overlay.css, .aura-overlay) and skinned here with the SAME glass /
+   elevation tokens the menu panel uses, so changing menu/elevation tokens
+   re-skins the calendar with no per-component duplication.
+
+   Configurable aesthetics (BINDING — §1 cross-cutting constraint):
+   every visual value is an existing global token or a component-scoped
+   --aura-datepicker-* custom property that DEFAULTS to a global token via a
+   var() fallback. Override any on an ancestor to re-skin without code edits.
+
+     --aura-datepicker-trigger-height  var(--aura-select-height)
+     --aura-datepicker-radius          var(--aura-radius-md)
+     --aura-datepicker-bg              var(--aura-surface-1)
+     --aura-datepicker-border          var(--aura-surface-stroke)
+     --aura-datepicker-font-size       var(--aura-text-sm)
+     --aura-datepicker-icon-color      var(--aura-text-subtle)
+     --aura-datepicker-cell-size       2.25rem  (≈36px: a comfortable tap target)
+     --aura-datepicker-cell-radius     var(--aura-radius-sm)
+     --aura-datepicker-today-ring      var(--aura-primary)
+     --aura-datepicker-selected-bg     var(--aura-primary)
+     --aura-datepicker-selected-fg     var(--aura-on-primary, white)
+     --aura-datepicker-disabled-opacity var(--aura-disabled-opacity)
+     --aura-datepicker-dur             var(--aura-dur-base)
+     --aura-datepicker-ease            var(--aura-ease-standard)
+
+   See docs/design/datepicker-design.md.
+   ========================================================================== */
+
+aura-datepicker {
+  display: block;
+  position: relative; /* measurement anchor; the panel itself goes to <body> */
+}
+
+/* ---- Trigger button (parity with aura-select trigger) ----------------- */
+.aura-datepicker__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-2);
+  inline-size: 100%;
+  block-size: var(--aura-datepicker-trigger-height, var(--aura-select-height, 2.75rem));
+  padding-inline: var(--aura-space-3);
+  font-family: inherit;
+  font-size: var(--aura-datepicker-font-size, var(--aura-text-sm));
+  color: var(--aura-text);
+  background: var(--aura-datepicker-bg, var(--aura-surface-1));
+  border: 1px solid var(--aura-datepicker-border, var(--aura-surface-stroke));
+  border-radius: var(--aura-datepicker-radius, var(--aura-radius-md));
+  /* #499: no backdrop-filter — a tier-1 (0px) blur is a visual no-op that still
+     forced a compositing layer, so it was pure waste regardless of fill opacity.
+     Dropped across every datepicker instance. (Note: --aura-surface-1 is
+     TRANSLUCENT in the dark default and opaque only in light mode / flat-primary;
+     the blur removal does not depend on the fill being opaque.) */
+  cursor: pointer;
+  user-select: none;
+  text-align: start;
+  transition:
+    border-color var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard)),
+    background   var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard)),
+    box-shadow   var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard));
+}
+
+.aura-datepicker__trigger:hover {
+  border-color: var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+}
+.aura-datepicker__trigger:focus-visible,
+aura-datepicker[open] .aura-datepicker__trigger {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  background: var(--aura-surface-2);
+  box-shadow: var(--aura-ring);
+}
+
+.aura-datepicker__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+.aura-datepicker__label[data-placeholder] { color: var(--aura-text-subtle); }
+
+.aura-datepicker__icon {
+  flex-shrink: 0;
+  color: var(--aura-datepicker-icon-color, var(--aura-text-subtle));
+}
+
+aura-datepicker[disabled] .aura-datepicker__trigger,
+.aura-datepicker__trigger:disabled {
+  opacity: var(--aura-datepicker-disabled-opacity, var(--aura-disabled-opacity));
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* ---- Popup panel (reuses the menu glass/elevation tokens) ------------- */
+.aura-datepicker__panel {
+  padding: var(--aura-space-2);
+  color: var(--aura-text);
+  font-size: var(--aura-datepicker-font-size, var(--aura-text-sm));
+  /* #594: tint-wash layer so a theme tint reaches the datepicker glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-surface-4);
+  -webkit-backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-datepicker-radius, var(--aura-radius-md));
+  box-shadow: var(--aura-shadow-4), inset 0 1px 0 var(--aura-edge-light);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-datepicker__panel { background: var(--aura-glass-tint-layer), var(--aura-surface-solid); }
+}
+/* Lite effects mode drops the blur for an opaque panel (mirrors menu.css). The
+   panel detaches to <body>, so the central .aura-surface lite rule cannot reach
+   it by descendant selector — it carries its own swap (#491). */
+[data-aura-effects="lite"] .aura-datepicker__panel {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+}
+
+/* ---- Header: prev | month-year | next --------------------------------- */
+.aura-datepicker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-2);
+  margin-block-end: var(--aura-space-2);
+}
+.aura-datepicker__title {
+  flex: 1;
+  text-align: center;
+  font-weight: var(--aura-weight-semibold);
+}
+.aura-datepicker__nav {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--aura-datepicker-cell-size, 2.25rem);
+  block-size: var(--aura-datepicker-cell-size, 2.25rem);
+  color: var(--aura-datepicker-icon-color, var(--aura-text-subtle));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--aura-datepicker-cell-radius, var(--aura-radius-sm));
+  cursor: pointer;
+  /* Small icon buttons: a tighter rim than the default reads better (token
+     delivered by ITEM-9; referenced here, not defined). */
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+  transition:
+    background var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard)),
+    color      var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard));
+}
+.aura-datepicker__nav:hover { background: var(--aura-primary-a15); color: var(--aura-text); }
+.aura-datepicker__nav:focus-visible { outline: none; box-shadow: var(--aura-ring); }
+
+/* ---- Calendar grid ----------------------------------------------------- */
+.aura-datepicker__grid {
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.aura-datepicker__grid th {
+  inline-size: var(--aura-datepicker-cell-size, 2.25rem);
+  padding-block: var(--aura-space-1);
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text-subtle);
+  text-align: center;
+}
+
+.aura-datepicker__day {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--aura-datepicker-cell-size, 2.25rem);
+  block-size: var(--aura-datepicker-cell-size, 2.25rem);
+  font-family: inherit;
+  font-size: var(--aura-datepicker-font-size, var(--aura-text-sm));
+  color: var(--aura-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--aura-datepicker-cell-radius, var(--aura-radius-sm));
+  cursor: pointer;
+  transition:
+    background var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-datepicker-ease, var(--aura-ease-standard)),
+    box-shadow var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-ease-out),
+    transform  var(--aura-datepicker-dur, var(--aura-dur-base)) var(--aura-ease-out);
+}
+
+/* Hover / keyboard-focus lift — mirrors the menu-row affordance. */
+.aura-datepicker__day:hover,
+.aura-datepicker__day:focus-visible {
+  position: relative;
+  z-index: 1;
+  background: var(--aura-primary-a15);
+  box-shadow: var(--aura-shadow-1);
+  transform: translateY(calc(-1 * var(--aura-hover-lift)));
+  outline: none;
+}
+
+.aura-datepicker__day--outside { color: var(--aura-text-subtle); }
+
+.aura-datepicker__day--today {
+  box-shadow: inset 0 0 0 1px var(--aura-datepicker-today-ring, var(--aura-primary));
+}
+
+.aura-datepicker__day--selected,
+.aura-datepicker__day--selected:hover,
+.aura-datepicker__day--selected:focus-visible {
+  background: var(--aura-datepicker-selected-bg, var(--aura-primary));
+  color: var(--aura-datepicker-selected-fg, var(--aura-on-primary, white));
+}
+
+.aura-datepicker__day--disabled {
+  opacity: var(--aura-datepicker-disabled-opacity, var(--aura-disabled-opacity));
+  pointer-events: none;
+  cursor: default;
+}
+
+/* ---- Range mode: in-between fill + endpoint caps ---------------------- */
+/* Days strictly between start and end get a soft band; the two endpoints keep
+   the solid --selected treatment. The band tint defaults to the same accent
+   wash the hover affordance uses, so it re-skins with the primary token. */
+.aura-datepicker__day--in-range {
+  background: var(--aura-datepicker-range-bg, var(--aura-primary-a15));
+  border-radius: 0;                /* contiguous band across the week */
+}
+.aura-datepicker__day--in-range:hover,
+.aura-datepicker__day--in-range:focus-visible {
+  background: var(--aura-datepicker-range-bg-hover, var(--aura-primary-a25));
+}
+/* Round only the outer corners of the two endpoints so the band reads as one
+   continuous selection with rounded ends. */
+.aura-datepicker__day--range-start {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+.aura-datepicker__day--range-end {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+/* A single-day range (start === end) keeps full rounding. */
+.aura-datepicker__day--range-start.aura-datepicker__day--range-end {
+  border-radius: var(--aura-datepicker-cell-radius, var(--aura-radius-sm));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-datepicker__trigger,
+  .aura-datepicker__nav,
+  .aura-datepicker__day { transition: none; }
+  .aura-datepicker__day:hover,
+  .aura-datepicker__day:focus-visible { transform: none; }
+}

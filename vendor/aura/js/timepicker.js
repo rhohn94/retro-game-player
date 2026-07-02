@@ -1,0 +1,1149 @@
+/* ==========================================================================
+   Aura — aura-timepicker: form-associated segmented time field + spinner popup.
+
+   A light-DOM custom element built on Aura.BaseElement (js/element-base.js). It
+   renders an always-present segmented field (HH:MM, optional :SS, optional
+   AM/PM) of role=spinbutton segments, plus an anchored spinner popup of
+   role=listbox columns for pointer selection. The single source of truth is a
+   canonical 24-hour string (HH:MM / HH:MM:SS) carried by a hidden input — the
+   exact value a native <input type="time"> submits — independent of the
+   12/24-hour display cycle. CSS owns all appearance; this file owns only the
+   time model, keyboard/pointer input, ARIA, and reflection.
+
+   Overlay seam: the anchored-overlay primitive is OWNED BY ITEM-5 (datepicker).
+   Until it lands on version/1.3, _overlayOpen / _overlayClose below provide a
+   thin local positioning + flip/clamp + dismissal + exit half of the harness
+   WITHOUT the menu's item/keyboard/typeahead semantics (the picker drives its
+   own listbox keyboard model). They are deliberately isolated to ONE pair of
+   methods so the integration master can re-point them to ITEM-5's final
+   Aura.overlay.openAtAnchor (or Aura.menu.openAtAnchor + a keynav opt-out) by
+   editing only those two methods — no call-site churn.
+
+   Load order: core.js → element-base.js → timepicker.js (self-registers).
+   See docs/design/timepicker-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement || !Aura.pickers) return;
+
+  /* Shared picker scaffolding (js/picker-base.js): the dual-endpoint range
+     value model, locale hour-cycle resolution, and the anchored-overlay-with-
+     revert lifecycle skeleton — all factored out so this file owns only the
+     time model, keyboard/pointer input, ARIA, and reflection (#323, #338). */
+  var pickers = Aura.pickers;
+
+  /* Separator between the two canonical times in a range value ("start/end"). */
+  var RANGE_SEP = pickers.RANGE_SEP;
+  /* Config attributes a range host forwards to BOTH inner endpoint pickers.
+     `format-hint` (the empty-segment glyph) replaced the old `placeholder` knob
+     in v3.6: `placeholder` is not a valid attribute on a role=group element
+     (axe aria-allowed-attr), so the public knob was renamed (see version-history). */
+  var FORWARDED_ATTRS = ["hour-cycle", "step", "with-seconds", "format-hint", "required"];
+
+  /* ---- Named constants (no magic numbers) ------------------------------- */
+  var DEFAULT_STEP_SEC = 60;        // native default: 1-minute granularity
+  var SEC_PER_MIN = 60;
+  var MIN_PER_HOUR = 60;
+  var HOURS_PER_DAY = 24;
+  var SEC_PER_HOUR = SEC_PER_MIN * MIN_PER_HOUR;
+  var SEC_PER_DAY = SEC_PER_HOUR * HOURS_PER_DAY;
+  var HOUR12_MAX = 12;              // largest hour shown in 12-hour mode
+  var TYPE_BUFFER_RESET_MS = 1000;  // idle gap that clears a segment typing buffer
+  var PLACEHOLDER_GLYPH = "--";     // default glyph shown in an empty segment
+
+  /* ---- Pure helpers ----------------------------------------------------- */
+  /* Zero-pad an integer to two digits. */
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  /* Parse a numeric attribute, returning fallback when absent/invalid. */
+  function num(v, fallback) { var n = parseInt(v, 10); return isNaN(n) ? fallback : n; }
+
+  /* Parse a canonical "HH:MM" / "HH:MM:SS" string into seconds-of-day, or
+     null when empty/malformed. Validates each field's range so a bad server
+     value fails loudly (empty) rather than silently corrupting the model. */
+  function parseCanonical(str) {
+    if (str == null) return null;
+    str = String(str).trim();
+    if (str === "") return null;
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(str);
+    if (!m) return null;
+    var h = +m[1], mi = +m[2], s = m[3] != null ? +m[3] : 0;
+    if (h > 23 || mi > 59 || s > 59) return null;
+    return h * SEC_PER_HOUR + mi * SEC_PER_MIN + s;
+  }
+
+  /* Format seconds-of-day into a canonical string (seconds field only when the
+     control has an active seconds segment). */
+  function formatCanonical(totalSec, withSeconds) {
+    var h = Math.floor(totalSec / SEC_PER_HOUR);
+    var mi = Math.floor((totalSec % SEC_PER_HOUR) / SEC_PER_MIN);
+    var s = totalSec % SEC_PER_MIN;
+    return withSeconds ? pad2(h) + ":" + pad2(mi) + ":" + pad2(s)
+                       : pad2(h) + ":" + pad2(mi);
+  }
+
+  /* Resolve the locale's default hour cycle to 12 or 24 (for hour-cycle=auto).
+     Lifted to the shared, testable picker-base unit (#323). */
+  var localeCycle = pickers.localeCycle;
+
+  /* ---- Element ---------------------------------------------------------- */
+  /* Summary: segmented time field + anchored spinner popup. The host is the
+     role=group field; spinbutton segments and a hidden input live inside; the
+     popup is a listbox-columns panel opened over the isolated overlay seam. */
+  var AuraTimepicker = class extends Aura.BaseElement {
+    static get observedAttributes() {
+      return ["value", "name", "hour-cycle", "step", "min", "max",
+              "with-seconds", "disabled", "readonly", "required",
+              "format-hint", "inline", "range"];
+    }
+
+    /* Real form association (#538): formAssociated so native <form>.reset()
+       restores the value and <fieldset disabled> propagates; submission rides
+       the host-named hidden input(s) (the well-tested path), so the host
+       publishes no setFormValue (the delegation pattern). */
+    static formAssociated = true;
+
+    connectedCallback() {
+      this._initFormInternals();
+      if (this.__formDefaultValue === undefined) {
+        this.__formDefaultValue = this.getAttribute("value");
+      }
+      super.connectedCallback();
+    }
+
+    /* Range (start–end paired) mode when range is "dual" / "" (bare). A range
+       host composes TWO inner single-mode aura-timepickers — reusing the whole
+       segment/popup/value model per endpoint — and orchestrates ordering, the
+       paired value, and the two host-named hidden inputs. */
+    get _isRange() {
+      var r = this.getAttribute("range");
+      return r === "dual" || r === "";
+    }
+
+    /* ---- model: display fields + period; canonical derives from them ----- */
+    /* __H/__M/__S are the values AS DISPLAYED (24h: 0-23; 12h hour: 1-12), or
+       null when empty. __P is the period ('AM'/'PM'), only meaningful in 12h
+       and defaulted to 'AM' so a 12h value is never half-formed. */
+
+    get _cycle() {
+      var c = this.getAttribute("hour-cycle");
+      if (c === "12") return 12;
+      if (c === "24") return 24;
+      return localeCycle();
+    }
+    get _is12() { return this._cycle === 12; }
+
+    get _stepSec() { var s = num(this.getAttribute("step"), DEFAULT_STEP_SEC); return s > 0 ? s : DEFAULT_STEP_SEC; }
+
+    /* Seconds segment is active when forced, or when step is not a whole
+       number of minutes (native <input type=time> semantics). */
+    get _withSeconds() {
+      if (this.hasAttribute("with-seconds")) return true;
+      var s = this._stepSec;
+      return s % SEC_PER_MIN !== 0;
+    }
+
+    /* Minute-column granularity (minutes). 1 when seconds are active; else the
+       step expressed in minutes (e.g. step=300 → 5). */
+    get _minuteStep() {
+      if (this._withSeconds) return 1;
+      return Math.max(1, Math.floor(this._stepSec / SEC_PER_MIN));
+    }
+
+    /* Second-column granularity (seconds). 0 when seconds inactive. */
+    get _secondStep() {
+      if (!this._withSeconds) return 0;
+      var s = this._stepSec;
+      return (s > 0 && s < SEC_PER_MIN) ? s : 1;
+    }
+
+    get _minSec() { return parseCanonical(this.getAttribute("min")); }
+    get _maxSec() { return parseCanonical(this.getAttribute("max")); }
+
+    /* ---- internal DOM (idempotent; reuses an existing build on reconnect) -- */
+    _build() {
+      if (this._isRange) { this._buildRange(); return; }
+
+      /* Clean up any range-mode artifacts left by a mode flip (endpoints +
+         the host's paired hidden inputs) before building the single field. */
+      var rangeStale = this.querySelectorAll(
+        ":scope > .aura-timepicker__endpoint, :scope > .aura-timepicker__range-sep, " +
+        ":scope > input.aura-timepicker__value--start, :scope > input.aura-timepicker__value--end"
+      );
+      Array.prototype.forEach.call(rangeStale, function (n) { n.remove(); });
+      this.__rangeStart = this.__rangeEnd = this.__inputStart = this.__inputEnd = null;
+
+      if (!this.hasAttribute("role")) this.setAttribute("role", "group");
+
+      /* Field wrapper holding the segments. */
+      this.__field = this.querySelector(":scope > .aura-timepicker__field");
+      if (!this.__field) {
+        this.__field = document.createElement("span");
+        this.__field.className = "aura-timepicker__field";
+        this.insertBefore(this.__field, this.firstChild);
+      }
+
+      /* Hidden form input carrying the canonical value. */
+      this.__input = this.querySelector(":scope > input.aura-timepicker__value");
+      if (!this.__input) {
+        this.__input = document.createElement("input");
+        this.__input.type = "hidden";
+        this.__input.className = "aura-timepicker__value";
+        this.appendChild(this.__input);
+      }
+
+      this.__segMap = {};   // unit → segment element
+      this.__columns = {};  // unit → column element
+      this.__structSig = "";
+
+      this._rebuildStructure();
+    }
+
+    /* ---- range mode: compose two inner endpoint pickers ----------------- */
+    /* Build (idempotently) a role=group host wrapping two single-mode
+       aura-timepicker children — start and end — plus a visual separator and
+       two host-named hidden inputs. Each child reuses the FULL segment/popup/
+       value engine; this host only orchestrates ordering + the paired value. */
+    _buildRange() {
+      this.setAttribute("role", "group");
+      this.removeAttribute("aria-haspopup");
+      this.removeAttribute("aria-expanded");
+
+      /* Reuse an existing range build (HTMX re-insert) or create it once. */
+      this.__rangeStart = this.querySelector(":scope > .aura-timepicker__endpoint--start");
+      if (!this.__rangeStart) {
+        /* Clear any single-mode build left behind by a mode flip. */
+        var stale = this.querySelectorAll(
+          ":scope > .aura-timepicker__field, :scope > .aura-timepicker__popup, :scope > input.aura-timepicker__value"
+        );
+        Array.prototype.forEach.call(stale, function (n) { n.remove(); });
+
+        this.__rangeStart = this._makeEndpoint("start", "Start time");
+        this.__rangeSep = document.createElement("span");
+        this.__rangeSep.className = "aura-timepicker__range-sep";
+        this.__rangeSep.setAttribute("aria-hidden", "true");
+        this.__rangeSep.textContent = "–";
+        this.__rangeEnd = this._makeEndpoint("end", "End time");
+
+        this.appendChild(this.__rangeStart);
+        this.appendChild(this.__rangeSep);
+        this.appendChild(this.__rangeEnd);
+      } else {
+        this.__rangeEnd = this.querySelector(":scope > .aura-timepicker__endpoint--end");
+      }
+
+      /* Two host-named hidden inputs so a submit sends name=start&name=end. */
+      this.__inputStart = this.querySelector(":scope > input.aura-timepicker__value--start");
+      if (!this.__inputStart) {
+        this.__inputStart = this._makeHiddenInput("aura-timepicker__value--start");
+      }
+      this.__inputEnd = this.querySelector(":scope > input.aura-timepicker__value--end");
+      if (!this.__inputEnd) {
+        this.__inputEnd = this._makeHiddenInput("aura-timepicker__value--end");
+      }
+    }
+
+    /* One inner endpoint picker (a single-mode aura-timepicker) with forwarded
+       config + an accessible name. Created without a `name` so only the host's
+       two hidden inputs participate in form submission. */
+    _makeEndpoint(role, label) {
+      var ep = document.createElement("aura-timepicker");
+      ep.className = "aura-timepicker__endpoint aura-timepicker__endpoint--" + role;
+      ep.setAttribute("aria-label", label);
+      ep.dataset.endpoint = role;
+      return ep;
+    }
+
+    _makeHiddenInput(cls) {
+      var input = document.createElement("input");
+      input.type = "hidden";
+      input.className = "aura-timepicker__value " + cls;
+      this.appendChild(input);
+      return input;
+    }
+
+    /* Build segments + popup columns for the active unit set; preserve the
+       current canonical value across a cycle/seconds change. Idempotent: only
+       rebuilds when the active-unit signature actually changes. */
+    _rebuildStructure() {
+      var sig = this._cycle + "|" + (this._withSeconds ? 1 : 0) +
+                "|" + this._minuteStep + "|" + this._secondStep;
+      if (sig === this.__structSig && this.__field.childNodes.length) return;
+
+      var prev = this._canonicalSeconds();   // preserve value across rebuild
+      this.__structSig = sig;
+
+      /* --- segmented field --- */
+      Aura.clearChildren(this.__field);
+      this.__segMap = {};
+      var units = ["hour", "minute"];
+      if (this._withSeconds) units.push("second");
+      if (this._is12) units.push("period");
+
+      for (var i = 0; i < units.length; i++) {
+        if (i > 0 && units[i] !== "period") this.__field.appendChild(this._makeSeparator(":"));
+        else if (units[i] === "period") this.__field.appendChild(this._makeSeparator(" "));
+        this.__field.appendChild(this._makeSegment(units[i]));
+      }
+
+      /* --- popup panel (lazy build of columns; placement deferred to open) --- */
+      this._buildPopup(units);
+
+      /* Restore the prior value (or empty) into the new structure. */
+      if (prev != null) this._setFromCanonical(prev);
+      else { this.__H = this.__M = this.__S = null; this.__P = "AM"; }
+    }
+
+    /* A read-only separator glyph between segments. */
+    _makeSeparator(ch) {
+      var sep = document.createElement("span");
+      sep.className = "aura-timepicker__sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = ch;
+      return sep;
+    }
+
+    /* One editable segment (role=spinbutton). */
+    _makeSegment(unit) {
+      var seg = document.createElement("span");
+      /* Proximity glow (v3.2): each segment is an independently clickable
+         spinbutton, so it is its OWN .aura-glow host (the engine caches one
+         sub-part per host — separate hosts keep each segment lighting on its
+         own). A compact radius (timepicker.css) suits the small segments. */
+      seg.className = "aura-timepicker__segment aura-glow";
+      seg.setAttribute("role", "spinbutton");
+      seg.setAttribute("data-unit", unit);
+      seg.setAttribute("inputmode", "numeric");
+      /* Every spinbutton segment needs a programmatic accessible name (axe
+         aria-input-field-name): name it for its unit (period reads "AM/PM"). */
+      seg.setAttribute("aria-label", unit === "period" ? "AM/PM" : unit);
+      seg.dataset.label = unit;
+      this.__segMap[unit] = seg;
+      return seg;
+    }
+
+    /* Build the popup panel with one listbox column per active unit. */
+    _buildPopup(units) {
+      var panel = this.querySelector(":scope > .aura-timepicker__popup");
+      if (!panel) {
+        panel = document.createElement("div");
+        panel.className = "aura-timepicker__popup";
+        this.appendChild(panel);
+      }
+      Aura.clearChildren(panel);
+      panel.setAttribute("role", "group");
+      this.__panel = panel;
+      this.__columns = {};
+
+      for (var i = 0; i < units.length; i++) {
+        var col = document.createElement("ul");
+        col.className = "aura-timepicker__col";
+        col.setAttribute("role", "listbox");
+        col.setAttribute("data-unit", units[i]);
+        col.setAttribute("aria-label", units[i]);
+        col.tabIndex = -1;
+        var values = this._columnValues(units[i]);
+        for (var j = 0; j < values.length; j++) {
+          var cell = document.createElement("li");
+          cell.className = "aura-timepicker__cell";
+          cell.setAttribute("role", "option");
+          cell.setAttribute("data-value", String(values[j].raw));
+          cell.textContent = values[j].label;
+          col.appendChild(cell);
+        }
+        panel.appendChild(col);
+        this.__columns[units[i]] = col;
+      }
+    }
+
+    /* The ordered cell descriptors for a unit's column. */
+    _columnValues(unit) {
+      var out = [], i;
+      if (unit === "hour") {
+        if (this._is12) { for (i = 1; i <= HOUR12_MAX; i++) out.push({ raw: i, label: pad2(i) }); }
+        else { for (i = 0; i < HOURS_PER_DAY; i++) out.push({ raw: i, label: pad2(i) }); }
+      } else if (unit === "minute") {
+        for (i = 0; i < MIN_PER_HOUR; i += this._minuteStep) out.push({ raw: i, label: pad2(i) });
+      } else if (unit === "second") {
+        var st = this._secondStep || 1;
+        for (i = 0; i < SEC_PER_MIN; i += st) out.push({ raw: i, label: pad2(i) });
+      } else { /* period */
+        out.push({ raw: "AM", label: "AM" });
+        out.push({ raw: "PM", label: "PM" });
+      }
+      return out;
+    }
+
+    /* ---- listeners (bound once) ----------------------------------------- */
+    _bind() {
+      if (this._isRange) { this._bindRange(); return; }
+      var self = this;
+      this.__field.addEventListener("keydown", function (e) { self._onSegmentKey(e); });
+      this.__field.addEventListener("pointerdown", function (e) { self._onFieldPointerDown(e); });
+      this.__field.addEventListener("focusin", function () { self._maybeOpen(); });
+      this.__panel.addEventListener("pointerdown", function (e) { self._onCellPointer(e); });
+      this.__panel.addEventListener("keydown", function (e) { self._onPopupKey(e); });
+      /* Stable, bound document listeners for popup dismissal (added on open). */
+      this.__onDocPointer = function (e) { self._onDocPointer(e); };
+      this.__onDocScroll = function () { self._closePopup(false); };
+      this.__onWinResize = function () { self._closePopup(false); };
+      this.__onWinBlur = function () { self._closePopup(false); };
+    }
+
+    /* Wire the two endpoint pickers: each child's commit flows back through the
+       host so it can enforce start <= end and reflect the paired value. */
+    _bindRange() {
+      // Keep ONE bound reference so add/removeEventListener match (a fresh
+      // .bind() each call would not be removable). The handler itself is the
+      // named _onEndpointChange method below.
+      this.__onEndpointChange = this._onEndpointChange.bind(this);
+      this.addEventListener("aura:change", this.__onEndpointChange);
+    }
+
+    /* Host-level commit relay for the two endpoint pickers: a child's aura:change
+       flows back through the host so it can enforce start <= end and reflect the
+       paired value. Bound once in _bindRange (promoted from an inline closure so
+       it is a real, testable method, not a multi-purpose instance field — #348). */
+    _onEndpointChange(e) {
+      if (e.target === this.__rangeStart || e.target === this.__rangeEnd) {
+        e.stopPropagation();                  // don't leak the child's event
+        this._onEndpointCommit(e.target);
+      }
+    }
+
+    /* ---- reflect host attributes → state (runs on every connect) -------- */
+    _sync() {
+      if (this._isRange) { this._syncRange(); return; }
+      this._rebuildStructure();
+      this._reflectName();
+      this._reflectRequired();
+      this._reflectDisabled();
+      this._reflectInline();
+      /* Seed the model from the value attribute, then render everything. */
+      this._setFromCanonical(parseCanonical(this.getAttribute("value")));
+      this._render({});
+    }
+
+    /* Reflect host config onto both endpoints, seed their values from the paired
+       "start/end" value, apply the cross-clamp bounds, and write the host inputs. */
+    _syncRange() {
+      this._forwardConfig();
+      this._reflectName();
+      this._reflectDisabledRange();
+      var pair = this._currentPair();
+      /* Seed children without echoing back (guard the commit handler). */
+      this.__seeding = true;
+      this.__rangeStart.setAttribute("value", pair[0]);
+      if (pair[1] === "") this.__rangeEnd.removeAttribute("value");
+      else this.__rangeEnd.setAttribute("value", pair[1]);
+      this.__seeding = false;
+      this._applyCrossBounds();
+      this._reflectPairInputs();
+    }
+
+    /* Forward shared config attributes to both endpoint pickers (idempotent). */
+    _forwardConfig() {
+      var s = this.__rangeStart, e = this.__rangeEnd;
+      for (var i = 0; i < FORWARDED_ATTRS.length; i++) {
+        var a = FORWARDED_ATTRS[i];
+        if (this.hasAttribute(a)) {
+          s.setAttribute(a, this.getAttribute(a));
+          e.setAttribute(a, this.getAttribute(a));
+        } else {
+          s.removeAttribute(a);
+          e.removeAttribute(a);
+        }
+      }
+    }
+
+    /* Route an observed attribute change to the narrowest update. */
+    _onAttr(name) {
+      if (name === "range") {
+        /* Mode flip: drop the host-level range listener (if any), rebuild the
+           internal DOM, and re-init via the normal connect path. */
+        if (this.__onEndpointChange) {
+          this.removeEventListener("aura:change", this.__onEndpointChange);
+          this.__onEndpointChange = null;
+        }
+        /* Full re-init: the host listener was just removed and the internal DOM
+           is rebuilt for the new mode, so force a fresh _bind() too — clear
+           __bound (the #439 bind-once flag) so connectedCallback re-binds. */
+        this.__init = false;
+        this.__bound = false;
+        this.connectedCallback();
+        return;
+      }
+      if (this._isRange) { this._syncRange(); return; }
+      if (name === "name") { this._reflectName(); return; }
+      if (name === "required") { this._reflectRequired(); return; }
+      if (name === "disabled") { this._reflectDisabled(); return; }
+      if (name === "inline") { this._rebuildStructure(); this._reflectInline(); this._render({}); return; }
+      if (name === "value") { this._setFromCanonical(parseCanonical(this.getAttribute("value"))); this._render({}); return; }
+      /* hour-cycle / step / with-seconds / min / max all alter structure. */
+      this._rebuildStructure();
+      this._reflectInline();
+      this._render({});
+    }
+
+    _reflectName() {
+      var nm = this.getAttribute("name") || "";
+      if (this._isRange) {
+        if (this.__inputStart) this.__inputStart.name = nm;
+        if (this.__inputEnd) this.__inputEnd.name = nm;
+        return;
+      }
+      if (this.__input) this.__input.name = nm;
+    }
+
+    /* ---- range orchestration -------------------------------------------- */
+    /* Parse the host's "start/end" value into a [startStr, endStr] pair of
+       canonical strings ("" for an empty side). Order is enforced when both
+       sides are present (so a stored reversed pair is corrected on read). */
+    _currentPair() {
+      var parts = pickers.splitRange(this.getAttribute("value") || "");
+      var start = parseCanonical(parts[0]) != null ? String(parts[0]).trim() : "";
+      var end = parseCanonical(parts[1]) != null ? String(parts[1]).trim() : "";
+      return pickers.orderPair(start, end, parseCanonical);
+    }
+
+    /* A child endpoint committed a new value. Enforce ordering, re-apply the
+       cross-clamp bounds, reflect the paired value + host inputs, and emit a
+       host-level aura:change carrying the pair. */
+    _onEndpointCommit() {
+      if (this.__seeding) return;
+      var startStr = this.__rangeStart.value || "";
+      var endStr = this.__rangeEnd.value || "";
+      /* Ordering: if both present and reversed, swap the children's values. */
+      if (startStr !== "" && endStr !== "" &&
+          parseCanonical(endStr) < parseCanonical(startStr)) {
+        this.__seeding = true;
+        this.__rangeStart.value = endStr;
+        this.__rangeEnd.value = startStr;
+        this.__seeding = false;
+        var t = startStr; startStr = endStr; endStr = t;
+      }
+      this._applyCrossBounds();
+      this._reflectValue(startStr, endStr);
+      this.dispatchEvent(new CustomEvent("aura:change", {
+        bubbles: true, detail: { value: startStr + RANGE_SEP + endStr, start: startStr, end: endStr }
+      }));
+    }
+
+    /* Cross-clamp: the start picker's max is the end value (and the end picker's
+       min is the start value), so the spinner cells past the partner are
+       disabled and the two cannot cross. Each side still honours the host
+       min/max bounds. */
+    _applyCrossBounds() {
+      var startStr = this.__rangeStart.value || "";
+      var endStr = this.__rangeEnd.value || "";
+      var hostMin = this.getAttribute("min");
+      var hostMax = this.getAttribute("max");
+
+      this._setBound(this.__rangeStart, "min", hostMin);
+      this._setBound(this.__rangeStart, "max", endStr !== "" ? endStr : hostMax);
+      this._setBound(this.__rangeEnd, "min", startStr !== "" ? startStr : hostMin);
+      this._setBound(this.__rangeEnd, "max", hostMax);
+    }
+
+    /* Set or clear a bound attribute on an endpoint without echoing back. */
+    _setBound(ep, attr, val) {
+      this.__seeding = true;
+      if (val == null || val === "") ep.removeAttribute(attr);
+      else ep.setAttribute(attr, val);
+      this.__seeding = false;
+    }
+
+    /* Reflect the paired value onto the host value attribute + both inputs. */
+    _reflectValue(startStr, endStr) {
+      var paired = startStr + RANGE_SEP + endStr;
+      if ((this.getAttribute("value") || "") !== paired) {
+        this.__reflecting = true;
+        if (startStr === "" && endStr === "") this.removeAttribute("value");
+        else this.setAttribute("value", paired);
+        this.__reflecting = false;
+      }
+      this._reflectPairInputs();
+    }
+
+    /* Mirror each endpoint's current value onto its host-named hidden input. */
+    _reflectPairInputs() {
+      if (this.__inputStart) this.__inputStart.value = this.__rangeStart.value || "";
+      if (this.__inputEnd) this.__inputEnd.value = this.__rangeEnd.value || "";
+    }
+
+    /* Reflect disabled onto the group + both endpoints. */
+    _reflectDisabledRange() {
+      var dis = this._isDisabled();
+      this.setAttribute("aria-disabled", dis ? "true" : "false");
+      if (dis) { this.__rangeStart.setAttribute("disabled", ""); this.__rangeEnd.setAttribute("disabled", ""); }
+      else { this.__rangeStart.removeAttribute("disabled"); this.__rangeEnd.removeAttribute("disabled"); }
+    }
+    _reflectRequired() {
+      var req = this.hasAttribute("required");
+      if (this.__input) this.__input.required = req;
+      /* aria-required is not a valid attribute on role=group (axe aria-allowed-
+         attr). The hidden input carries native `required` for form validation;
+         each spinbutton segment reflects aria-required so AT still hears it. */
+      this.removeAttribute("aria-required");
+      for (var unit in this.__segMap) {
+        if (this.__segMap.hasOwnProperty(unit)) {
+          this.__segMap[unit].setAttribute("aria-required", req ? "true" : "false");
+        }
+      }
+    }
+    _reflectDisabled() {
+      var dis = this._isDisabled();
+      this.setAttribute("aria-disabled", dis ? "true" : "false");
+      this._updateTabStops();
+    }
+    _reflectInline() {
+      var inline = this.hasAttribute("inline");
+      if (inline) {
+        this._closePopup(false);                 // drop any floating state
+        this.setAttribute("aria-haspopup", "false");
+        this.__panel.classList.add("aura-timepicker__popup--open"); // always-visible, in-flow
+        this._refreshPopup();
+      } else {
+        this.setAttribute("aria-haspopup", "listbox");
+        if (!this.__popupOpen) this.__panel.classList.remove("aura-timepicker__popup--open");
+      }
+      if (!this.hasAttribute("aria-expanded")) this.setAttribute("aria-expanded", "false");
+      this._updateTabStops();
+    }
+
+    /* Disabled removes segments from the tab order; readonly keeps them
+       focusable (to read) but blocks editing in the handlers. */
+    _updateTabStops() {
+      var dis = this._isDisabled();
+      for (var unit in this.__segMap) {
+        if (this.__segMap.hasOwnProperty(unit)) this.__segMap[unit].tabIndex = dis ? -1 : 0;
+      }
+    }
+
+    /* ---- canonical <-> display fields ----------------------------------- */
+    /* Canonical seconds-of-day from the display fields, or null when any
+       required field is empty. */
+    _canonicalSeconds() {
+      if (this.__H == null || this.__M == null) return null;
+      if (this._withSeconds && this.__S == null) return null;
+      var h = this.__H;
+      if (this._is12) h = (this.__H % HOUR12_MAX) + (this.__P === "PM" ? HOUR12_MAX : 0);
+      var s = this._withSeconds ? this.__S : 0;
+      return h * SEC_PER_HOUR + this.__M * SEC_PER_MIN + s;
+    }
+
+    /* Populate display fields from a canonical seconds value (or clear them). */
+    _setFromCanonical(totalSec) {
+      if (totalSec == null) {
+        this.__H = this.__M = this.__S = null;
+        this.__P = "AM";
+        return;
+      }
+      totalSec = this._clampSec(totalSec);
+      var h = Math.floor(totalSec / SEC_PER_HOUR);
+      this.__M = Math.floor((totalSec % SEC_PER_HOUR) / SEC_PER_MIN);
+      this.__S = this._withSeconds ? (totalSec % SEC_PER_MIN) : null;
+      if (this._is12) {
+        this.__P = h >= HOUR12_MAX ? "PM" : "AM";
+        this.__H = (h % HOUR12_MAX) || HOUR12_MAX;
+      } else {
+        this.__P = "AM";
+        this.__H = h;
+      }
+    }
+
+    /* Clamp a canonical seconds value to [min,max] when those are set. */
+    _clampSec(totalSec) {
+      var lo = this._minSec, hi = this._maxSec;
+      if (lo != null && totalSec < lo) totalSec = lo;
+      if (hi != null && totalSec > hi) totalSec = hi;
+      return totalSec;
+    }
+
+    /* ---- render: field text + ARIA + hidden input + value attr ---------- */
+    /* Reflect the model into every surface. opts.input / opts.change emit the
+       corresponding events (mirrors aura-range). */
+    _render(opts) {
+      /* Clamp a complete value to range before reflecting. */
+      var canon = this._canonicalSeconds();
+      if (canon != null) {
+        var clamped = this._clampSec(canon);
+        if (clamped !== canon) { this._setFromCanonical(clamped); canon = clamped; }
+      }
+
+      this._renderSegment("hour", this.__H, this._is12 ? 1 : 0, this._is12 ? HOUR12_MAX : HOURS_PER_DAY - 1, "hours");
+      this._renderSegment("minute", this.__M, 0, MIN_PER_HOUR - 1, "minutes");
+      if (this._withSeconds) this._renderSegment("second", this.__S, 0, SEC_PER_MIN - 1, "seconds");
+      if (this._is12) this._renderPeriod();
+
+      /* Hidden input + value attribute carry the canonical string. */
+      var str = canon != null ? formatCanonical(canon, this._withSeconds) : "";
+      if (this.__input) this.__input.value = str;
+      if ((this.getAttribute("value") || "") !== str) {
+        this.__reflecting = true;
+        if (str === "") this.removeAttribute("value"); else this.setAttribute("value", str);
+        this.__reflecting = false;
+      }
+
+      this._syncPopupActive();   // keep open / inline columns in step with the value
+
+      if (opts.input) this.dispatchEvent(new Event("input", { bubbles: true }));
+      if (opts.change) this.dispatchEvent(new CustomEvent("aura:change", { bubbles: true, detail: { value: str } }));
+    }
+
+    /* Reflect one numeric segment's text + spinbutton ARIA. */
+    _renderSegment(unit, displayVal, lo, hi, noun) {
+      var seg = this.__segMap[unit];
+      if (!seg) return;
+      seg.setAttribute("aria-valuemin", String(lo));
+      seg.setAttribute("aria-valuemax", String(hi));
+      if (displayVal == null) {
+        seg.textContent = this._placeholderFor();
+        seg.removeAttribute("aria-valuenow");
+        seg.setAttribute("aria-valuetext", "Empty");
+        seg.setAttribute("data-empty", "");
+      } else {
+        seg.textContent = pad2(displayVal);
+        seg.setAttribute("aria-valuenow", String(displayVal));
+        seg.setAttribute("aria-valuetext", displayVal + " " + noun);
+        seg.removeAttribute("data-empty");
+      }
+    }
+
+    /* Reflect the AM/PM period segment. role="spinbutton" requires a numeric
+       aria-valuenow (and bounds); aria-valuetext only supplements it. The period
+       is a two-state spinbutton, so it carries min=0/max=1 with now=0 for AM and
+       now=1 for PM alongside the human-readable valuetext (#702). */
+    _renderPeriod() {
+      var seg = this.__segMap.period;
+      if (!seg) return;
+      seg.textContent = this.__P;
+      var isPM = this.__P === "PM";
+      seg.setAttribute("aria-valuemin", "0");
+      seg.setAttribute("aria-valuemax", "1");
+      seg.setAttribute("aria-valuenow", isPM ? "1" : "0");
+      seg.setAttribute("aria-valuetext", isPM ? "PM" : "AM");
+      seg.removeAttribute("data-empty");
+    }
+
+    /* The glyph shown in an empty segment. Reads the `format-hint` knob (renamed
+       from `placeholder` in v3.6 — `placeholder` is invalid on role=group). */
+    _placeholderFor() {
+      var p = this.getAttribute("format-hint");
+      return p != null && p !== "" ? p.slice(0, 2) : PLACEHOLDER_GLYPH;
+    }
+
+    /* ---- gate helpers --------------------------------------------------- */
+    _editable() { return !this._isDisabled() && !this.hasAttribute("readonly"); }
+
+    /* ---- segment keyboard ----------------------------------------------- */
+    _onSegmentKey(e) {
+      var seg = e.target.closest(".aura-timepicker__segment");
+      if (!seg) return;
+      var unit = seg.getAttribute("data-unit");
+
+      switch (e.key) {
+        case "ArrowRight": e.preventDefault(); this._focusSibling(seg, 1); return;
+        case "ArrowLeft": e.preventDefault(); this._focusSibling(seg, -1); return;
+      }
+      if (!this._editable()) return;
+
+      switch (e.key) {
+        case "ArrowUp": e.preventDefault(); this._stepUnit(unit, 1); break;
+        case "ArrowDown": e.preventDefault(); this._stepUnit(unit, -1); break;
+        case "Home": e.preventDefault(); this._setUnitExtreme(unit, true); break;
+        case "End": e.preventDefault(); this._setUnitExtreme(unit, false); break;
+        case "Backspace": case "Delete": e.preventDefault(); this._clearUnit(unit); break;
+        default:
+          if (unit === "period" && (e.key === "a" || e.key === "A")) { e.preventDefault(); this._setPeriod("AM"); }
+          else if (unit === "period" && (e.key === "p" || e.key === "P")) { e.preventDefault(); this._setPeriod("PM"); }
+          else if (/^[0-9]$/.test(e.key) && unit !== "period") { e.preventDefault(); this._typeDigit(seg, unit, +e.key); }
+      }
+    }
+
+    /* Move focus to the previous/next editable segment, wrapping in-group. */
+    _focusSibling(seg, dir) {
+      var segs = this.__field.querySelectorAll(".aura-timepicker__segment");
+      var list = Array.prototype.slice.call(segs);
+      var i = list.indexOf(seg);
+      if (i === -1) return;
+      var next = list[(i + dir + list.length) % list.length];
+      if (next) next.focus();
+    }
+
+    /* Step a unit by ±1 (hours/period) or ±its grid step (minutes/seconds),
+       wrapping within the segment with no carry into adjacent segments. */
+    _stepUnit(unit, dir) {
+      if (unit === "period") { this._setPeriod(this.__P === "AM" ? "PM" : "AM"); return; }
+      if (unit === "hour") {
+        if (this._is12) this.__H = ((((this.__H || 1) - 1 + dir) % HOUR12_MAX) + HOUR12_MAX) % HOUR12_MAX + 1;
+        else this.__H = (((this.__H || 0) + dir) % HOURS_PER_DAY + HOURS_PER_DAY) % HOURS_PER_DAY;
+      } else if (unit === "minute") {
+        this.__M = this._wrapStep(this.__M, dir * this._minuteStep, MIN_PER_HOUR);
+      } else if (unit === "second") {
+        this.__S = this._wrapStep(this.__S, dir * (this._secondStep || 1), SEC_PER_MIN);
+      }
+      this._render({ input: true, change: true });
+    }
+
+    /* Wrap-with-no-carry stepping within [0,mod). */
+    _wrapStep(cur, delta, mod) {
+      var v = (cur == null ? 0 : cur) + delta;
+      v = ((v % mod) + mod) % mod;
+      return v;
+    }
+
+    /* Home/End → segment min/max. */
+    _setUnitExtreme(unit, atMin) {
+      if (unit === "period") { this._setPeriod(atMin ? "AM" : "PM"); return; }
+      if (unit === "hour") this.__H = this._is12 ? (atMin ? 1 : HOUR12_MAX) : (atMin ? 0 : HOURS_PER_DAY - 1);
+      else if (unit === "minute") this.__M = atMin ? 0 : this._lastGrid(MIN_PER_HOUR, this._minuteStep);
+      else if (unit === "second") this.__S = atMin ? 0 : this._lastGrid(SEC_PER_MIN, this._secondStep || 1);
+      this._render({ input: true, change: true });
+    }
+
+    /* The largest stepped grid value below mod. */
+    _lastGrid(mod, step) { return Math.floor((mod - 1) / step) * step; }
+
+    _clearUnit(unit) {
+      if (unit === "hour") this.__H = null;
+      else if (unit === "minute") this.__M = null;
+      else if (unit === "second") this.__S = null;
+      this._render({ input: true, change: true });
+    }
+
+    _setPeriod(p) {
+      this.__P = p;
+      this._render({ input: true, change: true });
+    }
+
+    /* Direct digit typing with auto-advance once the segment is full. */
+    _typeDigit(seg, unit, d) {
+      var self = this;
+      clearTimeout(seg.__bufTimer);
+      var buf = seg.__buf || "";
+      var done = false;       // segment is full → commit + auto-advance
+      var val;
+
+      if (unit === "hour" && this._is12) {
+        if (buf === "1") { val = (d >= 0 && d <= 2) ? 10 + d : d; done = true; }
+        else if (d === 0) { val = null; }            // no leading 0 in 12h
+        else if (d === 1) { seg.__buf = "1"; val = 1; }
+        else { val = d; done = true; }
+      } else if (unit === "hour") {                  // 24h, 0-23
+        if (buf === "2") { val = (d <= 3) ? 20 + d : d; done = true; }
+        else if (buf === "1") { val = 10 + d; done = true; }
+        else if (buf === "0") { val = d; done = true; }
+        else if (d >= 3) { val = d; done = true; }
+        else { seg.__buf = String(d); val = d; }
+      } else {                                        // minute / second, 0-59
+        if (buf !== "") { val = (+buf) * 10 + d; done = true; }
+        else if (d >= 6) { val = d; done = true; }
+        else { seg.__buf = String(d); val = d; }
+      }
+
+      if (val != null) this._setUnitRaw(unit, val);
+      if (done) {
+        seg.__buf = "";
+        this._render({ input: true, change: true });
+        this._focusSibling(seg, 1);
+      } else {
+        this._render({ input: true });
+        seg.__bufTimer = setTimeout(function () { seg.__buf = ""; }, TYPE_BUFFER_RESET_MS);
+      }
+    }
+
+    /* Set a unit from a raw display value (no event side effects). */
+    _setUnitRaw(unit, val) {
+      if (unit === "hour") this.__H = val;
+      else if (unit === "minute") this.__M = val;
+      else if (unit === "second") this.__S = val;
+    }
+
+    /* ---- popup open / close (uses the isolated overlay seam) ------------ */
+    _onFieldPointerDown() {
+      /* A pointer press on the field opens the popup (focusin also opens, for
+         keyboard tab-in); re-pressing while open is a no-op — it stays open. */
+      this._maybeOpen();
+    }
+
+    _maybeOpen() {
+      if (!this._editable() || this.hasAttribute("inline") || this.__popupOpen) return;
+      if (this.__suppressOpen) return; // just closed via Enter/Escape — don't re-open on the returned focus
+      this._openPopup();
+    }
+
+    _openPopup() {
+      this.__revertSec = this._canonicalSeconds();   // snapshot for Escape
+      this._refreshPopup();
+      this._overlayOpen();
+      this.__popupOpen = true;
+      this.setAttribute("aria-expanded", "true");
+      this.setAttribute("open", "");
+      this._addDismissListeners();
+    }
+
+    /* Close the popup. revert=true restores the snapshot taken at open. */
+    _closePopup(revert) {
+      if (!this.__popupOpen) return;
+      if (revert && this.__revertSec !== undefined) {
+        this._setFromCanonical(this.__revertSec);
+        this._render({ input: true, change: true });
+      }
+      this.__popupOpen = false;
+      this.setAttribute("aria-expanded", "false");
+      this.removeAttribute("open");
+      this._removeDismissListeners();
+      this._overlayClose();
+      /* Suppress the re-open that the returned focus (Enter/Escape → segment)
+         would otherwise trigger via focusin; a later genuine focus/click opens
+         normally once the flag clears. The returned focus() is dispatched
+         synchronously in THIS task (just after this close), so a microtask
+         clear is sufficient and tighter than a macrotask defer — the focusin
+         that must be suppressed has already run by the time it drains (#363). */
+      this.__suppressOpen = true;
+      var self = this;
+      queueMicrotask(function () { self.__suppressOpen = false; });
+    }
+
+    _addDismissListeners() {
+      document.addEventListener("pointerdown", this.__onDocPointer, true);
+      document.addEventListener("scroll", this.__onDocScroll, true);
+      window.addEventListener("resize", this.__onWinResize);
+      window.addEventListener("blur", this.__onWinBlur);
+    }
+    _removeDismissListeners() {
+      document.removeEventListener("pointerdown", this.__onDocPointer, true);
+      document.removeEventListener("scroll", this.__onDocScroll, true);
+      window.removeEventListener("resize", this.__onWinResize);
+      window.removeEventListener("blur", this.__onWinBlur);
+    }
+
+    _onDocPointer(e) {
+      if (this.contains(e.target) || (this.__panel && this.__panel.contains(e.target))) return;
+      this._closePopup(false);  // outside-click commits the live selection
+    }
+
+    /* Reflect current value into the columns' selected/disabled state and
+       scroll the selected cell into view. */
+    _refreshPopup() {
+      this._refreshColumn("hour", this.__H);
+      this._refreshColumn("minute", this.__M);
+      if (this._withSeconds) this._refreshColumn("second", this.__S);
+      if (this._is12) this._refreshColumn("period", this.__P);
+    }
+
+    _refreshColumn(unit, current) {
+      var col = this.__columns[unit];
+      if (!col) return;
+      var cells = col.querySelectorAll(".aura-timepicker__cell");
+      for (var i = 0; i < cells.length; i++) {
+        var cell = cells[i];
+        var raw = unit === "period" ? cell.getAttribute("data-value") : +cell.getAttribute("data-value");
+        var disabled = unit === "period" ? false : !this._rangeAllows(unit, +cell.getAttribute("data-value"));
+        cell.setAttribute("aria-disabled", disabled ? "true" : "false");
+        var sel = (current != null && raw === (unit === "period" ? current : +current));
+        cell.setAttribute("aria-selected", sel ? "true" : "false");
+        if (sel) { col.__active = i; cell.scrollIntoView({ block: "nearest" }); }
+      }
+    }
+
+    /* Keep the popup highlight in sync after a segment edit (when open, or
+       always for the inline always-visible columns). */
+    _syncPopupActive() { if (this.__popupOpen || this.hasAttribute("inline")) this._refreshPopup(); }
+
+    /* Does any in-range time exist with this unit fixed to val (higher-order
+       units held at their current value)? Drives spinner cell disabling. */
+    _rangeAllows(unit, val) {
+      var lo = this._minSec, hi = this._maxSec;
+      if (lo == null && hi == null) return true;
+      var H = this._is12 ? ((this.__H || 1) % HOUR12_MAX) + (this.__P === "PM" ? HOUR12_MAX : 0) : (this.__H || 0);
+      var winLo, winHi;
+      if (unit === "hour") {
+        var h = this._is12 ? (val % HOUR12_MAX) + (this.__P === "PM" ? HOUR12_MAX : 0) : val;
+        winLo = h * SEC_PER_HOUR; winHi = winLo + SEC_PER_HOUR - 1;
+      } else if (unit === "minute") {
+        winLo = H * SEC_PER_HOUR + val * SEC_PER_MIN; winHi = winLo + SEC_PER_MIN - 1;
+      } else { /* second */
+        winLo = winHi = H * SEC_PER_HOUR + (this.__M || 0) * SEC_PER_MIN + val;
+      }
+      if (lo != null && winHi < lo) return false;
+      if (hi != null && winLo > hi) return false;
+      return true;
+    }
+
+    /* ---- popup pointer + keyboard --------------------------------------- */
+    _onCellPointer(e) {
+      var cell = e.target.closest(".aura-timepicker__cell");
+      if (!cell || cell.getAttribute("aria-disabled") === "true") return;
+      e.preventDefault();   // keep field focus; do not blur into the panel
+      var col = cell.closest(".aura-timepicker__col");
+      this._commitCell(col, cell);
+    }
+
+    /* Apply a chosen cell to its unit, live (popup stays open for other cols). */
+    _commitCell(col, cell) {
+      var unit = col.getAttribute("data-unit");
+      if (unit === "period") this.__P = cell.getAttribute("data-value");
+      else this._setUnitRaw(unit, +cell.getAttribute("data-value"));
+      this._render({ input: true, change: true });   // _render refreshes the open columns
+    }
+
+    _onPopupKey(e) {
+      if (!this.__popupOpen && !this.hasAttribute("inline")) return;
+      switch (e.key) {
+        case "Escape": e.preventDefault(); this._closePopup(true); this._focusFirstSegment(); break;
+        case "Enter": e.preventDefault(); this._closePopup(false); this._focusFirstSegment(); break;
+        case "ArrowUp": e.preventDefault(); this._moveActive(e, -1); break;
+        case "ArrowDown": e.preventDefault(); this._moveActive(e, 1); break;
+        case "Home": e.preventDefault(); this._moveActiveTo(e, 0); break;
+        case "End": e.preventDefault(); this._moveActiveTo(e, -1); break;
+        case "ArrowLeft": e.preventDefault(); this._focusColumn(e, -1); break;
+        case "ArrowRight": e.preventDefault(); this._focusColumn(e, 1); break;
+      }
+    }
+
+    /* The listbox column currently holding focus (or the first). */
+    _focusedColumn(e) {
+      var col = e && e.target ? e.target.closest(".aura-timepicker__col") : null;
+      if (col) return col;
+      var first = this.__panel.querySelector(".aura-timepicker__col");
+      if (first) first.focus();
+      return first;
+    }
+
+    _moveActive(e, dir) {
+      var col = this._focusedColumn(e);
+      if (!col) return;
+      var cells = this._enabledCells(col);
+      if (!cells.length) return;
+      var curIdx = this._activeIndex(col, cells);
+      var nextIdx = Aura.keyboardNav.RovingIndex.move(curIdx, cells.length, dir);
+      var next = cells[nextIdx];
+      this._commitCell(col, next);
+      next.scrollIntoView({ block: "nearest" });
+    }
+
+    _moveActiveTo(e, idx) {
+      var col = this._focusedColumn(e);
+      if (!col) return;
+      var cells = this._enabledCells(col);
+      if (!cells.length) return;
+      var resolvedIdx = idx === -1
+        ? Aura.keyboardNav.RovingIndex.last(cells.length)
+        : Aura.keyboardNav.RovingIndex.first();
+      var cell = cells[resolvedIdx];
+      this._commitCell(col, cell);
+      cell.scrollIntoView({ block: "nearest" });
+    }
+
+    _enabledCells(col) {
+      return Array.prototype.filter.call(
+        col.querySelectorAll(".aura-timepicker__cell"),
+        function (c) { return c.getAttribute("aria-disabled") !== "true"; }
+      );
+    }
+
+    _activeIndex(col, cells) {
+      for (var i = 0; i < cells.length; i++) if (cells[i].getAttribute("aria-selected") === "true") return i;
+      return 0;
+    }
+
+    _focusColumn(e, dir) {
+      var cols = Array.prototype.slice.call(this.__panel.querySelectorAll(".aura-timepicker__col"));
+      var cur = this._focusedColumn(e);
+      var i = cols.indexOf(cur);
+      if (i === -1) return;
+      var next = cols[(i + dir + cols.length) % cols.length];
+      if (next) next.focus();
+    }
+
+    _focusFirstSegment() {
+      var seg = this.__field.querySelector(".aura-timepicker__segment");
+      if (seg) seg.focus();
+    }
+
+    /* ====================================================================
+       OVERLAY SEAM — anchored-overlay integration with the shared picker base.
+       The detach/place/animate-exit/restore lifecycle is the SAME skeleton the
+       datepicker needs, so it lives in Aura.pickers.makeRevertOverlay (#338);
+       placement geometry inside it delegates to Aura.overlay.placeAtAnchor (the
+       primitive the menu engine and the other pickers also use). Only the
+       timepicker-specific policy — commit-on-outside-click dismissal and the
+       Escape-revert snapshot — stays here (Aura.overlay.open bundles a generic
+       close-and-commit Escape that would override the revert snapshot).
+       ==================================================================== */
+
+    /* Lazily build (and cache) the revert-overlay controller bound to this
+       picker's panel/field and CSS hooks. */
+    _overlay() {
+      if (this.__overlayCtl) return this.__overlayCtl;
+      var self = this;
+      this.__overlayCtl = pickers.makeRevertOverlay({
+        panel: this.__panel,
+        anchor: function () { return self.__field.getBoundingClientRect(); },
+        openClass: "aura-timepicker__popup--open",
+        closingClass: "aura-timepicker__popup--closing",
+        originProp: "--aura-timepicker-popup-origin",
+        durProp: "--aura-timepicker-popup-dur-out",
+        isInline: function () { return self.hasAttribute("inline"); }
+      });
+      return this.__overlayCtl;
+    }
+
+    /* Detach the panel to <body>, open it, and place it anchored below the
+       field with viewport flip/clamp (inline mode keeps it in-flow). */
+    _overlayOpen() { this._overlay().open(); }
+
+    _overlayPlace() { this._overlay().place(); }
+
+    /* Run the exit animation (or close instantly under reduced motion), then
+       strip positioning and restore the panel to its home in the element. */
+    _overlayClose() { this._overlay().close(); }
+
+    /* ---- lifecycle cleanup ---------------------------------------------- */
+    disconnectedCallback() {
+      this._removeDismissListeners();
+      // If the host is removed while the popup is open, the panel is detached to
+      // <body> (picker-base open()); restore it synchronously so the subtree and
+      // its cell listeners are reachable from the removed host for GC, leaving no
+      // orphaned panel stranded in <body> (#502 — mirrors color-picker/datepicker).
+      if (this.__overlayCtl) this.__overlayCtl.destroy();
+      this.__popupOpen = false;
+      Aura.BaseElement.prototype.disconnectedCallback.call(this);
+    }
+
+    /* ---- public value accessor ------------------------------------------ */
+    /* Single mode: canonical "HH:MM[:SS]". Range mode: "start/end" (either side
+       may be empty). Accepts an array [start, end] on set in range mode. */
+    get value() { return this.getAttribute("value") || ""; }
+    set value(v) {
+      if (Array.isArray(v)) {
+        this.setAttribute("value", (v[0] || "") + RANGE_SEP + (v[1] || ""));
+        return;
+      }
+      if (v == null || v === "") this.removeAttribute("value");
+      else this.setAttribute("value", String(v));
+    }
+
+    /* Range-mode convenience accessors (canonical strings). */
+    get valueStart() { return this._isRange ? this._currentPair()[0] : this.value; }
+    get valueEnd() { return this._isRange ? this._currentPair()[1] : ""; }
+  };
+
+  /* Form-association layer (#538): submission via the hidden input(s); the
+     host owns native reset (restore the authored value) + fieldset-disable. */
+  Aura.FormAssociated && Aura.FormAssociated.install(AuraTimepicker, {
+    value: function () { return null; }, // submitted via the host-named hidden input(s)
+    reset: function () {
+      if (this.__formDefaultValue == null) this.removeAttribute("value");
+      else this.setAttribute("value", this.__formDefaultValue);
+    }
+  });
+
+  Aura.define("aura-timepicker", AuraTimepicker);
+})();

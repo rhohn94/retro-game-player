@@ -1,0 +1,62 @@
+/* ==========================================================================
+   Aura theme — "warm-dusk".
+
+   A warm, dusky reading of Aura authored through the v2.9 theme editor
+   (Aura.theme.downloadTheme → css/themes/<name>.css). A rust-amber brand over a
+   gentle gold secondary, with a faint warm glass tint and slightly softer
+   depth. It STAYS recognisably Aura — every value is an existing --aura-* dial,
+   so the warmth is a re-skin, not a rewrite, and no component CSS is introduced.
+
+   FIDELITY-PRESERVING, as the editor emits it:
+     • Brand colours are kept in oklch() — perceptual values, not flattened hex.
+     • Derived semantic tokens keep their var() relationship: --aura-info still
+       tracks --aura-secondary, and the cursor-light chain (--aura-glow-color →
+       --aura-edge-color) still tracks --aura-primary, so editing the source
+       propagates for free through the cascade.
+
+   Mode-agnostic: it overrides no surface/neutral colours, so the dark/light
+   axis (theme.css) keeps working underneath it. on-primary text clears WCAG AA
+   against the primary (≈6:1), so the shipped theme passes the contrast guard.
+
+   Activate: Aura.theme.setTheme("warm-dusk") (or pin()), which flips
+   [data-aura-theme-name] on a scope. Register it for switchers with
+   Aura.theme.registerTheme("warm-dusk", { label: "Warm Dusk" }).
+   See docs/design/theming-and-configuration-design.md §8.
+   ========================================================================== */
+
+[data-aura-theme-name="warm-dusk"] {
+  /* Brand — perceptual oklch(), kept from the editor's OKLCH hook. */
+  --aura-primary: oklch(0.514 0.143 40.3);   /* rust-amber          */
+  --aura-secondary: oklch(0.747 0.122 77);   /* warm gold           */
+  --aura-on-primary: #ffffff;                /* AA on the primary   */
+
+  /* Semantic — kept LINKED so the derivation survives the export. */
+  --aura-info: var(--aura-secondary);
+  --aura-danger: oklch(0.543 0.174 29.7);    /* warm red, in-key    */
+
+  /* Cursor-light chain stays linked to the (now warm) primary. */
+  --aura-glow-color: var(--aura-primary);
+  --aura-edge-color: var(--aura-glow-color);
+
+  /* A faint warm wash behind the glass — cosy, not tinted-opaque. */
+  --aura-glass-tint: oklch(0.747 0.122 77);
+  --aura-glass-tint-strength: 0.06;
+  --aura-glass-saturate: 1.35;
+
+  /* Slightly softer depth + a tighter corner family — calmer dusk read. The
+     FULL radius ramp is scaled 0.75× (#496, matching modern-flat's whole-ramp
+     precedent) so every component shares one coherent corner family instead of
+     the former md/lg-only override that left a select and a badge mismatched. */
+  --aura-depth: 0.9;
+  --aura-radius-xs:  0.1875rem;
+  --aura-radius-sm:  0.375rem;
+  --aura-radius-md:  0.5625rem;
+  --aura-radius-lg:  0.75rem;
+  --aura-radius-xl:  1.125rem;
+  --aura-radius-2xl: 1.5rem;
+}
+
+/* nav-header glass tint intensity for warm-dusk (moved from nav-header.css, #438) */
+[data-aura-theme-name="warm-dusk"] {
+  --aura-nav-header-tint-intensity: 0.55;
+}

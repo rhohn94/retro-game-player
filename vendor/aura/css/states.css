@@ -1,0 +1,183 @@
+/* ==========================================================================
+   Aura — empty / error / loading states.
+
+   Registered in css/aura.css under layer(states). Three recipes:
+     .aura-empty-state  — centred "nothing here yet" placeholder.
+     .aura-error-state  — variant that accents the icon/heading with --aura-danger
+                          while keeping body copy at AA on the surface.
+     .aura-skeleton     — shimmering placeholder blocks for loading content.
+
+   Every value is a token (colour, space, radius, duration, easing) so the
+   recipes follow dark, light, and every shipped theme with no overrides. No
+   hardcoded colours; meaning never rides on colour alone (text carries it).
+   ========================================================================== */
+
+/* ---- Empty / error states ------------------------------------------------
+   A centred, vertically-stacked message. The host carries the surface/
+   elevation language (e.g. <div class="aura-surface aura-e-1 aura-empty-state">)
+   so it sits inside the same glass as the rest of the UI. Padding is generous
+   so the state reads as a deliberate "resting" panel, not a broken fragment. */
+.aura-empty-state,
+.aura-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-7) var(--aura-space-5);
+  /* Cap the measure so the description stays readable when the panel is wide. */
+  max-width: 100%;
+}
+
+/* Decorative icon slot. Authors mark the icon aria-hidden — it never carries
+   meaning on its own. Sized via the shared --aura-icon-size dial; the muted
+   tone keeps an empty state calm. */
+.aura-empty-state__icon,
+.aura-error-state__icon {
+  --aura-icon-size: var(--aura-space-8);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--aura-text-subtle);
+  margin-bottom: var(--aura-space-1);
+}
+
+/* Heading: the primary line. Larger and at full text colour for contrast. */
+.aura-empty-state__title,
+.aura-error-state__title {
+  margin: 0;
+  font-size: var(--aura-text-lg);
+  font-weight: 600;
+  color: var(--aura-text);
+}
+
+/* Description: muted supporting copy. --aura-text-muted is the AA-on-surface
+   secondary tone, so body text stays legible in every theme. The measure is
+   capped here (not on the host) so a wide action row can still span fully. */
+.aura-empty-state__description,
+.aura-error-state__description {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--aura-text-sm);
+  line-height: 1.5;
+  color: var(--aura-text-muted);
+}
+
+/* Optional action slot — holds one or more buttons (e.g. <aura-button>). */
+.aura-empty-state__actions,
+.aura-error-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aura-space-3);
+  margin-top: var(--aura-space-2);
+}
+
+/* ---- Error variant -------------------------------------------------------
+   The error state accents ONLY the icon and heading with --aura-danger. The
+   description stays at --aura-text-muted (AA on the surface) so the message is
+   never conveyed by colour alone — the wording carries the meaning. Authors
+   should still give the error region a role/aria-live in markup as needed. */
+.aura-error-state__icon {
+  color: var(--aura-danger);
+}
+
+.aura-error-state__title {
+  color: var(--aura-danger);
+}
+
+/* ---- Loading skeleton ----------------------------------------------------
+   Placeholder blocks that mimic the shape of content while it loads. Each block
+   is a token-tinted surface with a travelling sheen.
+
+   Optional layout helpers (token-spaced, so they compose without demo CSS):
+     .aura-skeleton-group — vertical stack of blocks (e.g. paragraph lines).
+     .aura-skeleton-row   — horizontal row (e.g. avatar beside lines); the row's
+                            last child grows to fill the remaining width.       */
+.aura-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+}
+
+.aura-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+}
+
+.aura-skeleton-row > :last-child {
+  flex: 1 1 auto;
+}
+
+/* Base block: */
+.aura-skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  /* A faint fill derived from the surface stroke so it reads on every theme. */
+  background-color: color-mix(in srgb, var(--aura-surface-stroke) 60%, transparent);
+  border-radius: var(--aura-radius-sm);
+  /* Reserve space so layout does not jump when real content arrives. */
+  min-block-size: var(--aura-space-4);
+}
+
+/* The travelling sheen: a soft highlight band swept across the block. Built as
+   an overlay layer so it tints the block without changing its base fill. */
+.aura-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--aura-text-subtle) 22%, transparent) 50%,
+    transparent 100%
+  );
+  /* Start off-screen left; the keyframes sweep it to the right and repeat. */
+  transform: translateX(-100%);
+  animation: aura-skeleton-shimmer var(--aura-dur-ambient) var(--aura-ease-standard) infinite;
+}
+
+@keyframes aura-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Shape modifiers ------------------------------------------------------------
+   --text: a single line of copy (full width, line-height tall).
+   --block: a larger rectangular region (image / card body); height via style.
+   --circle: an avatar/thumbnail; equal sides + pill radius. */
+.aura-skeleton--text {
+  block-size: var(--aura-text-md);
+  border-radius: var(--aura-radius-xs);
+}
+
+/* A short trailing line reads as the natural ragged end of a paragraph. */
+.aura-skeleton--text.aura-skeleton--short {
+  inline-size: 60%;
+}
+
+.aura-skeleton--block {
+  block-size: var(--aura-space-9);
+  border-radius: var(--aura-radius-md);
+}
+
+.aura-skeleton--circle {
+  inline-size: var(--aura-space-8);
+  block-size: var(--aura-space-8);
+  border-radius: var(--aura-radius-full);
+}
+
+/* Reduced-motion: render a STATIC placeholder. We remove the sweeping sheen
+   entirely (overlay hidden + animation off) so nothing moves — the block still
+   reads as a loading placeholder via its tinted fill. */
+@media (prefers-reduced-motion: reduce) {
+  .aura-skeleton::after {
+    display: none;
+    animation: none;
+  }
+}

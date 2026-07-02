@@ -1,0 +1,61 @@
+/* ==========================================================================
+   Aura — aura-card: glass surface element.
+
+   A light-DOM custom element that paints a glass surface at a default elevation
+   (2) when no elevation is authored, adds the pointer sheen, and reflects the
+   optional `tactile` attribute to the press affordance. Appearance is CSS-first;
+   JS only sets sensible defaults + the sheen/tactile hooks.
+   See docs/design/declarative-markup-design.md and elevation-design.md.
+
+   Lifecycle comes from Aura.BaseElement (js/element-base.js): _build adds the
+   sheen once, _sync defaults the elevation + reflects tactile on every connect,
+   _onAttr narrows attribute changes to the tactile reflect.
+
+   Load order: core.js → element-base.js → aura-card.js (self-registers).
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* Default elevation tier applied when the author sets none. */
+  var DEFAULT_ELEVATION = "2";
+
+  /* Summary: glass card; defaults elevation, enables pointer sheen, and reflects
+     the tactile press affordance — including proximity glow + magnetic lean,
+     per the coverage principle (docs/design/proximity-glow-design.md §Coverage
+     principle): `tactile` is the author's existing signal that the card is a
+     single actionable surface (a press target, typically wrapping a stretched
+     <a>), so it is also the right hook to register `.aura-glow`. A card with
+     no `tactile` attribute is plain grouped content — it stays matte. */
+  Aura.define("aura-card", class extends Aura.BaseElement {
+    static get observedAttributes() { return ["tactile"]; }
+
+    /* One-time: paint the pointer sheen. */
+    _build() { this.classList.add("aura-sheen"); }
+
+    /* Default the elevation when none is authored, then reflect tactile. */
+    _sync() {
+      var hasLevel = this.hasAttribute("elevation") || this.hasAttribute("data-aura-elevation") ||
+        /(^|\s)aura-e-\d(\s|$)/.test(this.className);
+      if (!hasLevel) this.setAttribute("elevation", DEFAULT_ELEVATION);
+      this._reflectTactile();
+    }
+
+    /* A tactile change only needs the press class toggled. */
+    _onAttr() { this._reflectTactile(); }
+
+    /* Add/remove the tactile press class — and the glow affordance that rides
+       along with it — to match the `tactile` attribute. */
+    _reflectTactile() {
+      if (this.hasAttribute("tactile")) {
+        this.classList.add("aura-tactile", "aura-glow");
+      } else {
+        this.classList.remove("aura-tactile", "aura-glow");
+      }
+    }
+  });
+})();

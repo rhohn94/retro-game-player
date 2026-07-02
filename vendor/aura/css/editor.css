@@ -1,0 +1,137 @@
+/* ==========================================================================
+   Aura — text editing surface (aura-editor, v1.9).
+
+   A glass editing surface with a WYSIWYG toolbar (rich mode) or a bare
+   autosizing field (plain mode). Token-driven; the toolbar is built from
+   icon-first buttons so it inherits their tap targets and focus ring.
+   See docs/design/text-editing-design.md.
+   ========================================================================== */
+
+aura-editor {
+  display: flex;
+  flex-direction: column;
+  border: var(--aura-border-width) solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-lg);
+  background: var(--aura-surface-1);
+  overflow: clip;                      /* keep toolbar corners inside radius   */
+}
+
+/* Focus-within lifts the whole surface like a focused input. */
+aura-editor:focus-within {
+  border-color: var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-ring, 0 0 0 3px var(--aura-primary-a25));
+}
+
+/* ---- Toolbar ------------------------------------------------------------ */
+.aura-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* Cohesive segmented group (#116): buttons abut (no gap) and read as one bar;
+     the __sep dividers break logical groups. Toolbar buttons drop their
+     border/fill so they don't look like scattered individually-rounded chips. */
+  gap: 0;
+  padding: var(--aura-space-2);
+  border-bottom: var(--aura-border-width) solid var(--aura-surface-stroke);
+  background: var(--aura-surface-2);
+}
+.aura-editor__toolbar aura-button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: var(--aura-radius-sm);
+}
+.aura-editor__toolbar aura-button:hover {
+  background: var(--aura-surface-3);
+}
+.aura-editor__sep {
+  inline-size: 1px;
+  align-self: stretch;
+  margin-inline: var(--aura-space-1);
+  background: var(--aura-surface-stroke);
+}
+/* Compact the icon buttons a touch inside the toolbar (still ≥ tap-min on
+   coarse pointers via mobile.css). */
+.aura-editor__toolbar aura-button[icon-only] {
+  --aura-tap-min: 2.25rem;
+}
+/* Pressed (active-format) state — filled, so the toolbar reflects the caret. */
+.aura-editor__toolbar aura-button[aria-pressed="true"] {
+  background: var(--aura-primary-a25);
+  color: var(--aura-text);
+  border-radius: var(--aura-radius-sm);
+}
+
+/* ---- Editable area ------------------------------------------------------ */
+.aura-editor__area {
+  flex: 1;
+  min-block-size: 8rem;
+  padding: var(--aura-space-4);
+  color: var(--aura-text);
+  line-height: 1.6;
+  overflow-y: auto;
+  outline: none;                        /* focus shown on the host instead     */
+}
+.aura-editor__area:focus-visible { outline: none; }
+
+/* Fieldset-disabled (#538): a <fieldset disabled> turns the editor off via
+   formDisabledCallback, which sets [data-disabled] on the host (NOT the disabled
+   content attribute, which would pin the state) + contenteditable=false on the
+   area. Dim it and block pointer interaction, matching the other controls. */
+aura-editor[data-disabled] {
+  opacity: var(--aura-disabled-opacity, 0.5);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Plain mode is a compact autosizing field, not a rich document — give it a
+   shorter minimum height than the rich default. Tunable via the custom prop. */
+aura-editor[plain] .aura-editor__area {
+  min-block-size: var(--aura-editor-plain-min, 5rem);
+}
+
+/* Placeholder when empty (contenteditable has no native one). */
+.aura-editor__area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--aura-text-subtle);
+  pointer-events: none;
+}
+
+/* Readable rich content rhythm. */
+.aura-editor__area > :first-child { margin-block-start: 0; }
+.aura-editor__area h1, .aura-editor__area h2, .aura-editor__area h3 {
+  line-height: 1.25;
+  margin-block: var(--aura-space-4) var(--aura-space-2);
+}
+.aura-editor__area p { margin-block: 0 var(--aura-space-3); }
+.aura-editor__area ul, .aura-editor__area ol { padding-inline-start: var(--aura-space-6); margin-block: 0 var(--aura-space-3); }
+.aura-editor__area a { color: var(--aura-primary-300); text-underline-offset: 2px; }
+/* Light mode: primary-300 is tuned for the dark editing surface and falls below
+   AA on the light surface (#442/#436); deepen to primary-700, matching the raw
+   <a> light override in base.css. */
+[data-aura-theme="light"] .aura-editor__area a { color: var(--aura-primary-700); }
+@media (prefers-color-scheme: light) {
+  [data-aura-theme="auto"] .aura-editor__area a { color: var(--aura-primary-700); }
+}
+
+/* Selection uses the brand colour wash. */
+.aura-editor__area ::selection { background: var(--aura-primary-a40); }
+
+/* ---- In-component link prompt (#568) ----------------------------------- */
+/* A small token-styled popover replacing the unthemeable, render-blocking
+   window.prompt for link insertion. Anchored to the foot of the editor surface
+   so it reads as part of the editing chrome, not a system dialog. */
+.aura-editor__link-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-3);
+  border-top: var(--aura-border-width) solid var(--aura-surface-stroke);
+  background: var(--aura-surface-2);
+}
+.aura-editor__link-prompt aura-field { flex: 1 1 12rem; }
+.aura-editor__link-actions {
+  display: flex;
+  gap: var(--aura-space-2);
+}

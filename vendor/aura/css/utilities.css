@@ -1,0 +1,69 @@
+/* ==========================================================================
+   Aura — small utility helpers (highest-precedence Aura layer).
+   Intentionally minimal; the declarative elements cover most needs.
+   ========================================================================== */
+
+.aura-muted   { color: var(--aura-text-muted); }
+.aura-subtle  { color: var(--aura-text-subtle); }
+.aura-primary { color: var(--aura-primary-300); }
+.aura-mono    { font-family: var(--aura-font-mono); }
+
+.aura-text-xs { font-size: var(--aura-text-xs); }
+.aura-text-sm { font-size: var(--aura-text-sm); }
+.aura-text-lg { font-size: var(--aura-text-lg); }
+
+.aura-center { text-align: center; }
+/* Single-line truncation (#117): ellipsis any single-line text that overflows
+   its box. The full text stays reachable only if the author also sets the
+   `title` attribute (or a tooltip) on the element — the ellipsis hides it
+   visually but `title` surfaces it on hover and to assistive tech. Applied by
+   default to KPI labels, menu items, and select options; add it anywhere a
+   single line of user-provided text can run long. */
+.aura-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-inline-size: 0; }
+
+.aura-hidden { display: none !important; }
+
+/* Accessible visually-hidden (for labels on icon-only controls). */
+.aura-sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+
+/* Rounded helpers */
+.aura-round    { border-radius: var(--aura-radius-md); }
+.aura-round-lg { border-radius: var(--aura-radius-lg); }
+.aura-pill     { border-radius: var(--aura-radius-full); }
+
+/* Full-bleed flex helpers occasionally handy outside the layout elements. */
+.aura-fill { flex: 1 1 auto; }
+.aura-nowrap { white-space: nowrap; }
+
+/* Auto-fit card grid (#69): a class form of <aura-grid>'s layout for plain
+   markup. Cards distribute across the FULL container width — auto-fit collapses
+   empty tracks so a short row stretches to fill rather than leaving a gap.
+   Override the minimum track via --aura-grid-min (default 16rem). */
+.aura-grid-autofit {
+  display: grid;
+  gap: var(--aura-gap, var(--aura-space-4));
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--aura-grid-min, 16rem), 100%), 1fr));
+}
+
+/* Print visibility helpers (#113): .aura-print-hide drops an element when
+   printing (handled in print.css); .aura-print-only is hidden on screen and
+   revealed in print.css. */
+.aura-print-only { display: none; }
+
+/* Multi-line truncation: clamp text to N lines with an ellipsis (#159).
+   Single-line truncation is `.aura-nowrap` + overflow:hidden; these cover the
+   multi-line case (card descriptions, list subtitles, etc.). */
+.aura-clamp-1, .aura-clamp-2, .aura-clamp-3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.aura-clamp-1 { -webkit-line-clamp: 1; line-clamp: 1; }
+.aura-clamp-2 { -webkit-line-clamp: 2; line-clamp: 2; }
+.aura-clamp-3 { -webkit-line-clamp: 3; line-clamp: 3; }

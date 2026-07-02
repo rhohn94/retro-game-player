@@ -1,0 +1,49 @@
+/* ==========================================================================
+   Aura — anchored-overlay primitive (positioning + enter/exit motion only).
+
+   The shared visual shell for non-menu anchored popups (the v1.3 pickers).
+   It owns display toggling, the fixed-position layer, and the scale/fade
+   keyframes; it deliberately carries NO panel skin (background, padding,
+   border) — each consumer styles its own surface, reusing the menu/elevation
+   tokens so a token swap re-skins every popup. JS (js/overlay.js) writes
+   left/top and --aura-overlay-origin at open time.
+
+   See docs/design/datepicker-design.md (overlay-integration decision).
+   ========================================================================== */
+
+.aura-overlay {
+  display: none;
+  /* Component-scoped motion dials — token-defaulting, override per consumer. */
+  --aura-overlay-dur-in: var(--aura-dur-fast);
+  --aura-overlay-dur-out: var(--aura-dur-fast);
+  --aura-overlay-ease-in: var(--aura-ease-out);
+  --aura-overlay-ease-out: var(--aura-ease-standard);
+}
+
+.aura-overlay--open {
+  display: block;
+  position: fixed;
+  z-index: var(--aura-z-menu);
+  transform-origin: var(--aura-overlay-origin, top left);
+  animation: aura-overlay-in var(--aura-overlay-dur-in) var(--aura-overlay-ease-in);
+}
+
+/* Exit: JS keeps --open (for display:block) and adds --closing; the combined
+   selector outranks --open alone so the exit keyframe overrides the entry. */
+.aura-overlay--open.aura-overlay--closing {
+  animation: aura-overlay-out var(--aura-overlay-dur-out) var(--aura-overlay-ease-out) both;
+}
+
+@keyframes aura-overlay-in {
+  from { opacity: 0; transform: scale(var(--aura-overlay-enter-scale)) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes aura-overlay-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(var(--aura-overlay-enter-scale)) translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-overlay--open,
+  .aura-overlay--open.aura-overlay--closing { animation: none; }
+}

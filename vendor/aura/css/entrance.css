@@ -1,0 +1,56 @@
+/* ==========================================================================
+   Aura — choreographed entrance (v1.7).
+
+   A [data-aura-entrance] container animates its ELEVATED descendants down into
+   place, each landing on top of the one beneath it. The stagger is keyed to the
+   elevation level (--aura-e), so the interface assembles in DEPTH ORDER — the
+   base layer settles first, higher panels drop on top — rather than fading in
+   flat. Pure CSS; js/entrance.js only offers a replay() helper.
+
+   All timing/distance are token dials (tokens.css §Choreographed entrance).
+   Reduced-motion removes the movement entirely (content is shown at rest).
+   See docs/design/motion-depth-light-design.md §1.
+   ========================================================================== */
+
+@keyframes aura-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--aura-entrance-rise)))
+               scale(var(--aura-entrance-scale-from));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Each elevated descendant drops in, delayed by its depth level so the stack
+   assembles bottom-up. `backwards` keeps it hidden (opacity 0) ONLY before its
+   delay elapses, then hands back to the resting opacity 1 — unlike `both`, it
+   never persists the from-keyframe past completion, so a descendant whose
+   animation never fires (display:none at load, injected after first paint,
+   throttled background tab) lands visible instead of stuck at opacity 0 (#495).
+   Elements with no --aura-e fall back to level 1. */
+[data-aura-entrance] :is(
+  .aura-surface, aura-card, aura-panel, aura-toolbar,
+  [data-aura-elevation], .aura-e-1, .aura-e-2, .aura-e-3, .aura-e-4, .aura-e-5
+) {
+  animation: aura-drop-in var(--aura-entrance-dur) var(--aura-ease-out) backwards;
+  animation-delay: calc(var(--aura-e, 1) * var(--aura-entrance-step));
+}
+
+/* Opt the container itself into the choreography (e.g. a single card). */
+[data-aura-entrance][data-aura-entrance-self] {
+  animation: aura-drop-in var(--aura-entrance-dur) var(--aura-ease-out) backwards;
+  animation-delay: calc(var(--aura-e, 1) * var(--aura-entrance-step));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-aura-entrance] :is(
+    .aura-surface, aura-card, aura-panel, aura-toolbar,
+    [data-aura-elevation], .aura-e-1, .aura-e-2, .aura-e-3, .aura-e-4, .aura-e-5
+  ),
+  [data-aura-entrance][data-aura-entrance-self] {
+    animation: none;
+  }
+}

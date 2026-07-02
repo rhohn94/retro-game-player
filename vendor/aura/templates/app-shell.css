@@ -1,0 +1,278 @@
+/* ==========================================================================
+   Aura blueprint — App Shell  (templates/app-shell.css)
+
+   A full-viewport application chrome: sticky glass header, optional sidebar
+   with a nav-toggle, a scrolling main region, and a footer strip. The shell
+   wraps an `aura-shell` / `aura-region` pair and adds the opinionated chrome
+   layer that the bare aura-shell primitive intentionally omits.
+
+   CASCADE LAYER: app-shell  (declared in css/aura.css)
+   Sits above the core Aura layers so blueprint styles win over primitives,
+   but below `mobile` and `utilities` so responsive overrides still apply.
+
+   ── CANONICAL BEM SELECTORS (Phase-2 contract) ────────────────────────────
+   Phase 2 fills the rule bodies for every selector listed here. Do NOT add
+   new selectors in Phase 2 without updating this header.
+
+   .aura-app-shell          Block  — wrapper element; typically <div> or
+                                     <aura-app>. Applies the grid that
+                                     arranges header, body (sidebar + main),
+                                     and footer into a full-viewport layout.
+
+   .aura-app-shell__header  Element — sticky glass header bar. Rendered at
+                                     grid row 1. Uses --aura-app-shell-header-blur
+                                     for the backdrop-filter value and the surface
+                                     token palette for translucent tinting.
+
+   .aura-app-shell__sidebar Element — collapsible side-navigation panel.
+                                     Width is controlled by
+                                     --aura-app-shell-sidebar-size. Hidden
+                                     on narrow viewports by default; toggled
+                                     via the __nav-toggle button.
+
+   .aura-app-shell__nav-toggle
+                            Element — icon button that expands / collapses the
+                                     sidebar. Visible only when the sidebar is
+                                     in its collapsed (mobile) state.
+
+   .aura-app-shell__main    Element — primary scrolling content region.
+                                     Occupies the remaining flex/grid space
+                                     after the sidebar.
+
+   .aura-app-shell__footer  Element — footer strip pinned to the bottom of
+                                     the viewport. Rendered at grid row 3.
+
+   ── TUNABLE CUSTOM PROPERTIES ─────────────────────────────────────────────
+   Override on any scope that wraps a .aura-app-shell to customise the
+   blueprint without touching Aura internals. Defaults are set on :where(:root)
+   so they carry zero specificity and are trivially overridden.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Width of the side-navigation panel when expanded. */
+  --aura-app-shell-sidebar-size: 16rem;
+
+  /* Strength of the glass blur applied to the sticky header. */
+  --aura-app-shell-header-blur: 18px;
+}
+
+/* ── Skip-to-content link (#97) ────────────────────────────────────────────
+   The first focusable element inside an app-shell demo, so keyboard users can
+   jump straight to the main region instead of tabbing through the whole header
+   every time. Visually hidden (clipped off-screen) until it receives keyboard
+   focus, at which point it pins to the top-leading corner as a visible chip.
+   Markup contract: <a class="aura-skip-link" href="#main-content"> as the first
+   child of the shell, with id="main-content" on the main content region. */
+.aura-skip-link {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  z-index: calc(var(--aura-z-sticky) + 1);
+  /* Clip off-screen without removing from the tab order. */
+  transform: translateY(-150%);
+  margin: var(--aura-space-2);
+  padding: var(--aura-space-2) var(--aura-space-4);
+  background: var(--aura-surface-solid);
+  color: var(--aura-text);
+  border: 1px solid var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-radius-sm);
+  box-shadow: var(--aura-shadow-3);
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-medium);
+  text-decoration: none;
+  transition: transform var(--aura-dur-fast) var(--aura-ease-out);
+}
+.aura-skip-link:focus,
+.aura-skip-link:focus-visible {
+  transform: translateY(0);
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-skip-link { transition: none; }
+}
+
+/* ── Text-protection scrim (#51) ────────────────────────────────────────────
+   Reusable readability treatment for text blocks that sit over a photographic
+   wallpaper. A soft, low-alpha backing (tinted from the surface palette and
+   lightly blurred) lifts the text off a high-frequency photo so it clears
+   WCAG AA — without becoming an opaque box. The padding + negative margin keep
+   the scrim flush with the page rhythm while giving the text breathing room,
+   and the radial mask feathers the edges so it reads as a gentle halo, not a
+   hard card. Apply .aura-text-protect to the wrapping text region. */
+.aura-text-protect {
+  position: relative;
+  isolation: isolate;
+  padding: var(--aura-space-4) var(--aura-space-5);
+  border-radius: var(--aura-radius-lg);
+}
+.aura-text-protect::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  /* Low-alpha surface tint — readable backing, never an opaque slab. */
+  background: color-mix(in srgb, var(--aura-surface-solid) 62%, transparent);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+          backdrop-filter: blur(6px) saturate(1.1);
+  /* Feather the edges so the scrim fades into the wallpaper as a soft halo. */
+  -webkit-mask: radial-gradient(120% 120% at 50% 50%, #000 60%, transparent 100%);
+          mask: radial-gradient(120% 120% at 50% 50%, #000 60%, transparent 100%);
+}
+/* When transparency is unwanted, fall back to a solid surface backing. */
+@media (prefers-reduced-transparency: reduce) {
+  .aura-text-protect::before {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+    -webkit-mask: none;
+            mask: none;
+  }
+}
+
+/* ── Block: full-viewport chrome wrapper ───────────────────────────────────
+   A self-sufficient full-viewport shell: owns its own 100dvh grid (header row /
+   sidebar+main row / footer row) so it works standalone inside any container
+   (e.g. <aura-app>) without depending on an outer aura-shell for height. The
+   main region scrolls internally via its inner aura-region; the shell clips. */
+.aura-app-shell {
+  display: grid;
+  /* The sidebar column tracks its CONTENT (minmax(0, auto)), not a fixed width.
+     The sidebar element carries its own inline-size while it is in flow, so the
+     column is that width; when the container-driven drawer (css/mobile.css §3c,
+     @container max-width:40rem) takes the sidebar off-canvas (position: fixed),
+     the grid cell empties and an auto track collapses to 0 automatically — so
+     the narrow-width column collapse is container-relative and needs no viewport
+     rule. A half-snapped window narrows THIS shell's container, fires the drawer,
+     and the empty column collapses with it. */
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "header  header"
+    "sidebar main"
+    "footer  footer";
+  block-size: 100dvh;
+  min-block-size: 0;
+  overflow: clip;
+  /* Query container so css/mobile.css §3c's @container drawer rules
+     ([data-aura-shell-toggle] / [data-aura-sidebar]) track this shell's width
+     — the blueprint reuses that engine rather than duplicating it. */
+  container-type: inline-size;
+}
+
+/* ── Header: sticky glass bar ──────────────────────────────────────────────
+   Stays pinned to the top of the shell as content scrolls beneath it.
+   Glass treatment mirrors demo/app.html's .app-header: translucent tint via
+   color-mix on --aura-surface-solid, backdrop-filter blur, bottom hairline.  */
+.aura-app-shell__header {
+  grid-area: header;
+  position: sticky;
+  top: 0;
+  z-index: var(--aura-z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+  padding-block: var(--aura-space-3);
+  padding-inline: var(--aura-space-5);
+  /* Translucent glass tint: 60% opaque surface-solid + transparent remainder */
+  background: color-mix(in srgb, var(--aura-surface-solid) 60%, transparent);
+  -webkit-backdrop-filter: blur(var(--aura-app-shell-header-blur)) saturate(1.5);
+          backdrop-filter: blur(var(--aura-app-shell-header-blur)) saturate(1.5);
+  /* Hairline bottom border using the surface stroke token */
+  border-bottom: 1px solid var(--aura-surface-stroke);
+}
+
+/* ── Sidebar: collapsible side-navigation panel ────────────────────────────
+   On wide viewports the sidebar is in normal flow at its declared width.
+   On narrow viewports (see @container below) it slides off-canvas as a drawer.
+   js/shell-nav.js drives open/close by toggling [data-aura-shell-open] on the
+   nearest aura-shell / .aura-shell ancestor; the [data-aura-sidebar] attribute
+   triggers the drawer geometry in css/mobile.css (section 3c).               */
+.aura-app-shell__sidebar {
+  grid-area: sidebar;
+  inline-size: var(--aura-app-shell-sidebar-size);
+  display: flex;
+  flex-direction: column;
+  /* Opaque surface so that as an off-canvas drawer (mobile.css §3c) the panel
+     never lets the scrim-dimmed content bleed through. */
+  background: var(--aura-surface-solid);
+  border-inline-end: 1px solid var(--aura-surface-stroke);
+  overflow: hidden;
+  /* Sidebar content scrolls via its inner aura-region; the panel itself clips */
+}
+
+/* Sidebar nav items: full-bleed rows with an active indicator */
+.aura-app-shell__sidebar aura-region,
+.aura-app-shell__sidebar .aura-region {
+  flex: 1 1 0;
+}
+
+/* ── Nav toggle: open-drawer icon button ────────────────────────────────────
+   Hidden on wide viewports; revealed on narrow by css/mobile.css §3c (which
+   styles its [data-aura-shell-toggle] attribute). This block only supplies the
+   button's appearance; mobile.css owns the show/hide and shell-nav.js the click. */
+.aura-app-shell__nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--aura-tap-min);
+  min-block-size: var(--aura-tap-min);
+  padding: var(--aura-space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--aura-radius-sm);
+  color: inherit;
+  cursor: pointer;
+  transition: background-color var(--aura-dur-base) var(--aura-ease-standard);
+}
+
+.aura-app-shell__nav-toggle:hover {
+  background: var(--aura-surface-2);
+}
+
+/* ── Main: scrolling content region ────────────────────────────────────────
+   Takes all remaining space after the sidebar. Scrolling lives inside the
+   inner aura-region so the shell itself never scrolls.                       */
+.aura-app-shell__main {
+  grid-area: main;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aura-app-shell__main > aura-region,
+.aura-app-shell__main > .aura-region {
+  flex: 1 1 0;
+}
+
+/* ── Footer: bottom strip ───────────────────────────────────────────────────
+   Hairline top border; spans the full width below sidebar + main.            */
+.aura-app-shell__footer {
+  grid-area: footer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+  padding-block: var(--aura-space-3);
+  padding-inline: var(--aura-space-5);
+  border-top: var(--aura-divider);
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-subtle);
+}
+
+/* ── Narrow CONTAINER: the sidebar column collapses automatically ──────────
+   No viewport @media rule is needed. The off-canvas drawer — revealing the
+   toggle, fixing the sidebar off-canvas, the scrim, and the open-state slide
+   (plus its reduced-motion handling) — is owned by css/mobile.css §3c, keyed on
+   [data-aura-shell-toggle] / [data-aura-sidebar] / [data-aura-shell-open] inside
+   @container (max-width: 40rem). `.aura-app-shell` opts into that one engine via
+   container-type above. When the drawer takes the sidebar off-canvas
+   (position: fixed), the `sidebar` grid cell empties and the content-sized
+   minmax(0, auto) track above collapses to 0 — so the column collapse rides the
+   SAME container query as the drawer (it works embedded, not just full-viewport)
+   with no viewport rule and no duplication. */

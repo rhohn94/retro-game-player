@@ -1,0 +1,143 @@
+/* ==========================================================================
+   Aura — aura-range slider styling.
+
+   Token-driven glass slider. Every colour/size/radius/shadow/motion resolves
+   from a token, or a component dial that DEFAULTS to a token via
+   var(--dial, var(--token)) — so changing a handful of :root values re-skins it
+   with zero JS edits. js/range.js writes --aura-range-pct (0%..100%); CSS reads
+   it for the fill width and thumb offset.
+
+   The .aura-range__thumb is a real, addressable element (not a UA pseudo) so
+   the sub-part proximity glow (ITEM-7) can attach to it. This file ships PLAIN:
+   no .aura-glow, no --aura-glow-* consumption here.
+   See docs/design/control-widgets-design.md.
+   ========================================================================== */
+
+aura-range {
+  display: flex;
+  align-items: center;
+  position: relative;
+  inline-size: 100%;
+  min-block-size: var(--aura-range-thumb-size, var(--aura-space-5));
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;            /* let pointer-drag own the gesture on touch */
+  -webkit-tap-highlight-color: transparent;
+  /* Glow integration (ITEM-7): the host carries .aura-glow for proximity
+     detection. Disable the generic hover-lift and magnetic-lean that glow.css
+     applies to all .aura-glow elements — the track/fill should not translate.
+     The thumb gets the visual treatment via .aura-glow__target. */
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+
+aura-range[disabled] { opacity: var(--aura-disabled-opacity); pointer-events: none; cursor: default; }
+
+/* The hidden form input never participates in layout. */
+.aura-range__input { display: none; }
+
+/* ---- Track: the glass rail ---------------------------------------------- */
+.aura-range__track {
+  position: relative;
+  inline-size: 100%;
+  block-size: var(--aura-range-track-thickness, var(--aura-space-2));
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-range-track-bg, var(--aura-surface-3));
+  border: 1px solid var(--aura-surface-stroke);
+}
+
+/* ---- Fill: the portion left of the thumb -------------------------------- */
+.aura-range__fill {
+  position: absolute;
+  inset-block: 0;
+  /* logical start so the fill grows from the inline-start edge and mirrors
+     under dir="rtl" (#131) */
+  inset-inline-start: 0;
+  inline-size: var(--aura-range-pct, 0%);
+  border-radius: inherit;
+  background: var(--aura-range-fill, var(--aura-primary));
+}
+/* Forced-colors (Windows High Contrast): the fill is a pure background (dropped
+   in HCM), so the filled-vs-empty portion is lost (the thumb position still
+   encodes the value, hence this is a secondary cue). Force the fill to paint in
+   a system colour. */
+@media (forced-colors: active) {
+  .aura-range__fill { forced-color-adjust: none; background: Highlight; }
+}
+
+/* Dual mode: the fill spans BETWEEN the two thumbs (lo → hi) rather than from
+   the start. js/range.js writes --aura-range-pct-lo/-hi (0%..100%). */
+aura-range[range] .aura-range__fill {
+  inset-inline-start: var(--aura-range-pct-lo, 0%);
+  inline-size: calc(var(--aura-range-pct-hi, 100%) - var(--aura-range-pct-lo, 0%));
+}
+
+/* ---- Thumb: ADDRESSABLE sub-part (ITEM-7 glow target) ------------------- */
+.aura-range__thumb {
+  position: absolute;
+  inset-block-start: 50%;
+  /* logical position + margin-based inline centring: margin-inline-start flips
+     under RTL where transform: translateX(-50%) would not (#131). */
+  inset-inline-start: var(--aura-range-pct, 0%);
+  margin-inline-start: calc(var(--aura-range-thumb-size, var(--aura-space-5)) / -2);
+  inline-size: var(--aura-range-thumb-size, var(--aura-space-5));
+  block-size: var(--aura-range-thumb-size, var(--aura-space-5));
+  transform: translateY(-50%);                /* block-axis centring only */
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-range-thumb-bg, var(--aura-text));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-shadow-2);
+  transition:
+    box-shadow var(--aura-dur-base) var(--aura-ease-out),
+    border-color var(--aura-dur-fast) var(--aura-ease-out),
+    scale var(--aura-dur-fast) var(--aura-ease-spring);
+}
+
+/* Dual mode: each thumb carries its OWN position property (--aura-range-thumb-pct)
+   and is its own .aura-glow host. The host-level magnet/lift suppression already
+   keeps the track still; thumbs get the visual treatment via the inner
+   .aura-glow__target face. */
+aura-range[range] .aura-range__thumb {
+  inset-inline-start: var(--aura-range-thumb-pct, 0%);
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+
+/* The inner glow-target face fills the thumb host; the host itself is invisible
+   chrome so the painted disc is the face (lets each thumb own one glow target). */
+.aura-range__thumb-face {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* Hover/active give the thumb a little physical feedback (scale composes with
+   the centring transform via the independent `scale` property). #578: inline the
+   elevation-tracking raise (was a :root-frozen --aura-hover-shadow stuck at tier 3).
+   The raised box-shadow is --aura-depth-scaled, so on the flat themes (flat-primary
+   depth 0, retro-pc 0.12) it collapses to nothing — leaving hover indistinguishable
+   from rest. Pair it with a DEPTH-INDEPENDENT cue (scale up + a primary border step)
+   so the hover reads on every theme (mirror of #841). :active (later) re-wins scale. */
+aura-range:not([range]):not([disabled]):hover .aura-range__thumb { box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3)); scale: 1.12; border-color: var(--aura-primary); }
+aura-range:not([range]):not([disabled]):active .aura-range__thumb { scale: 0.94; }
+
+/* Focus ring rides the thumb, not the whole host. */
+aura-range:focus { outline: none; }
+aura-range:focus-visible .aura-range__thumb {
+  box-shadow: var(--aura-shadow-2), var(--aura-ring);
+}
+
+/* Dual mode: each thumb is independently focusable (its own roving tabindex),
+   so the ring rides the focused thumb only — not both. */
+aura-range[range] .aura-range__thumb { outline: none; }
+aura-range[range] .aura-range__thumb:focus-visible {
+  box-shadow: var(--aura-shadow-2), var(--aura-ring);
+}
+aura-range[range]:not([disabled]) .aura-range__thumb:hover { box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3)); scale: 1.12; border-color: var(--aura-primary); }
+aura-range[range]:not([disabled]) .aura-range__thumb:active { scale: 0.94; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-range__thumb { transition: none; }
+  aura-range:not([range]):not([disabled]):active .aura-range__thumb { scale: 1; }
+  aura-range[range]:not([disabled]) .aura-range__thumb:active { scale: 1; }
+}

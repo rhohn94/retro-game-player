@@ -1,0 +1,119 @@
+/* ==========================================================================
+   Aura — aura-radio styling.
+
+   Token-driven styled radio. Every colour/size/radius/motion resolves from a
+   token, or a component dial that DEFAULTS to a token via
+   var(--dial, var(--token)) — change a handful of :root values and it re-skins
+   with zero JS edits. Visual state follows the native input
+   (.aura-radio__input:checked ~ .aura-radio__dot), so it is correct regardless
+   of the host's [checked] mirror.
+
+   The .aura-radio__dot is a real, addressable element; its inner fill uses
+   ::before so ::after stays FREE for the sub-part proximity glow (ITEM-7). This
+   file ships PLAIN: no .aura-glow, no --aura-glow-* consumption here.
+   See docs/design/control-widgets-design.md.
+   ========================================================================== */
+
+aura-radio {
+  display: inline-flex;
+  /* Glow integration (ITEM-7): the host carries .aura-glow for proximity
+     detection. Disable the generic hover-lift and magnetic-lean that glow.css
+     applies to all .aura-glow elements — the whole label row should not
+     translate. The dot gets the visual treatment via .aura-glow__target. */
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+aura-radio[disabled] { opacity: var(--aura-disabled-opacity); }
+
+.aura-radio__box {
+  position: relative;            /* contains the sr-only input */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+aura-radio[disabled] .aura-radio__box { cursor: default; pointer-events: none; }
+
+/* Visually-hidden but FOCUSABLE native radio — the form/a11y/keyboard engine.
+   Not display:none (that would drop it from the tab order and the form). The
+   wrapping <label> routes clicks to it, so it needs no pointer hit area. */
+.aura-radio__input {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- Dot: ADDRESSABLE sub-part (ITEM-7 glow target; ::after reserved) --- */
+.aura-radio__dot {
+  position: relative;
+  flex: none;
+  inline-size: var(--aura-radio-size, var(--aura-space-5));
+  block-size: var(--aura-radio-size, var(--aura-space-5));
+  border-radius: var(--aura-radio-radius, var(--aura-radius-full));
+  background: var(--aura-radio-ring-bg, var(--aura-surface-1));
+  /* Match the checkbox: blend toward text so the empty ring is clearly seen (#126). */
+  border: 1px solid var(--aura-radio-border, color-mix(in srgb, var(--aura-surface-stroke-strong), var(--aura-text) 22%));
+  transition: border-color var(--aura-dur-base) var(--aura-ease-standard);
+  /* Widen the glow rim for this compact target: the default 1px is too thin to
+     read on a ~24px circle. Use the shared --aura-edge-shine-width-compact token
+     (1.5px) so radio, checkbox and switch share one source of truth and a theme
+     retuning the compact width moves them together (#663). Token-overridable per
+     the v1.2 constraint. */
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+}
+
+/* Inner fill via ::before (leaves ::after free for the ITEM-7 glow). */
+.aura-radio__dot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  inline-size: var(--aura-radio-dot-size, var(--aura-space-3));
+  block-size: var(--aura-radio-dot-size, var(--aura-space-3));
+  border-radius: var(--aura-radio-radius, var(--aura-radius-full));
+  background: var(--aura-radio-selected, var(--aura-primary));
+  scale: 0;
+  transition: scale var(--aura-dur-base) var(--aura-ease-spring);
+}
+
+/* ---- Label text --------------------------------------------------------- */
+.aura-radio__label {
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+  color: var(--aura-text);
+}
+
+/* ---- State: checked / hover / focus (all follow the native input) ------- */
+.aura-radio__input:checked ~ .aura-radio__dot {
+  border-color: var(--aura-radio-selected, var(--aura-primary));
+}
+.aura-radio__input:checked ~ .aura-radio__dot::before { scale: 1; }
+
+aura-radio:not([disabled]) .aura-radio__box:hover .aura-radio__dot {
+  border-color: var(--aura-primary-a60);
+}
+
+.aura-radio__input:focus-visible ~ .aura-radio__dot {
+  box-shadow: var(--aura-ring);
+}
+
+/* Forced-colors (Windows High Contrast): the checked dot is a pure background
+   fill (dropped in HCM), so checked and unchecked radios both read as a bare
+   ring. Force the inner dot to paint in a system colour when checked. */
+@media (forced-colors: active) {
+  .aura-radio__input:checked ~ .aura-radio__dot::before {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-radio__dot, .aura-radio__dot::before { transition: none; }
+}

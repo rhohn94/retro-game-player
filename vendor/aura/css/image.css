@@ -1,0 +1,158 @@
+/* ==========================================================================
+   Aura — aura-image frame + fullscreen lightbox (v2.2).
+
+   The frame itself reuses the content-first media utilities (.aura-media +
+   .aura-fill, see css/media.css); this file adds the expandable affordance and
+   the shared fullscreen lightbox (scrim, contained stage, glass control bar,
+   zoom/pan). See docs/design/content-first-display-design.md and js/aura-image.js.
+
+   Layer: image (after menu, alongside the other overlay-ish components).
+   ========================================================================== */
+
+/* ---- The frame ------------------------------------------------------- */
+aura-image {
+  cursor: default;
+  background: var(--aura-surface-solid);
+}
+aura-image.aura-image--expandable {
+  cursor: zoom-in;
+}
+aura-image.aura-image--expandable:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+/* A subtle hint that the frame is interactive: lift the image a touch on hover. */
+@media (hover: hover) {
+  aura-image.aura-image--expandable:hover > .aura-image__img {
+    transform: scale(1.03);
+  }
+}
+aura-image > .aura-image__img {
+  transition: transform var(--aura-dur-base, 220ms) var(--aura-ease-out, ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  aura-image > .aura-image__img { transition: none; }
+}
+
+/* ---- Fullscreen lightbox --------------------------------------------- */
+.aura-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--aura-z-modal);
+  display: grid;
+  place-items: center;
+}
+.aura-lightbox[hidden] { display: none; }
+:root.aura-lightbox-open { overflow: hidden; }
+
+.aura-lightbox__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--aura-lightbox-scrim);
+  /* Blur pairs with saturate so the wash tracks the theme (#493). */
+  -webkit-backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+}
+
+/* Opaque fallback (#491): where backdrop-filter is unsupported, OR under
+   [data-aura-effects="lite"], the blur cannot obscure the page, so the scrim
+   falls back to the fully-opaque --aura-lightbox-scrim-solid dimmer. That token
+   is a FIXED dark mix in both themes — falling back to --aura-surface-solid (the
+   page colour) turned the scrim white in LIGHT mode and stopped it dimming, so
+   the last-resort fallback is --aura-lightbox-scrim (still dark) not the page. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-lightbox__scrim {
+    background: var(--aura-lightbox-scrim-solid, var(--aura-lightbox-scrim));
+  }
+}
+[data-aura-effects="lite"] .aura-lightbox__scrim {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-lightbox-scrim-solid, var(--aura-lightbox-scrim));
+}
+
+.aura-lightbox__stage {
+  position: relative;
+  inline-size: 100vw;
+  block-size: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;        /* we own pan/zoom gestures */
+  cursor: grab;
+  /* Query container so the contained image + caption size relative to the STAGE
+     (cqi), not the raw viewport — the stage stays a true viewport overlay
+     (100vw/100dvh, intentional), but the content within reacts to its own
+     container, consistent with the container-relative sizing rule. */
+  container-type: size;
+}
+.aura-lightbox__stage--zoomed { cursor: grab; }
+.aura-lightbox__stage--zoomed:active { cursor: grabbing; }
+
+.aura-lightbox__img {
+  /* Container-relative caps: size against the stage container (cqi/cqb), not the
+     raw viewport, so a stage embedded in a narrower host still fits. */
+  max-inline-size: 92cqi;
+  max-block-size: 88cqb;
+  inline-size: auto;
+  block-size: auto;
+  object-fit: contain;
+  border-radius: var(--aura-radius-md);
+  box-shadow: var(--aura-shadow-5);
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Entrance: scrim fades, image scales up — unless reduced motion. */
+.aura-lightbox--in .aura-lightbox__scrim { animation: aura-lightbox-fade var(--aura-dur-base, 220ms) ease; }
+.aura-lightbox--in .aura-lightbox__img   { animation: aura-lightbox-pop  var(--aura-dur-base, 220ms) var(--aura-ease-out); }
+@keyframes aura-lightbox-fade { from { opacity: 0; } }
+@keyframes aura-lightbox-pop  { from { opacity: 0; transform: scale(0.94); } }
+@media (prefers-reduced-motion: reduce) {
+  .aura-lightbox--in .aura-lightbox__scrim,
+  .aura-lightbox--in .aura-lightbox__img { animation: none; }
+}
+
+/* ---- Glass control bar (floats over the image) ----------------------- */
+.aura-lightbox__bar {
+  position: absolute;
+  inset-block-end: calc(var(--aura-space-4) + var(--aura-safe-bottom, 0px));
+  inset-inline: auto;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-2);
+  border-radius: var(--aura-radius-full);
+}
+.aura-lightbox__btn {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--aura-tap-min, 44px);
+  block-size: var(--aura-tap-min, 44px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--aura-radius-full);
+  background: transparent;
+  color: var(--aura-text-on-glass);
+  cursor: pointer;
+}
+.aura-lightbox__btn:hover { background: color-mix(in srgb, var(--aura-text-on-glass) 14%, transparent); }
+.aura-lightbox__btn:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: calc(-1 * var(--aura-focus-ring-offset, 2px));
+}
+.aura-lightbox__caption {
+  padding-inline: var(--aura-space-2);
+  color: var(--aura-text-on-glass);
+  font-size: var(--aura-text-sm);
+  /* Container-relative cap against the stage (cqi), not the raw viewport. */
+  max-inline-size: 40cqi;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aura-lightbox__caption[hidden] { display: none; }
+.aura-lightbox__close { margin-inline-start: var(--aura-space-1); }

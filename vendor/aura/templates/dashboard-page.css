@@ -1,0 +1,216 @@
+/* ==========================================================================
+   Aura blueprint — Dashboard Page  (templates/dashboard-page.css)
+
+   An overview archetype: a header row (title + range/filter actions), a KPI
+   metric strip, and a responsive tile grid that arranges panels of varying
+   widths (charts, feeds, tables). Built on the v2.5 `content-page` substrate —
+   it composes .aura-page-head, .aura-timeline and .aura-list-row inside its
+   tiles, and reuses the list-page `.aura-stat-grid` idea via its own
+   token-driven metric strip. This blueprint adds only the dashboard frame and
+   the spanning tile grid.
+
+   CASCADE LAYER: dashboard-page  (declared in css/aura.css)
+   Sits above the core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply. Ordered
+   immediately after `settings-page`.
+
+   ── CANONICAL BEM SELECTORS ────────────────────────────────────────────────
+   .aura-dashboard-page          Block  — outer wrapper; centred column with
+                                          outer padding and vertical rhythm.
+   .aura-dashboard-page__head    Element — title row: heading on the leading
+                                          edge, range/filter actions trailing.
+   .aura-dashboard-page__metrics Element — KPI strip: auto-fill grid of metric
+                                          cells. Each cell stacks a label, a
+                                          large value, and an optional trend.
+   .aura-dashboard-page__metric  Element — one KPI cell (surface card).
+   .aura-dashboard-page__metric-label  Element — uppercase metric caption.
+   .aura-dashboard-page__metric-value  Element — large tabular metric figure.
+   .aura-dashboard-page__metric-trend  Element — delta indicator;
+                                          .is-up / .is-down recolour it.
+   .aura-dashboard-page__grid    Element — responsive tile grid.
+   .aura-dashboard-page__tile    Element — a panel; .is-wide spans two columns,
+                                          .is-tall spans two rows.
+   .aura-dashboard-page__tile-head     Element — tile title row.
+
+   ── TUNABLE CUSTOM PROPERTIES ──────────────────────────────────────────────
+   Override on any scope that wraps a .aura-dashboard-page. Defaults sit on
+   :where(:root) so they carry zero specificity and override trivially.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Max width of the centred dashboard column. */
+  --aura-dashboard-page-size: var(--aura-size-2xl);
+  /* Minimum column width for the KPI metric strip (auto-fill). */
+  --aura-dashboard-page-metric-col: 12rem;
+  /* Minimum column width for the tile grid (auto-fill). */
+  --aura-dashboard-page-tile-col: 20rem;
+  /* Tile spans drop below a 40rem CONTAINER width so no tile overflows one
+     column. The breakpoint is the literal in the @container rule below: a
+     container-query feature value cannot read a custom property, so this is NOT
+     a runtime dial — retune it at the @container literal itself. */
+}
+
+/* ── .aura-dashboard-page — centred overview column ─────────────────────── */
+.aura-dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  inline-size: 100%;
+  max-inline-size: var(--aura-dashboard-page-size);
+  margin-inline: auto;
+  padding: var(--aura-space-6) var(--aura-space-5);
+  box-sizing: border-box;
+}
+
+/* ── .aura-dashboard-page__head — title + range actions ─────────────────── */
+.aura-dashboard-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+}
+
+.aura-dashboard-page__head > :is(h1, h2, h3) {
+  margin: 0;
+}
+
+/* ── .aura-dashboard-page__metrics — KPI strip ──────────────────────────── */
+.aura-dashboard-page__metrics {
+  display: grid;
+  /* auto-FIT (not auto-fill) so a short KPI row collapses its empty tracks and
+     the cards stretch to fill the container instead of leaving a dead gap (#69). */
+  grid-template-columns: repeat(auto-fit, minmax(var(--aura-dashboard-page-metric-col), 1fr));
+  gap: var(--aura-space-4);
+}
+
+/* ── .aura-dashboard-page__metric — one KPI cell ────────────────────────── */
+.aura-dashboard-page__metric {
+  display: flex;
+  flex-direction: column;
+  /* One dial governs the label↔value↔trend rhythm so every KPI cell stacks on
+     the same vertical grid (#137). */
+  gap: var(--aura-dashboard-page-metric-gap, var(--aura-space-2));
+  padding: var(--aura-space-5);
+  border-radius: var(--aura-radius-lg);
+  border: var(--aura-border-width) solid var(--aura-surface-stroke);
+  background: var(--aura-surface-1);
+}
+
+.aura-dashboard-page__metric-label {
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-semibold);
+  letter-spacing: var(--aura-tracking-wide);
+  text-transform: uppercase;
+  color: var(--aura-text-muted);
+  /* Long KPI names stay on one line and ellipsis rather than wrapping and
+     throwing the cell off the shared vertical rhythm (#117). Authors should add
+     a `title` with the full label when truncation is likely. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aura-dashboard-page__metric-value {
+  font-size: var(--aura-text-3xl);
+  font-weight: var(--aura-weight-bold);
+  line-height: var(--aura-leading-tight);
+  color: var(--aura-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.aura-dashboard-page__metric-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-1);
+  font-size: var(--aura-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--aura-text-subtle);
+}
+
+/* Up/down deltas must differ by MORE than hue so red-green colour-blind users
+   can still tell them apart (#136). The stylesheet emits a directional glyph
+   (▲ rising / ▼ falling) as a leading shape cue, so the distinction survives
+   greyscale and colour-blindness even when the author writes no arrow in the
+   text. The glyph is decorative (the accessible delta lives in the element's
+   aria-label/text), so it carries aria-hidden semantics by being generated
+   content. Authors who prefer to author their own arrow can suppress it by
+   setting --aura-trend-glyph: "". */
+.aura-dashboard-page__metric-trend.is-up::before,
+.aura-dashboard-page__metric-trend.is-down::before {
+  content: var(--aura-trend-glyph, "");
+  font-size: 0.85em;
+  line-height: 1;
+}
+.aura-dashboard-page__metric-trend.is-up {
+  color: var(--aura-success);
+  --aura-trend-glyph: "\25B2"; /* ▲ filled up-triangle */
+}
+
+.aura-dashboard-page__metric-trend.is-down {
+  color: var(--aura-danger);
+  --aura-trend-glyph: "\25BC"; /* ▼ filled down-triangle */
+}
+
+/* ── .aura-dashboard-page__grid — responsive tile grid ──────────────────── */
+/* The grid is its own query container so the span-drop @container below keys off
+   the grid's own width (not the viewport): a half-snapped window narrows the
+   grid container and drops the spans with no viewport rule. */
+.aura-dashboard-page__grid {
+  container: aura-dashboard-page-grid / inline-size;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--aura-dashboard-page-tile-col), 1fr));
+  /* Equal-height rows so .is-tall spans two predictable tracks. */
+  grid-auto-rows: minmax(var(--aura-dashboard-page-tile-col), auto);
+  gap: var(--aura-space-4);
+}
+
+/* ── .aura-dashboard-page__tile — a dashboard panel ─────────────────────── */
+.aura-dashboard-page__tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-5);
+  border-radius: var(--aura-radius-lg);
+  border: var(--aura-border-width) solid var(--aura-surface-stroke);
+  background: var(--aura-surface-1);
+  min-inline-size: 0;
+}
+
+/* Spanning modifiers. The :where() guard keeps specificity at zero so authors
+   can override the span with their own rule. min() stops the span overflowing
+   a single-column layout. */
+.aura-dashboard-page__tile:where(.is-wide) {
+  grid-column: span 2;
+}
+
+.aura-dashboard-page__tile:where(.is-tall) {
+  grid-row: span 2;
+}
+
+.aura-dashboard-page__tile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--aura-space-2);
+}
+
+.aura-dashboard-page__tile-head > :is(h2, h3, h4) {
+  margin: 0;
+  font-size: var(--aura-text-md);
+}
+
+/* ── Narrow CONTAINER — drop spans so tiles never overflow one column ────── */
+/* Keyed off the grid's own container width, not the viewport, so spans drop in a
+   half-snapped window exactly as they do on a phone. */
+@container aura-dashboard-page-grid (max-width: 40rem) {
+  .aura-dashboard-page__tile:where(.is-wide) {
+    grid-column: auto;
+  }
+
+  .aura-dashboard-page__tile:where(.is-tall) {
+    grid-row: auto;
+  }
+}

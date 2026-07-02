@@ -1,0 +1,342 @@
+/* ==========================================================================
+   Aura — user-preference media queries + the unified opaque-glass set.
+
+   Registered LAST in css/aura.css under layer(preferences) so it can override
+   surface styling for reduced-transparency / increased-contrast / lite-effects
+   without touching the component sources, and — because it is the final layer —
+   WITHOUT !important: a later layer wins over every earlier component layer, so
+   a plain `background:` here beats each component's own base fill. (The old
+   prefers-contrast block lived in @layer elevation-modes, an EARLIER layer, and
+   needed !important to transcend layer order; moving it here retires that.)
+
+   #148 — prefers-reduced-transparency: reduce
+   #164 — prefers-contrast: more
+   #672 — single opaque-glass set: ALL three opaque paths (lite / reduced-
+          transparency / prefers-contrast) cover the SAME surface inventory.
+
+   ──────────────────────────────────────────────────────────────────────────
+   THE OPAQUE-GLASS INVARIANT (#672 / #596 / #491)
+   ──────────────────────────────────────────────────────────────────────────
+   There are THREE conditions under which a frosted glass surface must drop its
+   backdrop-filter and raise its fill to an OPAQUE seam:
+     1. [data-aura-effects="lite"]        — the page-wide reduce-effects hatch.
+     2. prefers-reduced-transparency:reduce — the #148 vision accommodation.
+     3. prefers-contrast: more            — the #164 increased-contrast accom.
+   Frosted-glass tints reduce perceived contrast against content behind the pane
+   and bleed the wallpaper through for reduced-transparency users; a solid opaque
+   surface scores higher on both. So all three conditions want the IDENTICAL
+   treatment, and historically they DRIFTED — three divergent surface lists in
+   three files (#672/#648/#661). They are now unified here.
+
+   INVARIANT: every surface that paints a real `backdrop-filter: blur(>0)` over
+   content MUST appear in the shared inventory below with its opaque seam, and
+   each of the three trigger blocks applies that SAME inventory. A new glass-
+   over-content surface cannot ship without being added once to every block
+   here. tools/check_opaque_glass_parity.py gates this (the three blocks must
+   list an identical surface set) so they cannot diverge again.
+
+   The shared inventory, grouped by opaque seam token:
+     --aura-surface-solid          .aura-surface, aura-card, aura-panel,
+                                    aura-toolbar, .aura-menu, .aura-shell-flyout,
+                                    aura-dialog, .aura-datepicker__panel,
+                                    .aura-timepicker__popup--open,
+                                    .aura-color-picker__panel--inline,
+                                    .aura-nav-header, aura-tooltip::after,
+                                    .aura-table--sticky-head thead th
+     --aura-menu-surface-solid     aura-menu.aura-menu--open
+     --aura-tooltip-surface-solid  .aura-tooltip, .aura-tooltip__arrow
+     --aura-toast-surface-solid    .aura-toast
+     --aura-footer-surface-solid   aura-footer, .aura-footer
+     --aura-lightbox-scrim-solid   .aura-lightbox__scrim   (dimmer, not surface)
+     (blur-only, no fill swap)     .aura-dialog-scrim       (scrim dim kept)
+   The nav-header's portaled panels, accent flyout and global-search command
+   palette carry their own per-component de-frost for these two media paths in
+   css/nav-header.css / css/nav-header-extras.css (the nav owns its accommodation
+   block), in addition to the .aura-nav-header banner listed above.
+   plus the form controls (.aura-btn / inputs / selects) which carry NO
+   backdrop-filter at all — #499 removed it (a tier-1/0px blur was a no-op that
+   only forced a needless compositing layer). They keep a translucent fill, so
+   the reduced-transparency and prefers-contrast paths raise that fill to an
+   opaque seam for legibility. lite does NOT opaque them: there is no
+   backdrop-filter to drop, so the lite escape hatch (which sheds compositing
+   layers) has nothing to remove here.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   #672  [data-aura-effects="lite"] — page-wide reduce-effects escape hatch
+   --------------------------------------------------------------------------
+   Drops the expensive backdrop-filter blur and the translucent glass for an
+   opaque solid surface — same elevation language (shadow, bevel, edge catch) at
+   a fraction of the compositing cost. Useful on low-power devices, very busy
+   backgrounds, or print. Matches BOTH the descendant case (lite on an ancestor)
+   AND the self/compound case (the element carries the attr and the surface
+   class itself) via the two-selector pattern — #661: the old elevation.css self
+   rule omitted the glass-tint-layer that the descendant rule added, so a self-
+   lite surface lost its theme tint; here both cases share one declaration and
+   keep the tint wash.
+
+   The glass surfaces keep their tint wash layered over the opaque seam so a
+   tinted theme (warm-dusk) still reads through lite mode; the chrome surfaces
+   raise to their dedicated opaque seam token.
+   -------------------------------------------------------------------------- */
+[data-aura-effects="lite"] :where(.aura-surface, aura-card, aura-panel, aura-toolbar),
+[data-aura-effects="lite"]:where(.aura-surface, aura-card, aura-panel, aura-toolbar) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+}
+
+/* --------------------------------------------------------------------------
+   #148  prefers-reduced-transparency: reduce
+   --------------------------------------------------------------------------
+   Frosted-glass surfaces blur the wallpaper through a translucent fill. For
+   users who reduce transparency that hurts legibility, so we drop
+   backdrop-filter to `none` and raise the fill to the matching OPAQUE seam.
+   Elevation, shadows, borders and bevels are left untouched — only the
+   transparency/blur changes. This mirrors the existing `@supports not
+   (backdrop-filter)` opaque fallbacks already shipped per component AND the
+   prefers-contrast block below: the two accommodations now cover the IDENTICAL
+   surface inventory (#648 added the JS tooltip bubble, toast and footer that
+   had drifted out of this list relative to the prefers-contrast sibling).
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-transparency: reduce) {
+
+  /* Core glass + overlay panels that raise to the plain surface seam. The theme
+     tint-wash is layered OVER the opaque seam (#722) so a tinted theme
+     (warm-dusk) still reads through under reduced transparency — exactly as the
+     [data-aura-effects="lite"] path and the per-component `@supports not
+     (backdrop-filter)` fallbacks already preserve it. The tint is a low-alpha
+     wash (inert at strength 0), so the seam stays opaque enough for legibility. */
+  .aura-surface,
+  aura-card,
+  aura-panel,
+  aura-toolbar,
+  .aura-menu,
+  .aura-timepicker__popup--open,
+  .aura-datepicker__panel,
+  aura-dialog,
+  .aura-color-picker__panel--inline,
+  .aura-nav-header {
+    background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The shell flyout and the sticky table header raise to the bare opaque seam —
+     their canonical lite / `@supports` reference treatment carries NO tint wash
+     (they never painted --aura-glass-tint-layer), so they stay untinted here. */
+  .aura-shell-flyout,
+  .aura-table--sticky-head thead th {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* #648: the open menu, JS tooltip bubble, toast and reveal footer each ship a
+     dedicated opaque seam AND must drop their own backdrop blur (each paints a
+     real blur in its own component layer, so the blur-off must be re-stated
+     here too — not only the fill swap). Each preserves the theme tint-wash over
+     its seam (#722), matching its component lite / `@supports` reference. */
+  aura-menu.aura-menu--open,
+  .aura-tooltip,
+  .aura-tooltip__arrow,
+  .aura-toast,
+  aura-footer,
+  .aura-footer,
+  .aura-sidebar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  aura-menu.aura-menu--open { background: var(--aura-glass-tint-layer), var(--aura-menu-surface-solid); }
+  .aura-tooltip,
+  .aura-tooltip__arrow { background: var(--aura-glass-tint-layer), var(--aura-tooltip-surface-solid); }
+  .aura-toast { background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid); }
+  aura-footer,
+  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+  .aura-sidebar { background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid); }
+
+  /* The CSS-only tooltip bubble raises to the bare opaque seam — its lite
+     reference (css/components.css) carries no tint wash. */
+  aura-tooltip::after {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Controls that carry a light blur over a translucent fill — buttons,
+     inputs, selects, the timepicker/datepicker field inputs. Raise to the
+     opaque solid so the fill no longer shows the page through. */
+  .aura-btn,
+  aura-button,
+  .aura-input,
+  aura-field :where(input, select, textarea),
+  .aura-select__trigger,
+  .aura-timepicker__field,
+  .aura-datepicker__field {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Scrims blur the page behind a modal/lightbox. Keep the dimming colour but
+     drop the blur so reduced-transparency users get a crisp, non-blurred
+     backdrop. The lightbox scrim swaps to its opaque dimmer seam. */
+  .aura-dialog-scrim {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .aura-lightbox__scrim {
+    background: var(--aura-lightbox-scrim-solid, var(--aura-lightbox-scrim));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   #164 / #672  prefers-contrast: more
+   --------------------------------------------------------------------------
+   Firm up the boundary + text language for users who request more contrast,
+   AND de-frost the SAME glass inventory as the reduced-transparency block so a
+   card/panel never bleeds the wallpaper through for an increased-contrast user
+   (#672 — previously this path opaqued only the floating chrome and left every
+   base .aura-surface/card/panel/toolbar frosted, asymmetric with the reduced-
+   transparency path and undercutting the stroke/text gains below). Because this
+   block now lives in the LAST layer (preferences), the surface fills win over
+   each component's base background WITHOUT !important — the elevation-modes
+   layer-order !important trick is no longer needed.
+
+   forced-colors (Windows High Contrast) is handled separately and overrides
+   this when active.
+   -------------------------------------------------------------------------- */
+@media (prefers-contrast: more) {
+  :root,
+  [data-aura-theme] {
+    /* Opaque, high-contrast control + divider strokes. */
+    --aura-surface-stroke: var(--aura-text);
+    --aura-surface-stroke-strong: var(--aura-text);
+
+    /* Secondary text steps up toward the body text colour so it stays clearly
+       legible rather than low-contrast grey. */
+    --aura-text-muted: var(--aura-text);
+    --aura-text-subtle: var(--aura-text);
+  }
+
+  /* Shared opaque-glass inventory — IDENTICAL to the reduced-transparency
+     block above (#672), tint wash and all. Grouped by opaque seam token. The
+     theme tint-wash is layered OVER the opaque seam (#722) so a tinted theme
+     (warm-dusk) still reads through under increased contrast — matching the lite
+     path and the per-component `@supports` fallbacks. The tint is a low-alpha
+     wash, so the high-contrast seam stays opaque enough (check-theme-contrast
+     and the WCAG-AA status-badge assumptions still hold). */
+  .aura-surface,
+  aura-card,
+  aura-panel,
+  aura-toolbar,
+  .aura-menu,
+  .aura-timepicker__popup--open,
+  .aura-datepicker__panel,
+  aura-dialog,
+  .aura-color-picker__panel--inline,
+  .aura-nav-header {
+    background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The shell flyout and the sticky table header raise to the bare opaque seam —
+     their lite / `@supports` reference treatment carries no tint wash. */
+  .aura-shell-flyout,
+  .aura-table--sticky-head thead th {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The open menu, JS tooltip bubble, toast, reveal footer, and sidebar FMB
+     each drop their own backdrop blur AND raise their dedicated opaque seam —
+     identical to the reduced-transparency block (#648/#672), each keeping its
+     theme tint-wash over the seam (#722). */
+  aura-menu.aura-menu--open,
+  .aura-tooltip,
+  .aura-tooltip__arrow,
+  .aura-toast,
+  aura-footer,
+  .aura-footer,
+  .aura-sidebar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  aura-menu.aura-menu--open { background: var(--aura-glass-tint-layer), var(--aura-menu-surface-solid); }
+  .aura-tooltip,
+  .aura-tooltip__arrow { background: var(--aura-glass-tint-layer), var(--aura-tooltip-surface-solid); }
+  .aura-toast { background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid); }
+  aura-footer,
+  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+  .aura-sidebar { background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid); }
+
+  /* The CSS-only tooltip bubble raises to the bare opaque seam — its lite
+     reference (css/components.css) carries no tint wash. */
+  aura-tooltip::after {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .aura-btn,
+  aura-button,
+  .aura-input,
+  aura-field :where(input, select, textarea),
+  .aura-select__trigger,
+  .aura-timepicker__field,
+  .aura-datepicker__field {
+    background: var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .aura-dialog-scrim {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .aura-lightbox__scrim {
+    background: var(--aura-lightbox-scrim-solid, var(--aura-lightbox-scrim));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* #811 — prefers-contrast strengthened footer border (#672 inventory parity):
+     when high contrast is active the glass backdrop is already removed (backdrop
+     disabled above); also strengthen the border to a 2px stroke so the footer
+     boundary is clearly legible without the glass elevation cue. */
+  aura-footer,
+  .aura-footer {
+    border-block-start: 2px solid var(--aura-footer-border-color);
+    background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   #738 #802  forced-colors (Windows High Contrast)
+   --------------------------------------------------------------------------
+   In forced-colors mode the OS replaces ALL custom colors with system-palette
+   keywords. backdrop-filter glass disappears (the blurred content behind is
+   replaced by the system Canvas color) and custom border colors are overridden.
+   This block explicitly sets system color keywords so the footer reads cleanly.
+   Placed AFTER prefers-contrast so forced-colors (a stronger OS override)
+   always wins. Mirrors the per-component block in css/footer.css; both blocks
+   are required: css/footer.css owns the component CSS (it is in its own layer),
+   and this block provides the unified maintenance inventory for glass surfaces.
+   Surface inventory: aura-footer / .aura-footer — same as the prefers-contrast
+   inventory above (#672 invariant).
+   -------------------------------------------------------------------------- */
+@media (forced-colors: active) {
+  aura-footer,
+  .aura-footer {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: Canvas;
+    border-block-start: 1px solid ButtonText;
+    color: CanvasText;
+    box-shadow: none;
+  }
+}

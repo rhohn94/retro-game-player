@@ -1,0 +1,65 @@
+/* ==========================================================================
+   Aura theme — "modern-flat".
+
+   A calmer, flatter reading of Aura that STAYS recognisably Aura: it keeps the
+   core depth language (elevation tiers, drop shadows, layered glass) while
+   dialing back the ornament — lighter depth, gentler backdrop blur + saturation,
+   squarer corners, a thinner bevel, calmer cursor lighting.
+
+   It is a TOKEN SET ONLY — no component rules. Every value here is an existing
+   --aura-* dial, so the flatter look is achieved by re-skinning, not rewriting.
+   Deliberately MODE-AGNOSTIC: it overrides no surface/neutral colours, so the
+   dark/light mode axis (theme.css) keeps working underneath it untouched.
+
+   Activate: Aura.theme.setTheme("modern-flat") (or pin()), which flips
+   [data-aura-theme-name] on a scope. Register it for switchers with
+   Aura.theme.registerTheme("modern-flat", { label: "Modern Flat" }).
+   See docs/design/theming-and-configuration-design.md §8.
+   ========================================================================== */
+
+[data-aura-theme-name="modern-flat"] {
+  /* Lighter depth — bevels + shadows scale to 70%: present, not pronounced. */
+  --aura-depth: 0.7;
+  /* A finer bevel reference (further thinned by --aura-depth above). */
+  --aura-bevel-base: 0.5px;
+
+  /* Gentler blur-behind: less frosted, less saturated → reads as calm,
+     near-solid panels while remaining real layered glass (blur stays > 0). */
+  --aura-glass-saturate: 1.15;
+  /* blur-2 stays at the base 4px (#674): raising it to 6px made the most common
+     surface — the default/elevation-2 card — MORE frosted than stock Aura, the
+     opposite of this theme's "gentler blur" intent. Keep it <= base so the
+     everyday surface is calmer, and let the ramp climb 4->6->8->10->12 from here. */
+  --aura-blur-2: 4px;
+  --aura-blur-3: 6px;
+  --aura-blur-4: 8px;
+  --aura-blur-5: 10px;
+  /* Extend the gentler ramp to the top tier (#490) so the shrunk nav pill +
+     global-search modal — which forward through --aura-nav-{shrunk,search}-blur
+     → --aura-blur-6 — track this theme's calmer glass instead of the 20px base.
+     NOTE (#490, expected): this only reaches the nav when the theme is applied
+     at the ROOT (`<html data-aura-theme-name="modern-flat">`, what the switcher
+     does). The <aura-nav-header> is GLOBAL chrome — a sibling of any in-page
+     scoped theme-preview region (e.g. demo/themes.html's per-theme cards), not
+     a descendant of it — so a SCOPED theme legitimately cannot and should not
+     restyle the global nav's blur. That is correct cascade scoping, not a bug. */
+  --aura-blur-6: 12px;
+
+  /* Squarer corners — a flatter, more utilitarian silhouette. */
+  --aura-radius-xs:  0.1875rem;
+  --aura-radius-sm:  0.3125rem;
+  --aura-radius-md:  0.4375rem;
+  --aura-radius-lg:  0.5625rem;
+  --aura-radius-xl:  0.75rem;
+  --aura-radius-2xl: 1rem;
+
+  /* Calmer cursor-reactive lighting (the glow/sheen still works, just quieter). */
+  --aura-edge-shine-max: 0.7;
+  --aura-edge-rim-max:   0.35;
+  --aura-hover-lift:     1px;
+}
+
+/* nav-header glass tint intensity for modern-flat (moved from nav-header.css, #438) */
+[data-aura-theme-name="modern-flat"] {
+  --aura-nav-header-tint-intensity: 0.3;
+}

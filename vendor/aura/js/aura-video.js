@@ -1,0 +1,364 @@
+/* ==========================================================================
+   Aura — aura-video: content-first, Aura-native video player.
+
+   A light-DOM custom element wrapping a <video> rendered fill-to-extents in a
+   glass frame (content-first display, #22). The native controls are replaced by
+   an Aura-styled glass control bar that floats over the video: icon-first
+   play/pause/mute/fullscreen buttons, an aura-range scrubber and volume slider,
+   tooltips, a time readout, and an optional captions toggle.
+
+   Authors:
+     <aura-video src="clip.mp4" poster="poster.jpg" caption="Sample" ratio="16/9">
+       <track kind="captions" src="clip.vtt" srclang="en" label="English">
+     </aura-video>
+
+   Touch: coarse hit targets, tap toggles controls, controls auto-hide on play.
+   Keyboard: Space/K play-pause, ←/→ scrub, ↑/↓ volume, M mute, F fullscreen,
+   Escape exits fullscreen (browser-native). HTMX-safe (custom-element lifecycle).
+
+   Load order: core.js → range.js → tooltip.js → media-base.js → aura-video.js.
+   See docs/design/content-first-display-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.MediaElementBase) return;
+
+  Aura.icons.register("play",     '<polygon points="6 4 20 12 6 20 6 4"/>');
+  Aura.icons.register("pause",    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>');
+  Aura.icons.register("volume",   '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>');
+  Aura.icons.register("volume-x", '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>');
+  Aura.icons.register("cc",       '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M9 10a2 2 0 0 0-2 2 2 2 0 0 0 2 2"/><path d="M16 10a2 2 0 0 0-2 2 2 2 0 0 0 2 2"/>');
+  /* `maximize` is registered by aura-image.js (loads first); register the
+     matching `minimize` glyph so the fullscreen button can swap to it while in
+     fullscreen (#635). Guarded so a future shared registration never collides. */
+  if (!Aura.icons.has("minimize")) {
+    Aura.icons.register("minimize", '<path d="M9 3v6H3"/><path d="M21 15h-6v6"/><path d="M3 9l7-7"/><path d="M15 21l7-7"/>');
+  }
+
+  var HIDE_DELAY_MS = 2600;
+  var SCRUB_STEP_S = 5;
+
+  /* Stable control markers (#643): tag each control-bar child with
+     data-aura-ctl so an idempotent rebuild re-adopts the SAME nodes by name
+     rather than by fragile positional index. Declared once to avoid magic
+     strings at the tag/query sites. */
+  var CTL = {
+    attr: "data-aura-ctl",
+    play: "play", time: "time", scrub: "scrub",
+    mute: "mute", vol: "vol", cc: "cc", fs: "fs"
+  };
+
+  function fmtTime(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  /* Summary: Aura-native video player. Wraps a <video>, hides native controls,
+     and drives a floating glass control bar; owns the show/hide, fullscreen,
+     and keyboard controllers. */
+  Aura.define("aura-video", class extends Aura.MediaElementBase {
+    static get _prefix() { return "aura-video"; }
+    static get observedAttributes() { return ["src", "poster", "caption", "ratio", "loading"]; }
+
+    /* Extra teardown beyond the base init-guard reset: drop the pending auto-hide
+       timer and the document fullscreenchange listener so a disconnected player
+       leaks neither. The base reset (__init = false) lets an HTMX re-insert
+       cleanly rebuild. */
+    disconnectedCallback() {
+      Aura.BaseElement.prototype.disconnectedCallback.call(this);
+      clearTimeout(this.__hideTimer);
+      document.removeEventListener("fullscreenchange", this.__onFsChange);
+    }
+
+    _build() {
+      this._markFrame();
+
+      /* The <video> is the fill content. Reuse an authored one (direct child) OR
+         the one a prior build already moved into the fill wrapper (#643), so a
+         reconnect re-adopts the SAME <video> instead of creating a second. */
+      var video = this.querySelector(":scope > video") ||
+                  this.querySelector(":scope > .aura-fill > video");
+      if (!video) {
+        video = document.createElement("video");
+        /* Move any authored <track> children into the video. */
+        var tracks = this.querySelectorAll(":scope > track");
+        Array.prototype.forEach.call(tracks, function (t) { video.appendChild(t); });
+        this.insertBefore(video, this.firstChild);
+      }
+      video.className = "aura-video__media";
+      video.removeAttribute("controls");           // we own the chrome
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      this._video = video;
+
+      /* Idempotent fill wrapper (#643): BaseElement resets __init on disconnect,
+         so an HTMX swap / SPA remount re-runs _build. Reuse an existing
+         .aura-fill rather than creating a second one (which would orphan the
+         prior fill div and re-parent the video), mirroring the aura-image reuse
+         pattern. Only create + re-parent when none exists. */
+      var fill = this.querySelector(":scope > .aura-fill");
+      if (!fill) {
+        fill = document.createElement("div");
+        fill.className = "aura-fill aura-bleed";
+        this.insertBefore(fill, this.firstChild);
+      }
+      if (video.parentNode !== fill) fill.appendChild(video);
+
+      this._buildBar();
+    }
+
+    /* Re-resolve the bar's control instance refs from its existing children by
+       their stable data-aura-ctl markers, so a reused bar re-binds to the live
+       nodes (#643). Each control is tagged once at build time (CTL.*). */
+    _adoptBar(bar) {
+      this._bar = bar;
+      this._playBtn = bar.querySelector("[" + CTL.attr + "='" + CTL.play + "']");
+      this._time    = bar.querySelector("[" + CTL.attr + "='" + CTL.time + "']");
+      this._scrub   = bar.querySelector("[" + CTL.attr + "='" + CTL.scrub + "']");
+      this._muteBtn = bar.querySelector("[" + CTL.attr + "='" + CTL.mute + "']");
+      this._vol     = bar.querySelector("[" + CTL.attr + "='" + CTL.vol + "']");
+      this._ccBtn   = bar.querySelector("[" + CTL.attr + "='" + CTL.cc + "']");
+      this._fsBtn   = bar.querySelector("[" + CTL.attr + "='" + CTL.fs + "']");
+    }
+
+    _buildBar() {
+      /* Idempotent control bar (#643): reuse an existing bar on reconnect rather
+         than appending a second (duplicate controls + duplicate listeners on the
+         same <video>). When a bar already exists, re-adopt its children into the
+         instance refs so the captured nodes stay current; _bind() (now run once
+         per built-DOM lifetime, #439) wires them. Otherwise build the bar fresh. */
+      var existingBar = this.querySelector(":scope > .aura-video__bar");
+      if (existingBar) { this._adoptBar(existingBar); return; }
+
+      var bar = document.createElement("div");
+      bar.className = "aura-surface aura-e-3 aura-chrome aura-chrome--bar aura-video__bar";
+
+      this._playBtn = this._iconBtn("play", "Play");
+      this._playBtn.setAttribute(CTL.attr, CTL.play);
+      this._time = document.createElement("span");
+      this._time.className = "aura-video__time";
+      this._time.textContent = "0:00 / 0:00";
+      this._time.setAttribute(CTL.attr, CTL.time);
+
+      this._scrub = document.createElement("aura-range");
+      this._scrub.className = "aura-video__scrub";
+      this._scrub.setAttribute("min", "0");
+      this._scrub.setAttribute("max", "1000");
+      this._scrub.setAttribute("value", "0");
+      this._scrub.setAttribute("aria-label", "Seek");
+      this._scrub.setAttribute(CTL.attr, CTL.scrub);
+
+      this._muteBtn = this._iconBtn("volume", "Mute");
+      this._muteBtn.setAttribute(CTL.attr, CTL.mute);
+      this._vol = document.createElement("aura-range");
+      this._vol.className = "aura-video__vol";
+      this._vol.setAttribute("min", "0");
+      this._vol.setAttribute("max", "100");
+      this._vol.setAttribute("value", "100");
+      this._vol.setAttribute("aria-label", "Volume");
+      this._vol.setAttribute(CTL.attr, CTL.vol);
+
+      this._ccBtn = this._iconBtn("cc", "Captions");
+      this._ccBtn.setAttribute(CTL.attr, CTL.cc);
+      this._fsBtn = this._iconBtn("maximize", "Fullscreen");
+      this._fsBtn.setAttribute(CTL.attr, CTL.fs);
+
+      bar.appendChild(this._playBtn);
+      bar.appendChild(this._time);
+      bar.appendChild(this._scrub);
+      bar.appendChild(this._muteBtn);
+      bar.appendChild(this._vol);
+      bar.appendChild(this._ccBtn);
+      bar.appendChild(this._fsBtn);
+      this.appendChild(bar);
+      this._bar = bar;
+    }
+
+    _bind() {
+      var self = this, v = this._video;
+
+      this._playBtn.addEventListener("click", function () { self._togglePlay(); });
+      this._muteBtn.addEventListener("click", function () { v.muted = !v.muted; self._syncVolumeUI(); });
+      this._fsBtn.addEventListener("click", function () { self._toggleFullscreen(); });
+      this._ccBtn.addEventListener("click", function () { self._toggleCaptions(); });
+
+      /* Click the video surface toggles play (and reveals controls). */
+      v.addEventListener("click", function () { self._togglePlay(); });
+
+      v.addEventListener("play",  function () { self._reflectPlay(); self._scheduleHide(); });
+      v.addEventListener("pause", function () { self._reflectPlay(); self._showControls(); });
+      v.addEventListener("timeupdate", function () { self._reflectTime(); });
+      v.addEventListener("loadedmetadata", function () { self._reflectTime(); self._reflectCaptions(); });
+      v.addEventListener("volumechange", function () { self._syncVolumeUI(); });
+
+      /* Scrubber drag → seek. */
+      this._scrub.addEventListener("input", function () {
+        if (!isFinite(v.duration)) return;
+        v.currentTime = (parseFloat(self._scrub.value) / 1000) * v.duration;
+      });
+      /* Volume drag. */
+      this._vol.addEventListener("input", function () {
+        v.muted = false;
+        v.volume = Math.min(1, Math.max(0, parseFloat(self._vol.value) / 100));
+      });
+
+      /* Reveal controls on any pointer activity; auto-hide while playing. */
+      this.addEventListener("pointermove", function () { self._showControls(); self._scheduleHide(); });
+      this.addEventListener("pointerleave", function () { if (!v.paused) self._scheduleHide(0); });
+
+      /* Keyboard — element is focusable. */
+      this.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
+      this.addEventListener("keydown", function (e) { self._onKey(e); });
+    }
+
+    /* The document-level fullscreenchange listener is the ONE listener that is
+       torn down on disconnect, so it is armed PER-CONNECT here rather than in the
+       once-per-lifetime _bind() (#439): _bind() now binds the surviving-node
+       listeners (controls, <video>, host) exactly once, while this document
+       listener is re-added on every reconnect and removed on every disconnect —
+       no accumulation, no gap. (Mirrors editor.js's per-connect selectionchange.) */
+    connectedCallback() {
+      Aura.BaseElement.prototype.connectedCallback.call(this); // _build / once-only _bind / _sync
+      var self = this;
+      if (!this.__onFsChange) this.__onFsChange = function () { self._reflectFullscreen(); };
+      document.addEventListener("fullscreenchange", this.__onFsChange);
+    }
+
+    _sync() {
+      var v = this._video;
+      var src = this.getAttribute("src");
+      if (src != null && v.getAttribute("src") !== src) v.setAttribute("src", src);
+      var poster = this.getAttribute("poster");
+      if (poster != null) v.setAttribute("poster", poster);
+
+      this._mirrorMedia(v);
+
+      this.setAttribute("aria-label", "Video player" + (this.getAttribute("caption") ? ": " + this.getAttribute("caption") : ""));
+      this._reflectPlay();
+      this._reflectCaptions();
+    }
+
+    /* ---- Playback ---------------------------------------------------- */
+    _togglePlay() {
+      var v = this._video;
+      // play() rejects when autoplay policy or a transient state blocks it;
+      // surface it via Aura.warn rather than swallowing (#345).
+      if (v.paused) {
+        var p = v.play();
+        if (p && p.catch) p.catch(function (err) { Aura.warn("[aura-video] play() rejected:", err); });
+      }
+      else v.pause();
+    }
+    _reflectPlay() {
+      var v = this._video, playing = !v.paused && !v.ended;
+      this._swapIcon(this._playBtn, playing ? "pause" : "play");
+      this._playBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
+      this._playBtn.setAttribute("data-aura-tooltip", playing ? "Pause" : "Play");
+      this.classList.toggle("aura-video--playing", playing);
+    }
+    _reflectTime() {
+      var v = this._video;
+      this._time.textContent = fmtTime(v.currentTime) + " / " + fmtTime(v.duration);
+      if (isFinite(v.duration) && v.duration > 0) {
+        this._scrub.value = String(Math.round((v.currentTime / v.duration) * 1000));
+      }
+    }
+
+    /* ---- Volume ------------------------------------------------------ */
+    _syncVolumeUI() {
+      var v = this._video;
+      var muted = v.muted || v.volume === 0;
+      this._swapIcon(this._muteBtn, muted ? "volume-x" : "volume");
+      this._muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
+      this._muteBtn.setAttribute("data-aura-tooltip", muted ? "Unmute" : "Mute");
+      this._vol.value = String(Math.round((muted ? 0 : v.volume) * 100));
+    }
+
+    /* ---- Captions ---------------------------------------------------- */
+    _textTracks() { return this._video.textTracks || []; }
+    _reflectCaptions() {
+      var tracks = this._textTracks();
+      var has = tracks.length > 0;
+      this._ccBtn.hidden = !has;
+      /* Establish aria-pressed (and the visual --on class) from the first
+         track's current mode at build/metadata time, not only after the first
+         click, so AT announces the toggle's state from the start — including a
+         track that ships default/showing (#637). */
+      var on = has && tracks[0].mode === "showing";
+      this._ccBtn.setAttribute("aria-pressed", String(on));
+      this._ccBtn.classList.toggle("aura-video__btn--on", on);
+    }
+    _toggleCaptions() {
+      var tracks = this._textTracks();
+      if (!tracks.length) return;
+      var t = tracks[0];
+      var on = t.mode === "showing";
+      t.mode = on ? "disabled" : "showing";
+      this._ccBtn.classList.toggle("aura-video__btn--on", !on);
+      this._ccBtn.setAttribute("aria-pressed", String(!on));
+    }
+
+    /* ---- Fullscreen -------------------------------------------------- */
+    _toggleFullscreen() {
+      if (document.fullscreenElement === this) {
+        if (document.exitFullscreen) document.exitFullscreen();
+      } else if (this.requestFullscreen) {
+        // requestFullscreen() rejects without a user gesture or when blocked by
+        // permissions policy; surface it via Aura.warn rather than swallow (#345).
+        var p = this.requestFullscreen();
+        if (p && p.catch) p.catch(function (err) { Aura.warn("[aura-video] requestFullscreen() rejected:", err); });
+      }
+    }
+    _reflectFullscreen() {
+      var full = document.fullscreenElement === this;
+      this.classList.toggle("aura-video--fullscreen", full);
+      /* Swap to the minimize glyph in fullscreen so the icon matches the
+         "Exit fullscreen" affordance, mirroring play/mute toggles (#635). */
+      this._swapIcon(this._fsBtn, full ? "minimize" : "maximize");
+      this._fsBtn.setAttribute("aria-label", full ? "Exit fullscreen" : "Fullscreen");
+      this._fsBtn.setAttribute("data-aura-tooltip", full ? "Exit fullscreen" : "Fullscreen");
+    }
+
+    /* ---- Controls show/hide ------------------------------------------ */
+    _showControls() {
+      this.classList.remove("aura-video--idle");
+      clearTimeout(this.__hideTimer);
+    }
+    _scheduleHide(delay) {
+      var self = this;
+      clearTimeout(this.__hideTimer);
+      if (this._video.paused) return; // never hide while paused
+      this.__hideTimer = setTimeout(function () {
+        self.classList.add("aura-video--idle");
+      }, delay == null ? HIDE_DELAY_MS : delay);
+    }
+
+    /* ---- Keyboard ---------------------------------------------------- */
+    _onKey(e) {
+      var v = this._video, handled = true;
+      switch (e.key) {
+        case " ": case "k": case "K": this._togglePlay(); break;
+        case "ArrowLeft":  v.currentTime = Math.max(0, v.currentTime - SCRUB_STEP_S); break;
+        case "ArrowRight": v.currentTime = Math.min(v.duration || Infinity, v.currentTime + SCRUB_STEP_S); break;
+        case "ArrowUp":    v.muted = false; v.volume = Math.min(1, v.volume + 0.1); break;
+        case "ArrowDown":  v.volume = Math.max(0, v.volume - 0.1); break;
+        case "m": case "M": v.muted = !v.muted; this._syncVolumeUI(); break;
+        case "f": case "F": this._toggleFullscreen(); break;
+        default: handled = false;
+      }
+      if (handled) { e.preventDefault(); this._showControls(); this._scheduleHide(); }
+    }
+
+    /* Replace a button's <svg> with a fresh icon (keeps listeners on button). */
+    _swapIcon(btn, icon) {
+      var old = btn.querySelector("svg");
+      var fresh = Aura.icon(icon);
+      if (old) btn.replaceChild(fresh, old); else btn.appendChild(fresh);
+    }
+  });
+})();

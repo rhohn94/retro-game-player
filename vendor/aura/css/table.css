@@ -1,0 +1,156 @@
+/* ==========================================================================
+   Aura — data table (aura-table).   Registered in css/aura.css under layer(table).
+
+   A semantic <table class="aura-table"> styled as a first-class Aura surface:
+   a muted uppercase header, hairline row dividers, a row-hover tint, and an
+   optional total/footer row. Numeric cells opt in via `class="aura-num"`
+   (right-aligned, tabular figures). Everything is token-driven so the table
+   re-skins for free under dark/light and every named theme (retro-pc,
+   extra-depth, flat-primary, …) — those swap tokens, not rules.
+
+   Responsiveness (#112): a table cannot itself scroll, so wrap it in
+   <div class="aura-table-wrap"> which provides overflow-x:auto. On narrow
+   viewports the table keeps its natural column widths and the wrapper scrolls
+   horizontally; the header scrolls in lockstep with the body (a sticky header,
+   below, keeps it usable on tall vertical scrolls). Set a sensible min-width on
+   the table so columns don't collapse to unreadable widths before scrolling
+   kicks in. A stacked-card reflow is intentionally not implemented here.
+   ========================================================================== */
+
+/* --- Scroll wrapper: the only element that scrolls horizontally (#112). -----
+   A keyboard user must be able to scroll this region, so author it focusable
+   and labelled in the markup:
+       <div class="aura-table-wrap" tabindex="0" role="region" aria-label="…">
+   (axe flags an unfocusable scrollable region as `scrollable-region-focusable`.)
+   The focus ring below makes that focus state visible. */
+.aura-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Round the scroll container so the table corners read as a single surface. */
+  border-radius: var(--aura-radius-md);
+}
+
+.aura-table-wrap:focus-visible {
+  outline: 2px solid var(--aura-primary);
+  outline-offset: 2px;
+}
+
+/* --- The table surface. ---------------------------------------------------- */
+.aura-table {
+  width: 100%;
+  /* Below this width the wrapper scrolls rather than crushing columns (#112). */
+  min-width: 30rem;
+  border-collapse: collapse;
+  color: var(--aura-text);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-md);
+  /* Keep the rounded corners clipping the first/last row backgrounds. */
+  overflow: hidden;
+}
+
+/* A table inside the scroll wrapper owns the corners; the wrapper clips. */
+.aura-table-wrap > .aura-table {
+  border-radius: 0;
+}
+
+/* --- Cells. ---------------------------------------------------------------- */
+.aura-table th,
+.aura-table td {
+  /* density-aware cell padding so compact mode tightens rows (#93) */
+  padding: var(--aura-table-cell-pad, var(--aura-space-3) var(--aura-space-4));
+  text-align: start;
+  /* Hairline divider between rows — the structural rhythm of the table. */
+  border-block-end: 1px solid var(--aura-surface-stroke);
+  vertical-align: middle;
+}
+
+/* --- Header: muted, uppercase, tracked-out labels. ------------------------- */
+.aura-table thead th {
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-semibold);
+  letter-spacing: var(--aura-tracking-wide);
+  text-transform: uppercase;
+  color: var(--aura-text-muted);
+  background: var(--aura-surface-2);
+  white-space: nowrap;
+}
+
+/* --- Body rows: hover tint, last row sheds its divider. --------------------
+   The tint transitions in via the shared fast/standard token pair so it reads
+   as a designed hover affordance rather than an instant snap (v3.530). Only
+   background-color is animated — no box-shadow/transform riders — so this
+   never triggers layout, just a compositor-friendly paint.
+
+   No explicit prefers-reduced-motion guard: base.css's central reduced-motion
+   safety net ("Central reduced-motion safety net" block) only nukes the
+   decorative MOTION property set (transform/translate/scale/rotate/filter/
+   backdrop-filter/box-shadow) — background-color is deliberately left out
+   there, same as the scrollbar-thumb and switch-track background-color
+   transitions elsewhere in the system, because a colour fade isn't motion.
+   120ms is also short enough that it reads as a near-instant state change
+   either way, so no per-component override is needed here. */
+.aura-table tbody tr {
+  transition: background-color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+
+.aura-table tbody tr:hover {
+  background: var(--aura-primary-a15);
+}
+
+.aura-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+/* --- Numeric cells: right-aligned, tabular figures so columns line up. ------ */
+.aura-table .aura-num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Footer / total row: heavier weight, a stronger top rule. -------------- */
+.aura-table tfoot td {
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text);
+  background: var(--aura-surface-2);
+  border-block-end: 0;
+  /* A firmer rule separates the summary from the data above it. */
+  border-block-start: 1px solid var(--aura-surface-stroke);
+}
+
+/* --- Optional sticky header (opt-in via the modifier class). ---------------
+   Pins <thead> to the top of the nearest scroll container as the body scrolls
+   vertically. Pair with a max-height on .aura-table-wrap (or any scroll
+   ancestor) for it to take effect. */
+.aura-table--sticky-head thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  /* The translucent --aura-surface-2 header would let scrolled rows show through
+     illegibly; frost the pinned cells so the body reads as "behind glass" rather
+     than bleeding through (matches the nav-header recipe). Opaque is the SCOPED
+     exception under lite mode + the no-backdrop-filter fallback below. */
+  -webkit-backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+}
+/* Opaque fallback where backdrop-filter is unsupported (mirrors nav-header.css). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-table--sticky-head thead th { background: var(--aura-surface-solid); }
+}
+/* Lite effects mode: opaque pinned header so scrolled rows stay hidden behind
+   it without relying on the blur. */
+[data-aura-effects="lite"] .aura-table--sticky-head thead th {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-surface-solid);
+}
+
+/* --- Empty cells: a muted em-dash so missing data reads as intentional rather
+   than as a layout gap (#141). Authors who want a truly blank cell can put a
+   non-breaking space in the markup. */
+.aura-table tbody td:empty::after {
+  content: "—";
+  color: var(--aura-text-subtle);
+}

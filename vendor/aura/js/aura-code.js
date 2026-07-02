@@ -1,0 +1,109 @@
+/* ==========================================================================
+   Aura — aura-code: declarative inline/block code element (v3.14).
+
+   Instead of raw <code> re-styled ad hoc in each demo:
+     <code>modern-flat</code>
+   the author writes:
+     <aura-code>modern-flat</aura-code>
+
+   The element is CSS-first and minimal. For the INLINE form (default) the tag
+   selector in css/base.css already paints the chip surface; this JS layer adds
+   role="code" for AT and reflects an optional `lang` attribute as data-lang
+   (the same attribute that css/code.css already reads for block-form lang labels).
+
+   The block form (when `block` attribute is present) adds the .aura-code class
+   so the element inherits the full block-code surface from css/code.css, and
+   wraps the content in a <pre> if not already present.
+
+   Mode-aware color is purely CSS: the inline chip color is driven by
+   --aura-secondary-300 in dark / --aura-secondary-700 in light (matching the
+   pattern fixed for .hub-card__desc code in v3.10). Consuming contexts may
+   override via --aura-code-color custom property on the parent.
+
+   API:
+     block        — presence attribute: treat as block code (adds .aura-code)
+     lang=""      — language label (reflected to data-lang for CSS)
+     copyable     — presence attribute passed through to copy.js
+
+   Load order: core.js → element-base.js → aura-code.js (self-registers).
+   See docs/design/declarative-markup-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* Summary: declarative code element; inline chip by default; block form adds
+     .aura-code class; reflects lang → data-lang; adds role=code for AT. */
+  Aura.define("aura-code", class extends Aura.BaseElement {
+    static get observedAttributes() { return ["block", "lang", "copyable"]; }
+
+    _build() {
+      if (!this.hasAttribute("role")) this.setAttribute("role", "code");
+    }
+
+    _sync() { this._reflect(); }
+    _onAttr() { this._reflect(); }
+
+    _reflect() {
+      /* Block mode: behave as a block code surface (css/code.css) and wrap the
+         content in a <pre> so authored whitespace/newlines survive normal HTML
+         flow collapsing. Idempotent — an existing <pre> is reused, so a reconnect
+         or repeated _reflect never double-wraps (#639). */
+      if (this.hasAttribute("block")) {
+        this.classList.add("aura-code");
+        this._ensurePre();
+      } else {
+        this.classList.remove("aura-code");
+        this._unwrapPre();
+      }
+
+      /* Language label (css/code.css reads [data-lang]::before). */
+      var lang = this.getAttribute("lang");
+      if (lang) this.setAttribute("data-lang", lang);
+      else this.removeAttribute("data-lang");
+    }
+
+    /* Wrap the block-form content in a <pre> (creating one only if absent) so
+       multi-line code preserves its whitespace and newlines. Idempotent: reuses
+       an existing :scope > pre and never re-wraps on reconnect. The copy button
+       js/copy.js injects (.aura-copy) is left outside the <pre> so it stays
+       pinned to the corner and is not treated as code. */
+    _ensurePre() {
+      var pre = this.querySelector(":scope > pre");
+      if (pre) return;
+      pre = document.createElement("pre");
+      pre.className = "aura-code__pre";
+      var node = this.firstChild;
+      while (node) {
+        var next = node.nextSibling;
+        if (!(node.nodeType === 1 && node.classList &&
+              node.classList.contains("aura-copy"))) {
+          pre.appendChild(node);
+        }
+        node = next;
+      }
+      this.appendChild(pre);
+    }
+
+    /* Symmetric inverse of _ensurePre (#652): when `block` is toggled OFF, move
+       the injected <pre>'s children back up to the host and drop the <pre> so the
+       element renders as the inline chip again rather than stranding content in
+       an orphaned block <pre>. Idempotent — a no-op when no injected <pre> exists.
+       The copy button (.aura-copy) was kept outside the <pre>, so it is untouched. */
+    _unwrapPre() {
+      var pre = this.querySelector(":scope > pre.aura-code__pre");
+      if (!pre) return;
+      var node = pre.firstChild;
+      while (node) {
+        var next = node.nextSibling;
+        this.insertBefore(node, pre);
+        node = next;
+      }
+      pre.remove();
+    }
+  });
+})();

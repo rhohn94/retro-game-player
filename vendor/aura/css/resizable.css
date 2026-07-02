@@ -1,0 +1,148 @@
+/* ==========================================================================
+   Aura — aura-split resizable-panel styling (resizable layer).
+
+   Token-driven. The grid TEMPLATE is computed by js/resizable.js into the
+   --aura-split-template custom property (panel tracks `var(--aura-split-N)`
+   interleaved with handle tracks); THIS file decides which grid axis the
+   template lands on, so the narrow-container stacking query below can override
+   it in the normal cascade (#377). Beyond that it owns the container resets,
+   the panel shrink rule, and the handle's interactive-glass + proximity-glow
+   treatment.
+
+   The .aura-split__handle is a real, addressable element (not a pseudo) so each
+   handle can be its own .aura-glow host: a thin glass bar that reads as
+   interactive glass (bevel + stroke, raises on hover/drag) and lights its rim
+   via the COMPACT glow pair only when the cursor is genuinely near it. js writes
+   only the --aura-split-N ratio properties, so a drag composites as a pure grid
+   recompute with no transition on the tracked panels.
+   See docs/design/responsive-layout-design.md §Resizable-panel mechanics.
+   ========================================================================== */
+
+/* ---- Container ----------------------------------------------------------- */
+aura-split {
+  display: grid;
+  /* Let the grid (and its panels) shrink inside a flex/grid parent instead of
+     overflowing — the load-bearing rule that lets fr tracks actually resize. */
+  min-inline-size: 0;
+  min-block-size: 0;
+  inline-size: 100%;
+}
+
+/* The computed track template (js/resizable.js → --aura-split-template) lands
+   on the main axis of the split: columns for the default side-by-side split,
+   rows for a vertical one. Keyed on the attribute here (not written inline by
+   JS) so the stacking rule below can win in the cascade. */
+aura-split:not([orientation="vertical"]) {
+  grid-template-columns: var(--aura-split-template, none);
+}
+aura-split[orientation="vertical"] {
+  grid-template-rows: var(--aura-split-template, none);
+}
+
+/* ---- Panels -------------------------------------------------------------- */
+/* Each author panel occupies one fr track. min-size:0 lets a track shrink past
+   its content's intrinsic size (without it the panel refuses to shrink and the
+   drag does nothing); overflow keeps over-large content inside its track.
+   Authors can override overflow per panel — ITEM-4 owns the scroll model. */
+.aura-split__panel {
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: auto;
+}
+
+/* ---- Handle: interactive-glass separator + glow host --------------------- */
+.aura-split__handle {
+  /* The handle stretches to fill its (thin) grid track by default. */
+  position: relative;
+  display: block;
+  align-self: stretch;
+  justify-self: stretch;
+  border-radius: var(--aura-radius-sm);
+  background: var(--aura-split-handle-bg, var(--aura-surface-3));
+  border: 1px solid var(--aura-surface-stroke);
+  /* Bevelled edge so the bar reads as a raised, chamfered glass grip (same
+     recipe as .aura-surface, scaled to a thin control). */
+  box-shadow:
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+  touch-action: none;            /* pointer-drag owns the gesture on touch    */
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  z-index: var(--aura-z-raised); /* sits above panel content for the hit area */
+  transition:
+    background-color var(--aura-dur-base) var(--aura-ease-standard),
+    box-shadow var(--aura-dur-base) var(--aura-ease-out);
+  /* Compact glow pair: tighter detection radius + slightly thicker rim so the
+     thin bar lights only when the cursor is near it (tokens, not literals).   */
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+  /* The handle must not translate out of its track, so disable the generic
+     .aura-glow hover-lift and magnetic lean (same opt-out as aura-range).      */
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+
+/* Resize cursor follows the split axis. */
+aura-split:not([orientation="vertical"]) .aura-split__handle { cursor: col-resize; }
+aura-split[orientation="vertical"]       .aura-split__handle { cursor: row-resize; }
+
+/* Centre grip marker (::before; the glow rim owns ::after). A short inset bar
+   perpendicular to the drag axis hints the affordance. */
+.aura-split__handle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-split-grip-color, var(--aura-surface-stroke-strong));
+}
+aura-split:not([orientation="vertical"]) .aura-split__handle::before {
+  inline-size: var(--aura-split-grip-thickness, 2px);
+  block-size: var(--aura-split-grip-length, var(--aura-space-5));
+}
+aura-split[orientation="vertical"] .aura-split__handle::before {
+  block-size: var(--aura-split-grip-thickness, 2px);
+  inline-size: var(--aura-split-grip-length, var(--aura-space-5));
+}
+
+/* Hover/drag raise: the grip lifts one elevation step (brighter fill + raised
+   shadow), telling the user it is grabbable / active. */
+.aura-split__handle:hover,
+.aura-split__handle:active {
+  background: var(--aura-split-handle-bg-hover, var(--aura-surface-4));
+  box-shadow:
+    var(--aura-e-shadow-raise, var(--aura-shadow-3)), /* #578: inline so the raise tracks the handle's elevation */
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+}
+
+/* Focus ring rides the handle (keyboard users land here via Tab). */
+.aura-split__handle:focus { outline: none; }
+.aura-split__handle:focus-visible { box-shadow: var(--aura-ring); }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-split__handle { transition: none; }
+}
+
+/* ---- Narrow-container stacking (#377) ------------------------------------ *
+   Below the same 40rem container threshold at which the app-shell sidebar
+   collapses into its drawer (css/mobile.css §3c), a side-by-side split cannot
+   give every panel its intrinsic min-content width without overflowing its
+   scroll owner (nowrap action buttons, unbreakable inline code tokens). The
+   split therefore STACKS: one full-width column, each panel an equal implicit
+   row that keeps its own scroll context, resize handles withdrawn — chrome
+   collapses gracefully, container-relative rather than viewport-hacked
+   (philosophy 7). The nearest query container is the aura-shell / aura-region
+   ancestor (container-type: inline-size — css/layout.css), so an embedded
+   split tracks its host surface, not the viewport. Vertical splits are
+   already stacked and keep their handles. These selectors tie with the axis
+   rules above on specificity and win by order — keep this section last. */
+@container (max-width: 40rem) {
+  aura-split:not([orientation="vertical"]) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  aura-split:not([orientation="vertical"]) > .aura-split__handle {
+    display: none;
+  }
+}

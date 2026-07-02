@@ -1,0 +1,154 @@
+/* ==========================================================================
+   Aura — layers & depth (elevation).
+
+   Depth is a first-class, composite concept: each level moves FOUR dials at
+   once — shadow, backdrop-blur, surface tint (brightness), and a top-edge
+   light catch. See docs/design/elevation-design.md.
+
+   An element's level is the custom property --aura-e, settable three ways:
+     <aura-card elevation="3">      (declarative, preferred)
+     data-aura-elevation="3"        (any element)
+     class="aura-e-3"               (utility)
+   Each level rule below sets the four dial variables; .aura-surface consumes
+   them. Decoupling "which level" from "how a surface looks" lets interaction
+   raise an element by just reassigning the dials.
+   ========================================================================== */
+
+/* ---- Level definitions: set the four dials (+ a "raised" shadow for hover) */
+:where(.aura-e-0, [data-aura-elevation="0"], [elevation="0"]) {
+  --aura-e: 0;
+  --aura-e-shadow: none;
+  --aura-e-shadow-raise: var(--aura-shadow-1);
+  --aura-e-blur: 0px;
+  --aura-e-tint: var(--aura-surface-1);
+  --aura-e-edge: transparent;
+}
+:where(.aura-e-1, [data-aura-elevation="1"], [elevation="1"]) {
+  --aura-e: 1;
+  --aura-e-shadow: var(--aura-shadow-1);
+  --aura-e-shadow-raise: var(--aura-shadow-2);
+  --aura-e-blur: var(--aura-blur-1);
+  --aura-e-tint: var(--aura-surface-1);
+  --aura-e-edge: color-mix(in srgb, var(--aura-edge-light) 40%, transparent);
+}
+:where(.aura-e-2, [data-aura-elevation="2"], [elevation="2"]) {
+  --aura-e: 2;
+  --aura-e-shadow: var(--aura-shadow-2);
+  --aura-e-shadow-raise: var(--aura-shadow-3);
+  --aura-e-blur: var(--aura-blur-2);
+  --aura-e-tint: var(--aura-surface-2);
+  --aura-e-edge: color-mix(in srgb, var(--aura-edge-light) 60%, transparent);
+}
+:where(.aura-e-3, [data-aura-elevation="3"], [elevation="3"]) {
+  --aura-e: 3;
+  --aura-e-shadow: var(--aura-shadow-3);
+  --aura-e-shadow-raise: var(--aura-shadow-4);
+  --aura-e-blur: var(--aura-blur-3);
+  --aura-e-tint: var(--aura-surface-3);
+  --aura-e-edge: color-mix(in srgb, var(--aura-edge-light) 75%, transparent);
+}
+:where(.aura-e-4, [data-aura-elevation="4"], [elevation="4"]) {
+  --aura-e: 4;
+  --aura-e-shadow: var(--aura-shadow-4);
+  --aura-e-shadow-raise: var(--aura-shadow-5);
+  --aura-e-blur: var(--aura-blur-4);
+  --aura-e-tint: var(--aura-surface-4);
+  --aura-e-edge: color-mix(in srgb, var(--aura-edge-light) 88%, transparent);
+}
+:where(.aura-e-5, [data-aura-elevation="5"], [elevation="5"]) {
+  --aura-e: 5;
+  --aura-e-shadow: var(--aura-shadow-5);
+  --aura-e-shadow-raise: var(--aura-shadow-5);
+  --aura-e-blur: var(--aura-blur-5);
+  --aura-e-tint: var(--aura-surface-5);
+  --aura-e-edge: var(--aura-edge-light);
+}
+
+/* ---- The glass surface recipe --------------------------------------------
+   Sensible fallbacks (level 2) so a bare .aura-surface looks right with no
+   elevation set. backdrop-filter blurs the wallpaper behind the glass;
+   saturate() makes the brand colors bloom through.                          */
+.aura-surface {
+  position: relative;
+  /* Surface pattern (default none) + frame face (default transparent) + tint
+     wash (no-op at strength 0), all layered over the elevation tint. The two
+     leading layers are inert by default — the rendered surface is unchanged. */
+  background:
+    var(--aura-surface-pattern),
+    linear-gradient(0deg, var(--aura-frame-face), var(--aura-frame-face)),
+    var(--aura-glass-tint-layer),
+    var(--aura-e-tint, var(--aura-surface-2));
+  -webkit-backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-2))) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-2))) saturate(var(--aura-glass-saturate));
+  /* border-style is a token (default solid) so a classic theme can select a
+     3-D frame style (outset/inset/ridge/groove) globally — no component edit.
+     border-width routes through --aura-frame-border-width (which forwards to
+     --aura-border-width by default, so the default frame is unchanged) so a
+     3-D/retro theme can thicken every glass frame from one dial (#453). */
+  border: var(--aura-frame-border-width) var(--aura-border-style, solid) var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-lg);
+  color: var(--aura-text-on-glass);
+  /* Bevelled edge: a crisp light catch along the top inner edge and a soft
+     shadow along the bottom inner edge make the glass read as a raised,
+     chamfered pane. Both are token dials (see tokens.css §Bevelled glass).
+     frame-inset (default inert) carries a theme-supplied 3-D bevel via shadow. */
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-e-shadow, var(--aura-shadow-2)),
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+}
+
+/* Opaque fallback for engines without backdrop-filter (progressive). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-surface { background: var(--aura-surface-solid); }
+}
+
+/* The page-wide "reduce effects" escape hatch ([data-aura-effects="lite"]) is
+   unified with the prefers-reduced-transparency / prefers-contrast opaque-glass
+   paths in css/preferences.css (#672/#661) — one surface inventory, one place,
+   covering BOTH the descendant case AND the self/compound case (the old rule
+   here dropped --aura-glass-tint-layer on the self case, #661). Do not re-add a
+   lite rule here. See preferences.css §THE OPAQUE-GLASS INVARIANT. */
+
+/* ---- Tactile feedback: hover lifts, press springs back -------------------
+   Opt-in via .aura-tactile (on by default for buttons/cards in components).  */
+.aura-tactile {
+  transition:
+    transform var(--aura-dur-base) var(--aura-ease-out),
+    box-shadow var(--aura-dur-base) var(--aura-ease-out),
+    background-color var(--aura-dur-base) var(--aura-ease-standard);
+  /* No permanent `will-change` (#46): holding a compositing layer alive for
+     every tactile surface costs memory, and it only hinted `transform` while
+     the hover also animates box-shadow (the repaint it was meant to avoid is
+     unavoidable either way). The translateY is cheap to promote on demand. */
+}
+.aura-tactile:hover {
+  transform: translateY(calc(-1 * var(--aura-hover-lift)));
+  /* #650: re-state the FULL four-layer surface stack with --aura-e-tint as the
+     bottom (elevation-tint) layer, exactly like the resting recipe — so a theme
+     texture / frame-face / tint-wash survives hover. The old single-layer
+     `background: var(--aura-e-tint)` collapsed the stack, flashing retro-pc's
+     silver face/scan-grid and warm-dusk's tint off on every tactile-card hover. */
+  background:
+    var(--aura-surface-pattern),
+    linear-gradient(0deg, var(--aura-frame-face), var(--aura-frame-face)),
+    var(--aura-glass-tint-layer),
+    var(--aura-e-tint);
+  box-shadow:
+    var(--aura-e-shadow-raise, var(--aura-shadow-3)),
+    inset 0 1px 0 var(--aura-edge-light);
+}
+.aura-tactile:active {
+  transform: translateY(0) scale(0.985);
+  box-shadow:
+    var(--aura-shadow-1),
+    inset 0 1px 0 var(--aura-e-edge);
+  transition-duration: var(--aura-dur-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-tactile,
+  .aura-tactile:hover,
+  .aura-tactile:active { transform: none; }
+}

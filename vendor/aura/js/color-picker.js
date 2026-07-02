@@ -1,0 +1,1070 @@
+/* ==========================================================================
+   Aura — aura-color-picker: form-associated colour picker.
+
+   A light-DOM custom element that edits a single colour in two interactive
+   models (HSL — a 2-D saturation/lightness area + a hue slider; RGB — numeric
+   r/g/b channels) over ONE source-of-truth colour, with first-class alpha, a
+   live read-only oklch() readout, and a copy-out format toggle. Form
+   participation rides a hidden input named from the host (the same pattern as
+   aura-select / aura-range).
+
+   The pure colour-conversion layer (Aura.color) has been extracted to
+   js/color.js (issue #195); the recents/presets persistence concern lives in
+   js/color-recents.js (issue #328). This file contains only the custom element.
+
+   Load order:
+   core.js → element-base.js → color.js → color-recents.js → menu.js →
+   color-picker.js.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  /* Require color.js (Aura.color) plus its recents store (color-recents.js) and
+     element-base.js to be loaded first. */
+  if (!Aura || !Aura.color || !Aura.color.makeRecents ||
+      !Aura.BaseElement || !("customElements" in window)) return;
+
+  var C = Aura.color;
+  var FORMATS = ["hex", "rgb", "hsl", "oklch"];
+  /* Last-resort default only — the live default is resolved from the
+     --aura-primary token at sync time (defaultColor()), so the picker tracks
+     setPrimary()/themes instead of pinning a stale brand hex (#398). */
+  var DEFAULT_VALUE = "#7654f5";
+
+  /* Resolve the picker's no-value default from the live --aura-primary token,
+     falling back to the DEFAULT_VALUE literal when the token is unreadable
+     (detached document, no tokens.css loaded). */
+  function defaultColor() {
+    try {
+      var raw = getComputedStyle(document.documentElement)
+        .getPropertyValue("--aura-primary").trim();
+      if (raw) {
+        var parsed = C.parseColor(raw);
+        if (parsed) return parsed;
+      }
+    } catch (e) { /* fall through to the literal */ }
+    return C.parseColor(DEFAULT_VALUE);
+  }
+
+  // The default preset palette + recents store are provided by color-recents.js
+  // (C.DEFAULT_PRESETS / C.makeRecents / C.recents).
+  var DEFAULT_PRESETS = C.DEFAULT_PRESETS;
+
+  /* Capability check for the screen eyedropper. Evaluated once at module load;
+     the control is only created where the API exists (graceful absence). */
+  var EYEDROPPER_SUPPORTED = typeof window !== "undefined" && "EyeDropper" in window;
+
+  // Register an eyedropper glyph (Feather-style stroke; MIT) if not present, so
+  // Aura.icon("eyedropper") resolves through the shared sprite like every other.
+  if (Aura.icons && Aura.icons.register && !Aura.icons.has("eyedropper")) {
+    Aura.icons.register("eyedropper",
+      '<path d="M19.07 4.93a2.5 2.5 0 0 0-3.54 0l-2.3 2.3-1.06-1.06-1.41 1.41 1.06 1.06L3 18.5V21h2.5l8.86-8.86 1.06 1.06 1.41-1.41-1.06-1.06 2.3-2.3a2.5 2.5 0 0 0 0-3.54z"/>');
+  }
+
+  /* Channel-range ceilings reused from color.js (#357) — the picker's r/g/b,
+     hue and percentage bounds are the same named constants the conversion layer
+     uses, not bare 255/360/100 literals. */
+  var HUE_MAX = C.HUE_MAX, PCT_MAX = C.PCT_MAX, RGB_MAX = C.RGB_MAX;
+
+  /* Step sizes (named so there are no magic numbers in the keyboard handlers). */
+  var STEP = 1;          // arrow-key step for area axes, hue, and alpha %
+  var PAGE_STEP = 10;    // PageUp/PageDown jump
+
+  /* Display-rounding scales for the editable OKLCH channels (named so the
+     round-to-N-decimals in _reflectChannels carries no bare literals). L shows
+     2 decimals, C 3 decimals; H is whole degrees. */
+  var OKLCH_L_SCALE = 100;   // L → 2 decimal places
+  var OKLCH_C_SCALE = 1000;  // C → 3 decimal places
+
+  /* Round a value to the precision implied by a power-of-ten scale. */
+  function roundTo(value, scale) { return Math.round(value * scale) / scale; }
+
+  /* --- Overlay seam ---------------------------------------------------------
+     Every popup open / flip / dismiss decision is funnelled through these three
+     helpers, which delegate to the context-menu engine (the same
+     Aura.menu.openAtAnchor path aura-select uses). The engine now delegates its
+     anchored geometry to ITEM-5's shared Aura.overlay.placeAtAnchor, so there is
+     no duplicated placement logic here. Integration-master note (v1.3): adopting
+     Aura.overlay.open end-to-end was deliberately deferred — this panel rides the
+     menu engine's glass + `aura-menu--open` open animation and its close-sync
+     MutationObserver, so a full switch means re-classing the panel off `.aura-menu`,
+     not just swapping these three bodies. Tracked as a follow-up in the release
+     plan. Nothing else in the file talks to the overlay engine directly. */
+  function openOverlay(panel, anchorEl, opener) {
+    if (!Aura.menu || !Aura.menu.openAtAnchor) return;
+    Aura.menu.openAtAnchor(panel, anchorEl, opener);
+    // The menu engine's decorate() forces role="menu"; our panel is a form
+    // dialog, so re-assert dialog semantics after the engine has positioned it.
+    panel.setAttribute("role", "dialog");
+  }
+  function closeOverlay() {
+    if (Aura.menu && Aura.menu.closeAll) Aura.menu.closeAll();
+  }
+  function isOverlayOpen(panel) {
+    return !!panel && panel.classList.contains("aura-menu--open");
+  }
+
+  /* Build one labelled numeric channel input; returns the wrapper element with
+     the input stored on `.__input`. */
+  function buildChannel(label, key, min, max, step) {
+    var wrap = document.createElement("label");
+    wrap.className = "aura-color-picker__channel aura-color-picker__channel--" + key;
+    var span = document.createElement("span");
+    span.className = "aura-color-picker__channel-label";
+    span.textContent = label;
+    var input = document.createElement("input");
+    input.type = "number";
+    input.className = "aura-color-picker__channel-input";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = step == null ? "1" : String(step);
+    input.setAttribute("aria-label", label);
+    input.__key = key;
+    wrap.appendChild(span);
+    wrap.appendChild(input);
+    wrap.__input = input;
+    return wrap;
+  }
+
+  /* Summary: form-associated colour picker. Holds one source-of-truth colour
+     (HSL + alpha), projects it into the HSL/RGB editors and the read-only
+     oklch readout, submits a formatted string through a hidden input, and
+     opens its editing dialog through the shared overlay seam. */
+  var AuraColorPicker = class extends Aura.BaseElement {
+    static get observedAttributes() {
+      return ["value", "name", "format", "alpha", "inline", "disabled"];
+    }
+
+    /* Real form association (#538): formAssociated so native <form>.reset()
+       restores the value and <fieldset disabled> propagates; submission rides
+       the host-named hidden input(s) (the well-tested path), so the host
+       publishes no setFormValue (the delegation pattern). */
+    static formAssociated = true;
+
+    connectedCallback() {
+      this._initFormInternals();
+      if (this.__formDefaultValue === undefined) {
+        this.__formDefaultValue = this.getAttribute("value");
+      }
+      super.connectedCallback();
+    }
+
+    /* ---- build (idempotent) --------------------------------------------- */
+    _build() {
+      this.__id = this.__id || Aura.nextId("aura-cp-");
+
+      // Default the source colour so the control is valid before _sync runs.
+      if (this.__h == null) { this.__h = 0; this.__s = 0; this.__l = 0; this.__a = 1; }
+
+      this._buildTrigger();
+      this._buildPanel();
+      this._buildHiddenInput();
+    }
+
+    _buildTrigger() {
+      var btn = this.querySelector(":scope > .aura-color-picker__trigger");
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "aura-color-picker__trigger";
+        btn.setAttribute("aria-haspopup", "dialog");
+        btn.setAttribute("aria-expanded", "false");
+        var swatch = document.createElement("span");
+        swatch.className = "aura-color-picker__swatch";
+        swatch.setAttribute("aria-hidden", "true");
+        var val = document.createElement("span");
+        val.className = "aura-color-picker__value";
+        btn.appendChild(swatch);
+        btn.appendChild(val);
+        this.insertBefore(btn, this.firstChild);
+      }
+      this.__trigger = btn;
+      this.__swatch = btn.querySelector(".aura-color-picker__swatch");
+      this.__valueText = btn.querySelector(".aura-color-picker__value");
+    }
+
+    _buildPanel() {
+      var panel = this.querySelector(":scope > .aura-color-picker__panel");
+      var wantInline = this.hasAttribute("inline");
+      // Rebuild the container if the presentation mode changed (popup uses an
+      // aura-menu overlay surface; inline uses a static glass card).
+      if (panel && (panel.tagName.toLowerCase() === "aura-menu") !== !wantInline) {
+        panel.parentNode.removeChild(panel);
+        panel = null;
+      }
+      if (!panel) {
+        panel = document.createElement(wantInline ? "div" : "aura-menu");
+        panel.className = "aura-color-picker__panel";
+        if (wantInline) panel.classList.add("aura-color-picker__panel--inline");
+        else panel.setAttribute("hidden", "");
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-label", "Colour picker");
+        this._fillPanel(panel);
+        this.appendChild(panel);
+      } else {
+        this._readPanelRefs(panel);
+      }
+      this.__panel = panel;
+    }
+
+    /* Construct the panel's interior once. */
+    _fillPanel(panel) {
+      // 2-D saturation / lightness area
+      var area = document.createElement("div");
+      /* Proximity glow (v3.2): the saturation/lightness area is an interactive
+         slider, so it is its own .aura-glow host (separate from the hue/alpha
+         tracks — the engine caches one sub-part per host, so each handle needs
+         its own host). The rim rides the area's own ::after; the magnet is
+         disabled in CSS so the draggable surface does not drift. */
+      area.className = "aura-color-picker__area aura-glow";
+      area.setAttribute("role", "slider");
+      area.tabIndex = 0;
+      area.setAttribute("aria-label", "Saturation and lightness");
+      area.setAttribute("aria-valuemin", "0");
+      area.setAttribute("aria-valuemax", String(PCT_MAX));
+      var areaThumb = document.createElement("span");
+      areaThumb.className = "aura-color-picker__area-thumb";
+      area.appendChild(areaThumb);
+      panel.appendChild(area);
+
+      // hue + alpha sliders
+      var sliders = document.createElement("div");
+      sliders.className = "aura-color-picker__sliders";
+      var hue = this._buildTrack("hue", "Hue", 0, HUE_MAX);
+      var alpha = this._buildTrack("alpha", "Alpha", 0, PCT_MAX);
+      sliders.appendChild(hue.track);
+      sliders.appendChild(alpha.track);
+      panel.appendChild(sliders);
+
+      // preview + numeric channels
+      var readout = document.createElement("div");
+      readout.className = "aura-color-picker__readout";
+      var preview = document.createElement("span");
+      preview.className = "aura-color-picker__preview";
+      preview.setAttribute("aria-hidden", "true");
+      var channels = document.createElement("div");
+      channels.className = "aura-color-picker__channels";
+      var chR = buildChannel("R", "r", 0, RGB_MAX);
+      var chG = buildChannel("G", "g", 0, RGB_MAX);
+      var chB = buildChannel("B", "b", 0, RGB_MAX);
+      var chH = buildChannel("H", "h", 0, HUE_MAX);
+      var chS = buildChannel("S", "s", 0, PCT_MAX);
+      var chL = buildChannel("L", "l", 0, PCT_MAX);
+      var chA = buildChannel("A", "a", 0, PCT_MAX);
+      // OKLCH editing channels (v1.5): L 0..1, C 0..0.4, H 0..360. The oklch
+      // segment is now a real editing model, not just the read-only readout.
+      var chOL = buildChannel("L", "ol", 0, 1, 0.01);
+      var chOC = buildChannel("C", "oc", 0, 0.4, 0.005);
+      var chOH = buildChannel("H", "oh", 0, HUE_MAX, 1);
+      [chR, chG, chB, chH, chS, chL, chA, chOL, chOC, chOH]
+        .forEach(function (c) { channels.appendChild(c); });
+      readout.appendChild(preview);
+      readout.appendChild(channels);
+      panel.appendChild(readout);
+
+      // always-visible read-only oklch readout
+      var oklch = document.createElement("output");
+      oklch.className = "aura-color-picker__oklch";
+      oklch.setAttribute("aria-label", "OKLCH value");
+      panel.appendChild(oklch);
+
+      // footer: format toggle + copy
+      var footer = document.createElement("div");
+      footer.className = "aura-color-picker__footer";
+      var format = document.createElement("div");
+      format.className = "aura-color-picker__format";
+      format.setAttribute("role", "radiogroup");
+      format.setAttribute("aria-label", "Output format");
+      FORMATS.forEach(function (f) {
+        var seg = document.createElement("button");
+        seg.type = "button";
+        seg.className = "aura-color-picker__format-seg";
+        seg.setAttribute("role", "radio");
+        seg.setAttribute("aria-checked", "false");
+        seg.dataset.format = f;
+        seg.textContent = f;
+        format.appendChild(seg);
+      });
+      // Eyedropper — sample a pixel from anywhere on screen. Gated behind a
+      // capability check ('EyeDropper' in window): the button is only created
+      // where the API exists, so it degrades to absence (not a dead control)
+      // on unsupported browsers (Safari/Firefox today).
+      if (EYEDROPPER_SUPPORTED) {
+        var eyedrop = document.createElement("button");
+        eyedrop.type = "button";
+        eyedrop.className = "aura-color-picker__eyedropper";
+        eyedrop.setAttribute("aria-label", "Pick a colour from the screen");
+        eyedrop.appendChild(Aura.icon("eyedropper"));
+        footer.appendChild(eyedrop);
+      }
+      var copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "aura-color-picker__copy";
+      copy.setAttribute("aria-label", "Copy colour value");
+      copy.appendChild(Aura.icon("copy"));
+      footer.appendChild(format);
+      footer.appendChild(copy);
+      panel.appendChild(footer);
+
+      // Presets + recents swatch rows (token-driven sizing). Both are populated
+      // and shown/hidden in _refresh; the recents row hides when empty.
+      var presets = document.createElement("div");
+      presets.className = "aura-color-picker__presets";
+      presets.setAttribute("role", "group");
+      presets.setAttribute("aria-label", "Preset colours");
+      panel.appendChild(presets);
+
+      var recents = document.createElement("div");
+      recents.className = "aura-color-picker__recents";
+      recents.setAttribute("role", "group");
+      recents.setAttribute("aria-label", "Recent colours");
+      panel.appendChild(recents);
+
+      this._readPanelRefs(panel);
+    }
+
+    /* Build one 1-D track (hue or alpha) with an addressable thumb child. */
+    _buildTrack(kind, label, min, max) {
+      var track = document.createElement("div");
+      /* Proximity glow (v3.2): each 1-D track (hue, alpha) is its own .aura-glow
+         host so it lights independently on approach (the engine caches one
+         sub-part per host). The rim rides the track's own ::after; CSS disables
+         the magnet so the draggable track does not drift under the pointer. */
+      track.className = "aura-color-picker__" + kind + " aura-glow";
+      track.setAttribute("role", "slider");
+      track.tabIndex = 0;
+      track.setAttribute("aria-label", label);
+      track.setAttribute("aria-valuemin", String(min));
+      track.setAttribute("aria-valuemax", String(max));
+      track.__kind = kind;
+      var thumb = document.createElement("span");
+      thumb.className = "aura-color-picker__" + kind + "-thumb";
+      track.appendChild(thumb);
+      return { track: track, thumb: thumb };
+    }
+
+    /* Cache element references from an existing/just-built panel. */
+    _readPanelRefs(panel) {
+      this.__area = panel.querySelector(".aura-color-picker__area");
+      this.__areaThumb = panel.querySelector(".aura-color-picker__area-thumb");
+      this.__hue = panel.querySelector(".aura-color-picker__hue");
+      this.__alpha = panel.querySelector(".aura-color-picker__alpha");
+      this.__preview = panel.querySelector(".aura-color-picker__preview");
+      this.__channels = panel.querySelector(".aura-color-picker__channels");
+      this.__oklch = panel.querySelector(".aura-color-picker__oklch");
+      this.__format = panel.querySelector(".aura-color-picker__format");
+      this.__copy = panel.querySelector(".aura-color-picker__copy");
+      this.__eyedropper = panel.querySelector(".aura-color-picker__eyedropper");
+      this.__presets = panel.querySelector(".aura-color-picker__presets");
+      this.__recents = panel.querySelector(".aura-color-picker__recents");
+      this.__channelInputs = Array.prototype.map.call(
+        panel.querySelectorAll(".aura-color-picker__channel-input"),
+        function (i) { return i; }
+      );
+    }
+
+    _buildHiddenInput() {
+      var input = this.querySelector(":scope > input.aura-color-picker__input");
+      if (!input) {
+        input = document.createElement("input");
+        input.type = "hidden";
+        input.className = "aura-color-picker__input";
+        this.appendChild(input);
+      }
+      this.__input = input;
+    }
+
+    /* ---- bind ----------------------------------------------------------- */
+    _bind() {
+      var self = this;
+
+      // Trigger toggles the popup overlay (no-op in inline mode).
+      this.__trigger.addEventListener("click", function (e) {
+        if (self.hasAttribute("inline") || self._isDisabled()) return;
+        if (isOverlayOpen(self.__panel)) return; // engine's outside-click closes it
+        e.stopPropagation(); // don't let the same tick trigger outside-close
+        openOverlay(self.__panel, self.__trigger, self.__trigger);
+        self.__open = true;
+        self.__trigger.setAttribute("aria-expanded", "true");
+        self._writeVars(); // panel detached to body — (re)write its gradient vars
+      });
+
+      // 2-D area: pointer + keyboard.
+      this.__area.addEventListener("pointerdown", function (e) { self._areaPointer(e, true); });
+      this.__area.addEventListener("pointermove", function (e) { self._areaPointer(e, false); });
+      this.__area.addEventListener("pointerup", function (e) { self._areaPointerUp(e); });
+      this.__area.addEventListener("pointercancel", function (e) { self._areaPointerUp(e); });
+      this.__area.addEventListener("keydown", function (e) { self._areaKey(e); });
+
+      // hue + alpha tracks.
+      this._bindTrack(this.__hue, "hue");
+      this._bindTrack(this.__alpha, "alpha");
+
+      // numeric channels.
+      this.__channelInputs.forEach(function (input) {
+        input.addEventListener("input", function () { self._channelEdit(input, false); });
+        input.addEventListener("change", function () { self._channelEdit(input, true); });
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); self._channelEdit(input, true); }
+        });
+      });
+
+      // format toggle (segmented radiogroup).
+      this.__format.addEventListener("click", function (e) {
+        var seg = e.target.closest(".aura-color-picker__format-seg");
+        if (seg) self._setFormat(seg.dataset.format);
+      });
+      this.__format.addEventListener("keydown", function (e) { self._formatKey(e); });
+
+      // copy button.
+      this.__copy.addEventListener("click", function () { self._copy(); });
+
+      // eyedropper (present only where the capability check passed).
+      if (this.__eyedropper) {
+        this.__eyedropper.addEventListener("click", function () { self._eyedrop(); });
+      }
+
+      // preset / recent swatch rows: a delegated click applies the swatch colour
+      // and records it as a recent.
+      var pick = function (e) {
+        var sw = e.target.closest(".aura-color-picker__swatch-chip");
+        if (!sw || self._isDisabled()) return;
+        self._applySwatch(sw.dataset.color);
+      };
+      if (this.__presets) this.__presets.addEventListener("click", pick);
+      if (this.__recents) this.__recents.addEventListener("click", pick);
+
+      // Panel keydown: shield the overlay engine from the dialog's own keys and
+      // own focus management while open. Bubble phase → control handlers have
+      // already run, so this only intercepts what the engine would mishandle.
+      this.__panel.addEventListener("keydown", function (e) { self._panelKey(e); });
+
+      // Observe the overlay close so we can reset aria-expanded / open state
+      // when the shared primitive dismisses the panel (outside-click, scroll…).
+      if (!this.hasAttribute("inline")) this._watchClose();
+
+      // Populate the preset + recents swatch rows.
+      this._renderPresets();
+      this._renderRecents();
+    }
+
+    _bindTrack(track, kind) {
+      var self = this;
+      track.addEventListener("pointerdown", function (e) { self._trackPointer(track, kind, e, true); });
+      track.addEventListener("pointermove", function (e) { self._trackPointer(track, kind, e, false); });
+      track.addEventListener("pointerup", function (e) { self._trackPointerUp(track, e); });
+      track.addEventListener("pointercancel", function (e) { self._trackPointerUp(track, e); });
+      track.addEventListener("keydown", function (e) { self._trackKey(kind, e); });
+    }
+
+    _watchClose() {
+      var self = this;
+      if (this.__closeObserver) this.__closeObserver.disconnect();
+      this.__closeObserver = new MutationObserver(function () {
+        if (isOverlayOpen(self.__panel)) return;
+        self.__open = false;
+        if (self.__trigger) self.__trigger.setAttribute("aria-expanded", "false");
+      });
+      this.__closeObserver.observe(this.__panel, {
+        attributes: true, attributeFilter: ["class"]
+      });
+    }
+
+    disconnectedCallback() {
+      if (this.__closeObserver) { this.__closeObserver.disconnect(); this.__closeObserver = null; }
+      // Route teardown through the menu engine first when the picker is open: the
+      // panel was opened via Aura.menu.openAtAnchor, so it sits on the engine's
+      // stack with global pointerdown/keydown/scroll/resize dismissal listeners
+      // armed. Closing via closeOverlay() (→ Aura.menu.closeAll) empties that
+      // stack and removes those listeners; tearing the node out of <body> raw
+      // (below) does neither, leaking a dangling stack entry that mis-handles the
+      // next outside-click/Escape/scroll dismissal (#624).
+      if (this.__open) closeOverlay();
+      // When open, the menu engine detaches __panel to <body>. If the host then
+      // leaves the DOM (HTMX swap / removal) the panel is orphaned in <body>
+      // along with every listener bound to it and its children, since none of
+      // those nodes are reachable from the removed host for GC. Remove it so the
+      // whole subtree (and its listeners) can be collected (#58). The trigger's
+      // own listeners live inside the host and are collected with it; re-add is
+      // already idempotent via the __init guard, so nothing re-binds twice.
+      if (this.__panel && this.__panel.parentNode && !this.contains(this.__panel)) {
+        this.__panel.parentNode.removeChild(this.__panel);
+      }
+      this.__open = false;
+      super.disconnectedCallback();
+    }
+
+    /* ---- sync / attribute changes --------------------------------------- */
+    _sync() {
+      this._reflectName();
+      this._reflectDisabled();
+      var parsed = C.parseColor(this.getAttribute("value")) ||
+        defaultColor();
+      this._setColor(parsed, {});
+    }
+
+    _onAttr(attr) {
+      if (attr === "name") { this._reflectName(); return; }
+      if (attr === "disabled") { this._reflectDisabled(); return; }
+      if (attr === "inline") { this._rebuild(); return; }
+      if (attr === "value") {
+        var parsed = C.parseColor(this.getAttribute("value"));
+        if (!parsed) {
+          Aura.warn("[aura-color-picker] ignoring unparseable value:",
+            this.getAttribute("value"));
+          return;
+        }
+        this._setColor(parsed, {});
+        return;
+      }
+      // format / alpha
+      this._refresh({});
+    }
+
+    /* Tear down and rebuild the presentation (inline ⇄ popup switch). */
+    _rebuild() {
+      [".aura-color-picker__trigger", ".aura-color-picker__panel",
+        "input.aura-color-picker__input"].forEach(function (sel) {
+        var el = this.querySelector(":scope > " + sel);
+        if (el) el.parentNode.removeChild(el);
+      }, this);
+      /* Full re-init: the internal DOM was removed above, so force a fresh
+         _bind() too — clear __bound (the #439 bind-once flag) so connectedCallback
+         re-binds onto the about-to-be-rebuilt trigger/panel/inputs. */
+      this.__init = false;
+      this.__bound = false;
+      this.connectedCallback();
+    }
+
+    _reflectName() {
+      if (this.__input) this.__input.name = this.getAttribute("name") || "";
+    }
+
+    _reflectDisabled() {
+      var dis = this._isDisabled();
+      this.setAttribute("aria-disabled", dis ? "true" : "false");
+      if (this.__trigger) this.__trigger.disabled = dis;
+      [this.__area, this.__hue, this.__alpha].forEach(function (el) {
+        if (el) el.tabIndex = dis ? -1 : 0;
+      });
+      if (this.__channelInputs) {
+        this.__channelInputs.forEach(function (i) { i.disabled = dis; });
+      }
+      if (this.__copy) this.__copy.disabled = dis;
+      if (this.__eyedropper) this.__eyedropper.disabled = dis;
+      [this.__presets, this.__recents].forEach(function (row) {
+        if (!row) return;
+        Array.prototype.forEach.call(row.querySelectorAll(".aura-color-picker__swatch-chip"),
+          function (chip) { chip.disabled = dis; });
+      });
+    }
+
+    /* ---- model accessors ------------------------------------------------ */
+    get _format() {
+      var f = this.getAttribute("format");
+      return FORMATS.indexOf(f) === -1 ? "hex" : f;
+    }
+    get _hasAlpha() { return this.hasAttribute("alpha"); }
+
+    /* Build the canonical descriptor. When an authoritative OKLCH triple is held
+       (__oklch — set by an OKLCH edit or an oklch() value), the descriptor is
+       DERIVED FROM IT: rgb/hsl come from oklchToRgb so the perceptual value is
+       the source of truth and survives the round-trip without flattening to
+       integer HSL. Otherwise HSL (__h/__s/__l) is authoritative as before. */
+    _descriptor() {
+      var a = this._hasAlpha ? this.__a : 1;
+      if (this.__oklch) {
+        var rgb = C.oklchToRgb(this.__oklch);
+        return { rgb: rgb, hsl: C.rgbToHsl(rgb), oklch: this.__oklch, a: a };
+      }
+      var hsl = { h: this.__h, s: this.__s, l: this.__l };
+      return { rgb: C.hslToRgb(hsl), hsl: hsl, a: a };
+    }
+
+    /* Set the whole colour from a parsed descriptor, then reflect + emit. A
+       parsed descriptor carrying `oklch` (from an oklch() value) seeds the
+       authoritative perceptual triple; otherwise HSL is authoritative. */
+    _setColor(parsed, opts) {
+      this.__h = parsed.hsl.h;
+      this.__s = parsed.hsl.s;
+      this.__l = parsed.hsl.l;
+      this.__a = parsed.a == null ? 1 : parsed.a;
+      this.__oklch = parsed.oklch || null;
+      this._refresh(opts);
+    }
+
+    /* ---- pointer / keyboard: 2-D area ----------------------------------- */
+    _areaPointer(e, down) {
+      if (this._isDisabled()) return;
+      if (down) {
+        if (e.button != null && e.button !== 0) return;
+        this.__areaDrag = true;
+        this.__areaRect = this.__area.getBoundingClientRect();
+        Aura.capturePointer(this.__area, e.pointerId, "aura-color-picker");
+        this.__area.focus();
+        e.preventDefault();
+      } else if (!this.__areaDrag) {
+        return;
+      }
+      var r = this.__areaRect;
+      var sx = r.width > 0 ? C.clamp((e.clientX - r.left) / r.width, 0, 1) : 0;
+      var sy = r.height > 0 ? C.clamp((e.clientY - r.top) / r.height, 0, 1) : 0;
+      this.__s = Math.round(sx * PCT_MAX);
+      this.__l = Math.round((1 - sy) * PCT_MAX); // top = lightest
+      this.__oklch = null; // a spatial HSL edit becomes the authoritative model
+      this._refresh({ input: true });
+    }
+    _areaPointerUp(e) {
+      if (!this.__areaDrag) return;
+      this.__areaDrag = false;
+      Aura.releasePointer(this.__area, e.pointerId, "aura-color-picker");
+      this._refresh({ change: true });
+    }
+    _areaKey(e) {
+      if (this._isDisabled()) return;
+      var s = this.__s, l = this.__l, handled = true;
+      switch (e.key) {
+        case "ArrowLeft": s -= STEP; break;
+        case "ArrowRight": s += STEP; break;
+        case "ArrowDown": l -= STEP; break;
+        case "ArrowUp": l += STEP; break;
+        case "Home": s = 0; break;
+        case "End": s = PCT_MAX; break;
+        case "PageDown": l -= PAGE_STEP; break;
+        case "PageUp": l += PAGE_STEP; break;
+        default: handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      this.__s = C.clamp(s, 0, PCT_MAX);
+      this.__l = C.clamp(l, 0, PCT_MAX);
+      this.__oklch = null; // a spatial HSL edit becomes the authoritative model
+      this._refresh({ input: true, change: true });
+    }
+
+    /* ---- pointer / keyboard: 1-D tracks (hue, alpha) -------------------- */
+    _trackMax(kind) { return kind === "hue" ? HUE_MAX : PCT_MAX; }
+    _trackGet(kind) { return kind === "hue" ? this.__h : Math.round(this.__a * PCT_MAX); }
+    _trackSet(kind, v) {
+      v = C.clamp(v, 0, this._trackMax(kind));
+      if (kind === "hue") {
+        // A hue drag is an HSL-space edit: HSL becomes authoritative again. But
+        // it must start from the CURRENT colour (which may be oklch-derived), so
+        // collapse the oklch triple into __h/__s/__l first, then apply the hue.
+        if (this.__oklch) {
+          var hsl = C.rgbToHsl(C.oklchToRgb(this.__oklch));
+          this.__s = hsl.s; this.__l = hsl.l;
+          this.__oklch = null;
+        }
+        this.__h = Math.round(v);
+      } else {
+        this.__a = v / PCT_MAX; // alpha is orthogonal — keep any oklch triple
+      }
+    }
+    _trackPointer(track, kind, e, down) {
+      if (this._isDisabled()) return;
+      if (down) {
+        if (e.button != null && e.button !== 0) return;
+        track.__drag = true;
+        track.__rect = track.getBoundingClientRect();
+        Aura.capturePointer(track, e.pointerId, "aura-color-picker");
+        track.focus();
+        e.preventDefault();
+      } else if (!track.__drag) {
+        return;
+      }
+      var r = track.__rect;
+      var frac = r.width > 0 ? C.clamp((e.clientX - r.left) / r.width, 0, 1) : 0;
+      this._trackSet(kind, frac * this._trackMax(kind));
+      this._refresh({ input: true });
+    }
+    _trackPointerUp(track, e) {
+      if (!track.__drag) return;
+      track.__drag = false;
+      Aura.releasePointer(track, e.pointerId, "aura-color-picker");
+      this._refresh({ change: true });
+    }
+    _trackKey(kind, e) {
+      if (this._isDisabled()) return;
+      var max = this._trackMax(kind), cur = this._trackGet(kind), v = cur, handled = true;
+      switch (e.key) {
+        case "ArrowLeft": case "ArrowDown": v = cur - STEP; break;
+        case "ArrowRight": case "ArrowUp": v = cur + STEP; break;
+        case "PageDown": v = cur - PAGE_STEP; break;
+        case "PageUp": v = cur + PAGE_STEP; break;
+        case "Home": v = 0; break;
+        case "End": v = max; break;
+        default: handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      this._trackSet(kind, v);
+      this._refresh({ input: true, change: true });
+    }
+
+    /* ---- numeric channel editing ---------------------------------------- */
+    _channelEdit(input, commit) {
+      if (this._isDisabled()) return;
+      var raw = parseFloat(input.value);
+      if (isNaN(raw)) { if (commit) this._refresh({}); return; }
+      var key = input.__key;
+      var d = this._descriptor();
+      if (key === "r" || key === "g" || key === "b") {
+        var rgb = { r: d.rgb.r, g: d.rgb.g, b: d.rgb.b };
+        rgb[key] = C.clamp(Math.round(raw), 0, RGB_MAX);
+        var hsl = C.rgbToHsl(rgb);
+        this.__h = hsl.h; this.__s = hsl.s; this.__l = hsl.l;
+        this.__oklch = null; // RGB edit → HSL authoritative
+      } else if (key === "h") {
+        this.__h = Math.round(((raw % HUE_MAX) + HUE_MAX) % HUE_MAX);
+        this.__oklch = null;
+      } else if (key === "s") {
+        this.__s = C.clamp(Math.round(raw), 0, PCT_MAX);
+        this.__oklch = null;
+      } else if (key === "l") {
+        this.__l = C.clamp(Math.round(raw), 0, PCT_MAX);
+        this.__oklch = null;
+      } else if (key === "a") {
+        this.__a = C.clamp(raw, 0, PCT_MAX) / PCT_MAX; // alpha is orthogonal
+      } else if (key === "ol" || key === "oc" || key === "oh") {
+        // Edit one OKLCH component AT FULL PRECISION and make the perceptual
+        // triple the authoritative model — no flatten-through-HSL. The descriptor
+        // derives rgb/hsl from __oklch, so the value round-trips faithfully.
+        var ok = d.oklch ? { l: d.oklch.l, c: d.oklch.c, h: d.oklch.h }
+          : C.rgbToOklch(d.rgb);
+        if (key === "ol") ok.l = C.clamp(raw, 0, 1);
+        else if (key === "oc") ok.c = Math.max(0, raw);
+        else ok.h = ((raw % HUE_MAX) + HUE_MAX) % HUE_MAX;
+        this.__oklch = ok;
+        // Keep the HSL fallback roughly in sync for any later HSL-space edit.
+        var hsl2 = C.rgbToHsl(C.oklchToRgb(ok));
+        this.__h = hsl2.h; this.__s = hsl2.s; this.__l = hsl2.l;
+      }
+      this._refresh(commit ? { input: true, change: true } : { input: true });
+    }
+
+    /* ---- format toggle -------------------------------------------------- */
+    _setFormat(f) {
+      if (FORMATS.indexOf(f) === -1 || this._isDisabled()) return;
+      this.__reflecting = true;
+      this.setAttribute("format", f);
+      this.__reflecting = false;
+      this._refresh({ change: true });
+    }
+    _formatKey(e) {
+      var segs = Array.prototype.slice.call(
+        this.__format.querySelectorAll(".aura-color-picker__format-seg"));
+      var idx = FORMATS.indexOf(this._format);
+      var next = idx, handled = true;
+      switch (e.key) {
+        case "ArrowLeft": case "ArrowUp": next = (idx - 1 + segs.length) % segs.length; break;
+        case "ArrowRight": case "ArrowDown": next = (idx + 1) % segs.length; break;
+        case "Home": next = 0; break;
+        case "End": next = segs.length - 1; break;
+        case "Enter": case " ": e.preventDefault(); return; // already selected on focus
+        default: handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      this._setFormat(FORMATS[next]);
+      if (segs[next]) segs[next].focus();
+    }
+
+    /* ---- copy ----------------------------------------------------------- */
+    _copy() {
+      if (this._isDisabled()) return;
+      var value = this._currentValue();
+      var done = function () {};
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(done, function (err) {
+          Aura.warn("[aura-color-picker] clipboard write failed:", err);
+        });
+      } else {
+        Aura.warn("[aura-color-picker] clipboard API unavailable; copy is a no-op.");
+      }
+      // Copying a value is a strong "I'm using this colour" signal — remember it.
+      this._remember(value);
+    }
+
+    /* ---- eyedropper ----------------------------------------------------- */
+    _eyedrop() {
+      if (this._isDisabled()) return;
+      if (!EYEDROPPER_SUPPORTED) return; // belt-and-braces; button wouldn't exist
+      var self = this;
+      var ed;
+      try { ed = new window.EyeDropper(); }
+      catch (err) { Aura.warn("[aura-color-picker] EyeDropper unavailable:", err); return; }
+      ed.open().then(function (res) {
+        if (res && res.sRGBHex) self._applySwatch(res.sRGBHex);
+      }, function (err) {
+        // User cancelled (Escape) rejects — that is normal, not an error.
+        if (err && err.name !== "AbortError") {
+          Aura.warn("[aura-color-picker] eyedropper failed:", err);
+        }
+      });
+    }
+
+    /* ---- presets + recents --------------------------------------------- */
+    /* The per-element recents store. A `recents-key` attribute namespaces it
+       independently (e.g. one key per token in a theme editor); otherwise the
+       shared default store is used. */
+    _recentsStore() {
+      var key = this.getAttribute("recents-key");
+      if (!key) return C.recents;
+      if (!this.__recentsStore || this.__recentsStoreKey !== key) {
+        this.__recentsStore = C.makeRecents(null, "aura:color-picker:recents:" + key);
+        this.__recentsStoreKey = key;
+      }
+      return this.__recentsStore;
+    }
+
+    /* The preset swatch list: a `presets` attribute overrides the built-in
+       starter palette. Tokenised so functional colours whose interior has spaces
+       (`oklch(0.7 0.1 200)`) survive: a comma separates entries when commas are
+       present; otherwise each `fn(...)` group OR each bare run of non-space chars
+       is one entry. Unparseable entries are dropped. */
+    _presetList() {
+      var attr = this.getAttribute("presets");
+      if (!attr) return DEFAULT_PRESETS;
+      var raw;
+      if (attr.indexOf(",") !== -1) {
+        raw = attr.split(",");
+      } else {
+        // Match a function group (name with a (...) body) OR a bare token.
+        raw = attr.match(/[a-z]+\([^)]*\)|[^\s]+/gi) || [];
+      }
+      return raw
+        .map(function (s) { return s.trim(); })
+        .filter(Boolean)
+        .filter(function (v) { return !!C.parseColor(v); });
+    }
+
+    /* Apply a swatch's colour string as if the user had picked it: set the
+       colour, emit a committed change, and record it as recent. */
+    _applySwatch(str) {
+      var parsed = C.parseColor(str);
+      if (!parsed) return;
+      this._setColor(parsed, { input: true, change: true });
+      this._remember(this._currentValue());
+    }
+
+    /* Record a value into the recents store and re-render the recents row. */
+    _remember(value) {
+      if (!value) return;
+      this._recentsStore().add(value);
+      this._renderRecents();
+    }
+
+    /* Build one swatch chip button for a colour string. */
+    _swatchChip(colorStr) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "aura-color-picker__swatch-chip";
+      btn.dataset.color = colorStr;
+      btn.title = colorStr;
+      btn.setAttribute("aria-label", colorStr);
+      btn.style.setProperty("--aura-cp-chip", colorStr);
+      return btn;
+    }
+
+    /* Render the (static) preset row once, and the recents row from the store. */
+    _renderPresets() {
+      if (!this.__presets) return;
+      Aura.clearChildren(this.__presets);
+      var self = this;
+      this._presetList().forEach(function (c) {
+        self.__presets.appendChild(self._swatchChip(c));
+      });
+      this.__presets.hidden = this.__presets.children.length === 0;
+    }
+    _renderRecents() {
+      if (!this.__recents) return;
+      Aura.clearChildren(this.__recents);
+      var self = this, list = this._recentsStore().list();
+      list.forEach(function (c) { self.__recents.appendChild(self._swatchChip(c)); });
+      this.__recents.hidden = list.length === 0;
+    }
+
+    /* ---- value + reflection --------------------------------------------- */
+    _currentValue() {
+      return C.formatColor(this._format, this._descriptor(), this._hasAlpha);
+    }
+
+    /* Write the runtime-computed gradient/position custom properties onto a
+       target (host or the detached panel). Children inherit them. */
+    _writeVars(target) {
+      var t = target || this.__panel;
+      if (!t) return;
+      var d = this._descriptor();
+      var solid = "rgb(" + d.rgb.r + " " + d.rgb.g + " " + d.rgb.b + ")";
+      var fill = "rgb(" + d.rgb.r + " " + d.rgb.g + " " + d.rgb.b + " / " + d.a + ")";
+      t.style.setProperty("--aura-cp-hue", String(this.__h));
+      t.style.setProperty("--aura-cp-sx", this.__s + "%");
+      t.style.setProperty("--aura-cp-sy", (PCT_MAX - this.__l) + "%");
+      t.style.setProperty("--aura-cp-hue-pct", (this.__h / HUE_MAX * PCT_MAX) + "%");
+      t.style.setProperty("--aura-cp-alpha-pct", (d.a * PCT_MAX) + "%");
+      t.style.setProperty("--aura-cp-solid", solid);
+      t.style.setProperty("--aura-cp-fill", fill);
+    }
+
+    /* The single reflect step: UI, ARIA, hidden input, value attr, events. */
+    _refresh(opts) {
+      opts = opts || {};
+      var d = this._descriptor();
+      var value = this._currentValue();
+
+      // gradient + position custom properties (host swatch + panel both read).
+      this._writeVars(this);
+      if (this.__panel) this._writeVars(this.__panel);
+
+      // trigger swatch value text.
+      if (this.__valueText) this.__valueText.textContent = value;
+
+      // ARIA on the area + tracks.
+      if (this.__area) {
+        this.__area.setAttribute("aria-valuenow", String(this.__s));
+        this.__area.setAttribute("aria-valuetext",
+          "Saturation " + this.__s + "%, lightness " + this.__l + "%");
+      }
+      if (this.__hue) {
+        this.__hue.setAttribute("aria-valuenow", String(this.__h));
+        this.__hue.setAttribute("aria-valuetext", this.__h + " degrees");
+      }
+      if (this.__alpha) {
+        var apct = Math.round(d.a * PCT_MAX);
+        this.__alpha.setAttribute("aria-valuenow", String(apct));
+        this.__alpha.setAttribute("aria-valuetext", apct + " percent");
+      }
+
+      // numeric channels (skip the one being typed into).
+      this._reflectChannels(d);
+
+      // format segment state.
+      this._reflectFormat();
+
+      // read-only oklch readout (always, regardless of active format).
+      if (this.__oklch) {
+        this.__oklch.value = C.formatColor("oklch", d, this._hasAlpha);
+      }
+
+      // hidden input + value attribute.
+      if (this.__input) this.__input.value = value;
+      if (this.getAttribute("value") !== value) {
+        this.__reflecting = true;
+        this.setAttribute("value", value);
+        this.__reflecting = false;
+      }
+
+      if (opts.input) this.dispatchEvent(new Event("input", { bubbles: true }));
+      if (opts.change) {
+        // The OKLCH payload is the unblocking hook for the v2.9 theme editor: a
+        // sibling consumes detail.oklch (or el.oklch) to keep derived/perceptual
+        // tokens fidelity-preserving instead of re-parsing a flattened string.
+        this.dispatchEvent(new CustomEvent("aura:change", {
+          bubbles: true,
+          detail: { value: value, rgb: d.rgb, hsl: d.hsl, oklch: this.oklch, alpha: d.a }
+        }));
+      }
+    }
+
+    _reflectChannels(d) {
+      if (!this.__channelInputs) return;
+      // Show the authoritative perceptual triple when present (full precision),
+      // else the projection of the current sRGB colour.
+      var ok = d.oklch || C.rgbToOklch(d.rgb);
+      var vals = {
+        r: d.rgb.r, g: d.rgb.g, b: d.rgb.b,
+        h: d.hsl.h, s: d.hsl.s, l: d.hsl.l, a: Math.round(d.a * PCT_MAX),
+        ol: roundTo(ok.l, OKLCH_L_SCALE), oc: roundTo(ok.c, OKLCH_C_SCALE), oh: Math.round(ok.h)
+      };
+      // Which numeric group the active format shows. oklch now edits (was "none").
+      var show = this._format === "hsl" ? "hsl"
+        : this._format === "oklch" ? "oklch" : "rgb";
+      this.__channelInputs.forEach(function (input) {
+        var key = input.__key;
+        var group = (key === "a") ? "a"
+          : (key === "r" || key === "g" || key === "b") ? "rgb"
+          : (key === "ol" || key === "oc" || key === "oh") ? "oklch" : "hsl";
+        var visible = (group === "a") ? this._hasAlpha : (group === show);
+        var wrap = input.parentNode;
+        if (wrap) wrap.hidden = !visible;
+        if (document.activeElement !== input) input.value = String(vals[key]);
+      }, this);
+    }
+
+    _reflectFormat() {
+      if (!this.__format) return;
+      var active = this._format;
+      Array.prototype.forEach.call(
+        this.__format.querySelectorAll(".aura-color-picker__format-seg"),
+        function (seg) {
+          var on = seg.dataset.format === active;
+          seg.setAttribute("aria-checked", on ? "true" : "false");
+          seg.tabIndex = on ? 0 : -1;
+        }
+      );
+    }
+
+    /* ---- panel keyboard: focus trap + escape (popup only) --------------- */
+    _panelKey(e) {
+      if (!this.__open || this.hasAttribute("inline")) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeOverlay(); // restores focus to the trigger via the engine
+        return;
+      }
+      if (e.key === "Tab") {
+        this._trapTab(e);
+      }
+      // Shield the overlay engine's global keydown handler from the dialog's
+      // editing keys (arrows, Home/End, Page*) so they don't get hijacked.
+      e.stopPropagation();
+    }
+
+    _trapTab(e) {
+      // Shared focusable-elements selector (#327).
+      var focusable = this.__panel.querySelectorAll(Aura.FOCUSABLE_SELECTOR);
+      var list = Array.prototype.filter.call(focusable, function (el) {
+        return el.offsetParent !== null || el === document.activeElement;
+      });
+      if (!list.length) return;
+      var first = list[0], last = list[list.length - 1];
+      var active = document.activeElement;
+      if (e.shiftKey && active === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+
+    /* ---- public value accessor ------------------------------------------ */
+    get value() { return this.getAttribute("value") || this._currentValue(); }
+    set value(v) { this.setAttribute("value", String(v)); }
+
+    /* Programmatic OKLCH hook for the v2.9 theme editor: the current colour as a
+       fresh { l, c, h } triple (numbers, full precision). Authoritative when the
+       colour was edited/seeded in OKLCH; otherwise the perceptual projection of
+       the sRGB colour. Returned as a copy so callers cannot mutate our state. */
+    get oklch() {
+      var d = this._descriptor();
+      var o = d.oklch || C.rgbToOklch(d.rgb);
+      return { l: o.l, c: o.c, h: o.h };
+    }
+  };
+
+  /* Form-association layer (#538): submission via the hidden input(s); the
+     host owns native reset (restore the authored value) + fieldset-disable. */
+  Aura.FormAssociated && Aura.FormAssociated.install(AuraColorPicker, {
+    value: function () { return null; }, // submitted via the host-named hidden input(s)
+    reset: function () {
+      if (this.__formDefaultValue == null) this.removeAttribute("value");
+      else this.setAttribute("value", this.__formDefaultValue);
+    }
+  });
+
+  Aura.define("aura-color-picker", AuraColorPicker);
+})();
