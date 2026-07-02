@@ -29,6 +29,7 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { usePlayerPrefs } from "./playerPrefs";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
@@ -68,17 +69,30 @@ export function NativePlayer({
   const backgroundedRef = useRef(backgrounded);
   backgroundedRef.current = backgrounded;
 
+  // Player prefs (W243): the persisted volume feeds the effective gain
+  // below; pause-on-blur is read by the window blur/focus handlers.
+  const prefs = usePlayerPrefs();
+  const pauseOnBlurRef = useRef(true);
+  pauseOnBlurRef.current = prefs.pauseOnBlur;
+
+  // One place computes what the core should output: the user's volume,
+  // ducked while the game plays as the page background (W235). Re-applied
+  // whenever either input changes and after a session (re)starts.
+  const effectiveGain = prefs.volume * (backgrounded ? ATTRACT_GAIN : 1);
+  const effectiveGainRef = useRef(effectiveGain);
+  effectiveGainRef.current = effectiveGain;
+  useEffect(() => {
+    void setNativeVolume(effectiveGain).catch(() => undefined);
+  }, [effectiveGain]);
+
   // Attract transitions (W235): release every held button exactly once at
-  // the handoff (nothing sticks), duck the audio while backgrounded, restore
-  // it on reattach. The core keeps running throughout — no reboot.
+  // the handoff (nothing sticks). The core keeps running throughout — no
+  // reboot; the gain effect above handles the duck/restore.
   useEffect(() => {
     if (backgrounded) {
       setOverlayOpen(false); // attract shows the running game, never a menu
       void setNativePaused(false).catch(() => undefined);
       void setNativeInput(0).catch(() => undefined);
-      void setNativeVolume(ATTRACT_GAIN).catch(() => undefined);
-    } else {
-      void setNativeVolume(1.0).catch(() => undefined);
     }
   }, [backgrounded]);
 
@@ -124,7 +138,13 @@ export function NativePlayer({
     activePath: "native",
     open: overlayOpen,
     resume: { key: "resume", label: "Resume", run: () => closeOverlay() },
-    extras: [],
+    extras: [
+      {
+        key: "mute",
+        label: prefs.volume === 0 ? "🔇 Unmute" : "🔇 Mute",
+        run: () => prefs.toggleMute(),
+      },
+    ],
     exit: { key: "exit", label: "Exit game", run: () => exitGame() },
     saveSlot: (slot) => saveNativeState(slot),
     loadSlot: (slot) => loadNativeState(slot),
@@ -185,10 +205,25 @@ export function NativePlayer({
     };
     // Losing window focus (e.g. alt-tab) with a key physically held would
     // otherwise leave it "stuck" pressed forever, since no keyup ever fires.
-    const onBlur = () => heldKeys.clear();
+    // Pause-on-blur (W243): also freeze the game, resuming on refocus —
+    // unless the overlay already paused it (the overlay owns that pause).
+    let blurPaused = false;
+    const onBlur = () => {
+      heldKeys.clear();
+      if (pauseOnBlurRef.current && !overlayOpenRef.current) {
+        blurPaused = true;
+        void setNativePaused(true).catch(() => undefined);
+      }
+    };
+    const onFocus = () => {
+      if (!blurPaused) return;
+      blurPaused = false;
+      if (!overlayOpenRef.current) void setNativePaused(false).catch(() => undefined);
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
 
     const pollInput = () => {
       // Paused behind the overlay or backgrounded — nothing reaches the core.
@@ -236,7 +271,11 @@ export function NativePlayer({
 
     startNativePlay(gameId)
       .then(() => {
-        if (!cancelled) frameHandle = requestAnimationFrame(paintNextFrame);
+        if (cancelled) return;
+        // A fresh session starts at gain 1.0 backend-side — re-apply the
+        // user's persisted volume (and any attract duck) immediately.
+        void setNativeVolume(effectiveGainRef.current).catch(() => undefined);
+        frameHandle = requestAnimationFrame(paintNextFrame);
       })
       .catch(() => {
         if (!cancelled) onStartFailed?.();
@@ -248,6 +287,7 @@ export function NativePlayer({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       void setNativeInput(0).catch(() => undefined); // release all buttons before tearing down
       void stopNativePlay();
     };
@@ -281,6 +321,7 @@ export function NativePlayer({
         onScrimClick={closeOverlay}
         status={status}
         hint="Esc or ☰ to toggle"
+        volume={{ value: prefs.volume, onChange: prefs.setVolume }}
       />
     </div>
   );

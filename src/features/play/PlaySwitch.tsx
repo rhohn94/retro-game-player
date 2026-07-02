@@ -10,13 +10,17 @@
 // (in-page-play-design.md §6). One notice per session per cause.
 
 import { useCallback, useState } from "react";
+import { GetCorePanel } from "./GetCorePanel";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
 import { PlayNotice } from "./PlayNotice";
-import { inPageSystem } from "./ejs";
+import { canPlayInPage, isEmbeddedInPage } from "./ejs";
+import { inPageAvailability, systemLabel } from "./inPageAvailability";
 import { describeDegradation, recordDegradation } from "./degradation";
 import type { DegradationNotice } from "./degradation";
 import { getNativePlayEnabled } from "../../ipc/native-play";
+import { listInPageCores } from "../../ipc/inpage-cores";
+import type { InPageCore } from "../../ipc/inpage-cores";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
 /** Must match the Rust `play::native::NATIVE_SYSTEM` — the only system v0.21
@@ -70,6 +74,30 @@ export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitc
     [isNativeCandidate],
   );
 
+  // On-demand core catalog (W241): only systems whose in-page core isn't
+  // embedded need it. `coresResolved` gates rendering so the get-core panel
+  // never flashes before an installed core is known about; a failed listing
+  // degrades to needs-core (never a false "ready").
+  const needsCatalog = canPlayInPage(system) && !isEmbeddedInPage(system);
+  const [cores, setCores] = useState<InPageCore[] | null>(null);
+  const [coresResolved, setCoresResolved] = useState(false);
+  // Set once GetCorePanel reports a verified install — boots in place
+  // without refetching the catalog.
+  const [justInstalled, setJustInstalled] = useState(false);
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!needsCatalog) return;
+      listInPageCores()
+        .then((list) => {
+          if (isCancelled()) return;
+          setCores(list);
+          setCoresResolved(true);
+        })
+        .catch(() => !isCancelled() && setCoresResolved(true));
+    },
+    [needsCatalog],
+  );
+
   // Resolving the flag for a system that *could* go native — wait rather
   // than flash EmulatorJS only to immediately swap to the native player.
   if (isNativeCandidate && nativeEnabled === null) return null;
@@ -90,16 +118,31 @@ export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitc
     );
   }
 
-  const ejsSystem = inPageSystem(system);
-  if (!ejsSystem) return noticeEl;
+  const availability = inPageAvailability(system, cores);
+  if (availability.kind === "none") return noticeEl;
+  if (availability.kind === "ready" || justInstalled) {
+    return (
+      <>
+        {noticeEl}
+        <InPagePlayer
+          gameId={gameId}
+          ejsSystem={availability.ejsCore}
+          gameName={gameName}
+          onUnavailable={onEjsUnavailable}
+        />
+      </>
+    );
+  }
+  // Still resolving the catalog — render nothing rather than flash the panel.
+  if (!coresResolved) return noticeEl;
   return (
     <>
       {noticeEl}
-      <InPagePlayer
-        gameId={gameId}
-        ejsSystem={ejsSystem}
-        gameName={gameName}
-        onUnavailable={onEjsUnavailable}
+      <GetCorePanel
+        system={system}
+        systemLabel={systemLabel(system)}
+        sizeBytes={availability.sizeBytes}
+        onInstalled={() => setJustInstalled(true)}
       />
     </>
   );

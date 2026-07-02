@@ -576,4 +576,63 @@
     cursor: pointer;
     padding: 0;
   }
+
+  /* Get-core panel (v0.24 W241) — the player slot's "core not installed"
+     affordance; sits where the player would mount. */
+  .harmony-getcore {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--aura-space-3);
+    padding: var(--aura-space-5) var(--aura-space-5);
+    border-radius: var(--harmony-radius-card);
+    background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
+    color: var(--aura-on-surface);
+  }
+  .harmony-getcore__message {
+    margin: 0;
+    font-size: 14px;
+  }
+  .harmony-getcore__button {
+    border: none;
+    border-radius: var(--harmony-radius-card);
+    padding: var(--aura-space-2) var(--aura-space-4);
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .harmony-getcore__button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .harmony-getcore__error {
+    margin: 0;
+    font-size: 13px;
+    color: var(--aura-error);
+  }
+  .harmony-getcore__hint {
+    margin: 0;
+    font-size: 13px;
+    color: var(--aura-on-surface-muted);
+  }
+
+  /* Overlay volume row (v0.24 W243). */
+  .harmony-overlay__volume {
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-3);
+    margin-top: var(--aura-space-3);
+    font-size: 13px;
+    color: var(--aura-on-surface);
+  }
+  .harmony-overlay__volume input[type="range"] {
+    flex: 1;
+    accent-color: var(--aura-primary);
+  }
+  .harmony-overlay__volume-pct {
+    min-width: 4ch;
+    text-align: right;
+    color: var(--aura-on-surface-muted);
+  }
 }

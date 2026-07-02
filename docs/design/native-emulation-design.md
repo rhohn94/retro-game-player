@@ -192,7 +192,9 @@ architecture — it keeps serving every other system.
   the same ROM (no WASM compile/decompress step).
 - Falls back to the existing EmulatorJS player automatically if the native
   core fails to load or init — never a blank/broken screen.
-- Ships behind a flag, off by default.
+- Ships behind a flag — off by default at introduction (v0.21); **on by
+  default since v0.24 (W240)**, after both on-device confirmations landed
+  (see the flag-decision note below).
 - `cargo test` covers the FFI lifecycle (load/init/run/unload) against a
   bundled test core or a mock, and the ring-buffer fill/drain logic, without
   requiring real audio hardware in CI/headless runs.
@@ -219,9 +221,12 @@ The v0.21 real-device criteria were finally exercisable in v0.23 (an installed
   boots, negotiates, runs at 60.0988 fps, produces 256×240 RGBA frames,
   audio stream plays (48 kHz F32), clean exit. Harness:
   `manual_play_produces_audible_output` (`--ignored`, env-var driven).
-- **By-ear audio-cleanliness + load-time comparison:** pending maintainer
-  confirmation; the flag default stays **off** until confirmed, then flipping
-  is a one-line default change (tracked in the v0.23 ledger).
+- **By-ear audio-cleanliness + load-time comparison:** confirmed by the
+  maintainer 2026-07-01 ("the audio bug is fixed"); gameplay smoothness
+  confirmed the same day after the W239 frame-IPC hotfix ("gameplay is
+  fine"). **Flag decision: `native_play_enabled` defaults to `true` from
+  v0.24 (W240).** A persisted `false` (explicit user opt-out) is respected;
+  the automatic EmulatorJS fallback on native-init failure is unchanged.
 
 ## Open questions
 

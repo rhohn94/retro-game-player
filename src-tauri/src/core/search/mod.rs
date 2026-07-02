@@ -15,6 +15,7 @@
 //! discover and add in one click.
 
 pub mod catalog;
+pub mod download;
 pub mod fetch;
 pub mod liveness;
 pub mod provider;

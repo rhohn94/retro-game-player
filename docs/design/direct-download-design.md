@@ -3,6 +3,10 @@
 > **Up:** [↑ Design docs](README.md) · **Sib:** [download-search-design](download-search-design.md),
 > [library-import-design](library-import-design.md)
 
+> **Status:** implemented in v0.24 (W244) — `core/search/download.rs`,
+> `commands/downloads.rs`, in-row `DownloadAction`. This doc is the design of
+> record; §3's staging/limits table matches the shipped constants.
+
 ## 1. Goal
 
 Complete the in-app loop: **search → preview → download → land in library →

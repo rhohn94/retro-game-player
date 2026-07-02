@@ -306,7 +306,7 @@ pub struct ImportItemDto {
 /// `~/Games` when the user has not chosen one yet. Importing a file is an
 /// explicit user action, so materializing the destination directory is expected
 /// (unlike a silent background write). Refuses an unsafe default target.
-fn resolve_or_init_games_dir(paths: &Paths) -> AppResult<PathBuf> {
+pub(crate) fn resolve_or_init_games_dir(paths: &Paths) -> AppResult<PathBuf> {
     let mut cfg = AppConfig::load(paths)?;
     if let Some(dir) = cfg.games_dir.as_deref() {
         let p = PathBuf::from(dir);
