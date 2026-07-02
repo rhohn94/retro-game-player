@@ -208,8 +208,8 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.23 |
 |---|---|---|---|---|
-| `feat/w232-save-slots-ui` (W232) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w234-honest-fallbacks` (W234) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w232-save-slots-ui` (W232) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w234-honest-fallbacks` (W234) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 4
 
