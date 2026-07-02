@@ -52,7 +52,7 @@ Plan: [`release-planning-v0.23.md`](release-planning/release-planning-v0.23.md).
 
 ---
 
-## v0.24 — Everywhere (planned)
+## v0.24 — Everywhere (released — see version-history.md)
 
 Plan: [`release-planning-v0.24.md`](release-planning/release-planning-v0.24.md).
 
