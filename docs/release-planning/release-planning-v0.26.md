@@ -149,22 +149,23 @@ fails smoke from now on.
 
 ## 3. Parallel Implementation Strategy
 
-| Phase | Items | Rationale |
+| Pass | Items | Rationale |
 |---|---|---|
-| 1 | W269 (solo) | Whole-repo mechanical sweep (rename); everything later builds on the new names. |
-| 2 | W264 ∥ W267 ∥ W268 ∥ W263 | Disjoint areas: DB/play-stats vs settings pane vs controller mapping vs art pipeline. |
-| 3 | W260 (solo) | Creates `src/features/tv/` structure + tokens all later TV work extends. |
-| 4 | W261 (solo) | The TV home centerpiece; consumes W264 data + W263 art + W260 shell. |
-| 5 | W262 ∥ W265 | Focus/snap (spatial + tv CSS) vs transitions (play + takeover) — minor shared edges in TvShell accepted; merge order W262 → W265. |
-| 6 | W26A (solo) | Integrated polish on the assembled result. |
+| Pass 1 | W269 (solo) | Whole-repo mechanical sweep (rename); everything later builds on the new names. |
+| Pass 2 | W264 ∥ W267 ∥ W268 ∥ W263 | Disjoint areas: DB/play-stats vs settings pane vs controller mapping vs art pipeline. |
+| Pass 3 | W260 (solo) | Creates `src/features/tv/` structure + tokens all later TV work extends. |
+| Pass 4 | W261 (solo) | The TV home centerpiece; consumes W264 data + W263 art + W260 shell. |
+| Pass 5 | W262 ∥ W265 | Focus/snap (spatial + tv CSS) vs transitions (play + takeover) — minor shared edges in TvShell accepted; merge order W262 → W265. |
+| Pass 6 | W26A (solo) | Integrated polish on the assembled result. |
 
-**Conflict map:** W269 touches everything (hence solo, first). Phase 2
+**Conflict map:** W269 touches everything (hence solo, first). Pass 2
 overlap points: W264/W267 both touch IPC barrel exports (accepted, trivial);
 W268/W267 both touch `src/features/controller/` — W267 is confined to the
 settings pane + bindings IPC, W268 to `actions.ts`/`useGamepadPoll.ts`/glyphs.
-Phase 5 overlap: both may touch `TvShell.tsx`/`tv.css` — merge W262 first.
-Merge order within each phase = listed order. Every branch roots on
+Merge order within each pass = listed order. Every branch roots on
 `version/0.26`.
+
+- W262 ↔ W265: `TvShell.tsx` / `tv.css` → sequenced.
 
 ---
 
@@ -187,13 +188,13 @@ zero results), so no framework-required scope is trimmed here.
 
 ## 5. Status Ledger
 
-### Phase 1
+### Pass 1
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
 | `feat/w269-rename-rgp` (W269) | ☐ | ☐ | ☐ | ☐ |
 
-### Phase 2
+### Pass 2
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
@@ -202,26 +203,26 @@ zero results), so no framework-required scope is trimmed here.
 | `feat/w268-controller-compat` (W268) | ☐ | ☐ | ☐ | ☐ |
 | `feat/w263-hires-art` (W263) | ☐ | ☐ | ☐ | ☐ |
 
-### Phase 3
+### Pass 3
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
 | `feat/w260-tv-shell` (W260) | ☑ | ☐ | ☐ | ☐ |
 
-### Phase 4
+### Pass 4
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
 | `feat/w261-tv-home` (W261) | ☑ | ☐ | ☐ | ☐ |
 
-### Phase 5
+### Pass 5
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
 | `feat/w262-tv-focus` (W262) | ☑ | ☐ | ☐ | ☐ |
 | `feat/w265-tv-transitions` (W265) | ☑ | ☐ | ☐ | ☐ |
 
-### Phase 6
+### Pass 6
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
