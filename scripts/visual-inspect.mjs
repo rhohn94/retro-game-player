@@ -223,7 +223,20 @@ async function captureWithBrowser(useMock) {
         timeout: 30000,
       });
       await routePage.waitForTimeout(700); // let the route mount + paint
-      const checks = await assertRendered(routePage, route);
+      let checks = await assertRendered(routePage, route);
+      // Async mounts (e.g. tv-home's config-read -> AnimatePresence mode="wait"
+      // crossfade) can land after the fixed settle delay; poll briefly for the
+      // expected text before declaring the route unrendered.
+      const RENDER_POLL_MS = 250;
+      const RENDER_POLL_DEADLINE_MS = 5000;
+      for (
+        let waited = 0;
+        !checks.hasExpectedText && waited < RENDER_POLL_DEADLINE_MS;
+        waited += RENDER_POLL_MS
+      ) {
+        await routePage.waitForTimeout(RENDER_POLL_MS);
+        checks = await assertRendered(routePage, route);
+      }
       const shot = join(OUT_DIR, `${route.name}.png`);
       await routePage.screenshot({ path: shot, fullPage: false });
       if (route.name === "library") {
