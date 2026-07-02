@@ -1,0 +1,22 @@
+/* Aura — dist/example.html page CSS (the consumer's OWN page layout, not Aura).
+   Authored source: dist-src/example.css; build.py copies it to dist/example.css.
+   Kept OUT of the HTML as an external stylesheet so the flagship kitchen-sink
+   models the same no-inline-<style> discipline the demo-parity gate enforces on
+   demo/*.html (#487). */
+body { margin: 0; }
+.wrap {
+  max-inline-size: 60rem;
+  margin-inline: auto;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+  padding: var(--aura-space-3) 1.25rem;
+  border-bottom: 1px solid var(--aura-surface-stroke);
+}
