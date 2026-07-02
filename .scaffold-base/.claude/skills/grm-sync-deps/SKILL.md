@@ -1,16 +1,21 @@
 ---
 name: grm-sync-deps
-description: Reconcile a repository's first-party dependencies from published GitHub Release channels into committed vendor/<dep>/ trees, recording the resolved truth in vendor.lock. Build & runtime read only vendor/<dep>/; the network is touched only at sync time. Modes: default pin-and-sync (--update bumps the pin via gh), --check detects drift writing nothing, --offline validates vendored bytes with zero network. Verifies sha256 before placement (hard-refuse on mismatch). Use when vendoring a dependency, updating a vendored dep, or checking vendor drift.
+description: Reconcile a repository's first-party dependencies from published GitHub Release channels into committed vendor/<dep>/ trees, recording the resolved truth in vendor.lock. Build & runtime read only vendor/<dep>/; the network is touched only at sync time. Modes: default pin-and-sync (--update bumps the pin via gh), --check detects drift, --offline validates bytes offline. Verifies sha256 before placement. Use when vendoring or checking a dep.
 ---
 
 # sync-deps
 
 The **Dependency Channel** *consumer* engine (design
 `docs/design/dependency-channel-design.md` §3–§4). It reconciles every dep
-declared in `vendor.toml` from a published GitHub Release **channel** into a
-committed `vendor/<dep>/` tree, and records the resolved truth in a JSON
-`vendor.lock`. **Build & runtime read only `vendor/<dep>/`** — the network is
-touched **only** at sync time, never at build or run time.
+declared in `vendor.toml` from a published GitHub Release **channel** into the
+dep's committed `dest` tree, and records the resolved truth in a JSON
+`vendor.lock`. **Build & runtime read only the vendored `dest` bytes** — the
+network is touched **only** at sync time, never at build or run time.
+
+> **Standard destination.** Vendored deps live under `lib/third-party/<dep>/`
+> per `docs/project-structure.md` — declare `dest = "lib/third-party/<dep>"`.
+> `dest` may be any repo-relative path; a legacy `vendor/<dep>` still syncs.
+> Relocate a legacy `vendor/` tree with **`grm-structure-migrate`**.
 
 > **Preferred interface — the `sync_deps.py` script.** The whole resolve →
 > download → verify → atomic-replace → write-lock loop is a deterministic
@@ -46,7 +51,7 @@ repo = "rhohn94/design-language"
 channel = "stable"            # stable | beta — the producer's release channel
 version = "3.20.0"            # the pin; sync fetches exactly tag v3.20.0
 artifact = "aura-v3.20.0.tar.gz"
-dest = "vendor/aura"
+dest = "lib/third-party/aura"
 kind = "asset-bundle"         # asset-bundle | vendored-crate | app-binary
 strip_components = 1          # optional — drop N leading path components
 # extract = ["css/", "fonts/"]   # optional subset allowlist (path prefixes)

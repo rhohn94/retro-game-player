@@ -24,9 +24,9 @@ Capabilities (each also a CLI verb + an MCP tool on server.py):
 
 File-write-only contract: this engine NEVER runs git mutations. Every git call
 is a read; the only side effect is editing the §5 ledger file via `tick`. The
-AGENT commits. Design: docs/design/grimoire-release-server-design.md.
+AGENT commits. Design: docs/grimoire/design/grimoire-release-server-design.md.
 
-Standard: Python 3 stdlib-only (docs/design/scripting-unification-design.md).
+Standard: Python 3 stdlib-only (docs/grimoire/design/scripting-unification-design.md).
 
 CLI:
   release_plan.py locate [--root DIR]

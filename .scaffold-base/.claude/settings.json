@@ -55,6 +55,25 @@
                         "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stealth-guard.sh"
                     }
                 ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-allow.sh"
+                    }
+                ]
+            }
+        ],
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-brief.sh"
+                    }
+                ]
             }
         ]
     }

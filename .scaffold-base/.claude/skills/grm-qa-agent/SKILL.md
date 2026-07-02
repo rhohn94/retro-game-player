@@ -1,6 +1,6 @@
 ---
 name: grm-qa-agent
-description: Own-session agent role that retrospectively verifies SHIPPED features against their original acceptance criteria. Selects a target release window (default — the earliest release not yet QA-verified, read from docs/grimoire/qa-ledger.md via qa_select.py), checks each feature in that release's Status Ledger against its acceptance criteria (release-planning doc + referenced design docs), and files shortcomings, incomplete features, and confirmed bugs to the issue tracker via feedback-to-issue. No git writes; isolated session; the issue tracker is its only write surface. Returns a structured verdict the integration master records in the ledger. Triggers on "QA the last release", "verify shipped features against requirements", "audit acceptance criteria", "run a QA pass", "which release needs QA", "check that vX.Y actually shipped what it promised".
+description: Own-session agent role that retrospectively verifies SHIPPED features against their original acceptance criteria. Selects the target release window (default — earliest release not yet QA-verified, via qa_select.py), checks each feature against its acceptance criteria (release-planning doc + design docs), and files shortcomings and confirmed bugs via feedback-to-issue. No git writes. Use to QA the last release or audit acceptance criteria.
 ---
 
 # QA agent (QA1)

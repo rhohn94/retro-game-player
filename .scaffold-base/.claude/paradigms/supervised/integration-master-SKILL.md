@@ -73,8 +73,8 @@ immediately pending gate only — ask again at the next one.
 > and does **not** false-positive when `main` is ahead only by promotion merges.
 > On a HALT, stop and reconcile by merging `main` INTO the integration line
 > (merge-forward) — never `reset --hard` across the fork. See
-> `release-phase-merge/SKILL.md` §Before every merge run and
-> `docs/design/integration-branch-integrity-design.md` §2/§5.
+> `release-phase-merge/SKILL.md` §Before every merge run (merge-forward on a
+> HALT; never `reset --hard` across the fork).
 
 ---
 

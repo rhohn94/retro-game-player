@@ -1,6 +1,6 @@
 ---
 name: grm-dependency-audit
-description: Run the language-appropriate dependency vulnerability / advisory scanner (pip-audit, npm audit, cargo audit, govulncheck) behind one abstraction and emit a normalized findings report (package, advisory id, severity, fixed-in). Read-only by default; never edits manifests or lockfiles. With --file-issues, routes each finding through feedback-to-issue; an optional pre-release gate fails at or above a configured severity. Use when auditing dependencies for vulnerabilities / CVEs.
+description: Run the language-appropriate dependency vulnerability / advisory scanner (pip-audit, npm audit, cargo audit, govulncheck) behind one abstraction and emit a normalized findings report (package, advisory id, severity, fixed-in). Read-only; never edits manifests or lockfiles. With --file-issues, routes each finding through feedback-to-issue; an optional pre-release gate fails at or above a configured severity. Use when auditing dependencies.
 ---
 
 # dependency-audit
@@ -55,14 +55,20 @@ repo's **vendored** dependencies against the Dependency Channel contract
 the **`recipe.py vendor-check`** verb. Distinct from the vulnerability scan
 above: it checks *sourcing/integrity*, not CVEs.
 
-**Three checks.** Each finding is normalized to
+**Four finding classes.** Each finding is normalized to
 `{check, dep, channel, severity, detail, locked_sha, observed_sha}`:
 
 | `check` | Flags |
 |---|---|
 | `non-channel-source` | a dep sourced from a git submodule (`.gitmodules`) instead of a release channel |
 | `lock-bytes-mismatch` | vendored bytes with no `vendor.lock` entry, or whose recomputed `tree_sha256` ≠ the locked one |
-| `unpublished-release` | a `vendor.toml` pin that is not a published release on its channel (network; degrades gracefully offline) |
+| `unpublished-release` | a `vendor.toml` pin whose release **tag does not exist** on its channel (network; degrades gracefully offline) |
+| `malformed-release` | the pinned tag **exists but is not a conformant producer** — its `release.json` + `SHA256SUMS` + primary-artifact trio is missing an asset or self-inconsistent (a checksum disagrees, `primary_artifact_sha256` ≠ the tarball's real hash, `artifact_kind` ≠ the pinned `kind`, …) |
+
+The last two are the network surface: the publish probe **downloads and verifies
+the trio** (`evaluate_trio`), not merely that a tag exists, so a published-but-broken
+producer is caught. The byte-level verification is pure and exercised fully offline
+by `--self-test`.
 
 **Invocation:**
 
@@ -70,7 +76,7 @@ above: it checks *sourcing/integrity*, not CVEs.
 # Offline self-test (no network):
 python3 .claude/skills/grm-dependency-audit/dependency_channel_conformance.py --self-test
 
-# Audit a repo (checks 1 & 2 offline; check 3 needs `gh`):
+# Audit a repo (checks 1 & 2 offline; checks 3 & 4 need `gh` + network):
 python3 .claude/skills/grm-dependency-audit/dependency_channel_conformance.py --root . --json
 python3 .claude/skills/grm-dependency-audit/dependency_channel_conformance.py --root . --offline
 ```
@@ -89,4 +95,4 @@ callers use `DependencyChannelConformance(root).run(offline=...)`.
 - Re-running with unchanged dependencies + advisory DB is deterministic.
 - No hosted service; uses the ecosystem's standard scanner only.
 - The conformance pass is read-only and offline-deterministic in `--self-test` /
-  `--offline`; only the publish check touches the network and degrades loudly.
+  `--offline`; only the publish/trio checks touch the network and degrade loudly.

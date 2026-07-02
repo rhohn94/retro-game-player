@@ -819,9 +819,21 @@ class GitHubBackend(Backend):
         into a single gh issue edit call — the R1 write-batching rule.
         set_labels (from update()) takes priority over incremental add_labels /
         remove_labels from label() when both appear in the same batch.
+
+        Persistence guarantee (bug #130): every queued mutation is executed
+        against ``gh`` here and its exit status is honoured — ``_run_gh`` raises
+        TrackerError (surfacing the real gh exit code + stderr) on any non-zero
+        gh exit, so a failed write can never report success. After the gh edit
+        succeeds we additionally re-read the issue (``get``) and verify the
+        mutation actually landed on GitHub; a divergence raises ``write_verify``
+        rather than silently masking a no-op. The pending buffer is cleared only
+        for issues whose writes both executed and verified, so a raised flush
+        leaves the unflushed work intact for a retry.
         """
         for number, patch in list(self._pending.items()):
             args = ["issue", "edit", str(number), "--repo", self.repo]
+            expect_add: set[str] = set()
+            expect_remove: set[str] = set()
             if "title" in patch:
                 args += ["--title", patch["title"]]
             if "body" in patch:
@@ -833,18 +845,54 @@ class GitHubBackend(Backend):
                 desired_set = set(patch["set_labels"])
                 for lb in desired_set - current_set:
                     args += ["--add-label", lb]
+                    expect_add.add(lb)
                 for lb in current_set - desired_set:
                     args += ["--remove-label", lb]
+                    expect_remove.add(lb)
             else:
                 # Incremental label edits from label()
                 if "add_labels" in patch:
                     for lb in patch["add_labels"]:
                         args += ["--add-label", lb]
+                        expect_add.add(lb)
                 if "remove_labels" in patch:
                     for lb in patch["remove_labels"]:
                         args += ["--remove-label", lb]
+                        expect_remove.add(lb)
+            # Execute the write. Non-zero gh exit raises here (no silent success).
             self._run_gh(args)
-        self._pending.clear()
+            # Post-write read-back verify for label mutations: confirm the
+            # mutation actually landed. Skip when there is nothing observable
+            # to re-read (title/body-only edits — gh already returned exit 0).
+            if expect_add or expect_remove:
+                self._verify_labels(number, expect_add, expect_remove)
+            # Clear this issue only after its write executed and verified, so a
+            # raised flush above leaves remaining queued work for a retry.
+            del self._pending[number]
+
+    def _verify_labels(self, number: int, expect_add: set[str],
+                       expect_remove: set[str]) -> None:
+        """Re-read the issue and confirm queued label changes actually landed.
+
+        Raises TrackerError("write_verify", …) if an added label is absent or a
+        removed label is still present after the gh edit — turning a silent
+        no-op write into a loud failure (bug #130).
+        """
+        landed = set(self.get(str(number)).labels)
+        missing = {lb for lb in expect_add if lb not in landed}
+        lingering = {lb for lb in expect_remove if lb in landed}
+        if missing or lingering:
+            details = []
+            if missing:
+                details.append(f"labels not added: {sorted(missing)}")
+            if lingering:
+                details.append(f"labels not removed: {sorted(lingering)}")
+            raise TrackerError(
+                "write_verify",
+                f"gh reported success but the write to issue #{number} did not "
+                f"persist ({'; '.join(details)}).",
+                self.tracker_name,
+            )
 
     def update(self, issue_id: str, title: str | None = None,
                body: str | None = None, labels: list[str] | None = None,
@@ -1735,6 +1783,166 @@ def _self_test() -> int:
         cases.append((f"Epic nesting check raised wrong exception: {exc}", False))
 
     # ------------------------------------------------------------------ #
+    # 13. github WRITE PERSISTENCE (bug #130) — label/update/close/comment
+    #     actually construct and ISSUE the gh call; a non-zero gh exit makes
+    #     flush raise; a no-op (unpersisted) write fails read-back verify.
+    #     All offline: the subprocess runner (_run_gh) is monkeypatched.
+    # ------------------------------------------------------------------ #
+    gh_w_entry = {"name": "gh", "provider": "github",
+                  "repo": "owner/repo", "audience": "internal", "labels": []}
+
+    def _make_gh_backend():
+        return GitHubBackend(dict(gh_w_entry), tmp)
+
+    # 13a. close() issues `gh issue close` immediately (not batched).
+    ghw = _make_gh_backend()
+    gh_calls: list[list[str]] = []
+    with mock.patch.object(ghw, "_run_gh",
+                           side_effect=lambda a: gh_calls.append(a) or ""):
+        ghw.close("42")
+    cases.append(("github close issues `gh issue close`",
+                  any(c[:2] == ["issue", "close"] and "42" in c
+                      and "--repo" in c for c in gh_calls)))
+
+    # 13b. comment() issues `gh issue comment` immediately (not batched).
+    ghw = _make_gh_backend()
+    gh_calls = []
+    with mock.patch.object(ghw, "_run_gh",
+                           side_effect=lambda a: gh_calls.append(a) or ""):
+        ghw.comment("42", body="hello")
+    cases.append(("github comment issues `gh issue comment`",
+                  any(c[:2] == ["issue", "comment"] and "hello" in c
+                      for c in gh_calls)))
+
+    # 13c. label() then flush() issues `gh issue edit --add/--remove-label`
+    #      and read-back-verifies the change landed.
+    ghw = _make_gh_backend()
+    gh_calls = []
+    landed_labels = ["keep", "Y"]  # simulate GitHub state after the edit
+
+    def _fake_verify_get(issue_id):
+        return Issue(id=str(issue_id), number=int(issue_id), title="t",
+                     state="open", audience="internal", tracker="gh",
+                     body=None, labels=list(landed_labels))
+
+    with mock.patch.object(ghw, "_run_gh",
+                           side_effect=lambda a: gh_calls.append(a) or ""), \
+         mock.patch.object(ghw, "get", side_effect=_fake_verify_get):
+        ghw.label("42", add=["Y"], remove=["X"])
+        cases.append(("github label queues (no gh call before flush)",
+                      len(gh_calls) == 0))
+        ghw.flush()
+    edit_calls = [c for c in gh_calls if c[:2] == ["issue", "edit"]]
+    cases.append(("github label flush issues `gh issue edit`",
+                  len(edit_calls) == 1))
+    cases.append(("github label flush passes --add-label Y / --remove-label X",
+                  edit_calls and "--add-label" in edit_calls[0]
+                  and "Y" in edit_calls[0]
+                  and "--remove-label" in edit_calls[0]
+                  and "X" in edit_calls[0]))
+    cases.append(("github flush clears the pending buffer on success",
+                  ghw._pending == {}))
+
+    # 13d. update(labels=…) goes through flush as a set_labels diff + verify.
+    ghw = _make_gh_backend()
+    gh_calls = []
+    # update() does a get() to diff current vs desired AND a get() to verify;
+    # current has {old}, desired is {new} → expect add new, remove old.
+    get_seq = [
+        Issue(id="7", number=7, title="t", state="open", audience="internal",
+              tracker="gh", body=None, labels=["old"]),          # diff read
+        Issue(id="7", number=7, title="t", state="open", audience="internal",
+              tracker="gh", body=None, labels=["new"]),          # verify read
+    ]
+    with mock.patch.object(ghw, "_run_gh",
+                           side_effect=lambda a: gh_calls.append(a) or ""), \
+         mock.patch.object(ghw, "get", side_effect=lambda i: get_seq.pop(0)):
+        ghw.update("7", labels=["new"])
+        ghw.flush()
+    edit_calls = [c for c in gh_calls if c[:2] == ["issue", "edit"]]
+    cases.append(("github update(labels) flush issues `gh issue edit` with diff",
+                  len(edit_calls) == 1
+                  and "--add-label" in edit_calls[0] and "new" in edit_calls[0]
+                  and "--remove-label" in edit_calls[0] and "old" in edit_calls[0]))
+
+    # 13e. A non-zero gh exit during flush RAISES (no silent success) and
+    #      surfaces the real gh exit code + stderr.
+    ghw = _make_gh_backend()
+
+    def _gh_fail(args):
+        raise TrackerError(
+            "gh_error",
+            "gh command failed (exit 1): could not add label: not found",
+            "gh",
+        )
+
+    with mock.patch.object(ghw, "_run_gh", side_effect=_gh_fail):
+        ghw.label("42", add=["nope"])
+        try:
+            ghw.flush()
+            cases.append(("github flush raises on non-zero gh exit", False))
+        except TrackerError as exc:
+            cases.append(("github flush raises on non-zero gh exit",
+                          exc.code == "gh_error" and "exit 1" in str(exc)))
+    # Buffer NOT cleared when flush raised — work survives for a retry.
+    cases.append(("github flush keeps pending buffer when the gh write failed",
+                  42 in ghw._pending))
+
+    # 13f. gh returns success but the change did NOT persist (the exact bug
+    #      #130 masking failure) → read-back verify RAISES write_verify.
+    ghw = _make_gh_backend()
+    with mock.patch.object(ghw, "_run_gh", side_effect=lambda a: ""), \
+         mock.patch.object(
+             ghw, "get",
+             side_effect=lambda i: Issue(
+                 id=str(i), number=int(i), title="t", state="open",
+                 audience="internal", tracker="gh", body=None,
+                 labels=[])):  # label "Z" is absent → did not persist
+        ghw.label("42", add=["Z"])
+        try:
+            ghw.flush()
+            cases.append(("github flush detects unpersisted write (read-back)",
+                          False))
+        except TrackerError as exc:
+            cases.append(("github flush detects unpersisted write (read-back)",
+                          exc.code == "write_verify"))
+
+    # 13g. CLI `label` against a github tracker auto-flushes in-process: the
+    #      gh edit is issued before main() returns (the process-boundary fix).
+    # The CLI reads the tracker config from the "issue-tracker" block of
+    # grimoire-config.json (load_config), so wrap it accordingly.
+    gh_cli_cfg = {
+        "schema-version": 4,
+        "issue-tracker": {
+            "trackers": [{"name": "gh", "provider": "github",
+                          "repo": "owner/repo", "audience": "internal",
+                          "labels": []}],
+            "default-for-filing": "gh",
+        },
+    }
+    gh_cli_path = tmp / ".claude" / "gh-config.json"
+    gh_cli_path.write_text(json.dumps(gh_cli_cfg))
+    issued: list[list[str]] = []
+
+    def _cli_run_gh(self, args):
+        issued.append(args)
+        # The read-back verify (and tracker-resolution get()) issue `issue view`
+        # → report the label as already landed so verify passes.
+        if args[:2] == ["issue", "view"]:
+            return json.dumps({"number": 42, "title": "t", "state": "open",
+                               "body": "", "labels": [{"name": "ready"}],
+                               "url": None, "createdAt": None})
+        return ""
+
+    with mock.patch.object(GitHubBackend, "_gh_available", return_value=True), \
+         mock.patch.object(GitHubBackend, "ensure_label", lambda self, n: None), \
+         mock.patch.object(GitHubBackend, "_run_gh", _cli_run_gh):
+        rc = main(["--config", str(gh_cli_path), "label", "42",
+                   "--add", "ready", "--tracker", "gh"])
+    cases.append(("CLI github label exits 0 and issues a gh edit", rc == 0
+                  and any(a[:2] == ["issue", "edit"] for a in issued)))
+
+    # ------------------------------------------------------------------ #
     # Print results
     # ------------------------------------------------------------------ #
     passed = failed = 0
@@ -1809,6 +2017,12 @@ def main(argv=None) -> int:
                 labels=args.labels,
                 state=args.state,
             )
+            # Bug #130: each CLI subcommand is its own process, so the github
+            # backend's in-memory pending-write buffer would otherwise die at
+            # exit and never reach GitHub. Flush queued writes in-process before
+            # returning — the "session-end flush" boundary is this process. A
+            # failed/unverified gh write raises TrackerError here → exit 1.
+            tracker.flush()
             print(f"Updated issue #{issue.id}")
             _print_issue(issue, args.as_json)
 
@@ -1823,6 +2037,12 @@ def main(argv=None) -> int:
                 remove=args.remove,
                 tracker=args.tracker,
             )
+            # Bug #130: flush the queued github label write in-process (see the
+            # update branch). Without this the write only lives in the buffer of
+            # a process that is about to exit, so it never reaches GitHub even
+            # though we already printed success. A failed/unverified gh write
+            # raises TrackerError here → exit 1 (loud failure, no masking).
+            tracker.flush()
             print(f"Updated labels on issue #{issue.id}")
 
         elif args.command == "comment":

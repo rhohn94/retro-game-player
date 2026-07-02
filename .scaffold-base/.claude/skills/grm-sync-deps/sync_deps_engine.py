@@ -21,7 +21,7 @@ extract), checksum-before-signature, never trusting a server-supplied path.
 stdlib-only. `tomllib` (Python 3.11+) parses vendor.toml; the lock + read/gate
 path stay pure JSON.
 
-Design: docs/design/dependency-channel-design.md §3-§4.
+Design: docs/grimoire/design/dependency-channel-design.md §3-§4.
 """
 
 import hashlib

@@ -23,6 +23,7 @@ re-captures live edits back into `golden/`.
 | `grm-release-phase-merge`     | Merge completed agent branches in conflict-map order. |
 | `grm-ledger-tick`             | Tick / roll-forward the §5 implementation ledger. |
 | `grm-project-release`         | Promote `dev` → `main` and tag the release. |
+| `grm-orchestrate-release`     | Autonomous end-to-end release driver (Noir-only): preflight the autonomy dials, then chain planning → agreement → phase → phase-merge → project-release → cleanup with zero prompts. Restores with its companion `orchestrate_preflight.py`. |
 | `grm-repo-reference`          | Doc-location map + subagent model/effort table. |
 | `grm-source-to-design-docs`   | Generate `docs/design/` from existing source code. |
 | `grm-design-language-adapt`   | Adopt/refresh the UX design language: pull upstream (or honour strict-local), produce the local adaptation, record source SHA. (GUI projects only.) |
@@ -96,7 +97,9 @@ Always-delivered alongside the content sets:
 | `push-guard.sh`             | Restricts `git push` to allowlisted refs from the marker-blessed integration worktree. |
 | `release-plan-guard.sh`     | Locks §§1–4 of an agreed release plan (only §5 editable). |
 | `worktree-guard.sh`         | Blocks tool calls targeting paths outside the worktree. |
-| `settings.json`             | Wires the four hooks as `PreToolUse` guards. |
+| `autonomy-allow.sh`         | Paradigm-aware prompt suppression: auto-approves guard-vetted pipeline commands under Noir (deny guards take precedence). |
+| `worktree-brief.sh`         | SessionStart brief: automatic isolation context + wrong-base warnings in every spawned worktree. |
+| `settings.json`             | Wires the guard + autonomy hooks (`PreToolUse`) and the worktree brief (`SessionStart`). |
 | `push-allowlist`            | Extends the `push-guard` default allowlist with project-specific refs. |
 | `model-effort-profiles.json` | Paradigm-invariant model/effort profile registry (`.claude/model-effort-profiles.json`) — the single source of truth for the band × profile matrix the `grm-repo-reference` resolver consumes. Restores to `.claude/` so fresh/restored scaffolds resolve subagent tiers. |
 | `.scaffold-upstream.conf`   | Default Grimoire upstream URL seed (`UPSTREAM_REPO=https://github.com/rhohn94/grimoire-framework.git`). Seeded by `grm-workflow-bootstrap` Step 2.5 (v1.13+); idempotent — never overwrites a non-empty `UPSTREAM_REPO`. Override by setting `UPSTREAM_REPO` to your fork's URL. |
@@ -172,6 +175,10 @@ agents substitute per-use — the interview must never touch those.
 | `{design-language-source}` | `docs/design/ux/design-language.md` front-matter `source:` field | `upstream` (default) or `local`; filled only for GUI projects (answer = "Yes") |
 | `{design-language-source-url}` | `docs/design/ux/design-language.md` front-matter `source-url:` field | upstream repo URL; default `https://github.com/rhohn94/design-language` (CONFIRM-pending placeholder — verify before first adapt run); filled only for GUI projects (answer = "Yes"). v1.13+: already seeded by Step 2.5 — interview confirms/overrides rather than writing from scratch. |
 | `{ux-demo-stack}` | `docs/design/ux/design-language.md` §Design preamble ("Primary stack: …" note) | project's primary GUI framework/stack (e.g. "SwiftUI", "React", "Qt Widgets"); consumed by `grm-ux-demo-build`; filled only for GUI projects (answer = "Yes") |
+
+| `commands.build` | `.claude/grimoire-config.json` `commands.build` | Justfile build recipe command; `null` if left blank (v3.53) |
+| `commands.run` | `.claude/grimoire-config.json` `commands.run` | Justfile run recipe command; `null` if left blank (v3.53) |
+| `commands.deploy` | `.claude/grimoire-config.json` `commands.deploy` | Justfile deploy recipe command; `null` if left blank (v3.53) |
 
 **Runtime tokens — never filled by the interview:** `{feature}`,
 `{feature-name}`, `{branch}`, `{branch-name}`, `{short-sha}`, `{model}`,

@@ -9,8 +9,8 @@ subagent reads this file into its own context, so it MUST stay small; an
 over-budget write is REFUSED (never silently truncated) so subagents reading it
 stay near-clean.
 
-Design: docs/design/noir-iterative-loop-design.md.
-Standard: Python 3 stdlib-only (docs/design/scripting-unification-design.md).
+Design: docs/grimoire/design/noir-iterative-loop-design.md.
+Standard: Python 3 stdlib-only (docs/grimoire/design/scripting-unification-design.md).
 
 State file (`.claude/cache/noir-loop-state.json`, gitignored):
   schema_version, iteration, updated_at (ISO-8601 UTC), last_summary,

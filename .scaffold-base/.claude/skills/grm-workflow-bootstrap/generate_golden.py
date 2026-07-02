@@ -255,6 +255,18 @@ GOLDEN_TREE_SUBDIR = "tree"             # extracted golden tree under the cache 
 GOLDEN_ARCHIVE_GLOB = "golden-v*.tar.gz"
 
 
+def golden_archive_name(version: str) -> str:
+    """Canonical frozen-archive filename for a framework version.
+
+    The consumer glob (install-doctor, resolve_golden) is `golden-v*.tar.gz`, so
+    the frozen name MUST carry a single leading `v`. `framework-version` may be
+    stored either way ("3.38" or "v3.48"); normalize to exactly one `v` so the
+    frozen archive is always discoverable (issue #186).
+    """
+    v = version[1:] if version.startswith("v") else version
+    return f"golden-v{v}.tar.gz"
+
+
 def framework_version(root: Path) -> str | None:
     """Read framework-version (e.g. 'v3.48') from .claude/grimoire-config.json."""
     import json
@@ -338,7 +350,7 @@ def freeze_from_install(root: Path, seed_root: Path | None = None) -> Path:
     version-stamped archive under .grimoire-golden/ and returns its path.
     """
     version = framework_version(root) or "unknown"
-    archive = root / GOLDEN_CACHE_DIR / f"golden-{version}.tar.gz"
+    archive = root / GOLDEN_CACHE_DIR / golden_archive_name(version)
     if seed_root is None:
         seed_root = _default_seed(Path(__file__).resolve().parent)
     GoldenGenerator(root, seed_root).write_archive(archive)
@@ -463,6 +475,22 @@ def _self_test() -> int:
         archive = freeze_from_install(proj, seed)
         check(archive.name == "golden-v9.9.tar.gz", f"bad archive name: {archive.name}")
         check(archive.exists(), "freeze did not write an archive")
+        # #186 regression: a framework-version with NO leading 'v' must still
+        # freeze to a 'golden-v*.tar.gz' name the consumer glob can discover.
+        check(golden_archive_name("3.38") == "golden-v3.38.tar.gz",
+              "golden_archive_name failed to v-prefix an unprefixed version")
+        check(golden_archive_name("v3.38") == "golden-v3.38.tar.gz",
+              "golden_archive_name double-prefixed an already-v version")
+        projn = tmp / "projn"
+        (projn / ".claude").mkdir(parents=True)
+        (projn / ".claude/skills/grm-build-recipe").mkdir(parents=True)
+        (projn / ".claude/skills/grm-build-recipe/SKILL.md").write_text("recipe")
+        (projn / "CLAUDE.md").write_text("contract")
+        (projn / ".claude/grimoire-config.json").write_text('{"framework-version": "3.38"}')
+        archn = freeze_from_install(projn, seed)
+        check(archn.name == "golden-v3.38.tar.gz", f"unprefixed-version freeze name: {archn.name}")
+        check(sorted((projn / GOLDEN_CACHE_DIR).glob(GOLDEN_ARCHIVE_GLOB)) == [archn],
+              "frozen archive not matched by the consumer glob")
         # No flavor present -> resolve must come from the archive, not generation.
         resolved = resolve_golden(proj, allow_generate=False)
         check((resolved / "skills/grm-build-recipe/SKILL.md").exists(),

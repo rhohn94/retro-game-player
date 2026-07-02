@@ -111,7 +111,7 @@ Worktree isolation **occasionally degrades silently**: a dispatched `Agent`
 fresh one. Its `git switch -c <branch>` then relocates the **master's own HEAD**
 onto the work-item branch, and every later merge/commit piles onto that stray
 branch while `version/{X.Y}` never advances — shipping an empty release (the
-v1.15 incident; see `docs/design/dispatch-hardening-design.md`).
+v1.15 incident; see `docs/grimoire/design/dispatch-hardening-design.md`).
 
 The master MUST defend against this on **every** dispatch batch:
 
@@ -135,7 +135,7 @@ The master MUST defend against this on **every** dispatch batch:
    fallback**: the master pre-creates the feature branch, dispatches one agent
    with an explicit "never `git switch/checkout/branch/merge/push`" constraint,
    then verifies HEAD and branch-content before merging. Full contract:
-   `docs/design/dispatch-hardening-design.md` §7.3.
+   `docs/grimoire/design/dispatch-hardening-design.md` §7.3.
    Scriptable check: `python3 .claude/skills/grm-integration-master/verify_isolation.py
    --result-file <path> --staging-branch version/{X.Y}`.
 
@@ -173,44 +173,6 @@ what the user needs to decide.
 
 ---
 
-## Dispatch is chip-free (no spawn_task)
-
-Noir does **not** use `spawn_task` chips for work-item dispatch. The chip
-mechanism requires a human click to open a session, which breaks the autonomous
-posture — so chips are a **Supervised / Weiss** mechanism only. Under Noir the
-master dispatches the full batch of work-item subagents at once via `Agent` with
-`isolation:"worktree"` (or a write-capable Workflow), with no per-item gate, and
-queues the merges as those subagents return their branches.
-
-This applies to work-item dispatch specifically. The autonomous loop's
-exception remains the single human-gated push at `grm-project-release`.
-
-### Subagent spawn_task guard
-
-**Problem.** A dispatched subagent may call `spawn_task` anyway — for example,
-when it discovers an out-of-scope issue mid-run. Under Noir, this creates a chip
-requiring a human click to open, which breaks the unattended posture and can
-stall the autonomous pipeline indefinitely.
-
-**Fix layer 1 — prompt-side (primary guard).** Every Noir task-agent prompt must
-carry the no-chip clause (see `release-phase/SKILL.md` §Step 4 Noir no-chip
-clause). The verbatim wording dispatched to every subagent is:
-
-> "Report all out-of-scope follow-ups as plain text in your final report.
-> Never call `spawn_task`, never create chips, never ask the user; you are
-> running unattended."
-
-**Fix layer 2 — master-side re-routing.** If a subagent's result text contains
-signs of a chip attempt — phrases like "spawned task", "created chip", or "filed
-background task" — the master treats it as an in-band follow-up: log the finding
-to §5 follow-ups in the planning doc and continue merging. Do not pause for a
-human or treat the chip indication as a stop condition.
-
-**Residual risk.** An unattended chip that does fire despite the prompt-side
-guard is benign: it is a UI element only and does not block the master's
-execution path. The master's re-routing handles the finding in-band; the chip
-remains auditable via `.claude/cache/` chip records.
-
 ## Reference (load on demand)
 
 - `Scope under a Project Manager (v3.1)` — see `reference.md`
@@ -224,3 +186,4 @@ remains auditable via `.claude/cache/` chip records.
 - `Context efficiency (v1.29)` — see `reference.md`
 - `Autonomy hardening (v1.30)` — see `reference.md`
 - `Skills in order` — see `reference.md`
+- `Dispatch is chip-free (no spawn_task)` — see `reference.md`

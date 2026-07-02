@@ -1,18 +1,10 @@
-# Grimoire — Agent-only operational docs
+# Grimoire — Wiki conventions
 
 > **Up:** [↑ Docs root](../README.md)
 
-This tier contains agent-facing operational documents: organization design,
-playbooks, and cost/validation studies.
-
-## Contents
-
-- [design/](design/README.md) — Framework-internal design specs (not shipped to consumers)
-- [docs-organization-design.md](docs-organization-design.md) — Documentation organization conventions and wiki hierarchy decisions
-- [feature-playbook-validation.md](feature-playbook-validation.md) — Feature playbook validation study
-- [issue-tracker-cost-spike.md](issue-tracker-cost-spike.md) — Issue tracker cost spike study
-- [issue-tracker-cost-validation.md](issue-tracker-cost-validation.md) — Issue tracker cost validation results
-- [sync-flow-audit.md](sync-flow-audit.md) — Sync flow audit findings
+This tier holds the canonical wiki-doc conventions every project document
+follows. Grimoire's own framework-internal design specs are **not** part of a
+distributed project — they live only in the upstream Grimoire repository.
 
 ## Wiki hierarchy & relative links
 
@@ -49,5 +41,5 @@ directory, or a named ancestor index):
 
 `docs/README.md` carries an auto-generated map between
 `<!-- docs-map:begin -->` … `<!-- docs-map:end -->` markers. Regenerate it with
-`doc-assurance docs-map --write-map`; curated content outside the markers is
-preserved.
+`python3 .claude/skills/grm-doc-assurance/doc_assurance.py docs-map --write-map`;
+curated content outside the markers is preserved.

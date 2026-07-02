@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""config_validate.py — validate + migrate .claude/grimoire-config.json (v1.31, #68; stealth-mode v3.0; project-manager v3.1; github-pr v3.5; qa v3.6; worktree-ports v3.7; iterate v3.11; mcp v3.12; web-app v3.26; environments v3.27).
+"""config_validate.py — validate + migrate .claude/grimoire-config.json (v1.31, #68; stealth-mode v3.0; project-manager v3.1; github-pr v3.5; qa v3.6; worktree-ports v3.7; iterate v3.11; mcp v3.12; web-app v3.26; environments v3.27; config-migration v3.51 #163).
 
 Validates the config against a declared schema (known blocks + value sets),
 reports unknown/missing fields, and runs an idempotent migration that fills
@@ -24,7 +24,7 @@ so --migrate is a no-op for it and schema-version does not bump
 Usage: config_validate.py [--path P] [--migrate] [--self-test]
 Exit: 0 if valid (after optional migrate) or self-test passes, 1 otherwise.
 """
-import json, os, sys
+import json, os, sys, subprocess
 
 # Current declared schema version. `--migrate` raises an older config to this.
 SCHEMA_VERSION = 4
@@ -48,6 +48,12 @@ ENUMS = {
     "worktree-ports.strategy": {"os-assign", "random-probe", "index"},
     "iterate.audit-agent": {"dispatched", "inline"},
     "web-app.value": {"yes", "no"},
+    # web-app.agentic (v3.57, standard-package adoption): an additive,
+    # absence-as-default capability dial — "this web app runs its own
+    # agentic/LLM workloads, so it has token cost/throughput worth surfacing".
+    # Gates the conditional token-bookkeeper catalog entry's `applies-when`
+    # predicate (web-app-support-design.md §5.5). Absence reads as "no".
+    "web-app.agentic": {"yes", "no"},
     "changelog.user-facing": {"on", "off"},
 }
 # Canonical environment names (v3.27). The validator warns if a project
@@ -55,11 +61,12 @@ ENUMS = {
 KNOWN_ENV_NAMES = {"local", "dev", "beta", "production"}
 # Valid per-env field values (additive; sub-validated in the cross-rule).
 KNOWN_ENV_CHANNELS = {"stable", "beta"}
-KNOWN_ENV_DEPLOY_POLICIES = {"auto", "pr_gate"}
+KNOWN_ENV_DEPLOY_POLICIES = {"auto", "pr_gate", "manual"}
 KNOWN_TOP = {"schema-version", "name", "framework-version", "work-paradigm",
              "workflow-variant", "model-effort-profile", "release-phase-model",
              "code-quality", "issue-tracker", "cost-governance", "autonomous-push",
              "stealth-mode", "project-manager", "github-pr", "qa", "worktree-ports",
+             "autonomy-allow",
              "iterate", "mcp", "web-app", "environments", "changelog",
              "doc-hierarchy", "branch-model"}
 # T-shirt sizes recognized in iterate.quota.
@@ -259,12 +266,31 @@ def validate(cfg):
     return errors, warnings
 
 
+_DATA_ISOLATION_TRUTHY = {"true", "yes", "1"}
+
+
 def migrate(cfg):
     changed = []
     for block, default in ADDITIVE_DEFAULTS.items():
         if block not in cfg:
             cfg[block] = default
             changed.append(f"added additive default block: {block}")
+    # v3.51 #163: migrate legacy string data_isolation values to booleans.
+    # Earlier versions serialised data_isolation as "true"/"false"/"yes"/"no"
+    # string literals; the validator now requires a proper JSON boolean.
+    envs = cfg.get("environments")
+    if isinstance(envs, dict):
+        for env_name, entry in envs.items():
+            if not isinstance(entry, dict):
+                continue
+            di = entry.get("data_isolation")
+            if isinstance(di, str):
+                bool_val = di.strip().lower() in _DATA_ISOLATION_TRUTHY
+                entry["data_isolation"] = bool_val
+                changed.append(
+                    f"environments.{env_name}.data_isolation: "
+                    f"coerced string {di!r} → {bool_val}"
+                )
     if cfg.get("schema-version", 0) < SCHEMA_VERSION:
         cfg["schema-version"] = SCHEMA_VERSION
         changed.append(f"raised schema-version to {SCHEMA_VERSION}")
@@ -303,6 +329,22 @@ def self_test():
     errs, _ = validate(cfg)
     cases.append(("empty-string web-app.stack is rejected",
                   any("web-app.stack" in e for e in errs)))
+
+    # 2c. web-app.agentic (v3.57): valid "yes" passes; an out-of-set value is
+    #     rejected by the ENUMS machinery; absence is the default (no warning).
+    cfg = dict(base, **{"web-app": {"value": "yes", "agentic": {"value": "yes"}}})
+    errs, _ = validate(cfg)
+    cases.append(("valid web-app.agentic (yes) has no errors",
+                  not any("web-app.agentic" in e for e in errs)))
+    cfg = dict(base, **{"web-app": {"value": "yes", "agentic": {"value": "sometimes"}}})
+    errs, _ = validate(cfg)
+    cases.append(("invalid web-app.agentic is rejected",
+                  any("web-app.agentic" in e for e in errs)))
+    cfg = dict(base, **{"web-app": {"value": "yes"}})
+    errs, warns = validate(cfg)
+    cases.append(("absent web-app.agentic is valid (absence = default no)",
+                  not any("web-app.agentic" in e for e in errs)
+                  and not any("web-app.agentic" in w for w in warns)))
 
     # 3. Absent block — the default; valid, no web-app warning/error.
     cfg = dict(base)
@@ -357,17 +399,42 @@ def self_test():
     cases.append(("invalid channel is rejected",
                   any("channel" in e for e in errs)))
 
-    # 6b. Invalid deploy_policy — flagged.
+    # 6b. deploy_policy: manual — now valid (#163); must not produce an error.
     cfg = dict(base, **{"environments": {"production": {"deploy_policy": "manual"}}})
+    errs, _ = validate(cfg)
+    cases.append(("deploy_policy=manual is accepted (#163)", not errs))
+
+    # 6b-2. Genuinely invalid deploy_policy — still flagged.
+    cfg = dict(base, **{"environments": {"production": {"deploy_policy": "cron"}}})
     errs, _ = validate(cfg)
     cases.append(("invalid deploy_policy is rejected",
                   any("deploy_policy" in e for e in errs)))
 
-    # 6c. data_isolation not a boolean — flagged.
+    # 6c. data_isolation not a boolean — flagged before migration.
     cfg = dict(base, **{"environments": {"dev": {"data_isolation": "yes"}}})
     errs, _ = validate(cfg)
-    cases.append(("non-boolean data_isolation is rejected",
+    cases.append(("non-boolean data_isolation is rejected before migrate",
                   any("data_isolation" in e for e in errs)))
+
+    # 6c-2. --migrate coerces string data_isolation to boolean; validate passes (#163).
+    cfg = dict(base, **{"environments": {
+        "dev": {"data_isolation": "true"},
+        "production": {"data_isolation": "false"},
+    }})
+    changes = migrate(cfg)
+    cases.append(("migrate coerces string data_isolation to boolean (#163)",
+                  cfg["environments"]["dev"]["data_isolation"] is True
+                  and cfg["environments"]["production"]["data_isolation"] is False
+                  and any("data_isolation" in c for c in changes)))
+    errs, _ = validate(cfg)
+    cases.append(("migrated data_isolation booleans pass validation (#163)", not errs))
+
+    # 6c-3. --migrate is idempotent on already-boolean data_isolation.
+    cfg = dict(base, **{"environments": {"dev": {"data_isolation": True}}})
+    changes = migrate(cfg)
+    cases.append(("migrate is idempotent on boolean data_isolation",
+                  cfg["environments"]["dev"]["data_isolation"] is True
+                  and not any("data_isolation" in c for c in changes)))
 
     # 6d. Empty-string dependent-service-address — flagged.
     cfg = dict(base, **{"environments": {"dev": {"dependent-service-address": "   "}}})
@@ -482,6 +549,53 @@ def self_test():
     return passed, failed, lines
 
 
+def _repo_root_for(path):
+    """Best-effort repo root for a root-config path.
+
+    The root config conventionally lives at <repo>/.claude/grimoire-config.json,
+    so the repo root is two directories up. Falls back to the current directory
+    when the path is not under a .claude/ dir. Used only to locate a sibling
+    codex/ flavor for delegated validation.
+    """
+    p = os.path.abspath(path)
+    parent = os.path.dirname(p)               # .../.claude
+    if os.path.basename(parent) == ".claude":
+        return os.path.dirname(parent)        # .../<repo>
+    return os.getcwd()
+
+
+def validate_codex_flavor(repo_root):
+    """Delegate codex flavor config validation to the codex flavor's own validator.
+
+    The codex flavor (v3.55) ships its own config cluster
+    (codex/grimoire-config.json + .codex/*) and a dedicated validator at
+    codex/scripts/config_validate.py. When a codex/ flavor directory is present
+    at the repo root, this function shells out to that validator in --strict mode
+    and FAILS CLOSED: a missing validator script or a non-zero exit is a hard
+    error. Returns a (ok, message) tuple; ok is True only when codex/ is absent
+    (nothing to validate) or the delegated validator passed.
+    """
+    codex_dir = os.path.join(repo_root, "codex")
+    if not os.path.isdir(codex_dir):
+        return True, None  # no codex flavor in this repo — nothing to validate
+    validator = os.path.join(codex_dir, "scripts", "config_validate.py")
+    if not os.path.isfile(validator):
+        return (False,
+                f"codex/ present but codex/scripts/config_validate.py is missing "
+                f"({validator}) — cannot validate the codex flavor config (fail-closed)")
+    try:
+        proc = subprocess.run(
+            [sys.executable, validator, "--strict"],
+            cwd=codex_dir, capture_output=True, text=True)
+    except Exception as e:  # pragma: no cover - defensive
+        return False, f"codex flavor validation could not run: {e} (fail-closed)"
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, ("codex flavor config validation FAILED "
+                       f"(exit {proc.returncode}):\n{out.rstrip()}")
+    return True, out.rstrip()
+
+
 def main():
     args = sys.argv[1:]
     if "--self-test" in args:
@@ -518,7 +632,18 @@ def main():
     for e in errors:
         print("ERROR:", e)
     print(f"\nconfig-validate: {len(errors)} error(s), {len(warnings)} warning(s).")
-    sys.exit(1 if errors else 0)
+
+    # codex flavor delegation (v3.55): when a codex/ flavor is present at the
+    # repo root, validate its config cluster via the flavor's own validator and
+    # fail closed on any problem. Additive — never relaxes the root result.
+    codex_ok, codex_msg = validate_codex_flavor(_repo_root_for(path))
+    if codex_msg:
+        if codex_ok:
+            print("codex flavor: config validation passed (delegated --strict).")
+        else:
+            print("ERROR:", codex_msg)
+
+    sys.exit(1 if (errors or not codex_ok) else 0)
 
 
 if __name__ == "__main__":

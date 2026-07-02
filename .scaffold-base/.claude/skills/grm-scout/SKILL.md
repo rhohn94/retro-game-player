@@ -228,30 +228,22 @@ task agent is permitted to make before committing to an approach.
 
 ## §8 — Anti-patterns
 
-- **Keeping the Scout alive after the brief.** The Scout is one-shot. Investigate,
-  return the brief, exit. Idling a Scout session between unrelated questions wastes
-  tokens on a stale context.
-
-- **Letting the Scout write anything.** If the Scout's brief identifies something
-  worth tracking (a design gap, a potential bug), the *requester* routes it through
-  the tracker via a Reporter or `grm-feedback-to-issue`. The Scout itself never writes —
-  not even to record a finding in a temp file.
+- **Letting the Scout write anything.** If the brief identifies something worth
+  tracking, the *requester* routes it via a Reporter or `grm-feedback-to-issue`.
+  The Scout never writes — not even a finding to a temp file.
 
 - **Scoping the Scout too broadly.** "Understand the whole codebase" is not a
-  bounded question. A Scout spawn should have a specific question and a defined
-  scope. If the question is too wide, split it into multiple narrower Scout spawns.
+  bounded question. A spawn needs a specific question and a defined scope; split
+  a too-wide question into multiple narrower Scout spawns.
 
-- **Reimplementing Explore or deep-research logic inside the Scout.** The Scout
-  wraps these tools unchanged. If you find yourself writing traversal heuristics
-  or search loops in the Scout prompt, you are reimplementing — invoke the tool
-  and let it do the work.
+- **Reimplementing Explore or deep-research logic.** The Scout wraps these tools
+  unchanged. Writing traversal heuristics or search loops in the prompt is
+  reimplementing — invoke the tool and let it do the work.
 
 - **Passing a Scout brief back as a task agent's deliverable.** The brief is
-  *input* to an implementation plan, not the plan itself. A task agent that
-  spawned a Scout must then commit to an approach and confirm it with the requester
-  (per `CLAUDE.md` §"Task execution") — the Scout brief informs that confirmation,
-  it does not replace it.
+  *input* to a plan, not the plan. A task agent must still commit to an approach
+  and confirm it with the requester (per `CLAUDE.md` §"Task execution").
 
-- **Using the Scout as a Researcher substitute.** The Scout returns a brief and
-  exits. If the investigation leads to a scoped design item that should be filed
-  and tracked, spawn a Researcher (§B.8 of the design doc) — not a Scout.
+- **Outliving the brief, or substituting for a Researcher.** The Scout is
+  one-shot: investigate, return, exit. If the work leads to a scoped item that
+  should be filed and tracked, spawn a Researcher (§B.8) — not a Scout.

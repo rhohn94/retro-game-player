@@ -10,7 +10,7 @@ scripting standard). Read/inspect subcommands are safe; `open` and `merge` are
 `autonomous-push.enabled`) — this helper performs the gh call; it does not decide
 the gate.
 
-Design authority: docs/design/github-pr-integration-design.md.
+Design authority: docs/grimoire/design/github-pr-integration-design.md.
 
 Subcommands:
   open   --base B --head H [--title T] [--body-file F] [--plan PATH]

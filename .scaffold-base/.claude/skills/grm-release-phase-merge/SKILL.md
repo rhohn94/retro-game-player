@@ -1,6 +1,6 @@
 ---
 name: grm-release-phase-merge
-description: Merge completed subagent branches into version/{X.Y} autonomously — no per-merge confirmation. Runs tests after each merge, ticks §5, and drives the final version/{X.Y}→dev merge unsupervised. Stops only on conflict, test failure, or push trigger. Use when the user says "merge agent X", "phase N is done, merge it", or "all agents done". Handles both isolated-worktree work-item branches and write-capable workflow branches. Push to origin remains human-gated.
+description: Merge completed subagent branches into version/{X.Y} autonomously — no per-merge confirmation. Runs tests after each merge, ticks §5, and drives the final version/{X.Y}→dev merge unsupervised. Stops only on conflict, test failure, or push trigger. Handles both isolated-worktree work-item branches and write-capable workflow branches. Push to origin remains human-gated. Use when the user says "merge agent X" or "phase N is done".
 ---
 
 # Release phase merge (Noir)

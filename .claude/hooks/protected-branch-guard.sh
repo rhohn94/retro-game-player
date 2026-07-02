@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+""":"
+# Bash polyglot preamble — bash ignores the shebang and lands here.
+# Re-execute with python3, or emit a clear error if unavailable.
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$0" "$@"
+fi
+printf 'error: %s requires python3. Re-run as: python3 %s %s\n' "$0" "$0" "$*" >&2
+exit 1
+":"""
 """Protected-branch guard (deny-by-default).
 
 Blocks history-mutating git operations (commit, merge, rebase,
@@ -42,10 +51,9 @@ integration master may commit to `main` at any time, including mid-release
 out of a clean boundary. This is by design — the master must promote to
 `main` — so the `marked + protected → allow` cell covers it. Tightening
 this (e.g. asserting a clean release boundary before a marked commit on
-`main`) is a follow-up item recorded in
-docs/design/integration-branch-integrity-design.md §Follow-ups and is
-NOT in v3.38 scope. The §2 divergence guard (BMI-2) and process discipline
-are the boundary enforcement at that layer.
+`main`) is a recorded follow-up and is NOT in v3.38 scope. The divergence
+guard (BMI-2, in the release-planning engine's divergence-check) and process
+discipline are the boundary enforcement at that layer.
 
 Write-capable workflow agent safety contract (v1.6+)
 =====================================================
@@ -123,7 +131,7 @@ The two rules together make the (actor, branch-class) model TOTAL:
   - unmarked + unprotected -> allow  (agent's own work branch)
   - marked   + protected   -> allow  (the integration master at work)
   - marked   + unprotected -> deny   (NEW: master HEAD-drift)
-See docs/design/dispatch-hardening-design.md §3.1.
+See docs/grimoire/design/dispatch-hardening-design.md §3.1.
 
 History-rewrite deny rule (v3.15, item #84)
 ===========================================
@@ -148,7 +156,7 @@ history. Force-push and remote-ref deletion are the push-side complement and
 remain owned by `push-guard.sh` (DENIED_FLAGS); the two guards together cover
 the full #84 prohibited set. This rule only ADDS denials on protected branches
 — it never widens what is allowed, so the blast radius is unchanged.
-See docs/design/git-protocol-governance-design.md §3a.
+See docs/grimoire/design/git-protocol-governance-design.md §3a.
 
 Test/check note: to verify the contract holds for concurrent agent
 worktrees, confirm that:
@@ -159,6 +167,36 @@ worktrees, confirm that:
      (no-op when HEAD is not protected).
   4. A MARKED worktree (the master) CANNOT commit/merge on an unprotected
      branch — that is the HEAD-drift guard firing (exit 2).
+
+Branch-hygiene guard (v3.63)
+============================
+The rules above gate history-MUTATION; the incidents that kept recurring were
+branch-POINTER misuse by unmarked task agents inside their OWN worktree, which
+none of the earlier rules cover:
+
+  - `git switch dev` / `git checkout main` — the agent relocates its HEAD onto
+    a protected branch. Later commits are denied (deny-by-default above), but
+    the working tree is now a staging checkout and the session derails.
+  - `git switch -c <work> main` — branching off the WRONG BASE. `main` carries
+    release-only commits (version bumps, dist artifacts); a work branch rooted
+    there re-imports them into `dev` on merge (the "unexplained release-only
+    diffs" incident class documented in grm-worktree-preflight).
+  - `git branch version/X.Y` / `git switch -c version/X.Y` — an agent minting
+    a protected-named branch it must never own.
+  - `git branch -f/-D <protected>` — force-moving or deleting a protected
+    branch pointer without the marker.
+  - `git worktree add/remove/move/...` — an agent creating or removing sibling
+    worktrees; only the marker-blessed master manages worktrees (dispatch and
+    dead-worktree cleanup).
+
+For an UNMARKED actor these are DENIED (exit 2) with a remediation message;
+the MARKED integration master is exempt (it legitimately checks out staging
+refs, repairs branch pointers, and manages worktrees). Read-only forms
+(`git branch --list`, `git worktree list`, `git checkout <ref> -- <path>`,
+`git switch --detach`) stay allowed. `pull` also joins MUTATING above: it
+commits a merge (or fast-forwards a ref), so an unmarked `git pull` on a
+protected branch is the same failure mode as an unmarked `git merge`.
+See docs/grimoire/design/orchestrate-release-design.md §Guard hardening.
 
 Multiple marked lane worktrees (v3.1, Project Manager)
 ======================================================
@@ -175,7 +213,7 @@ hijack guard refuses any op a lane master aims at a SIBLING lane's worktree. The
      cross-worktree hijack guard exits 2).
   6. A MARKED lane worktree whose HEAD drifts off its lane branch onto an
      unprotected work-item branch CANNOT mutate history (HEAD-drift guard, #4).
-See docs/design/project-manager-role-design.md §7.
+See docs/grimoire/design/project-manager-role-design.md §7.
 """
 import json
 import os
@@ -184,7 +222,7 @@ import shlex
 import subprocess
 import sys
 
-MUTATING = {"commit", "merge", "rebase", "cherry-pick", "revert"}
+MUTATING = {"commit", "merge", "rebase", "cherry-pick", "revert", "pull"}
 # History-REWRITING subcommands prohibited by default on protected branches
 # (v3.15, #84). `rebase`/`cherry-pick` re-author commits; `reset --hard`
 # discards committed history. Denied on protected branches for EVERY actor;
@@ -204,6 +242,19 @@ REDIRECT_OPTS = {"-C", "--git-dir", "--work-tree"}
 ESCAPE_HATCH = {"--abort", "--quit", "--skip"}
 PROTECTED_RE = re.compile(r"^(dev|main|version/.*)$")
 WORKTREES_SEGMENT = "/.claude/worktrees/"
+# Branch-hygiene guard (v3.63) constants. WRONG_BASES: start-points an
+# unmarked actor must never branch from (work branches root on the staging
+# ref — version/{X.Y} or dev — never on main, which carries release-only
+# commits). CREATE_FLAGS: switch/checkout flags that make the invocation a
+# branch CREATION (name + optional start-point) rather than a checkout.
+WRONG_BASES = {"main", "origin/main"}
+CREATE_FLAGS = {"-c", "-C", "-b", "-B", "--create", "--force-create", "--orphan"}
+WORKTREE_SAFE_VERBS = {"list"}
+BRANCH_READONLY_FLAGS = {
+    "--list", "-l", "-a", "--all", "-r", "--remotes", "-v", "-vv",
+    "--show-current", "--contains", "--merged", "--no-merged", "--points-at",
+}
+STATEMENT_SEPS = {"&&", "||", ";", "|", "&"}
 
 
 def find_mutating_subcommand(cmd: str) -> str | None:
@@ -360,6 +411,108 @@ def find_branch_op(cmd: str) -> str | None:
     return None
 
 
+def _hygiene_check(sub: str, args: list[str]) -> tuple[str, str] | None:
+    """Classify one git invocation's branch-hygiene violation (v3.63).
+
+    `sub` is the git subcommand, `args` its argument tokens (this invocation
+    only). Returns (kind, detail) or None. Kinds:
+      - "checkout-protected":       switch/checkout moves HEAD onto dev/main/version/*
+      - "wrong-base":               branch created with start-point main / origin/main
+      - "create-protected":         creating a branch NAMED dev/main/version/*
+      - "branch-reshape-protected": branch -f/-m/-d/-D aimed at a protected name
+      - "worktree":                 any worktree verb other than `list`
+    Read-only forms return None; applied to UNMARKED actors only (main()).
+    """
+    args = [a.rstrip(";") for a in args if a.rstrip(";")]
+    if sub == "worktree":
+        verb = next((a for a in args if not a.startswith("-")), None)
+        if verb and verb not in WORKTREE_SAFE_VERBS:
+            return ("worktree", verb)
+        return None
+    if sub in ("switch", "checkout"):
+        if "--" in args:
+            return None  # pathspec form restores files; HEAD does not move
+        positional = [a for a in args if not a.startswith("-")]
+        if any(a in CREATE_FLAGS for a in args):
+            name = positional[0] if positional else None
+            start = positional[1] if len(positional) > 1 else None
+            if name and PROTECTED_RE.match(name):
+                return ("create-protected", name)
+            if start in WRONG_BASES:
+                return ("wrong-base", start)
+            return None
+        if "--detach" in args or (sub == "switch" and "-d" in args):
+            return None  # detached inspection; commits there are ref-less
+        target = positional[0] if positional else None
+        if target and PROTECTED_RE.match(target):
+            return ("checkout-protected", target)
+        return None
+    if sub == "branch":
+        if any(a in BRANCH_READONLY_FLAGS for a in args):
+            return None  # list/query forms
+        positional = [a for a in args if not a.startswith("-")]
+        name = positional[0] if positional else None
+        start = positional[1] if len(positional) > 1 else None
+        reshape = any(a in ("-f", "--force", "-m", "-M", "-d", "-D", "--delete")
+                      for a in args)
+        protected_named = [a for a in positional if PROTECTED_RE.match(a)]
+        if reshape:
+            if protected_named:
+                return ("branch-reshape-protected", protected_named[0])
+            return None  # delete/rename of an ordinary work branch
+        if name and PROTECTED_RE.match(name):
+            return ("create-protected", name)
+        if start in WRONG_BASES:
+            return ("wrong-base", start)
+        return None
+    return None
+
+
+def find_branch_hygiene_violation(cmd: str) -> tuple[str, str] | None:
+    """Scan the command for the first branch-hygiene violation (v3.63).
+
+    Walks every git invocation the way find_mutating_subcommand does (global
+    options skipped, one subcommand per invocation), collects that
+    invocation's argument tokens up to a statement separator, and classifies
+    them via _hygiene_check(). Returns (kind, detail) or None.
+    """
+    try:
+        tokens = shlex.split(cmd, comments=False, posix=True)
+    except ValueError:
+        return None
+    i, n = 0, len(tokens)
+    while i < n:
+        if tokens[i] == "git" or tokens[i].endswith("/git"):
+            j = i + 1
+            while j < n:
+                t = tokens[j]
+                if t in OPTS_WITH_VALUE:
+                    j += 2
+                    continue
+                if t.startswith("-"):
+                    j += 1
+                    continue
+                break
+            if j >= n:
+                break
+            sub = tokens[j]
+            args: list[str] = []
+            k = j + 1
+            while k < n and tokens[k] not in STATEMENT_SEPS:
+                args.append(tokens[k])
+                k += 1
+            viol = _hygiene_check(sub, args)
+            if viol:
+                return viol
+            # Resume scanning right after the subcommand token (not after the
+            # collected args): a glued separator (`dev; git …`) leaves the next
+            # `git` inside args, and it must still be discovered as its own
+            # invocation.
+            i = j
+        i += 1
+    return None
+
+
 def worktree_of(path: str) -> str | None:
     """If `path` resolves to (or under) an isolated worktree, return that
     worktree's root; else None. The worktree root is the path up to and
@@ -447,6 +600,65 @@ def main() -> None:
                 sys.exit(2)
     # --------------------------------------------------------------------
 
+    # ---- Branch-hygiene guard (v3.63) ----------------------------------
+    # Deny, for an UNMARKED actor, the branch-pointer misuse patterns behind
+    # the recurring wrong-branch incidents: moving HEAD onto a protected
+    # branch, branching off main (wrong base), minting/reshaping protected
+    # branch names, and worktree management. The marked master is exempt.
+    if not actor_marked:
+        viol = find_branch_hygiene_violation(cmd)
+        if viol:
+            kind, detail = viol
+            staging_hint = ("git switch -c <branch> version/<X.Y>   "
+                            "# or: git switch -c <branch> dev")
+            messages = {
+                "checkout-protected": (
+                    f"blocked checkout of protected branch '{detail}'.\n"
+                    "A task agent never moves its HEAD onto dev / main / "
+                    "version/* — it\nbranches IN PLACE from the staging ref "
+                    "and works there:\n  " + staging_hint + "\n"
+                ),
+                "wrong-base": (
+                    f"blocked branch creation off '{detail}' (wrong base).\n"
+                    "`main` carries release-only commits (version bumps, dist "
+                    "artifacts) that\nmust never flow back through a work "
+                    "branch into dev. Root your branch on\nthe staging ref "
+                    "instead:\n  " + staging_hint + "\n"
+                ),
+                "create-protected": (
+                    f"blocked creation of protected-named branch '{detail}'.\n"
+                    "Only the marker-blessed integration worktree creates "
+                    "dev / main /\nversion/* refs (grm-release-agreement "
+                    "creates the staging branch).\nName your work branch "
+                    "after the work item instead:\n  " + staging_hint + "\n"
+                ),
+                "branch-reshape-protected": (
+                    f"blocked force-move/rename/delete of protected branch "
+                    f"'{detail}'.\n"
+                    "Repointing or deleting dev / main / version/* is an "
+                    "integration-master\noperation (recovery playbook: "
+                    "docs/grimoire/integration-workflow.md). If you\nbelieve "
+                    "the branch pointer is wrong, STOP and report it — do "
+                    "not repair it\nfrom a task worktree.\n"
+                ),
+                "worktree": (
+                    f"blocked `git worktree {detail}`.\n"
+                    "Task agents never create, remove, or move worktrees — "
+                    "you work only in\nyour own. The integration master "
+                    "manages worktrees (dispatch and\ndead-worktree cleanup). "
+                    "`git worktree list` stays available.\n"
+                ),
+            }
+            sys.stderr.write(
+                "protected-branch-guard: " + messages[kind] +
+                f"  worktree: {actor_wt}\n"
+                "This worktree has no .claude/integration-allow.local marker "
+                "(task agent).\nOperator override (deliberate): touch "
+                ".claude/integration-allow.local\n"
+            )
+            sys.exit(2)
+    # --------------------------------------------------------------------
+
     # ---- History-rewrite deny rule (v3.15, #84) ------------------------
     # Prohibit history-REWRITING commands on a protected branch for EVERY
     # actor (marked master included) — stricter than the commit/merge model,
@@ -455,7 +667,7 @@ def main() -> None:
     # checked-out branch); work-item branches are left alone, per #84. Escape
     # hatches (--abort/--quit/--skip) and soft/mixed resets are exempt inside
     # find_rewrite_op(). Force-push is the push-side complement, owned by
-    # push-guard.sh. See docs/design/git-protocol-governance-design.md §3a.
+    # push-guard.sh. See docs/grimoire/design/git-protocol-governance-design.md §3a.
     rewrite = find_rewrite_op(cmd)
     if rewrite:
         rcur = current_branch(proj)
@@ -508,7 +720,7 @@ def main() -> None:
                 "The marker-blessed master may mutate history ONLY on a "
                 "staging branch.\nHEAD on a work-item branch is the silent "
                 "worktree-isolation failure\n(see "
-                "docs/design/dispatch-hardening-design.md): a dispatched "
+                "docs/grimoire/design/dispatch-hardening-design.md): a dispatched "
                 "Agent likely ran\nin-place instead of in its own worktree. "
                 "DO NOT merge — repair first:\n"
                 "  1. Identify the intended staging branch (version/<X.Y>).\n"
@@ -649,6 +861,70 @@ def _self_test_commit_on_main() -> int:
     return failures
 
 
+def _self_test_branch_hygiene() -> int:
+    """Parser-level self-test for the v3.63 branch-hygiene detector.
+
+    Exercises find_branch_hygiene_violation() against a table of commands;
+    no git / marker needed (the unmarked-actor gating is applied in main()).
+    Returns failure count."""
+    cases = [
+        # HEAD moves onto protected branches — denied for unmarked actors.
+        ("git switch dev", ("checkout-protected", "dev")),
+        ("git checkout main", ("checkout-protected", "main")),
+        ("git switch version/3.2", ("checkout-protected", "version/3.2")),
+        ("git status && git switch dev", ("checkout-protected", "dev")),
+        ("git log --oneline; git checkout main", ("checkout-protected", "main")),
+        # Branch-in-place from the staging ref — the sanctioned pattern.
+        ("git switch -c work version/3.2", None),
+        ("git checkout -b work dev", None),
+        ("git switch -c fix/a-bug dev", None),
+        # Wrong base: main carries release-only commits.
+        ("git switch -c work main", ("wrong-base", "main")),
+        ("git checkout -b hotfix origin/main", ("wrong-base", "origin/main")),
+        ("git branch work main", ("wrong-base", "main")),
+        # Protected-named branch creation / reshaping.
+        ("git switch -c version/3.3 dev", ("create-protected", "version/3.3")),
+        ("git branch version/3.3", ("create-protected", "version/3.3")),
+        ("git branch -f version/3.2 abc123",
+         ("branch-reshape-protected", "version/3.2")),
+        ("git branch -D dev", ("branch-reshape-protected", "dev")),
+        ("git branch -m main main-old", ("branch-reshape-protected", "main")),
+        # Ordinary work-branch management stays allowed.
+        ("git branch -d old-work", None),
+        ("git branch -D stale-work", None),
+        ("git branch", None),
+        ("git branch --list version/*", None),
+        ("git branch -vv", None),
+        # Worktree management is master-only; list stays available.
+        ("git worktree add ../x dev", ("worktree", "add")),
+        ("git worktree remove ../x", ("worktree", "remove")),
+        ("git worktree prune", ("worktree", "prune")),
+        ("git worktree list", None),
+        # Read-only / non-HEAD-moving forms.
+        ("git checkout dev -- path/file.txt", None),
+        ("git checkout -- .", None),
+        ("git switch --detach main", None),
+        ("git switch -", None),
+        ("git switch my-work", None),
+        ("git checkout feature-x", None),
+        ("echo 'git switch dev'", None),
+        ("git diff dev...HEAD", None),
+        # Second invocation after a glued separator is still discovered.
+        ("git switch my-work; git checkout -b x main", ("wrong-base", "main")),
+    ]
+    failures = 0
+    for cmd, expected in cases:
+        got = find_branch_hygiene_violation(cmd)
+        ok = got == expected
+        failures += not ok
+        print(("ok  " if ok else "FAIL") + f"  {cmd!r} -> {got!r} (want {expected!r})")
+    # `pull` joined MUTATING (unmarked `git pull` on protected = merge-class).
+    ok = find_mutating_subcommand("git pull origin dev") == "pull"
+    failures += not ok
+    print(("ok  " if ok else "FAIL") + "  'git pull origin dev' -> mutating 'pull'")
+    return failures
+
+
 def _self_test() -> int:
     """Combined self-test: history-rewrite detector + direct-commit-on-main model.
 
@@ -667,6 +943,8 @@ def _self_test() -> int:
     failures = _self_test_rewrite_detector()
     print(f"\n=== Suite 2: direct-commit-on-main model (BMI-4 v3.38 #126) ===")
     failures += _self_test_commit_on_main()
+    print(f"\n=== Suite 3: branch-hygiene detector (v3.63) ===")
+    failures += _self_test_branch_hygiene()
     print(f"\n{'PASS' if not failures else str(failures)+' FAILED'}")
     return 1 if failures else 0
 

@@ -61,10 +61,11 @@
 # NOT silently trust the asset — it prints a LOUD degradation notice and proceeds
 # unverified only because the asset still came from the authenticated gh download.
 # Never a silent skip. (minisign signature verification is a managed-project
-# updater concern — see docs/design/release-distribution-design.md §meta-updater.)
+# updater concern — see docs/grimoire/design/release-distribution-design.md §meta-updater.)
 #
 # Usage:
 #   ./sync-from-upstream.sh [--apply] [--diff] [--adopt-base] [--force]
+#                           [--allow-ahead] [--mark-resolved <file>]
 #
 #   (no flag)      dry-run: report what each file would do.
 #   --diff         also print per-file diffs for would-be changes.
@@ -72,7 +73,35 @@
 #   --adopt-base   record the current upstream as the base for every managed
 #                  file WITHOUT touching local files. Use once on an existing
 #                  customized project to establish provenance for future syncs.
-#   --force        allow --apply on a dirty git tree.
+#   --force        allow --apply on a dirty git tree (tracked changes). Untracked
+#                  files never block --apply and need no flag (#143).
+#   --mark-resolved <file>
+#                  advance the recorded base for a SINGLE file to the current
+#                  upstream content, so a future sync no longer re-conflicts it
+#                  (#181). Use after you have hand-resolved one CONFLICT file (or
+#                  for a file that is permanently diverged by design). Unlike
+#                  --adopt-base it does NOT touch any other file's provenance, and
+#                  it refuses if the file still contains conflict markers. The
+#                  path may be project-relative or absolute; writes only
+#                  .scaffold-base/<file>.
+#
+# WARNINGS the merge walk can emit (#180/#181):
+#   * MISSING-SYMBOL (#180): after a 3-way merge, the result references a symbol
+#     UPSTREAM defines but that is NOT defined anywhere in the merged output —
+#     a "call-site without definition" the merge produced with no conflict marker
+#     (typically LOCAL deleted a helper UPSTREAM still calls, in a non-overlapping
+#     region). Best-effort, language-agnostic-ish. Never blocks; warns loudly.
+#   * MANUALLY-RESOLVED-BUT-BASE-NOT-ADVANCED (#181): --apply is about to
+#     overwrite a CONFLICT file whose LOCAL copy has no conflict markers (it looks
+#     already hand-resolved) — it points you at --mark-resolved instead.
+#   --allow-ahead  BMI-3 Rule 3b consumer-sync escape hatch (#144/#146/#162/#173):
+#                  permit --apply when the integration line is merely AHEAD of
+#                  main (e.g. a prior sync's framework-version bump, or committed
+#                  conflict resolutions) instead of demanding tree-identical
+#                  lines. It does NOT disable the divergence guard — a genuine
+#                  fork (main carrying work the integration line lacks) is still
+#                  refused. Use for back-to-back syncs or where dev->main merges
+#                  are restricted.
 #
 set -euo pipefail
 
@@ -84,7 +113,7 @@ set -euo pipefail
 #   git     — shallow clone the repo at UPSTREAM_REF (the historical default)
 # UPSTREAM_TRANSPORT (conf/env) forces a mode; default 'auto' picks per the
 # rules below. The release path ALWAYS falls back to git on any failure, so
-# behaviour never regresses. Design: docs/design/release-distribution-design.md
+# behaviour never regresses. Design: docs/grimoire/design/release-distribution-design.md
 # --------------------------------------------------------------------------
 _looks_like_version_tag() {
   # v3.23 / 3.23 / v1.2.3 — a tag we publish release assets under.
@@ -224,6 +253,49 @@ except Exception:
 }
 
 # --------------------------------------------------------------------------
+# Working-tree cleanliness, IGNORING untracked files (#143).
+# `git status --porcelain` reports untracked files as "?? <path>" lines. Those
+# never risk losing work and must not block a safe 3-way merge — only tracked
+# changes (staged or unstaged) make the tree "dirty" for --apply purposes.
+# Pure over its argument so the self-test can drive it with canned porcelain.
+# Returns 0 (dirty) iff any non-"?? " line remains; 1 (clean) otherwise.
+# --------------------------------------------------------------------------
+porcelain_has_tracked_changes() {
+  # Arg: the full `git status --porcelain` output (may be empty/multi-line).
+  printf '%s\n' "$1" | grep -qv '^??' && printf '%s\n' "$1" | grep -q '[^[:space:]]'
+}
+
+# --------------------------------------------------------------------------
+# BMI-3 Rule 3b escape hatch (#144/#146/#162/#173) — the consumer-sync catch-22.
+# After any sync, the integration line carries the prior sync's own
+# framework-version bump (and any committed conflict resolution), so it is one
+# or more commits AHEAD of main. The naive "trees identical" boundary then
+# blocks every consecutive sync until a release re-equalizes the lines — even
+# though NO real fork exists. The fix uses the SAME model-aware predicate the
+# BMI-2 divergence guard uses: a fork is dangerous only when main carries tree
+# content the integration line lacks; the integration line being merely ahead
+# is safe. `git cherry INT main` prints "+ <sha>" for a commit whose patch has
+# no equivalent on INT (real, unreachable work => a fork) and "- <sha>" for a
+# benign promotion merge. Any "+" => fork (HALT); none => ahead-only (safe).
+# Fails safe: a git error yields a synthetic "+ error" so the guard never
+# silently misses a real fork.
+# --------------------------------------------------------------------------
+cherry_lines_show_unreachable_work() {
+  # Arg: combined `git cherry INT main` output. Returns 0 iff any "+ " line.
+  printf '%s\n' "$1" | grep -q '^+ '
+}
+
+main_only_cherry_lines() {
+  # Args: <root> <int> <published>. Echo `git cherry INT main`; on any git
+  # error echo a synthetic "+ error" so the classifier fails safe (HALT).
+  local root="$1" int="$2" pub="$3" out
+  if ! out="$(git -C "$root" cherry "$int" "$pub" 2>/dev/null)"; then
+    printf '%s\n' "+ error"; return 0
+  fi
+  printf '%s\n' "$out"
+}
+
+# --------------------------------------------------------------------------
 # Files that map to local but must NOT be auto-synced (project-owned/templates)
 # Paths are relative to the flavor dir (== relative to the project root).
 # Defined here (before --self-test) so the self-test can call the real function.
@@ -268,6 +340,81 @@ is_excluded() {
     .grimoire-golden/*) return 0 ;;                           # generated golden cache (v3.49) — never merged; locally derived
   esac
   return 1
+}
+
+# --------------------------------------------------------------------------
+# Missing-symbol heuristic (#180) — warn when a 3-way merge silently drops a
+# BASE definition that the UPSTREAM side still calls.
+#
+# Failure mode: LOCAL deleted helper functions; UPSTREAM changed a DIFFERENT
+# region that calls them. The two diffs don't overlap, so git merge-file emits
+# NO conflict marker — it just applies LOCAL's deletion and UPSTREAM's edit,
+# leaving call-sites with no definition. The result looks syntactically complete
+# but is broken at runtime. We can't fix the merge generally, but we can warn.
+#
+# Best-effort, language-agnostic-ish. Pure over its two text arguments so the
+# self-test can drive it with canned content (no temp files needed).
+# --------------------------------------------------------------------------
+extract_defined_symbols() {
+  # Arg: file CONTENT on stdin. Echo (one per line, deduped) the names this text
+  # *defines* as a function/sub — covering the common shapes:
+  #   sh/bash:  name() { ...   |  function name { ...
+  #   py:       def name(...   |  (class name(...
+  #   js/ts:    function name(...
+  # Conservative: only well-anchored definition forms, never bare references.
+  grep -hoE \
+    -e '^[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*\(\)[[:space:]]*\{?' \
+    -e '^[[:space:]]*function[[:space:]]+[A-Za-z_][A-Za-z0-9_-]*' \
+    -e '^[[:space:]]*def[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' \
+    -e '^[[:space:]]*class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' \
+    2>/dev/null \
+    | sed -E 's/\(\).*$//; s/^[[:space:]]*(function|def|class)[[:space:]]+//; s/[[:space:]]+$//' \
+    | grep -E '^[A-Za-z_][A-Za-z0-9_-]*$' \
+    | sort -u
+}
+
+is_defined_in() {
+  # Args: <symbol> ; CONTENT on stdin. Returns 0 if stdin defines <symbol>.
+  local sym="$1"
+  extract_defined_symbols | grep -qxF "$sym"
+}
+
+is_called_in() {
+  # Args: <symbol> ; CONTENT on stdin. Returns 0 if stdin references <symbol> as
+  # a whole word somewhere — covering both paren call-sites (py/js: `name(`) and
+  # bare invocation (sh: `name arg`). Callers only ask this once the symbol is
+  # already known to be UNDEFINED in that same content, so any whole-word
+  # occurrence is a genuine reference (it cannot be the absent definition).
+  local sym="$1" esc
+  esc="$(printf '%s' "$sym" | sed -E 's/[][\.^$*+?(){}|/-]/\\&/g')"
+  grep -qE "(^|[^A-Za-z0-9_.])${esc}([^A-Za-z0-9_-]|$)" 2>/dev/null
+}
+
+find_dropped_definitions() {
+  # Args: <upstream_content_file> <merged_content_file>. Echo (one per line) each
+  # symbol that UPSTREAM defines, that is CALLED in the merged output, but that is
+  # NOT defined anywhere in the merged output — i.e. a silently-dropped definition
+  # the merged file still depends on. Empty output => nothing suspicious.
+  local upf="$1" mgf="$2" sym merged_defs merged_body
+  merged_defs="$(extract_defined_symbols < "$mgf")"
+  merged_body="$(cat "$mgf")"
+  while IFS= read -r sym; do
+    [ -n "$sym" ] || continue
+    # Defined in merged? then it's fine.
+    printf '%s\n' "$merged_defs" | grep -qxF "$sym" && continue
+    # Called anywhere in merged output? only then is the missing def load-bearing.
+    printf '%s' "$merged_body" | is_called_in "$sym" || continue
+    printf '%s\n' "$sym"
+  done < <(extract_defined_symbols < "$upf")
+}
+
+# --------------------------------------------------------------------------
+# Manual-resolution detection (#181). A file is "manually resolved" when it
+# carries NO git conflict markers. Pure over stdin so the self-test can drive it.
+# --------------------------------------------------------------------------
+content_has_conflict_markers() {
+  # CONTENT on stdin. Returns 0 iff a git conflict marker line is present.
+  grep -qE '^(<<<<<<< |=======$|>>>>>>> )' 2>/dev/null
 }
 
 # --self-test: exercise transport resolution with no network/git, then exit.
@@ -336,6 +483,63 @@ if printf '%s\n' "$@" | grep -qx -- '--self-test'; then
   assert_eq "project-own design NOT excl" "$(excl_rc docs/design/bar-design.md)"          1
   assert_eq "existing roadmap rule kept"  "$(excl_rc docs/roadmap.md)"                    0
 
+  # Dirty-tree check ignoring untracked files (#143) — clean tree with only
+  # untracked "?? " entries must NOT count as dirty; tracked changes must.
+  tracked_rc() { porcelain_has_tracked_changes "$1" && echo 0 || echo $?; }
+  assert_eq "empty porcelain => clean"        "$(tracked_rc "")"                              1
+  assert_eq "only untracked => clean (#143)"  "$(tracked_rc "?? .grimoire-archive/
+?? .grimoire-source/.claude/")"                                                              1
+  assert_eq "staged change => dirty"          "$(tracked_rc "M  src/foo.py")"                 0
+  assert_eq "unstaged change => dirty"        "$(tracked_rc " M src/foo.py")"                 0
+  assert_eq "mixed tracked+untracked => dirty" "$(tracked_rc " M src/foo.py
+?? scratch.txt")"                                                                            0
+
+  # BMI-3 Rule 3b escape-hatch divergence classifier (#144/#146/#162/#173).
+  # `git cherry INT main` lines: "- <sha>" = patch already on INT (benign,
+  # the integration line is merely ahead); "+ <sha>" = unreachable real work
+  # (a genuine fork). The escape hatch proceeds on the former, HALTs on the latter.
+  unreach_rc() { cherry_lines_show_unreachable_work "$1" && echo 0 || echo $?; }
+  assert_eq "consecutive sync: empty cherry => ahead-only" "$(unreach_rc "")"                1
+  assert_eq "promotion merge only => ahead-only"  "$(unreach_rc "- 341e674")"                1
+  assert_eq "real fork => unreachable work"  "$(unreach_rc "+ 1030f23")"                     0
+  assert_eq "mixed: one + among - => fork"   "$(unreach_rc "- 341e674
++ 46901b7")"                                                                                  0
+  assert_eq "git-error sentinel => HALT"     "$(unreach_rc "+ error")"                        0
+
+  # Missing-symbol heuristic (#180) — definition extraction across shapes.
+  _defs="$(printf '%s\n' \
+    "helper_a() {" \
+    "function helper_b {" \
+    "def py_fn(x):" \
+    "class Thing:" \
+    "  call_only(1)" | extract_defined_symbols | tr '\n' ' ')"
+  case "$_defs" in *helper_a*) ;; *) echo "FAIL: extract sh-paren def" >&2; fails=$((fails+1));; esac
+  case "$_defs" in *helper_b*) ;; *) echo "FAIL: extract function def" >&2; fails=$((fails+1));; esac
+  case "$_defs" in *py_fn*)    ;; *) echo "FAIL: extract def def" >&2; fails=$((fails+1));; esac
+  case "$_defs" in *Thing*)    ;; *) echo "FAIL: extract class def" >&2; fails=$((fails+1));; esac
+  case "$_defs" in *call_only*) echo "FAIL: bare call wrongly treated as def" >&2; fails=$((fails+1));; esac
+
+  # find_dropped_definitions: UPSTREAM defines+calls helper_x; merged calls it but
+  # never defines it (LOCAL dropped the def) => helper_x reported. A symbol both
+  # defined and called in merged, or defined-but-never-called, is NOT reported.
+  _msd="$(mktemp -d)"
+  printf 'helper_x() { echo hi; }\nmain() { helper_x; }\n'        > "$_msd/up"
+  printf 'main() { helper_x; }\n'                                  > "$_msd/merged_bad"
+  printf 'helper_x() { echo hi; }\nmain() { helper_x; }\n'        > "$_msd/merged_ok"
+  printf 'main() { echo standalone; }\n'                           > "$_msd/merged_uncalled"
+  assert_eq "dropped def, still called => warn" "$(find_dropped_definitions "$_msd/up" "$_msd/merged_bad")" "helper_x"
+  assert_eq "def present in merged => no warn"  "$(find_dropped_definitions "$_msd/up" "$_msd/merged_ok")"  ""
+  assert_eq "missing but uncalled => no warn"   "$(find_dropped_definitions "$_msd/up" "$_msd/merged_uncalled")" ""
+  rm -rf "$_msd"
+
+  # Conflict-marker detection (#181).
+  marker_rc() { content_has_conflict_markers <<<"$1" && echo 0 || echo $?; }
+  assert_eq "has <<< marker => 0" "$(marker_rc "ok
+<<<<<<< local
+x")" 0
+  assert_eq "has ======= marker => 0" "$(marker_rc "=======")" 0
+  assert_eq "clean text => 1"     "$(marker_rc "just resolved content")" 1
+
   if [ "$fails" -eq 0 ]; then echo "sync-from-upstream self-test: all checks passed."; exit 0; fi
   echo "$fails self-test failure(s)." >&2; exit 1
 fi
@@ -364,15 +568,20 @@ CONF="$PROJECT_ROOT/.scaffold-upstream.conf"
 BASE_ROOT="$PROJECT_ROOT/.scaffold-base"
 BACKUP_DIR="$PROJECT_ROOT/.scaffold-sync-backup/$(date +%Y%m%d-%H%M%S)"
 
-APPLY=0; SHOW_DIFF=0; ADOPT_BASE=0; FORCE=0
+APPLY=0; SHOW_DIFF=0; ADOPT_BASE=0; FORCE=0; ALLOW_AHEAD=0; MARK_RESOLVED=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --apply)      APPLY=1 ;;
-    --diff)       SHOW_DIFF=1 ;;
-    --adopt-base) ADOPT_BASE=1 ;;
-    --force)      FORCE=1 ;;
-    --self-test)  : ;;  # handled in the transport block above (pre-re-exec)
-    -h|--help)    sed -n '2,48p' "${BASH_SOURCE[0]}" | sed 's/^#\{0,1\} \{0,1\}//'; exit 0 ;;
+    --apply)       APPLY=1 ;;
+    --diff)        SHOW_DIFF=1 ;;
+    --adopt-base)  ADOPT_BASE=1 ;;
+    --force)       FORCE=1 ;;
+    --allow-ahead) ALLOW_AHEAD=1 ;;   # BMI-3 Rule 3b escape hatch (#144/#146/#162/#173)
+    --mark-resolved)                  # per-file base advance (#181)
+      shift; [ $# -gt 0 ] || { echo "ERROR: --mark-resolved needs a <file> argument." >&2; exit 2; }
+      MARK_RESOLVED="$1" ;;
+    --mark-resolved=*) MARK_RESOLVED="${1#--mark-resolved=}" ;;
+    --self-test)   : ;;  # handled in the transport block above (pre-re-exec)
+    -h|--help)    sed -n '2,104p' "${BASH_SOURCE[0]}" | sed 's/^#\{0,1\} \{0,1\}//'; exit 0 ;;
     *)            echo "unknown arg: $1" >&2; exit 2 ;;
   esac
   shift
@@ -456,19 +665,29 @@ case "$FLAVOR" in claude-code|copilot) ;; *) echo "ERROR: FLAVOR must be claude-
 # Guard: refuse --apply onto a dirty git tree
 # --------------------------------------------------------------------------
 if [ "$APPLY" -eq 1 ] && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain)" ] && [ "$FORCE" -eq 0 ]; then
-    echo "ERROR: project has uncommitted changes — refusing to --apply." >&2
-    echo "       Commit/stash first, or pass --force." >&2
+  _PORCELAIN="$(git -C "$PROJECT_ROOT" status --porcelain)"
+  if porcelain_has_tracked_changes "$_PORCELAIN" && [ "$FORCE" -eq 0 ]; then
+    echo "ERROR: project has uncommitted tracked changes — refusing to --apply." >&2
+    echo "       Commit/stash first, or pass --force. (Untracked files do not block --apply.)" >&2
     exit 3
   fi
 fi
 
 # --------------------------------------------------------------------------
-# Rule 3a/3b (BMI-3): refuse --apply unless on the integration line at a
-# clean release boundary (integration line and main are tree-identical).
-# Config key: branch-model.integration-branch (default: dev).
+# Rule 3a/3b (BMI-3): keep a framework sync on the single integration line and
+# off a divergent tree. Config key: branch-model.integration-branch (default dev).
 # Rule 3a: HEAD must be the integration line, not main or any other branch.
-# Rule 3b: git diff --quiet "$INT" main must exit 0 (no mid-release work).
+# Rule 3b: main must NOT carry work the integration line lacks (a real fork).
+#   By default the line is also required to be at a clean release boundary
+#   (integration line and main tree-identical). --allow-ahead relaxes that to the
+#   model-aware divergence predicate: the integration line being merely AHEAD of
+#   main (the consumer-sync catch-22 — a prior sync's framework-version bump or a
+#   committed conflict resolution) is SAFE and permitted, while a genuine fork
+#   (main carrying tree content unreachable from the integration line) is still
+#   refused (#144/#146/#162/#173). The escape hatch never disables the fork guard.
+# The full rule, recovery, and rationale are documented in the sync skill's
+# SKILL.md (§BMI-3 boundary rules) — the authoritative design doc is
+# framework-internal and not shipped to consumers, so it is NOT cited here.
 # --------------------------------------------------------------------------
 if [ "$APPLY" -eq 1 ] && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   _INT="$(detect_integration_line "$PROJECT_ROOT")"
@@ -478,17 +697,38 @@ if [ "$APPLY" -eq 1 ] && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree 
     echo "ERROR (BMI-3): sync-from-upstream --apply refused on branch '$_HEAD_BRANCH'." >&2
     echo "  Framework syncs must run on the integration line ('$_INT'), not on '$_HEAD_BRANCH'." >&2
     echo "  Switch to '$_INT' (git switch $_INT) and re-run." >&2
-    echo "  See docs/design/integration-branch-integrity-design.md §3 Rule 3a." >&2
     exit 3
   fi
-  # Rule 3b: refuse if not at a clean release boundary (trees differ).
+  # Rule 3b: refuse when the integration line and main differ — unless the only
+  # difference is the integration line being AHEAD and --allow-ahead is set.
   if ! git -C "$PROJECT_ROOT" diff --quiet "$_INT" main 2>/dev/null; then
-    echo "ERROR (BMI-3): sync-from-upstream --apply refused — not at a clean release boundary." >&2
-    echo "  The integration line ('$_INT') and main have diverged (mid-release work in flight)." >&2
-    echo "  A framework sync may only run when the integration line and main are tree-identical." >&2
-    echo "  Promote the current release first, then re-run the sync." >&2
-    echo "  See docs/design/integration-branch-integrity-design.md §3 Rule 3b." >&2
-    exit 3
+    if [ "$ALLOW_AHEAD" -eq 1 ]; then
+      # Escape hatch: permit only when main carries NO unreachable work (the
+      # same divergence predicate the BMI-2 promotion guard uses). A real fork
+      # still HALTs — the guard is relaxed for "ahead", never for "diverged".
+      _CHERRY="$(main_only_cherry_lines "$PROJECT_ROOT" "$_INT" main)"
+      if cherry_lines_show_unreachable_work "$_CHERRY"; then
+        echo "ERROR (BMI-3): sync-from-upstream --apply refused — main has DIVERGED." >&2
+        echo "  main carries commit(s) of work not on the integration line ('$_INT'):" >&2
+        git -C "$PROJECT_ROOT" log --oneline --no-decorate "$_INT"..main 2>/dev/null | sed 's/^/    /' >&2
+        echo "  This is a real fork, not the integration line merely being ahead." >&2
+        echo "  --allow-ahead does NOT bypass this. Reconcile by merging main INTO" >&2
+        echo "  '$_INT' (merge-forward); never reset across the fork (data loss)." >&2
+        exit 3
+      fi
+      echo "NOTICE (BMI-3): integration line ('$_INT') is ahead of main; main carries" >&2
+      echo "  no unreachable work, so --allow-ahead permits this sync. Promote the" >&2
+      echo "  accumulated integration-line commits to main when convenient." >&2
+    else
+      echo "ERROR (BMI-3): sync-from-upstream --apply refused — not at a clean release boundary." >&2
+      echo "  The integration line ('$_INT') and main differ (e.g. mid-release work, or" >&2
+      echo "  a prior sync's framework-version bump not yet promoted to main)." >&2
+      echo "  By default a sync runs only when the two lines are tree-identical." >&2
+      echo "  If the integration line is simply AHEAD of main (no real fork), re-run with" >&2
+      echo "  --allow-ahead to sync without promoting first (the consumer-sync escape hatch)." >&2
+      echo "  Otherwise promote the current release, then re-run the sync." >&2
+      exit 3
+    fi
   fi
 fi
 
@@ -546,6 +786,54 @@ set_base() {  # record upstream as the new base for this file
   mkdir -p "$(dirname "$b")"; cp "$u" "$b"
 }
 
+n_symbol_warn=0; symbol_warnings=""
+warn_dropped_definitions() {  # #180 — loud warning for call-without-definition
+  local u="$1" mg="$2" rel="$3" missing
+  missing="$(find_dropped_definitions "$u" "$mg")"
+  [ -n "$missing" ] || return 0
+  n_symbol_warn=$((n_symbol_warn+1))
+  symbol_warnings="${symbol_warnings}\n    $rel: $(printf '%s' "$missing" | tr '\n' ' ')"
+  echo "  !! WARNING (#180): merge of '$rel' references symbol(s) UPSTREAM defines" >&2
+  echo "     but that are NOT defined in the merged output (call-site without" >&2
+  echo "     definition — likely a BASE definition LOCAL dropped that did not" >&2
+  echo "     produce a conflict marker). Verify before trusting this merge:" >&2
+  printf '%s\n' "$missing" | sed 's/^/       - /' >&2
+}
+
+# --------------------------------------------------------------------------
+# --mark-resolved <file> (#181) — per-file base advance.
+# A resolved CONFLICT file re-conflicts on every future --apply because its
+# recorded base is deliberately NOT advanced (so an unresolved conflict is never
+# lost). Once you HAVE resolved it, advance the base for that ONE file to the
+# current upstream content, so a re-run sees no remaining BASE-vs-UPSTREAM delta
+# to re-merge. Unlike --adopt-base (which advances ALL files at once), this is
+# surgical: other files' provenance is untouched. Writes only .scaffold-base/<rel>.
+# --------------------------------------------------------------------------
+if [ -n "$MARK_RESOLVED" ]; then
+  rel_mr="${MARK_RESOLVED#./}"
+  rel_mr="${rel_mr#"$PROJECT_ROOT"/}"   # accept an absolute or project-relative path
+  U_mr="$FLAVOR_DIR/$rel_mr"; L_mr="$PROJECT_ROOT/$rel_mr"; B_mr="$BASE_ROOT/$rel_mr"
+  if is_excluded "$rel_mr"; then
+    echo "ERROR: '$rel_mr' is excluded from sync — it has no managed base to advance." >&2
+    exit 2
+  fi
+  if [ ! -f "$U_mr" ]; then
+    echo "ERROR: '$rel_mr' does not exist in upstream ($FLAVOR/) — cannot mark it resolved." >&2
+    exit 2
+  fi
+  if [ -f "$L_mr" ] && content_has_conflict_markers < "$L_mr"; then
+    echo "WARNING: '$rel_mr' still contains git conflict markers." >&2
+    echo "         Marking its base as resolved now will make a future sync STOP" >&2
+    echo "         re-conflicting it, leaving the unresolved markers in place." >&2
+    echo "         Resolve the markers first, then re-run --mark-resolved. (Refusing.)" >&2
+    exit 3
+  fi
+  mkdir -p "$(dirname "$B_mr")"; cp "$U_mr" "$B_mr"
+  echo "Marked resolved: advanced base for '$rel_mr' to current upstream content."
+  echo "  Future syncs will no longer re-merge it (other files' bases untouched)."
+  exit 0
+fi
+
 # --------------------------------------------------------------------------
 # Report header
 # --------------------------------------------------------------------------
@@ -600,10 +888,28 @@ while IFS= read -r rel; do
   merged="$(mktemp)"
   if git merge-file -p -L local -L base -L upstream "$L" "$B" "$U" > "$merged" 2>/dev/null; then
     printf "  %-10s %s\n" "MERGED" "$rel"; n_merged=$((n_merged+1))
+    # #180: a clean (markerless) merge can still be broken — LOCAL may have
+    # deleted a definition UPSTREAM still calls, in a non-overlapping region.
+    warn_dropped_definitions "$U" "$merged" "$rel"
     if [ "$APPLY" -eq 1 ]; then backup "$L" "$rel"; cp "$merged" "$L"; set_base "$U" "$B"; fi
   else
+    # #181: if LOCAL has no conflict markers, the prior round's conflict was
+    # already resolved by hand but its base was never advanced — so we are about
+    # to overwrite that manual resolution with fresh markers. Warn loudly and
+    # point at --mark-resolved (the surgical base advance) instead of silently
+    # clobbering. We still proceed (non-destructive: LOCAL is backed up).
+    if [ -f "$L" ] && ! content_has_conflict_markers < "$L"; then
+      echo "WARNING (#181): '$rel' re-conflicts, but your LOCAL copy has NO conflict" >&2
+      echo "  markers — it looks like a prior round you already resolved by hand whose" >&2
+      echo "  base was never advanced. --apply will OVERWRITE that resolution with fresh" >&2
+      echo "  markers (a backup is kept). To keep your resolution, run instead:" >&2
+      echo "    sync-from-upstream.sh --mark-resolved $rel" >&2
+    fi
     printf "  %-10s %s  (conflict markers; resolve, do NOT auto-advance base)\n" "CONFLICT" "$rel"
     conflicts="${conflicts}\n    $rel"; n_conflict=$((n_conflict+1))
+    # #180: the UPSTREAM side of a conflict may reference a definition LOCAL
+    # dropped that ends up outside the marked regions — surface it too.
+    warn_dropped_definitions "$U" "$merged" "$rel"
     if [ "$APPLY" -eq 1 ]; then backup "$L" "$rel"; cp "$merged" "$L"; fi   # base NOT advanced
   fi
   [ "$SHOW_DIFF" -eq 1 ] && diff -u "$L" "$merged" 2>/dev/null | sed 's/^/      /' || true
@@ -623,15 +929,29 @@ echo "Summary: NEW=$n_new UPDATE=$n_update MERGED=$n_merged CONFLICT=$n_conflict
 [ -n "$news" ]      && { echo "New files (generic — re-specialize placeholders after apply):"; printf "%b\n" "$news"; }
 [ -n "$conflicts" ] && { echo "CONFLICTS to resolve (git markers written on --apply):"; printf "%b\n" "$conflicts"; }
 [ -n "$reviews" ]   && { echo "REVIEW (differ, no base — kept local; merge by hand or --adopt-base):"; printf "%b\n" "$reviews"; }
+[ "$n_symbol_warn" -gt 0 ] && { echo "MISSING-SYMBOL WARNINGS (#180 — call-site without definition; verify these merges):"; printf "%b\n" "$symbol_warnings"; }
 if [ "$APPLY" -eq 1 ]; then
   echo
-  echo "Applied. Backups of rewritten files: ${BACKUP_DIR#"$PROJECT_ROOT"/}"
+  # --------------------------------------------------------------------------
+  # Cleanup-on-success (v3.52 Lane F): a successful apply with zero unresolved
+  # conflicts no longer needs the transient rollback backups, so remove the
+  # whole .scaffold-sync-backup/ tree. When conflicts remain the backups are
+  # kept so the user can roll back. Self-contained, idempotent, no effect on the
+  # merge/resolve logic above.
+  # --------------------------------------------------------------------------
+  if [ "$n_conflict" -eq 0 ]; then
+    rm -rf "$PROJECT_ROOT/.scaffold-sync-backup" 2>/dev/null || true
+    echo "Applied cleanly. Transient backups removed (.scaffold-sync-backup/)."
+  else
+    echo "Applied. Backups of rewritten files kept (unresolved conflicts): ${BACKUP_DIR#"$PROJECT_ROOT"/}"
+  fi
   echo "Review the diff and commit. Resolve any CONFLICT files, then re-run to advance their base."
   echo
   echo "IMPORTANT (BMI-3 Rule 3c — separate commits):"
   echo "  Commit this framework-sync output as its OWN commit BEFORE running"
-  echo "  design-language-adapt (Aura vendoring). Never bundle both into one commit."
-  echo "  See docs/design/integration-branch-integrity-design.md §3 Rule 3c."
+  echo "  design-language-adapt (Aura vendoring). Never bundle both into one commit —"
+  echo "  separate commits keep the collision surface small and any later"
+  echo "  reconciliation incremental rather than all-or-nothing."
 else
   echo
   echo "Dry-run only. Re-run with --apply to write (with backups), or --diff for full diffs."

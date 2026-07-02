@@ -114,6 +114,25 @@ A blocked merge rolls back to `ORIG_HEAD` (no partial state) and leaves the §5
 row unticked with a recorded reason, re-runnable once the branch is fixed. The
 gate reads config **live** — no schema-version bump, no file-swap.
 
+## Justfile standards
+
+All Grimoire projects must expose three canonical task-runner recipes in their `justfile`:
+
+| Recipe | Signature | Semantics |
+|---|---|---|
+| `build` | `build env="dev"` | Compile/package the project. `env=prod` for release artifacts. |
+| `run` | `run env="dev" port="8080"` | Start the application locally. |
+| `deploy` | `deploy env dry_run="false"` | Deploy to a live environment. `env` is required (no default). |
+
+**Key rules:**
+- `deploy env` has **no default** — it is a positional required parameter. `just deploy` with no argument exits non-zero, preventing accidental deployments.
+- Unimplemented recipes must carry a `# grimoire:placeholder` comment in the body so `grm-install-doctor` can detect them as PARTIAL rather than OK.
+- The optional `test`, `db-up`, and `db-down` recipes follow the patterns in the quick-start templates.
+
+Full specification: [`docs/design/justfile-standard-design.md`](design/justfile-standard-design.md).
+
+`grm-install-doctor` enforces this contract. Run it to check for MISSING or PARTIAL recipes.
+
 ## Per-language / per-technology standards
 
 Technology-specific rules live in sub-documents under `coding-standards/`. Add

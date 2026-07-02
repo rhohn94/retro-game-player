@@ -26,9 +26,9 @@ Usage:
   version_history.py --self-test
 Exit 0 on success; 2 on bad input / a requested release that is not present.
 
-Design authority: docs/design/status-broker-design.md (sibling helper to
+Design authority: docs/grimoire/design/status-broker-design.md (sibling helper to
 project_status.py; scripting-unification guidelines,
-docs/design/scripting-unification-design.md §3).
+docs/grimoire/design/scripting-unification-design.md §3).
 """
 import argparse
 import os

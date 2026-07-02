@@ -23,7 +23,7 @@ Soft governance only (design §B): aggregate-only, no per-agent isolation, no
 hard mid-response block. This engine computes + persists + reports; it never
 spawns, defers, or interrupts work — the skill/agent acts on the verdict.
 
-Standard: Python 3 stdlib-only (docs/design/scripting-unification-design.md).
+Standard: Python 3 stdlib-only (docs/grimoire/design/scripting-unification-design.md).
 
 CLI:
   cost_budget.py measure --transcript FILE [--unit U]

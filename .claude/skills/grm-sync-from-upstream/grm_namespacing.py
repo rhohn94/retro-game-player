@@ -56,8 +56,13 @@ from typing import Iterable
 
 PREFIX = "grm-"
 
-# Directories never touched (anywhere in the tree).
+# Directories never touched (anywhere in the tree), matched by name alone.
 EXCLUDED_DIR_NAMES = {".git", ".grimoire-archive", ".grimoire-golden", "dist", "node_modules", "__pycache__"}
+
+# Relative path segment that marks the vendored third-party tree.  Any directory
+# whose path contains this segment is treated as a boundary the same way a git
+# submodule is — we never plan renames inside vendored dependencies.
+VENDORED_SEGMENT = "lib/third-party"
 
 # File suffixes treated as rewritable text.
 TEXT_SUFFIXES = {".md", ".py", ".sh", ".json", ".toml", ".txt", ".yml", ".yaml", ".js"}
@@ -110,6 +115,71 @@ class GrmNamespacer:
         self.archive_root = (
             self.root / ".grimoire-archive" / f"grm-namespacing-{datetime.now():%Y%m%d-%H%M%S}"
         )
+        # Absolute paths of trees that must not be entered: git submodules and
+        # lib/third-party/ vendored dependencies.
+        self._excluded_roots: frozenset[Path] = self._load_excluded_roots()
+
+    # -- submodule / vendored boundary detection ---------------------------
+
+    def _load_excluded_roots(self) -> frozenset[Path]:
+        """Return the set of absolute directory paths that must never be entered.
+
+        Two sources of exclusion:
+        1. Git submodules — parsed from ``<root>/.gitmodules`` (the ``path =``
+           lines) *and* detected by scanning for nested ``.git`` files or
+           directories anywhere under root, which covers submodules registered
+           in a parent repo's ``.gitmodules`` even when that file lives outside
+           our root.
+        2. ``lib/third-party/`` vendored trees — any directory whose path
+           contains the ``lib/third-party`` segment.
+        """
+        excluded: set[Path] = set()
+
+        # 1a. Parse .gitmodules if present.
+        gitmodules = self.root / ".gitmodules"
+        if gitmodules.is_file():
+            try:
+                for line in gitmodules.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.lower().startswith("path"):
+                        # Format: "path = relative/path/to/submodule"
+                        _, _, value = line.partition("=")
+                        rel = value.strip()
+                        if rel:
+                            excluded.add((self.root / rel).resolve())
+            except OSError:
+                pass
+
+        # 1b. Walk the tree looking for nested .git entries (catches submodules
+        # registered in an ancestor repo's .gitmodules that we can't see here).
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            current = Path(dirpath).resolve()
+            if current == self.root:
+                # Skip the repo's own .git at the root.
+                continue
+            if ".git" in dirnames or ".git" in filenames:
+                excluded.add(current)
+                # Do not descend further into this submodule — os.walk cannot
+                # prune here (we're not in the walk that matters), so we just
+                # record the root and rely on _is_excluded_root() to gate later.
+
+        # 2. lib/third-party/ vendored segments.
+        vendored = self.root / "lib" / "third-party"
+        if vendored.is_dir():
+            excluded.add(vendored.resolve())
+
+        return frozenset(excluded)
+
+    def _is_excluded_root(self, path: Path) -> bool:
+        """Return True if *path* is at or inside any excluded root."""
+        resolved = path.resolve()
+        for excl in self._excluded_roots:
+            try:
+                resolved.relative_to(excl)
+                return True
+            except ValueError:
+                pass
+        return False
 
     # -- discovery ---------------------------------------------------------
 
@@ -120,10 +190,15 @@ class GrmNamespacer:
         is generated, and its cache dir is excluded from the walk.)"""
         parents: list[Path] = []
         for dirpath, dirnames, _ in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIR_NAMES]
+            current = Path(dirpath)
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in EXCLUDED_DIR_NAMES
+                and not self._is_excluded_root(current / d)
+            ]
             for d in dirnames:
                 if d == "skills":
-                    parents.append(Path(dirpath) / d)
+                    parents.append(current / d)
         return sorted(parents)
 
     def discover_skill_names(self) -> list[str]:
@@ -275,7 +350,12 @@ class GrmNamespacer:
 
     def _iter_text_files(self) -> Iterable[Path]:
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIR_NAMES]
+            current = Path(dirpath)
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in EXCLUDED_DIR_NAMES
+                and not self._is_excluded_root(current / d)
+            ]
             for fn in filenames:
                 p = Path(dirpath) / fn
                 if p.suffix in TEXT_SUFFIXES or fn in TEXT_NAMES:
@@ -321,9 +401,88 @@ class GrmNamespacer:
 # -- self-test -------------------------------------------------------------
 
 
+def _test_submodule_boundary() -> list[str]:
+    """Regression test for issue #178: submodule trees and lib/third-party/ are
+    never descended into and no renames are planned inside them."""
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+
+        # Normal skill in the project's own .claude/skills/ — MUST be renamed.
+        (root / ".claude" / "skills" / "scout").mkdir(parents=True)
+        (root / ".claude" / "skills" / "scout" / "SKILL.md").write_text(
+            "---\nname: scout\n---\n", encoding="utf-8"
+        )
+
+        # Simulate a git submodule: a nested directory that contains a .git file
+        # (the gitfile form used by `git submodule add`).
+        sub_skills = root / "vendor-sub" / ".claude" / "skills"
+        sub_skills.mkdir(parents=True)
+        (sub_skills / "scout").mkdir()
+        (sub_skills / "scout" / "SKILL.md").write_text(
+            "---\nname: scout\n---\nSUBMODULE-CONTENT\n", encoding="utf-8"
+        )
+        # The .git gitfile that marks vendor-sub/ as a submodule.
+        (root / "vendor-sub" / ".git").write_text(
+            "gitdir: ../.git/modules/vendor-sub\n", encoding="utf-8"
+        )
+        # .gitmodules registering it (belt-and-suspenders: both detection paths
+        # should independently exclude the submodule tree).
+        (root / ".gitmodules").write_text(
+            "[submodule \"vendor-sub\"]\n    path = vendor-sub\n    url = https://example.com/sub.git\n",
+            encoding="utf-8",
+        )
+
+        # Simulate lib/third-party/ vendored tree — MUST NOT be renamed.
+        vendored_skills = root / "lib" / "third-party" / "some-lib" / ".claude" / "skills"
+        vendored_skills.mkdir(parents=True)
+        (vendored_skills / "scout").mkdir()
+        (vendored_skills / "scout" / "SKILL.md").write_text(
+            "---\nname: scout\n---\nVENDORED-CONTENT\n", encoding="utf-8"
+        )
+
+        ns = GrmNamespacer(root, apply=True)
+        report = ns.run()
+
+        # 1. The normal project skill was renamed.
+        if not (root / ".claude" / "skills" / "grm-scout").is_dir():
+            failures.append("SUBMODULE: project-level scout/ was NOT renamed to grm-scout/ (expected rename)")
+        if (root / ".claude" / "skills" / "scout").exists():
+            failures.append("SUBMODULE: project-level scout/ still present after rename")
+
+        # 2. The submodule's skills tree was NOT touched.
+        if not (root / "vendor-sub" / ".claude" / "skills" / "scout").exists():
+            failures.append("SUBMODULE: scout/ inside the submodule was renamed (must NOT be touched)")
+        if (root / "vendor-sub" / ".claude" / "skills" / "grm-scout").exists():
+            failures.append("SUBMODULE: grm-scout/ was created inside the submodule tree")
+        sub_content = (root / "vendor-sub" / ".claude" / "skills" / "scout" / "SKILL.md").read_text()
+        if "SUBMODULE-CONTENT" not in sub_content:
+            failures.append("SUBMODULE: submodule SKILL.md content was modified")
+
+        # 3. The lib/third-party/ tree was NOT touched.
+        if not (vendored_skills / "scout").exists():
+            failures.append("VENDORED: scout/ inside lib/third-party/ was renamed (must NOT be touched)")
+        if (vendored_skills / "grm-scout").exists():
+            failures.append("VENDORED: grm-scout/ was created inside lib/third-party/")
+        vend_content = (vendored_skills / "scout" / "SKILL.md").read_text()
+        if "VENDORED-CONTENT" not in vend_content:
+            failures.append("VENDORED: lib/third-party/ SKILL.md content was modified")
+
+        # 4. The submodule and vendored dirs are not in dirs_renamed.
+        renamed_paths = [src for src, _ in report.dirs_renamed]
+        for rp in renamed_paths:
+            if "vendor-sub" in rp:
+                failures.append(f"SUBMODULE: submodule path appeared in dirs_renamed: {rp}")
+            if "third-party" in rp:
+                failures.append(f"VENDORED: vendored path appeared in dirs_renamed: {rp}")
+
+    return failures
+
+
 def _self_test() -> int:
     """Seed a fake skill + referencing file in a tempdir, run, assert the
-    contract: dir renamed, path rewritten, common-word false-positive avoided."""
+    contract: dir renamed, path rewritten, common-word false-positive avoided.
+    Also runs the submodule-boundary regression test (#178)."""
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -421,6 +580,10 @@ def _self_test() -> int:
             or rep2.files_rewritten
         ):
             failures.append(f"NOT IDEMPOTENT: second run changed things: {rep2.summary()}")
+
+    # 9. Submodule-boundary regression (#178): renames must not cross into
+    #    git submodule trees or lib/third-party/ vendored deps.
+    failures.extend(_test_submodule_boundary())
 
     if failures:
         print("SELF-TEST FAILED:")

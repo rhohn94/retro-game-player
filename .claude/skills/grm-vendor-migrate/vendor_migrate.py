@@ -34,7 +34,7 @@ deterministic fixture seeders are all imported from `sync_deps_engine`.
 
 stdlib-only; `tomllib` (Python 3.11+) is pulled in transitively by the engine.
 
-Design: docs/design/dependency-channel-design.md §7 (+ §3 for the produced shapes).
+Design: docs/grimoire/design/dependency-channel-design.md §7 (+ §3 for the produced shapes).
 """
 
 import argparse
@@ -49,7 +49,7 @@ import tempfile
 # ships its own copy in `copilot/scripts/`.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "sync-deps"))
+sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "grm-sync-deps"))
 
 from sync_deps_engine import (  # noqa: E402
     EXIT_OK,
@@ -503,7 +503,7 @@ class VendorMigrator:
                    strip_components=0, extract=None, name=None):
         data = {
             "repo": slug, "channel": channel, "version": version,
-            "artifact": artifact, "dest": f"vendor/{name or slug.split('/')[-1]}",
+            "artifact": artifact, "dest": f"lib/third-party/{name or slug.split('/')[-1]}",
             "kind": kind, "strip_components": strip_components,
         }
         if extract:

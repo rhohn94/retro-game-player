@@ -1,6 +1,6 @@
 ---
 name: grm-install-doctor
-description: One idempotent, non-destructive-by-default health check for a Grimoire install — audits framework files against the workflow-bootstrap golden baseline (MISSING / DRIFTED), validates the upstream connection (.scaffold-upstream.conf, .scaffold-base/, UPSTREAM_REPO reachability), and confirms every sync feature-manifest feature is actually adopted. Default is a read-only audit emitting a health-report artifact; repairs happen only under an explicit --repair / --reinstall flag. Use when verifying install / framework health or repairing the scaffold.
+description: One idempotent, non-destructive-by-default health check for a Grimoire install — audits framework files against the workflow-bootstrap golden baseline (MISSING / DRIFTED), validates the upstream connection, confirms every sync feature-manifest feature is adopted, and checks the Justfile contract. Default is a read-only audit; `repair` emits a non-destructive plan. Use when verifying install / framework health or repairing the scaffold.
 ---
 
 # Install-doctor
@@ -27,7 +27,9 @@ It composes the two skills that already own those operations:
 
 The helper script `install_doctor.py` does the mechanical, deterministic audit
 (file walk vs golden, conf parse, base check, reachability probe) so this prose
-stays judgment-only. **Default = read-only.** Nothing mutates without `--repair`.
+stays judgment-only. **Default = read-only.** The `repair` subcommand never
+mutates either — it only *prints a repair plan* (which wrapped skill to call for
+each finding). All actual mutation flows through the wrapped skills.
 
 ---
 
@@ -41,70 +43,6 @@ source, so the audit reports expected, meaningless "drift". This skill is for
 
 ---
 
-## Step 1 — Audit (always; read-only)
-
-Run the mechanical audit:
-
-```bash
-python3 .claude/skills/grm-install-doctor/install_doctor.py audit          # Markdown
-python3 .claude/skills/grm-install-doctor/install_doctor.py audit --json   # machine-readable
-python3 .claude/skills/grm-install-doctor/install_doctor.py audit --no-network  # skip reachability probe
-```
-
-The script performs three audits and emits the health-report artifact (see
-*Output format*). It exits `0` when healthy, `1` when any check is degraded,
-`2` on a usage/internal error.
-
-### 1a — Framework files (vs `grm-workflow-bootstrap` golden)
-
-The helper classifies every golden-managed file (the same `golden/` tree
-`grm-workflow-bootstrap` restores from) as:
-
-- **OK** — present and matches golden, or a known project-customised file
-  (`CLAUDE.md`, `settings.json`, `.scaffold-upstream.conf`).
-- **MISSING** — no live file. Restorable.
-- **DRIFTED** — present but differs from golden (and not an expected-custom
-  file). Needs human/agent review — never a silent overwrite.
-
-This mirrors the `grm-workflow-bootstrap` MISSING/PRISTINE/CUSTOMISED/DRIFTED
-taxonomy, collapsing the two no-action states (PRISTINE, CUSTOMISED) into OK.
-
-### 1b — Upstream connection (`grm-sync-from-upstream` inputs)
-
-The helper validates the inputs `grm-sync-from-upstream` consumes:
-
-- `.scaffold-upstream.conf` present and parseable; `UPSTREAM_REPO` non-empty
-  and shaped like a URL / scp-path / existing local path.
-- `UPSTREAM_REPO` **reachable** via a non-mutating `git ls-remote` probe
-  (skipped under `--no-network`).
-- `.scaffold-base/` present and non-empty (the 3-way merge base; absence means
-  the next sync degrades to REVIEW-everything).
-- `.claude/settings.json` carries the scoped maintenance-script
-  **`permissions.allow`** allowlist so the sync scripts run unattended
-  without the auto-mode classifier re-prompting. Absence is a **degraded**
-  finding (not broken — syncs still work, they just re-prompt), repaired in
-  Step 3 §6.
-
-### 1c — Feature adoption (agent-run; NOT mechanical)
-
-The helper **does not** run `detect` predicates — they need judgment and live
-config reads. After the mechanical audit, **you** run the
-`sync-from-upstream/feature-manifest.md` `detect` loop to confirm each framework
-feature is actually **adopted**, not merely *available*:
-
-1. Read `.claude/skills/grm-sync-from-upstream/feature-manifest.md`.
-2. Read `framework-version` from `.claude/grimoire-config.json` (or note it
-   absent → evaluate all entries).
-3. For each entry whose `introduced-in` ≤ the current framework version (or all,
-   if no version), run its `detect` predicate.
-   - `detect` true → **adopted** (healthy).
-   - `detect` false → **not adopted** — record as a finding for the report.
-
-This is the same delta-and-detect procedure as `grm-sync-from-upstream` Step 4.5;
-do not duplicate it — follow that section.
-
----
-
 ## Step 2 — Report (always)
 
 Present the health report (Step 1's artifact plus your Step 1c adoption
@@ -114,19 +52,50 @@ healthy or merely-degraded audit unless the user asked to repair.**
 
 ---
 
-## Step 3 — Repair (only under `--repair` / `--reinstall`)
+## Step 3 — Repair (only when the user asks)
 
 Run this step **only** when the user explicitly asked to repair / reinstall
-(e.g. "repair the scaffold install", "reinstall the framework"). Repair is the
-single mutating phase and is performed entirely by **calling the wrapped
-skills** — install-doctor writes no project file directly.
+(e.g. "repair the scaffold install", "reinstall the framework"). First get the
+plan from the script's `repair` subcommand:
 
-Map each finding to its owning skill and act in this order:
+```bash
+python3 .claude/skills/grm-install-doctor/install_doctor.py repair             # audit + plan
+python3 .claude/skills/grm-install-doctor/install_doctor.py repair --json      # machine-readable plan
+python3 .claude/skills/grm-install-doctor/install_doctor.py repair --freeze-baseline  # freeze golden, then audit
+python3 .claude/skills/grm-install-doctor/install_doctor.py --repair           # back-compat == repair --freeze-baseline
+```
+
+`repair` is **non-destructive of tracked files**: by default it prints the audit
+*plus an ordered repair plan* (which wrapped skill to call for each real finding)
+and writes no project or framework file. Suppressed divergence (SEED-DIVERGED /
+PARADIGM / NEWER-THAN-GOLDEN) is **never** in the plan, so a repair can never
+revert synced or active-paradigm content. Framework-file repair is performed
+entirely by **you calling the wrapped skills** the plan names.
+
+### 3 §0 — Freeze the golden baseline (the one self-contained repair)
+
+When the `golden-baseline` check is **WARN** (no frozen baseline — typical right
+after adopting the generated-golden feature), the audit skips the entire
+framework-file check. `repair --freeze-baseline` (back-compat: `--repair`)
+closes that gap **non-interactively**: it derives a versioned
+`golden-v{X.Y}.tar.gz` from the current **pristine** scaffold into the gitignored
+`.grimoire-golden/` cache (delegating to `generate_golden.freeze_from_install`),
+then re-audits against it. This is the one mutation `install-doctor` performs
+itself, and it touches **only the gitignored cache — never a tracked file** (so
+the "don't mutate tracked files" contract holds; do not commit the tarball).
+
+Freeze only on a **pristine / freshly-synced** scaffold: the generator treats the
+root as the flavor source, so freezing a customized tree would bake drift into the
+baseline (same precondition as the `grm-workflow-bootstrap` freeze trigger).
+
+Map each remaining finding to its owning skill and act in this order:
 
 1. **MISSING / DRIFTED framework files** → invoke the **`grm-workflow-bootstrap`**
    skill with `--restore`. It restores MISSING files from golden and, for
    DRIFTED files, shows a diff and asks before overwriting (never silent). Let
-   it own that confirmation — do not pre-empt it.
+   it own that confirmation — do not pre-empt it. **Never** restore a
+   NEWER-THAN-GOLDEN / PARADIGM / SEED-DIVERGED file — those are correct;
+   re-freeze the golden baseline instead.
 2. **Missing / empty `.scaffold-upstream.conf`** → `grm-workflow-bootstrap`
    Step 2.5 re-seeds the default `UPSTREAM_REPO` idempotently (it never
    overwrites a non-empty value). Running `workflow-bootstrap --restore` in
@@ -158,9 +127,14 @@ report showing what changed. A second clean run is the success signal.
 
 ### Non-destructive guarantees (do not break these)
 
-- Default mode mutates nothing — only `--repair`/`--reinstall` may write.
+- The script mutates **no tracked file** — `audit` is fully read-only and
+  `repair` only prints a plan. The sole exception is `repair --freeze-baseline`
+  (= `--repair`), which writes a golden archive into the gitignored
+  `.grimoire-golden/` cache; it never touches a tracked project/framework file.
+  All other writes flow through the wrapped skills you invoke.
 - File overwrites go through `grm-workflow-bootstrap`'s diff-and-confirm; never
-  overwrite a DRIFTED file silently.
+  overwrite a DRIFTED file silently, and never overwrite a suppressed
+  (SEED-DIVERGED / PARADIGM / NEWER-THAN-GOLDEN) file at all.
 - `--adopt-base` declares "local matches upstream" — only run it when true,
   never to skip a real reconciliation.
 - Migration of user data is never part of repair — defer to the explicitly
@@ -178,11 +152,13 @@ The helper emits a Markdown report (or JSON with `--json`). Shape:
 
 - Repo root: `/abs/path`
 - Overall: **HEALTHY** | **ATTENTION NEEDED**
-- Tallies: ok=N, missing=N, drifted=N, warn=N, fail=N
+- Tallies: ok=N, missing=N, drifted=N, warn=N, fail=N, seed-diverged=N, paradigm=N, newer-than-golden=N, partial=N
 
 ## Framework files (vs workflow-bootstrap golden)
 | Item | Status | Detail |
 | `skills/foo/SKILL.md` | OK | present, matches golden |
+| `docs/version-history.md` | SEED-DIVERGED | project-owned seed file — divergence expected |
+| `skills/grm-release-phase/SKILL.md` | PARADIGM | matches the active 'noir' paradigm variant |
 | `.scaffold-upstream.conf` | MISSING | absent — restore via workflow-bootstrap --restore |
 
 ## Upstream connection (sync-from-upstream inputs)
@@ -192,64 +168,32 @@ The helper emits a Markdown report (or JSON with `--json`). Shape:
 ## Sync base snapshot (.scaffold-base)
 | `.scaffold-base` | OK | present (N file(s) recorded) |
 
+## Justfile contract (required recipes)
+| `justfile:build` | OK | recipe 'build' present and non-placeholder |
+| `justfile:run` | PARTIAL | recipe 'run' has a grimoire:placeholder body — implement the recipe for this project. |
+| `justfile:deploy` | MISSING | recipe 'deploy' not found in justfile. See docs/design/justfile-standard-design.md for the contract. |
+
 ## Notes
 - Feature-adoption is NOT audited mechanically: run each feature-manifest detect …
 ```
 
+The `repair` subcommand appends a **Repair plan** section (one line per real
+finding → the wrapped skill to call); suppressed divergence is never listed. With
+`--freeze-baseline` it prepends a `froze golden baseline -> …` line and a
+matching note before re-auditing against the freshly-frozen baseline.
+
 Append your **Step 1c adoption findings** under the report (one line per
-manifest feature: adopted / not-adopted, with the feature-id). When you run a
-repair, append a **Repairs applied** section listing each wrapped-skill call and
+manifest feature: adopted / not-adopted, with the feature-id). When you carry out
+a repair, append a **Repairs applied** section listing each wrapped-skill call and
 its outcome. The report is an in-session artifact — present it to the user; do
 not write it to a file unless the user asks.
 
 ---
 
-## Anti-patterns
+## Reference (load on demand)
 
-- **Reimplementing merge/restore/adopt logic** — the whole point is to wrap
-  `grm-workflow-bootstrap` and `grm-sync-from-upstream`. If you find yourself diffing
-  files to overwrite, or 3-way-merging by hand, stop and call the owning skill.
-- **Mutating on a plain audit** — default is read-only. No file write without an
-  explicit `--repair` / `--reinstall` request.
-- **Silently overwriting a DRIFTED file** — route it through
-  `grm-workflow-bootstrap`'s diff-and-confirm; a customised skill may be deliberate.
-- **Resetting a fork's `UPSTREAM_REPO`** — a non-default upstream is legitimate;
-  flag a *malformed* one, never clobber a valid custom URL.
-- **Folding `migrate` into repair** — migration moves user data and is always
-  separately confirmed and backed up, even under Noir.
-- **Running inside the scaffolding repo** — there `claude-code/` is the golden
-  source; the audit's "drift" is meaningless. Run it in downstream projects.
-- **Treating "available" as "adopted"** — a feature's files can be present while
-  its config was never enabled. Always confirm via the `detect` predicate.
-- **Committing or pushing** — this skill reads, audits, and (on repair) calls
-  other skills; it never commits.
-
-## Config validation (v1.31, #68)
-
-As part of the read-only health audit, run `grm-config-validate` on
-`.claude/grimoire-config.json` — it checks required fields, dial value-sets,
-cross-rules (e.g. `Auto` requires Noir), and surfaces unknown/stale fields. Under
-`--repair`, offer `config-validate --migrate` to fill additive defaults atomically.
-A malformed/stale config is surfaced here instead of failing late. See
-`docs/design/defaults-quickstart-design.md`.
-
-## Docs legacy style finding (v3.37, WH-5)
-
-As part of the read-only health audit, run `docs_migrate.py` in detect mode:
-
-```bash
-python3 .claude/skills/grm-docs-migrate/docs_migrate.py
-```
-
-If it exits 1 (findings present), surface a finding of type:
-
-```
-DOCS_LEGACY_STYLE — docs/ contains files missing breadcrumbs or using absolute
-links. Run sync-from-upstream to review migration options, or run
-docs_migrate.py --apply directly.
-```
-
-This is a **warn-only** finding in default mode (not a repair target for
-`--repair`). Migration is always separately confirmed via `grm-sync-from-upstream`
-Step 4.7 or by running `docs_migrate.py --apply` directly. Never auto-run
-`--apply` as part of `--repair`.
+- `Step 1 — Audit (always; read-only)` — see `reference.md`
+- `Anti-patterns` — see `reference.md`
+- `Config validation (v1.31, #68)` — see `reference.md`
+- `Justfile contract check (v3.53, #196)` — see `reference.md`
+- `Docs legacy style finding (v3.37, WH-5)` — see `reference.md`

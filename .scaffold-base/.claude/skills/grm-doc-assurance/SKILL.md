@@ -1,6 +1,6 @@
 ---
 name: grm-doc-assurance
-description: Run eight deterministic checks over a Grimoire repo's own documentation — flavor-parity (claude-code ↔ root ↔ copilot must-match drift), design-doc house-layout, internal-link integrity, a validated docs map (docs/README.md), cross-doc release consistency (version-history ↔ roadmap ↔ feature-manifest ↔ framework-version), skill-budget, relative-links (absolute-internal rejection + broken anchors + bare-prose refs), and hierarchy (reachability from docs root, breadcrumbs, per-tier index presence). Backed by a stdlib-only script. Read-only except --write-map; report-only unless --strict (a release-closeout gate). Use when checking doc quality / flavor parity or validating the docs.
+description: Run eight deterministic checks over a Grimoire repo's own documentation: flavor-parity (claude-code/root/copilot drift), design-doc house-layout, internal-link integrity, a validated docs map, cross-doc release consistency, skill-budget, relative-links (absolute-internal + broken anchors + bare-prose), and hierarchy (reachability + breadcrumbs + per-tier index). Report-only unless --strict. Use when checking doc quality or validating the docs.
 ---
 
 # doc-assurance

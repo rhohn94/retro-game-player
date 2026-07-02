@@ -426,11 +426,39 @@ class MigrateApplier:
         if not self.dry_run:
             self.archiver.write_manifest()
 
+        _print_manual_categories_summary(findings)
+
         if self.unresolved_total:
             _print_unresolved_banner(self.unresolved_total)
             return 1
 
         return 0
+
+
+# Finding categories --apply auto-resolves vs. leaves for manual handling.
+AUTO_RESOLVED_CATEGORIES = (NO_BREADCRUMB, ABSOLUTE_LINK)
+DETECTION_ONLY_CATEGORIES = (PROSE_LINK, ORPHAN, FLAT_TIER)
+
+
+def _print_manual_categories_summary(findings: dict) -> None:
+    """Print which detected categories --apply does NOT auto-resolve.
+
+    --apply only rewrites NO_BREADCRUMB and ABSOLUTE_LINK.  PROSE_LINK, ORPHAN,
+    and FLAT_TIER are detection-only (manual fix), so an operator must not assume
+    a clean --apply means zero findings remain (#188)."""
+    remaining = {}
+    for codes in findings.values():
+        for code in codes:
+            if code in DETECTION_ONLY_CATEGORIES:
+                remaining[code] = remaining.get(code, 0) + 1
+    if not remaining:
+        return
+    print("\ndocs-migrate: the following categories are detection-only and were")
+    print("NOT auto-resolved by --apply (manual fix required):")
+    for code in DETECTION_ONLY_CATEGORIES:
+        if code in remaining:
+            print(f"  {code}: {remaining[code]} finding(s) left untouched")
+    print("Re-run detect mode (no --apply) to list them by file.")
 
 
 def _print_unresolved_banner(refs: list):
@@ -590,6 +618,28 @@ def self_test() -> int:
         # ── Test 10: find_root works from subdirectory ─────────────────────
         found = find_root(design)
         check(found == root, "find_root walks up to .claude/grimoire-config.json")
+
+        # ── Test 11: --apply prints a detection-only summary (#188) ─────────
+        import io as _io11
+        from contextlib import redirect_stdout as _rs11
+        buf = _io11.StringIO()
+        with _rs11(buf):
+            _print_manual_categories_summary(
+                {"a.md": [PROSE_LINK], "b.md": [ORPHAN, FLAT_TIER]}
+            )
+        out11 = buf.getvalue()
+        check(
+            "detection-only" in out11
+            and "PROSE_LINK" in out11
+            and "ORPHAN" in out11
+            and "FLAT_TIER" in out11,
+            "--apply summary lists detection-only categories left untouched"
+        )
+        # No detection-only findings → silent (only auto-resolved categories).
+        buf2 = _io11.StringIO()
+        with _rs11(buf2):
+            _print_manual_categories_summary({"c.md": [NO_BREADCRUMB, ABSOLUTE_LINK]})
+        check(buf2.getvalue() == "", "--apply summary silent when only auto-resolved categories present")
 
     passed = sum(1 for _, ok in cases if ok)
     failed = sum(1 for _, ok in cases if not ok)

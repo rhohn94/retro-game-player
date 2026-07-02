@@ -1,4 +1,4 @@
-catalog-version: 2
+catalog-version: 3
 
 # Required-feature catalog (Grimoire web-app)
 
@@ -44,6 +44,40 @@ python3 .claude/skills/grm-issue-tracker/issue_tracker.py list \
 ```
 
 MCP equivalent: `list_issues` with `labels=["Grimoire-Requirement"]`.
+
+---
+
+## Conditional applicability (`applies-when`)
+
+Most entries are **unconditional** — every Grimoire web app MUST have them, so
+they carry no predicate and are always filed (modulo the dedupe above). Some
+features, however, are only relevant to a **subset** of web apps. Such an entry
+carries an optional **`applies-when:`** predicate; the filing flow evaluates it
+against the managed app's live `.claude/grimoire-config.json` and **files the
+entry only when the predicate holds**. An app the predicate excludes never
+receives the ticket — the catalog does not spam apps with a requirement they do
+not need.
+
+**Predicate grammar (minimal, v1).** A single equality over a dotted config
+path:
+
+```
+applies-when: <dot.path> == "<value>"
+```
+
+- `<dot.path>` is a dotted key into `grimoire-config.json` (e.g.
+  `web-app.agentic`). The resolver reads the `value`-dial form transparently
+  (`web-app.agentic` resolves `{"agentic": {"value": "yes"}}` **or** the flat
+  `{"agentic": "yes"}` — the same `dialval` lookup `config_validate.py` uses).
+- **Absence-as-default.** If the path is absent, the predicate is **false**
+  (the entry does not apply). A conditional feature is opt-in: an app must
+  positively declare the capability for the entry to file.
+- An entry with **no** `applies-when:` line is unconditional (the status quo for
+  Entries 1–2).
+
+The single-equality grammar is deliberately minimal. A richer predicate language
+(boolean combinators, comparisons) is a future extension and is **not** required
+for the current entries — see `web-app-support-design.md` §5.1.
 
 ---
 
@@ -109,7 +143,7 @@ the full spec for the console, sub-requirements AC-1 through AC-10.
 **Expected:** All AC-1 through AC-10 sub-requirements implemented and
 independently testable per the testable criteria above.
 
-**Context / source:** Grimoire required-feature catalog (catalog-version: 2);
+**Context / source:** Grimoire required-feature catalog (catalog-version: 3);
 authority: docs/design/web-app-support-design.md §5.3;
 build-info contract: docs/web-app-deployment-protocol.md §8.
 ```
@@ -184,9 +218,94 @@ operator-facing always (Admin Console Changelog section), and user-facing at
 **Expected:** All CL-1 through CL-6 implemented and independently testable per
 the testable criteria above.
 
-**Context / source:** Grimoire required-feature catalog (catalog-version: 2);
+**Context / source:** Grimoire required-feature catalog (catalog-version: 3);
 authority: docs/design/changelog-surface-design.md;
 build-info contract: docs/web-app-deployment-protocol.md §8.
+```
+
+**Labels:** `Grimoire-Requirement`, `enhancement`
+**Audience:** `internal`
+
+---
+
+### Entry 3 — Token-Bookkeeper Standard Package (conditional)
+
+```
+key:          adopt-token-bookkeeper
+name:         Token-Bookkeeper Standard Package
+tag:          Grimoire-Requirement
+applies-when: web-app.agentic == "yes"
+```
+
+**Spec.** A Grimoire web app that **runs its own agentic / LLM workloads** —
+and therefore has token cost and throughput worth surfacing — MUST consume the
+**`token-bookkeeper` standard package** through the **Dependency Channel**
+rather than carry an in-tree equivalent. token-bookkeeper is the framework's
+**standard package** for agentic token/cost/throughput bookkeeping: a
+framework-blessed reusable library published as a `vendored-crate` artifact on
+its release channel (`dependency-channel-design.md` §2), vendored and pinned
+exactly like any other channel dependency.
+
+This entry is **conditional** (`applies-when: web-app.agentic == "yes"`). An app
+that does **not** declare `web-app.agentic: "yes"` — a static or
+non-agentic web app — is not surfaced this requirement at all (absence-as-default
+`no`; see *Conditional applicability* above). The capability dial
+`web-app.agentic` is additive and absence-as-default (`web-app-support-design.md`
+§1.3, §5.5); an app opts in by setting it when it begins surfacing its own
+agentic cost.
+
+As with Entries 1–2 the catalog is the **SPEC**: *implementing* the adoption
+(vendoring the crate, retiring the in-tree fork, building against it) is the
+managed project's scope, tracked by the filed `[key: adopt-token-bookkeeper]`
+ticket. The vendoring follows the standard structure — vendored deps live under
+`lib/third-party/<dep>/`, never a top-level `vendor/` (CLAUDE.md §Standard
+project structure).
+
+Design authority: `docs/design/web-app-support-design.md` §5.5 (standard-package
+concept + applicability); Dependency Channel artifact contract:
+`docs/grimoire/design/dependency-channel-design.md` §2; vendoring + conformance:
+`grm-sync-deps` / `recipe.py vendor-check`.
+
+#### Sub-requirements (each is independently testable)
+
+| ID | Requirement | Testable criterion |
+|----|-------------|-------------------|
+| TB-1 | **Vendored via the Dependency Channel.** token-bookkeeper is declared in `vendor.toml` (with `channel`/`version`) and resolved in `vendor.lock`, its bytes committed under `lib/third-party/token-bookkeeper/`. | `vendor.toml` has a `[deps.token-bookkeeper]` entry, `vendor.lock` has a matching `tree_sha256`, and `lib/third-party/token-bookkeeper/` exists with the vendored bytes. |
+| TB-2 | **No in-tree equivalent.** Any pre-existing in-tree telemetry-rollup / token-bookkeeping fork is retired in favour of the vendored crate. | No first-party module under `src/` duplicates token-bookkeeper's rollup logic; the app imports the vendored crate. |
+| TB-3 | **Builds and tests against the vendored crate.** The app consumes the vendored copy, not a local re-implementation. | `recipe.py build` and `recipe.py test` pass with the in-tree fork removed and the vendored crate in place. |
+| TB-4 | **Channel-conformant.** The pinned release is published on its channel and the vendored bytes match the lock. | `recipe.py vendor-check` (`dependency_channel_conformance.py`) reports no violation for `token-bookkeeper`. |
+
+**Dedupe key in filed issue title:** `[key: adopt-token-bookkeeper]`
+
+**Issue title (when filing):**
+`[key: adopt-token-bookkeeper] Adopt the token-bookkeeper standard package (TB-1 through TB-4)`
+
+**Issue body template:**
+
+```markdown
+**What:** This web app runs its own agentic/LLM workloads, so it must surface
+its token cost/throughput via the **token-bookkeeper standard package**,
+consumed through the Dependency Channel (vendor the published `vendored-crate`)
+rather than an in-tree fork.
+
+**Sub-requirements:**
+- TB-1: Vendored via the Dependency Channel — `[deps.token-bookkeeper]` in
+  vendor.toml, resolved in vendor.lock, bytes under
+  `lib/third-party/token-bookkeeper/`
+- TB-2: No in-tree telemetry-rollup / token-bookkeeping fork remains
+- TB-3: `recipe.py build` + `recipe.py test` pass against the vendored crate
+- TB-4: `recipe.py vendor-check` reports no violation for token-bookkeeper
+
+**Expected:** All TB-1 through TB-4 implemented and independently testable per
+the testable criteria above.
+
+**Applicability:** Filed because `web-app.agentic == "yes"`. If this app does
+not in fact surface its own agentic cost, close this ticket as not-applicable
+and unset `web-app.agentic`.
+
+**Context / source:** Grimoire required-feature catalog (catalog-version: 3);
+authority: docs/design/web-app-support-design.md §5.5;
+Dependency Channel: docs/grimoire/design/dependency-channel-design.md §2.
 ```
 
 **Labels:** `Grimoire-Requirement`, `enhancement`
