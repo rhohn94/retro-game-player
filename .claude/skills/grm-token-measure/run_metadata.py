@@ -13,8 +13,8 @@ sibling `grm-token-measure` helper `parse_usage.py` (the single source of truth 
 token accounting, where dedup-by-requestId lives). This module only shapes the
 result and adds the run-context fields.
 
-Design: docs/design/run-metadata-artifact-design.md.
-Standard: Python 3 stdlib-only (docs/design/scripting-unification-design.md),
+Design: docs/grimoire/design/run-metadata-artifact-design.md.
+Standard: Python 3 stdlib-only (docs/grimoire/design/scripting-unification-design.md),
 plus the in-repo `parse_usage.py` reuse.
 
 Artifact (`.claude/cache/runs/<run_id>.json`, gitignored):

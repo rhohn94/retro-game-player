@@ -7,7 +7,7 @@ read/write intent) and the component registry, it partitions features into
 **lanes** that will not collide on a shared writable component, so each lane can
 be implemented by an independent integration master in parallel.
 
-Design authority: docs/design/project-manager-role-design.md §3.
+Design authority: docs/grimoire/design/project-manager-role-design.md §3.
 
 Determinism: same registry + feature list + policy ⇒ byte-identical plan. No
 clock, no randomness, fully sorted output.

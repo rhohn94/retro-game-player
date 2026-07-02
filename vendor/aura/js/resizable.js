@@ -1,0 +1,453 @@
+/* ==========================================================================
+   Aura — aura-split: token-driven, resizable panel container.
+
+   A light-DOM custom element. The author writes only the panels as direct
+   children; aura-split AUTO-BUILDS a real .aura-split__handle separator element
+   between each adjacent pair (N panels → N−1 handles) — the same move as
+   aura-range building a real thumb rather than a UA pseudo, so the handle can
+   carry interactive-glass elevation, a proximity-glow rim, and role=separator.
+
+   Track sizes are fr RATIOS held in live custom properties --aura-split-1..N
+   (each a share that, across all panels, sums to 100 — analogous to
+   --aura-range-pct). Each property carries its own `fr` unit (e.g. "50fr"); the
+   grid-template references it directly (`fr` is invalid inside calc(), so the
+   track cannot be `calc(var(...) * 1fr)`). A drag mutates ONLY the two adjacent
+   ratio properties; the browser recomputes the grid with no JS layout writes.
+   A drag/keystroke keeps the
+   adjacent pair's sum constant and clamps each panel by the per-panel
+   --aura-split-min / --aura-split-max (% of the split).
+
+   Keyboard mirrors aura-range's WAI-ARIA window-splitter map (Arrow / Page /
+   Home / End), oriented by the split axis. ARIA: each handle is a focusable
+   role=separator with aria-orientation, aria-controls naming its two panels,
+   and live aria-valuemin/-valuemax/-valuenow (the leading panel's share).
+
+   Glow: the single-target glow engine (js/glow.js querySelector's ONE
+   .aura-glow__target per host) cannot light N handles from one split host, so
+   each handle is registered as its OWN interactive-glass .aura-glow host with
+   the compact glow pair. The engine reads each handle's rect live every frame,
+   so a handle moving with the grid recompute re-lights automatically; the
+   documented cache-refresh hook is still fired on commit for robustness.
+   (Design-doc gap: responsive-layout-design.md frames the split as the host
+   and the handle as a sub-part, which only lights the first of N handles —
+   recorded for follow-up.)
+
+   Persistence: localStorage keyed by the split's id ("aura-split:{id}") by
+   default; a `persist` attribute (none|session|local) and a JS hook
+   (split.persistence = { load, save }) override it. A split with no id cannot
+   form a stable key, so it warns once and does not persist.
+
+   Lifecycle + glow-host wiring come from Aura.BaseElement (js/element-base.js).
+   Load order: core.js → element-base.js → resizable.js (self-registers).
+   See docs/design/responsive-layout-design.md §Resizable-panel mechanics.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* ---- Token names (declared in the generated css/tokens.css; values are
+         authored in the canonical tokens.json source) ----------------------- */
+  var TOKEN_MIN = "--aura-split-min";
+  var TOKEN_MAX = "--aura-split-max";
+  var TOKEN_STEP = "--aura-split-step";
+  var TOKEN_STEP_PAGE = "--aura-split-step-page";
+  var TOKEN_HANDLE = "--aura-split-handle-size";
+
+  /* Ratios are shares of the split that sum to this total (so a leading
+     panel's share doubles as its aria-valuenow percentage). */
+  var SHARE_TOTAL = 100;
+
+  /* Documented fallbacks, used ONLY when the token above is missing/unreadable
+     (e.g. tokens.css not linked). They mirror the tokens.css defaults so the
+     element still behaves sanely standalone; the token is the real dial. */
+  var FALLBACK_MIN = 10;
+  var FALLBACK_MAX = 90;
+  var FALLBACK_STEP = 2;
+  var FALLBACK_STEP_PAGE = 10;
+  /* Track width fallback for the grid template when the token is unreadable. */
+  var FALLBACK_HANDLE_SIZE = "0.5rem";
+
+  /* localStorage key prefix; the split's id completes it. */
+  var STORE_PREFIX = "aura-split:";
+  /* persist attribute values. */
+  var PERSIST_NONE = "none";
+  var PERSIST_SESSION = "session";
+
+  /* Read a percentage-valued token off an element, stripping the % unit.
+     Falls back when the value is absent/unparseable so callers never special-
+     case a blank read. */
+  function pct(el, name, fallback) {
+    var n = parseFloat(getComputedStyle(el).getPropertyValue(name));
+    return isNaN(n) ? fallback : n;
+  }
+
+  /* Round a share to one decimal so persisted/announced values read cleanly
+     without accumulating float noise across many drags. */
+  function tidy(v) { return Math.round(v * 10) / 10; }
+
+  /* Summary: a CSS-grid container of resizable panels. Auto-builds a real
+     role=separator handle between each adjacent pair; pointer/keyboard resize
+     adjusts the two ratios around a handle keeping their sum constant, clamped
+     by per-panel min/max, with persisted ratios and per-handle proximity glow. */
+  Aura.define("aura-split", class extends Aura.BaseElement {
+    static get observedAttributes() {
+      return ["orientation", "persist"];
+    }
+
+    /* ---- internal DOM (idempotent: rebuilds handles from the panels) ------- */
+    /* Collect the author's panels, then (re)insert one handle between each
+       adjacent pair. Re-derives end-state from the panels alone, so it is safe
+       on reconnect regardless of any handles left over from a prior build. */
+    _build() {
+      var panels = this._collectPanels();
+
+      // Drop any prior handles; we re-insert a fresh, correctly-wired set.
+      var stale = this.querySelectorAll(":scope > .aura-split__handle");
+      for (var s = 0; s < stale.length; s++) stale[s].remove();
+
+      this.__panels = panels;
+      this.__handles = [];
+
+      for (var i = 0; i < panels.length; i++) {
+        panels[i].classList.add("aura-split__panel");
+        if (!panels[i].id) panels[i].id = Aura.nextId("aura-split-panel-");
+        // A handle sits AFTER every panel except the last.
+        if (i < panels.length - 1) {
+          var handle = this._buildHandle(i);
+          panels[i].insertAdjacentElement("afterend", handle);
+          this.__handles.push(handle);
+        }
+      }
+    }
+
+    /* Direct element children that are not handles are the panels. */
+    _collectPanels() {
+      var out = [];
+      var kids = this.children;
+      for (var i = 0; i < kids.length; i++) {
+        if (!kids[i].classList.contains("aura-split__handle")) out.push(kids[i]);
+      }
+      return out;
+    }
+
+    /* Build one separator handle for the panel pair (leadingIndex, +1).
+       It is its own interactive-glass glow host (see header note). */
+    _buildHandle(leadingIndex) {
+      var handle = document.createElement("span");
+      handle.className = "aura-split__handle";
+      handle.tabIndex = 0;
+      handle.setAttribute("role", "separator");
+      handle.__auraLeading = leadingIndex; // pair = [leadingIndex, leadingIndex+1]
+      // Each handle is its own glow host so all N−1 handles can light (the
+      // engine resolves one .aura-glow__target per host). classList.add is
+      // idempotent; no sub-part target — the handle itself is the lit rim.
+      handle.classList.add("aura-glow");
+      return handle;
+    }
+
+    /* ---- listeners (delegated from the host; robust to handle rebuilds) ---- */
+    _bind() {
+      var self = this;
+      this.addEventListener("pointerdown", function (e) { self._onPointerDown(e); });
+      this.addEventListener("pointermove", function (e) { self._onPointerMove(e); });
+      this.addEventListener("pointerup", function (e) { self._onPointerUp(e); });
+      this.addEventListener("pointercancel", function (e) { self._onPointerUp(e); });
+      this.addEventListener("keydown", function (e) { self._onKey(e); });
+    }
+
+    /* ---- reflect host state → grid template, ratios, ARIA (every connect) -- */
+    _sync() {
+      this._applyTemplate();
+      // Establish ratios only when absent or the panel count changed (first
+      // connect / rebuild): restore persisted ratios, else equal shares. An
+      // attribute change (orientation/persist) keeps the live ratios so it
+      // never resets a resized split — including when persistence is off.
+      var n = this.__panels ? this.__panels.length : 0;
+      if (!this.__ratios || this.__ratios.length !== n) {
+        var loaded = this._loadRatios(n);
+        this.__ratios = loaded || this._equalShares(n);
+      }
+      this._writeRatios();
+      this._syncAllHandleAria();
+    }
+
+    /* Orientation toggles the grid axis + handle cursor; persist may change the
+       store. Both need a re-sync. */
+    _onAttr() { this._sync(); }
+
+    /* ---- orientation helpers ----------------------------------------------- */
+    /* True when panels run top-to-bottom (handles are horizontal bars). */
+    _isVertical() { return this.getAttribute("orientation") === "vertical"; }
+
+    /* Equal starting shares for n panels, summing to SHARE_TOTAL. */
+    _equalShares(n) {
+      var out = [];
+      for (var i = 0; i < n; i++) out.push(n > 0 ? SHARE_TOTAL / n : 0);
+      return out;
+    }
+
+    /* Build the grid template: panel tracks (calc share*1fr) interleaved with
+       fixed-width handle tracks. Written once here; drags only mutate the ratio
+       custom properties the calc() reads, so the template need not be rewritten
+       on every move. The template lands in the --aura-split-template custom
+       property — css/resizable.css decides WHICH axis it applies to (keyed on
+       [orientation]) so the narrow-container stacking query can override it in
+       the normal cascade (#377); writing grid-template-* inline here would beat
+       every stylesheet rule and pin the panels side-by-side at any width. */
+    _applyTemplate() {
+      var n = this.__panels ? this.__panels.length : 0;
+      if (n === 0) return;
+      var handleTrack = "var(" + TOKEN_HANDLE + ", " + FALLBACK_HANDLE_SIZE + ")";
+      var parts = [];
+      for (var i = 0; i < n; i++) {
+        // The ratio property carries its own `fr` unit (see _writeRatios): `fr`
+        // is NOT permitted inside calc(), so the track must reference the
+        // property directly rather than `calc(var(...) * 1fr)`.
+        parts.push("var(--aura-split-" + (i + 1) + ", 1fr)");
+        if (i < n - 1) parts.push(handleTrack);
+      }
+      this.style.setProperty("--aura-split-template", parts.join(" "));
+    }
+
+    /* Push the current ratio array into the live --aura-split-N properties.
+       Each value carries the `fr` unit so the grid template can reference it
+       directly (fr is invalid inside calc(), so the track cannot multiply a
+       unitless ratio by 1fr). */
+    _writeRatios() {
+      if (!this.__ratios) return;
+      for (var i = 0; i < this.__ratios.length; i++) {
+        this.style.setProperty("--aura-split-" + (i + 1), tidy(this.__ratios[i]) + "fr");
+      }
+    }
+
+    /* ---- per-panel constraint reads ---------------------------------------- */
+    _panelMin(idx) { return pct(this.__panels[idx], TOKEN_MIN, FALLBACK_MIN); }
+    _panelMax(idx) { return pct(this.__panels[idx], TOKEN_MAX, FALLBACK_MAX); }
+
+    /* Effective [lo, hi] bounds for the LEADING panel of a handle, derived from
+       both panels' min/max and their (constant) combined share. The trailing
+       panel's limits become limits on the leading one because their sum is
+       fixed. Returns lo<=hi (collapses to the midpoint if constraints conflict
+       so a clamp still yields a stable value). */
+    _bounds(leading) {
+      var a = leading, b = leading + 1;
+      var sum = this.__ratios[a] + this.__ratios[b];
+      var lo = Math.max(this._panelMin(a), sum - this._panelMax(b));
+      var hi = Math.min(this._panelMax(a), sum - this._panelMin(b));
+      if (lo > hi) { var mid = sum / 2; lo = mid; hi = mid; }
+      return { lo: lo, hi: hi, sum: sum };
+    }
+
+    /* Apply a new LEADING-panel share for a handle: clamp to bounds, set both
+       adjacent ratios (sum preserved), write the properties, refresh ARIA, fire
+       the glow cache-refresh, and emit events. */
+    _applyShare(leading, share, opts) {
+      var bnd = this._bounds(leading);
+      share = Aura.dom.clamp(share, bnd.lo, bnd.hi);
+      this.__ratios[leading] = share;
+      this.__ratios[leading + 1] = bnd.sum - share;
+      this._writeRatios();
+      this._syncHandleAria(this.__handles[leading]);
+      this._refreshGlow(this.__handles[leading]);
+      if (opts && opts.input) {
+        this.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (opts && opts.change) {
+        this._saveRatios();
+        this.dispatchEvent(new CustomEvent("aura:change", {
+          bubbles: true, detail: { ratios: this.__ratios.slice() }
+        }));
+      }
+    }
+
+    /* ---- ARIA -------------------------------------------------------------- */
+    _syncAllHandleAria() {
+      if (!this.__handles) return;
+      for (var i = 0; i < this.__handles.length; i++) {
+        this._syncHandleAria(this.__handles[i]);
+      }
+    }
+
+    /* Reflect a handle's orientation, controlled panels, and live value range.
+       A separator between side-by-side panels is a VERTICAL line, so a
+       horizontal split yields aria-orientation="vertical" (and vice-versa). */
+    _syncHandleAria(handle) {
+      if (!handle) return;
+      var leading = handle.__auraLeading;
+      var bnd = this._bounds(leading);
+      handle.setAttribute("aria-orientation", this._isVertical() ? "horizontal" : "vertical");
+      handle.setAttribute("aria-controls",
+        this.__panels[leading].id + " " + this.__panels[leading + 1].id);
+      handle.setAttribute("aria-valuemin", String(tidy(bnd.lo)));
+      handle.setAttribute("aria-valuemax", String(tidy(bnd.hi)));
+      handle.setAttribute("aria-valuenow", String(tidy(this.__ratios[leading])));
+      handle.setAttribute("aria-valuetext", tidy(this.__ratios[leading]) + "%");
+    }
+
+    /* ---- keyboard (WAI-ARIA window-splitter, oriented by the split axis) --- */
+    _onKey(e) {
+      var handle = e.target.closest
+        ? e.target.closest(".aura-split__handle") : null;
+      if (!handle || !this.contains(handle)) return;
+
+      var leading = handle.__auraLeading;
+      var step = pct(this, TOKEN_STEP, FALLBACK_STEP);
+      var page = pct(this, TOKEN_STEP_PAGE, FALLBACK_STEP_PAGE);
+      var bnd = this._bounds(leading);
+      var cur = this.__ratios[leading];
+      var v = cur, handled = true;
+      var vertical = this._isVertical();
+
+      switch (e.key) {
+        // Grow the leading panel: Right (horizontal split) / Down (vertical).
+        case "ArrowRight": if (!vertical) v = cur + step; else handled = false; break;
+        case "ArrowLeft":  if (!vertical) v = cur - step; else handled = false; break;
+        case "ArrowDown":  if (vertical) v = cur + step; else handled = false; break;
+        case "ArrowUp":    if (vertical) v = cur - step; else handled = false; break;
+        case "PageUp":     v = cur + page; break;
+        case "PageDown":   v = cur - page; break;
+        case "Home":       v = bnd.lo; break;
+        case "End":        v = bnd.hi; break;
+        default:           handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      this._applyShare(leading, v, { input: true, change: true });
+    }
+
+    /* ---- pointer (rect read once per gesture; moves write only a ratio) ---- */
+    _onPointerDown(e) {
+      var handle = e.target.closest
+        ? e.target.closest(".aura-split__handle") : null;
+      if (!handle || !this.contains(handle)) return;
+      if (e.button != null && e.button !== 0) return; // primary button only
+
+      var leading = handle.__auraLeading;
+      this.__activeLeading = leading;
+      this.__rect = this.getBoundingClientRect();
+      // Cumulative share of every panel BEFORE the leading one — the offset
+      // between "pointer position along the split" and "the leading share".
+      var before = 0;
+      for (var i = 0; i < leading; i++) before += this.__ratios[i];
+      this.__shareBefore = before;
+
+      Aura.capturePointer(handle, e.pointerId, "aura-resizable");
+      handle.focus();
+      e.preventDefault();
+      this._applyShare(leading, this._shareFromPointer(e), { input: true });
+    }
+
+    _onPointerMove(e) {
+      if (this.__activeLeading == null) return;
+      this._applyShare(this.__activeLeading, this._shareFromPointer(e), { input: true });
+    }
+
+    _onPointerUp(e) {
+      if (this.__activeLeading == null) return;
+      var leading = this.__activeLeading;
+      this.__activeLeading = null;
+      var handle = this.__handles[leading];
+      Aura.releasePointer(handle, e.pointerId, "aura-resizable");
+      this._applyShare(leading, this._shareFromPointer(e), { change: true });
+    }
+
+    /* Map the pointer position along the split's main axis to the LEADING
+       panel's share. Uses the gesture's cached rect + the cumulative share of
+       the panels before this handle. (Handle-track widths are treated as
+       negligible against the panel area; the bounds clamp keeps the result
+       valid regardless.) */
+    _shareFromPointer(e) {
+      var r = this.__rect || (this.__rect = this.getBoundingClientRect());
+      var frac;
+      if (this._isVertical()) {
+        frac = r.height > 0 ? Aura.dom.clamp((e.clientY - r.top) / r.height, 0, 1) : 0;
+      } else {
+        frac = r.width > 0 ? Aura.dom.clamp((e.clientX - r.left) / r.width, 0, 1) : 0;
+      }
+      return frac * SHARE_TOTAL - this.__shareBefore;
+    }
+
+    /* ---- glow cache-refresh ------------------------------------------------ */
+    /* Tell the glow engine the handle's geometry changed. Each handle is its
+       own glow host whose rect the engine reads live per frame, so this is
+       belt-and-suspenders for non-pointer moves (keyboard / restore); a no-op
+       on coarse-pointer devices where the engine is absent. */
+    _refreshGlow(handle) {
+      var g = Aura.glow;
+      if (g && g.invalidateTarget && handle) g.invalidateTarget(handle);
+    }
+
+    /* ---- persistence ------------------------------------------------------- *
+       Resolution order: an explicit JS hook (split.persistence = {load,save})
+       wins; otherwise localStorage/sessionStorage keyed by the split's id;
+       persist="none" or a missing id disables persistence (the latter warns
+       once, since no stable key can be formed). */
+    _store() {
+      var hook = this.persistence;
+      if (hook && typeof hook.load === "function" && typeof hook.save === "function") {
+        return hook;
+      }
+      var persist = this.getAttribute("persist");
+      if (persist === PERSIST_NONE) return null;
+      var id = this.id;
+      if (!id) {
+        if (!this.__warnedNoId) {
+          this.__warnedNoId = true;
+          Aura.warn("[Aura] aura-split has no id; ratios will not persist " +
+            "(add an id, or set the persistence={load,save} hook).");
+        }
+        return null;
+      }
+      var backing = persist === PERSIST_SESSION ? "sessionStorage" : "localStorage";
+      var key = STORE_PREFIX + id;
+      return {
+        load: function () {
+          try { return JSON.parse(window[backing].getItem(key)); }
+          catch (_) { return null; }
+        },
+        save: function (ratios) {
+          try { window[backing].setItem(key, JSON.stringify(ratios)); }
+          catch (_) { /* storage full/blocked — non-fatal, drop silently */ }
+        }
+      };
+    }
+
+    /* Load + validate persisted ratios for n panels; null if none/invalid.
+       Renormalises to SHARE_TOTAL so a saved set that drifted still lays out. */
+    _loadRatios(n) {
+      if (n < 1) return null;
+      var store = this._store();
+      if (!store) return null;
+      var raw;
+      try { raw = store.load(); } catch (_) { return null; }
+      if (!Array.isArray(raw) || raw.length !== n) return null;
+      var sum = 0, i;
+      for (i = 0; i < n; i++) {
+        if (typeof raw[i] !== "number" || !isFinite(raw[i]) || raw[i] < 0) return null;
+        sum += raw[i];
+      }
+      if (sum <= 0) return null;
+      var out = [];
+      for (i = 0; i < n; i++) out.push(raw[i] / sum * SHARE_TOTAL);
+      return out;
+    }
+
+    /* Persist the current ratios via the resolved store (if any). */
+    _saveRatios() {
+      var store = this._store();
+      if (store && this.__ratios) {
+        var rounded = [];
+        for (var i = 0; i < this.__ratios.length; i++) rounded.push(tidy(this.__ratios[i]));
+        store.save(rounded);
+      }
+    }
+
+    /* ---- public accessor --------------------------------------------------- */
+    /* Current ratios as a copy (shares summing to 100), or [] before connect. */
+    get ratios() { return this.__ratios ? this.__ratios.slice() : []; }
+  });
+})();

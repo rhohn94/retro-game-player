@@ -1,0 +1,116 @@
+/* ==========================================================================
+   Aura — content-first media utilities (v2.2).
+
+   The CSS half of the content-first display philosophy: fill-to-extents (cover
+   semantics), bleed-behind-chrome, and elevation-as-separator. Pure CSS, opt-in
+   by class. The interactive media components (aura-image, aura-video) build on
+   these. See docs/design/content-first-display-design.md.
+
+   Layer: media (after layout, before glow — see css/aura.css).
+   ========================================================================== */
+
+/* Local dials. Fallbacks reference global tokens so themes can retune these
+   without enlarging the global :root set. */
+:where(.aura-fill, aura-media, .aura-media, .aura-bleed, .aura-chrome) {
+  --aura-media-radius: var(--aura-radius-lg);
+  --aura-chrome-inset: var(--aura-space-3);
+}
+
+/* ---- Principle 1: fill to extents (cover semantics) -------------------- *
+   The container owns the box and clips; the first media child is stretched to
+   the box and object-fit: cover, preserving its aspect ratio with no letterbox. */
+.aura-fill {
+  display: block;
+  position: relative;
+  overflow: clip;
+  inline-size: 100%;
+  block-size: 100%;
+  aspect-ratio: var(--aura-media-ratio, auto);
+}
+.aura-fill > img,
+.aura-fill > video,
+.aura-fill > canvas,
+.aura-fill > svg,
+.aura-fill > picture,
+.aura-fill > picture > img {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  object-position: var(--aura-fill-position, center);
+  display: block;
+}
+/* Explicit escape hatch: show ALL the content, letterboxing on purpose. */
+.aura-fill--contain > img,
+.aura-fill--contain > video,
+.aura-fill--contain > canvas,
+.aura-fill--contain > svg,
+.aura-fill--contain > picture > img {
+  object-fit: contain;
+}
+
+/* ---- The aura-media frame --------------------------------------------- *
+   A rounded, elevation-clipped surface that hosts fill content (and optionally
+   floating chrome). Defaults to a 16/9 ratio when the author gives no height.
+   `aura-media` (element) and `.aura-media` (class) are equivalent.            */
+aura-media,
+.aura-media {
+  display: block;
+  position: relative;
+  overflow: clip;
+  border-radius: var(--aura-media-radius, var(--aura-radius-lg));
+  /* Default a pleasant ratio only when nothing else constrains height. #569:
+     route through the portable --aura-ratio-* scale (was a hardcoded 16 / 9
+     literal) so retuning --aura-ratio-video re-skins the media frame too. */
+  aspect-ratio: var(--aura-media-ratio, var(--aura-ratio-video));
+  background: var(--aura-surface-solid);
+}
+/* When the frame is given an explicit height (e.g. flex/grid child, inline
+   style), the author opts out of the default ratio. */
+aura-media[style*="height"],
+aura-media[style*="block-size"],
+.aura-media[style*="height"],
+.aura-media[style*="block-size"] {
+  aspect-ratio: var(--aura-media-ratio, auto);
+}
+
+/* ---- Principle 2: bleed behind chrome --------------------------------- *
+   The content layer fills its positioned ancestor edge-to-edge and sits at the
+   base layer, so sibling chrome floats over it without computed offsets.       */
+.aura-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: var(--aura-z-base, 0);
+}
+
+/* ---- Principle 3: elevation as the separator -------------------------- *
+   A floating control layer over bled content. Pair with `.aura-surface` (and
+   optionally an `elevation`/`.aura-e-N`) for the glass paint — `.aura-chrome`
+   owns only the float geometry: raised above content, inset from the frame
+   edges, and safe-area aware so it clears notches / home indicators on mobile.
+   A bare `.aura-chrome` (no `.aura-surface`) is a transparent positioned layer. */
+.aura-chrome {
+  position: absolute;
+  z-index: var(--aura-z-raised, 10);
+  inset-block-end: calc(var(--aura-chrome-inset) + var(--aura-safe-bottom, 0px));
+  inset-inline: calc(var(--aura-chrome-inset) + var(--aura-safe-left, 0px))
+                calc(var(--aura-chrome-inset) + var(--aura-safe-right, 0px));
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-2) var(--aura-space-3);
+  border-radius: var(--aura-radius-md);
+  color: var(--aura-text-on-glass);
+}
+/* Top-anchored chrome variant (e.g. a caption/close bar). */
+.aura-chrome--top {
+  inset-block: calc(var(--aura-chrome-inset) + var(--aura-safe-top, 0px)) auto;
+}
+/* Chrome that spans the full width (a control bar rather than a floating pill). */
+.aura-chrome--bar {
+  inset-inline: 0;
+  inset-block-end: 0;
+  border-radius: 0;
+  padding-block-end: calc(var(--aura-space-2) + var(--aura-safe-bottom, 0px));
+}

@@ -15,7 +15,7 @@ Absent a PM (no `grm-project-manager` block, or a single-feature release), the
 master is unchanged: it remains the top-level orchestrator and runs the whole
 pipeline below exactly as documented (the degenerate one-lane case). The PM
 layer is additive — it does not remove the standalone master path. See
-`docs/design/project-manager-role-design.md` §5.
+`docs/grimoire/design/project-manager-role-design.md` §5.
 
 ---
 
@@ -109,7 +109,7 @@ The `release-phase-model` config dial selects **how the master executes an
 agreed plan**. The master reads `release-phase-model.value` **live** at
 execution time (no file-swap — same pattern as `workflow-variant`); absent the
 field, treat it as `Default`. Full spec:
-`docs/design/release-phase-model-design.md`.
+`docs/grimoire/design/release-phase-model-design.md`.
 
 - **`Default` (default).** Decompose into phases and dispatch each work item as
   a separate isolated-worktree subagent (`Agent` with `isolation:"worktree"`) —
@@ -164,7 +164,7 @@ exact removal command for the operator (or parent PM) to run elsewhere, never
 abandon it silently; **drop the now-stale** `.claude/integration-allow.local`
 marker; **clear scratch** (`/tmp/notes-*.md`, etc.); and **report the tally**.
 Full procedure: `integration-workflow.md` §Run teardown (end-of-run). Design:
-`docs/design/agent-teardown-design.md`.
+`docs/grimoire/design/agent-teardown-design.md`.
 
 ## QA close gate (Noir, post-merge)
 
@@ -188,7 +188,7 @@ follow-ups; it does not re-open the branch or block subsequent merges.
 **Per-issue, per-merged-branch** — this gate runs for each issue covered by each
 merged branch, not once per release.
 
-Design authority: `docs/design/qa-agent-design.md` §Issue close gate (v3.35, #113).
+Design authority: `docs/grimoire/design/qa-agent-design.md` §Issue close gate (v3.35, #113).
 
 ## Anti-patterns
 
@@ -207,7 +207,7 @@ Design authority: `docs/design/qa-agent-design.md` §Issue close gate (v3.35, #1
 ## Context efficiency (v1.29)
 
 Cost levers for long autonomous campaigns. Authority:
-`docs/design/context-efficiency-design.md`.
+`docs/grimoire/design/context-efficiency-design.md`.
 
 - **Cache-friendly ordering (#57).** Read **stable** content first (coding
   standards, design docs, the agreed release plan) and **volatile** content last
@@ -256,4 +256,42 @@ Authority: `docs/grimoire/design/autonomy-hardening-design.md`.
    push of `dev` + `main` + tag together and wait for explicit confirmation.
 
 ---
+
+## Dispatch is chip-free (no spawn_task)
+
+Noir does **not** use `spawn_task` chips for work-item dispatch. The chip
+mechanism requires a human click to open a session, which breaks the autonomous
+posture — so chips are a **Supervised / Weiss** mechanism only. Under Noir the
+master dispatches the full batch of work-item subagents at once via `Agent` with
+`isolation:"worktree"` (or a write-capable Workflow), with no per-item gate, and
+queues the merges as those subagents return their branches.
+
+This applies to work-item dispatch specifically. The autonomous loop's
+exception remains the single human-gated push at `grm-project-release`.
+
+### Subagent spawn_task guard
+
+**Problem.** A dispatched subagent may call `spawn_task` anyway — for example,
+when it discovers an out-of-scope issue mid-run. Under Noir, this creates a chip
+requiring a human click to open, which breaks the unattended posture and can
+stall the autonomous pipeline indefinitely.
+
+**Fix layer 1 — prompt-side (primary guard).** Every Noir task-agent prompt must
+carry the no-chip clause (see `release-phase/SKILL.md` §Step 4 Noir no-chip
+clause). The verbatim wording dispatched to every subagent is:
+
+> "Report all out-of-scope follow-ups as plain text in your final report.
+> Never call `spawn_task`, never create chips, never ask the user; you are
+> running unattended."
+
+**Fix layer 2 — master-side re-routing.** If a subagent's result text contains
+signs of a chip attempt — phrases like "spawned task", "created chip", or "filed
+background task" — the master treats it as an in-band follow-up: log the finding
+to §5 follow-ups in the planning doc and continue merging. Do not pause for a
+human or treat the chip indication as a stop condition.
+
+**Residual risk.** An unattended chip that does fire despite the prompt-side
+guard is benign: it is a UI element only and does not block the master's
+execution path. The master's re-routing handles the finding in-band; the chip
+remains auditable via `.claude/cache/` chip records.
 

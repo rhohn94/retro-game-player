@@ -1,0 +1,85 @@
+/* ==========================================================================
+   Aura — shared popup-overlay collaborator.
+
+   A unified facade over the two existing overlay primitives so control
+   widgets share a single, named import point instead of reaching directly
+   into Aura.overlay (placement + dismissal engine, js/overlay.js) or
+   Aura.pickers (revert-overlay lifecycle scaffold, js/picker-base.js):
+
+     Aura.popupOverlay.placeAtAnchor(panel, rect, originProp, gap)
+       — delegates to Aura.overlay.placeAtAnchor (flip/clamp anchored
+         placement, body-portaled, transform-origin recorded).
+
+     Aura.popupOverlay.createDismisser(opts)
+       — delegates to Aura.overlay.createDismisser (scroll/resize/blur/
+         Escape/outside-pointer dismissal; arm/disarm lifecycle).
+
+     Aura.popupOverlay.makeRevertOverlay(opts)
+       — delegates to Aura.pickers.makeRevertOverlay (the open/close/place/
+         destroy lifecycle skeleton used by datepicker and timepicker; keeps
+         the popup open across multi-step selection while supporting a
+         revert-on-Escape snapshot policy).
+
+   Having a single collaborator means a future swap of the underlying engine
+   only needs to touch this file, not every widget that calls through it.
+   Extracted in v3.85 (#322 — control-widget decomposition).
+   See docs/design/control-widget-decomposition-design.md.
+
+   Summary: popup-overlay facade — placeAtAnchor / createDismisser / makeRevertOverlay.
+
+   Load order: core.js → overlay.js → picker-base.js → popup-overlay.js
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  /* Requires overlay.js and picker-base.js (Aura.pickers) to be loaded first.
+     Guard defensively: each method re-reads the live namespace so late-loading
+     consumers still work in cherry-picked page scenarios. */
+  if (!Aura) return;
+
+  /* ---- Public API -------------------------------------------------------- */
+  Aura.popupOverlay = {
+    /* Position `panel` below `rect`, flip above on vertical overflow, clamp to
+       padded viewport, record transform-origin. Delegates to Aura.overlay. */
+    placeAtAnchor: function (panel, rect, originProp, gap) {
+      if (Aura.overlay && typeof Aura.overlay.placeAtAnchor === "function") {
+        return Aura.overlay.placeAtAnchor(panel, rect, originProp, gap);
+      }
+    },
+
+    /* Build an { arm, disarm } dismissal controller for a popup that should
+       close on outside-pointer, scroll, resize, window-blur, and Escape.
+       Delegates to Aura.overlay. */
+    createDismisser: function (opts) {
+      if (Aura.overlay && typeof Aura.overlay.createDismisser === "function") {
+        return Aura.overlay.createDismisser(opts);
+      }
+      /* Minimal inline fallback when overlay.js is absent (cherry-pick compat). */
+      function onDismiss() { if (opts && opts.onDismiss) opts.onDismiss(); }
+      return {
+        arm: function () {
+          window.addEventListener("scroll", onDismiss, true);
+          window.addEventListener("resize", onDismiss);
+          window.addEventListener("blur", onDismiss);
+        },
+        disarm: function () {
+          window.removeEventListener("scroll", onDismiss, true);
+          window.removeEventListener("resize", onDismiss);
+          window.removeEventListener("blur", onDismiss);
+        }
+      };
+    },
+
+    /* Open/close/place/destroy lifecycle for anchored popups that stay open
+       across multi-step selection and revert on Escape. Delegates to
+       Aura.pickers.makeRevertOverlay. */
+    makeRevertOverlay: function (opts) {
+      if (Aura.pickers && typeof Aura.pickers.makeRevertOverlay === "function") {
+        return Aura.pickers.makeRevertOverlay(opts);
+      }
+    }
+  };
+})();

@@ -100,6 +100,7 @@ MANIFEST_EXCLUDED_PREFIXES = (
     "docs/grimoire/sync-flow-audit.md",
     "docs/grimoire/docs-organization-design.md",
     "docs/grimoire/maintaining-grimoire.md",
+    "docs/grimoire/authoring-grimoire-docs.md",
     "docs/grimoire/integration-workflow.md",
     "docs/grimoire/version-design.md",
     "docs/grimoire/qa-ledger.md",
@@ -144,15 +145,20 @@ _HIERARCHY_EXEMPT_GLOBS = [
 #   - Never add entries for skill-set gaps (those are caught by the skill
 #     presence check above, not this docs check).
 DOCS_PARITY_ALLOW = frozenset({
+    # ── docs/design.md charter (main design document) ──────────────────
+    # Grimoire's own top-level charter currently carries framework-specific
+    # content (the seven-deliverable map), so it is root-only for now. The
+    # consumer-facing seed template that ships docs/design.md as a blank
+    # "main design document" slot in every project is a separate piece of work.
+    ("root", "claude-code", "docs/design.md"),
+    ("root", "copilot",     "docs/design.md"),
     # ── docs/grimoire/ tier ────────────────────────────────────────────
-    # README.md is seeded in claude-code by WH-7; root has no grimoire/README yet.
+    # README.md is the ONE consumer-shipped grimoire doc; everything else under
+    # docs/grimoire/ is framework-internal and auto-allowed root-only via
+    # _is_internal_grimoire_doc() (mirrors build_distributables.py's bulkhead).
+    # So no per-file entries are needed for the internal tree — only README,
+    # which must stay present across flavors.
     ("claude-code", "root",    "docs/grimoire/README.md"),
-    # copilot docs/grimoire is a subset — cost/validation spikes are root-only data
-    ("claude-code", "copilot", "docs/grimoire/issue-tracker-cost-spike.md"),
-    ("claude-code", "copilot", "docs/grimoire/issue-tracker-cost-validation.md"),
-    ("root",        "copilot", "docs/grimoire/issue-tracker-cost-spike.md"),
-    ("root",        "copilot", "docs/grimoire/issue-tracker-cost-validation.md"),
-    # copilot has no grimoire/README yet
     ("claude-code", "copilot", "docs/grimoire/README.md"),
 
     # ── docs/design/ux/ — root has README; claude-code/copilot do not ──
@@ -166,132 +172,29 @@ DOCS_PARITY_ALLOW = frozenset({
     ("root", "copilot", "docs/design/ux/components.md"),
     ("root", "copilot", "docs/design/ux/theme.md"),
 
-    # ── docs/grimoire/design/ tier — claude-code ↔ copilot gaps ───────
-    # Claude-Code-only framework specs (Workflow primitive, write-capable tier,
-    # UX demo). v3.39 "Bulkhead": these relocated docs/design/ → docs/grimoire/
-    # design/ in claude-code (DS-2); they remain absent in copilot entirely.
-    # The path is updated to the NEW location so parity is clean once DS-3
-    # migrates copilot. (Verifiable in full only post-DS-3/DS-4.)
-    ("claude-code", "copilot", "docs/grimoire/design/release-planning-workflow-design.md"),
-    ("claude-code", "copilot", "docs/grimoire/design/ux-design-language-design.md"),
-    ("claude-code", "copilot", "docs/grimoire/design/ux-enhancements-design.md"),
-    ("claude-code", "copilot", "docs/grimoire/design/workflow-candidates.md"),
-    ("claude-code", "copilot", "docs/grimoire/design/write-capable-workflow-design.md"),
-    # copilot has feature-manifest.md under design/ (not in claude-code or root)
-    ("copilot", "claude-code", "docs/design/feature-manifest.md"),
-    ("copilot", "root",        "docs/design/feature-manifest.md"),
-
-    # ── docs/design/ tier — root-only files (this project's own docs) ─
-    # Root carries the full historical design-doc corpus; claude-code ships
-    # only the subset that applies to a freshly-bootstrapped downstream project.
-    # Files below are root-only by intention (project history / in-flight spikes).
-    ("root", "claude-code", "docs/design/agent-teardown-design.md"),
-    ("root", "claude-code", "docs/design/build-recipe-interface-design.md"),
-    ("root", "claude-code", "docs/design/changelog-surface-design.md"),
-    ("root", "claude-code", "docs/design/coding-practices-audit-design.md"),
-    ("root", "claude-code", "docs/design/component-catalog-architecture-design.md"),
-    ("root", "claude-code", "docs/design/component-compatibility-matrix.md"),
-    ("root", "claude-code", "docs/design/component-taxonomy.md"),
-    ("root", "claude-code", "docs/design/context-efficiency-design.md"),
-    ("root", "claude-code", "docs/design/defaults-quickstart-design.md"),
-    ("root", "claude-code", "docs/design/dependency-channel-design.md"),
-    ("root", "claude-code", "docs/design/deploy-environment-design.md"),
-    ("root", "claude-code", "docs/design/dispatch-hardening-design.md"),
-    ("root", "claude-code", "docs/design/environment-manager-design.md"),
-    ("root", "claude-code", "docs/design/fleet-status-contract.md"),
-    ("root", "claude-code", "docs/design/footprint-reduction-design.md"),
-    ("root", "claude-code", "docs/design/git-protocol-governance-design.md"),
-    ("root", "claude-code", "docs/design/github-pr-integration-design.md"),
-    ("root", "claude-code", "docs/design/grimoire-release-server-design.md"),
-    ("root", "claude-code", "docs/design/integration-branch-integrity-design.md"),
-    ("root", "claude-code", "docs/design/iterate-on-facet-design.md"),
-    ("root", "claude-code", "docs/design/mcp-expansion-audit.md"),
-    ("root", "claude-code", "docs/design/mcp-server-design.md"),
-    ("root", "claude-code", "docs/design/noir-iterative-loop-design.md"),
-    ("root", "claude-code", "docs/design/paradigm-discoverability-design.md"),
-    ("root", "claude-code", "docs/design/project-manager-role-design.md"),
-    ("root", "claude-code", "docs/design/qa-agent-design.md"),
-    ("root", "claude-code", "docs/design/quick-start-templates-design.md"),
-    ("root", "claude-code", "docs/design/release-distribution-design.md"),
-    ("root", "claude-code", "docs/design/release-phase-model-design.md"),
-    ("root", "claude-code", "docs/design/run-metadata-artifact-design.md"),
-    ("root", "claude-code", "docs/design/runtime-verification-design.md"),
-    ("root", "claude-code", "docs/design/scripting-unification-design.md"),
-    ("root", "claude-code", "docs/design/status-broker-design.md"),
-    ("root", "claude-code", "docs/design/stealth-mode-design.md"),
-    ("root", "claude-code", "docs/design/sync-reliability-design.md"),
-    ("root", "claude-code", "docs/design/web-app-aura-adoption-design.md"),
-    ("root", "claude-code", "docs/design/web-app-support-design.md"),
-    ("root", "claude-code", "docs/design/wiki-doc-hierarchy-design.md"),
-    ("root", "claude-code", "docs/design/worktree-port-allocation-design.md"),
-    # root ↔ copilot: all of the root-only files above are also absent in copilot
-    ("root", "copilot", "docs/design/agent-teardown-design.md"),
-    ("root", "copilot", "docs/design/build-recipe-interface-design.md"),
-    ("root", "copilot", "docs/design/changelog-surface-design.md"),
-    ("root", "copilot", "docs/design/coding-practices-audit-design.md"),
-    ("root", "copilot", "docs/design/component-catalog-architecture-design.md"),
-    ("root", "copilot", "docs/design/component-compatibility-matrix.md"),
-    ("root", "copilot", "docs/design/component-taxonomy.md"),
-    ("root", "copilot", "docs/design/context-efficiency-design.md"),
-    ("root", "copilot", "docs/design/defaults-quickstart-design.md"),
-    ("root", "copilot", "docs/design/dependency-channel-design.md"),
-    ("root", "copilot", "docs/design/deploy-environment-design.md"),
-    ("root", "copilot", "docs/design/dispatch-hardening-design.md"),
-    ("root", "copilot", "docs/design/environment-manager-design.md"),
-    ("root", "copilot", "docs/design/fleet-status-contract.md"),
-    ("root", "copilot", "docs/design/footprint-reduction-design.md"),
-    ("root", "copilot", "docs/design/git-protocol-governance-design.md"),
-    ("root", "copilot", "docs/design/github-pr-integration-design.md"),
-    ("root", "copilot", "docs/design/grimoire-release-server-design.md"),
-    ("root", "copilot", "docs/design/integration-branch-integrity-design.md"),
-    ("root", "copilot", "docs/design/iterate-on-facet-design.md"),
-    ("root", "copilot", "docs/design/mcp-expansion-audit.md"),
-    ("root", "copilot", "docs/design/mcp-server-design.md"),
-    ("root", "copilot", "docs/design/noir-iterative-loop-design.md"),
-    ("root", "copilot", "docs/design/paradigm-discoverability-design.md"),
-    ("root", "copilot", "docs/design/project-manager-role-design.md"),
-    ("root", "copilot", "docs/design/qa-agent-design.md"),
-    ("root", "copilot", "docs/design/quick-start-templates-design.md"),
-    ("root", "copilot", "docs/design/release-distribution-design.md"),
-    ("root", "copilot", "docs/design/release-phase-model-design.md"),
-    # root also has this (from root-only set) + copilot doesn't.
-    # v3.39 "Bulkhead": framework specs that relocate to docs/grimoire/design/.
-    # claude-code already moved them (DS-2); root moves them in DS-4; copilot
-    # lacks them entirely. New-path entry so parity is clean post-DS-3/DS-4.
-    ("root", "copilot", "docs/grimoire/design/release-planning-workflow-design.md"),
-    ("root", "copilot", "docs/design/run-metadata-artifact-design.md"),
-    ("root", "copilot", "docs/design/runtime-verification-design.md"),
-    ("root", "copilot", "docs/design/scripting-unification-design.md"),
-    ("root", "copilot", "docs/design/status-broker-design.md"),
-    ("root", "copilot", "docs/design/stealth-mode-design.md"),
-    ("root", "copilot", "docs/design/sync-reliability-design.md"),
-    ("root", "copilot", "docs/grimoire/design/ux-design-language-design.md"),
-    ("root", "copilot", "docs/grimoire/design/ux-enhancements-design.md"),
-    ("root", "copilot", "docs/design/web-app-aura-adoption-design.md"),
-    ("root", "copilot", "docs/design/web-app-support-design.md"),
-    ("root", "copilot", "docs/design/wiki-doc-hierarchy-design.md"),
-    ("root", "copilot", "docs/grimoire/design/workflow-candidates.md"),
-    ("root", "copilot", "docs/design/worktree-port-allocation-design.md"),
-    ("root", "copilot", "docs/grimoire/design/write-capable-workflow-design.md"),
+    # ── docs/grimoire/design/ tier — ALL framework-internal ────────────
+    # Every docs/grimoire/design/**.md (including copilot's feature-manifest.md
+    # location quirk) is auto-allowed root-only via _is_internal_grimoire_doc();
+    # the previous ~90 per-file entries here were redundant and have been removed.
 
     # ── docs/ top-level — root-only files ─────────────────────────────
-    # Root is the actual project; it has release-planning archives, ledger, etc.
-    # claude-code/docs/ ships only the subset a new project needs to bootstrap.
-    ("root", "claude-code", "docs/grimoire/qa-ledger.md"),
-    ("root", "claude-code", "docs/grimoire/token-efficiency-audit.md"),
-    ("root", "claude-code", "docs/grimoire/token-efficiency-baseline.md"),
-    ("root", "claude-code", "docs/grimoire/token-efficiency-trim-decision.md"),
+    # Root is the actual project; claude-code/docs/ ships only the subset a new
+    # project needs to bootstrap. (docs/grimoire/ internal files are auto-allowed
+    # by _is_internal_grimoire_doc() and need no entry.)
     ("root", "claude-code", "docs/version-history.md"),
     ("root", "claude-code", "docs/web-app-aura-adoption-guide.md"),
     ("root", "claude-code", "docs/web-app-deployment-protocol.md"),
-    # root ↔ copilot: same files absent in copilot
-    ("root", "copilot", "docs/grimoire/qa-ledger.md"),
-    ("root", "copilot", "docs/grimoire/token-efficiency-audit.md"),
-    ("root", "copilot", "docs/grimoire/token-efficiency-baseline.md"),
-    ("root", "copilot", "docs/grimoire/token-efficiency-trim-decision.md"),
     ("root", "copilot", "docs/version-history.md"),
     ("root", "copilot", "docs/web-app-aura-adoption-guide.md"),
     ("root", "copilot", "docs/web-app-deployment-protocol.md"),
+
+    # ── docs/release-planning/ tier — root-only (v3.45 relocation) ─────
+    # The plan docs themselves are auto-exempt via _RELEASE_PLAN_RE; the tier
+    # index READMEs are root-only dogfood (the shipped flavors carry no plans).
+    ("root", "claude-code", "docs/release-planning/README.md"),
+    ("root", "claude-code", "docs/release-planning/archived/README.md"),
+    ("root", "copilot",     "docs/release-planning/README.md"),
+    ("root", "copilot",     "docs/release-planning/archived/README.md"),
 
     # ── docs/coding-standards/ — claude-code only until WH-9 root dogfood ─
     # WH-6 created this tier-index in claude-code; root + copilot follow in WH-9.
@@ -302,17 +205,43 @@ DOCS_PARITY_ALLOW = frozenset({
     ("claude-code", "copilot", "docs/design/ux/README.md"),
 
     # ── docs/ top-level — claude-code ↔ copilot gaps ──────────────────
-    # claude-code ships README and a spike file not in copilot
+    # claude-code ships README not in copilot; root has README, copilot does not.
     ("claude-code", "copilot", "docs/README.md"),
-    ("claude-code", "copilot", "docs/grimoire/execution-profile-spike-s1.md"),
-    # root has README; copilot does not
     ("root", "copilot", "docs/README.md"),
-    # root has execution-profile-spike; it's in claude-code but not copilot
-    # (already covered transitively above via root→claude-code + claude-code→copilot)
-    ("root", "copilot", "docs/grimoire/execution-profile-spike-s1.md"),
+
+    # ── codex flavor (v3.55) ───────────────────────────────────────────
+    # codex was ported from claude-code; its docs/ tree mirrors copilot's
+    # file-set EXACTLY plus one added design doc (docs/design/codex-flavor-
+    # design.md). So every gap copilot has versus root / claude-code, codex
+    # shares (same shipped subset), and codex additionally carries the design
+    # doc the other three flavors lack. These tuples encode exactly those
+    # intentional gaps; tuple direction matches _is_docs_gap_allowed(fa, fb)
+    # (fa = the flavor that HAS the file).
+    #
+    # codex carries the extra flavor design doc the others don't:
+    ("codex", "root",        "docs/design/codex-flavor-design.md"),
+    ("codex", "claude-code", "docs/design/codex-flavor-design.md"),
+    ("codex", "copilot",     "docs/design/codex-flavor-design.md"),
+    # root-only files codex lacks (mirrors the root↔copilot gaps above):
+    ("root", "codex", "docs/design.md"),
+    ("root", "codex", "docs/design/ux/components.md"),
+    ("root", "codex", "docs/design/ux/theme.md"),
+    ("root", "codex", "docs/release-planning/README.md"),
+    ("root", "codex", "docs/release-planning/archived/README.md"),
+    ("root", "codex", "docs/version-history.md"),
+    ("root", "codex", "docs/web-app-aura-adoption-guide.md"),
+    ("root", "codex", "docs/web-app-deployment-protocol.md"),
+    # claude-code ships ux components/theme that codex (like copilot) lacks:
+    ("claude-code", "codex", "docs/design/ux/components.md"),
+    ("claude-code", "codex", "docs/design/ux/theme.md"),
 })
 
 # Release-planning archive pattern: root-only, auto-matched by regex.
+# v3.45 "Release-planning relocation" moved all plans into a dedicated
+# docs/release-planning/ tier (active at dir root, archive under archived/).
+# The pattern matches the new tier AND the two pre-v3.45 locations (top-level
+# docs/ active + docs/grimoire/ archive) for backward-compat, so a synced-but-
+# not-yet-migrated consumer never flags a parity / monolith gap.
 _RELEASE_PLAN_RE = re.compile(r"^docs/(release-planning/(archived/)?|grimoire/)?release-planning-v[\d.]+\.md$")
 
 # ── lean-index (check 9) constants ─────────────────────────────────────
@@ -323,6 +252,11 @@ LEAN_INDEX_MIN_LINKS = 3       # minimum markdown links in an index page
 LEAN_INDEX_SIZE_EXEMPT = frozenset({
     "docs/README.md",           # repo-root doc map (many tiers)
     "docs/design/README.md",    # design-doc catalog (all design docs)
+    # v3.39 "Bulkhead": framework design-spec catalog. Root indexes the full
+    # ~68-doc framework corpus here (vs ~25-29 in the shipped flavors), so its
+    # index legitimately exceeds the 6 KB lean cap. Root-only exemption: the
+    # shipped flavors' grimoire/design indexes stay under the cap.
+    "docs/grimoire/design/README.md",  # framework design-doc catalog (root corpus)
 })
 
 # ── monolith-cap (check 10) constants ──────────────────────────────────
@@ -357,6 +291,18 @@ MONOLITH_CAP_EXEMPT = frozenset({
     "docs/grimoire/design/write-capable-workflow-design.md",
     "docs/grimoire/docs-organization-design.md",
     "docs/grimoire/integration-workflow.md",
+    # v3.54: comprehensive framework docs exempted (legitimate large docs;
+    # add new entries here rather than raising the cap threshold).
+    "docs/grimoire/design/clean-room-design.md",
+    "docs/grimoire/design/dependency-channel-design.md",
+    "docs/grimoire/design/fleet-status-contract.md",
+    "docs/grimoire/design/integration-branch-integrity-design.md",
+    "docs/grimoire/design/project-manager-role-design.md",
+    "docs/grimoire/design/stealth-mode-design.md",
+    "docs/grimoire/design/web-app-support-design.md",
+    "docs/grimoire/design/wiki-doc-hierarchy-design.md",
+    "docs/roadmap.md",
+    "docs/web-app-deployment-protocol.md",
 })
 # release-planning archives (root-only, always exempt from monolith cap)
 _MONOLITH_CAP_RELEASE_PLAN_RE = re.compile(r"^docs/(release-planning/(archived/)?|grimoire/)?release-planning-v[\d.]+\.md$")
@@ -371,22 +317,57 @@ def _docs_filenames(root, flavor_root):
 
 
 def find_root(start):
+    """Locate the repo root containing CLAUDE.md.
+
+    Framework monorepo: root must also contain a claude-code/ flavor directory.
+    Consumer project: root needs only CLAUDE.md (no flavor dirs required).
+
+    Returns (root_path, consumer_mode) where consumer_mode is True when neither
+    claude-code/ nor copilot/ flavor directories are present.  Consumer mode
+    skips framework-only checks (flavor-parity, manifest-detect-hygiene,
+    shipped-pointers) that require the multi-flavor monorepo layout.
+    """
     d = os.path.abspath(start)
     while d != "/":
-        if os.path.exists(os.path.join(d, "CLAUDE.md")) and os.path.isdir(os.path.join(d, "claude-code")):
-            return d
+        if os.path.exists(os.path.join(d, "CLAUDE.md")):
+            has_cc = os.path.isdir(os.path.join(d, "claude-code"))
+            has_cp = os.path.isdir(os.path.join(d, "copilot"))
+            consumer_mode = not has_cc and not has_cp
+            return d, consumer_mode
         d = os.path.dirname(d)
-    raise SystemExit("repo root not found (need CLAUDE.md + claude-code/)")
+    raise SystemExit("repo root not found (need CLAUDE.md)")
 
 
 def rel(root, p):
     return os.path.relpath(p, root)
 
 
+def _is_internal_grimoire_doc(doc_path):
+    """True for framework-internal docs/grimoire/ files that live only in the
+    upstream repo (root) and never ship in a distributed flavor.
+
+    The whole `docs/grimoire/` tree is internal EXCEPT `docs/grimoire/README.md`
+    (the consumer-facing wiki-convention authority, which the build bulkhead
+    deliberately keeps shipped). This mirrors build_distributables.py's
+    EXCLUDED_PATH_PREFIXES boundary: such files are intentionally absent from the
+    claude-code / copilot flavors, so any flavor name-set gap involving one is
+    always allowed without a per-file allow-list entry.
+
+    The single exception is copilot's functional sync manifest at
+    `docs/grimoire/design/feature-manifest.md` (a per-flavor location quirk, not
+    an internal design doc) — but it too is under docs/grimoire/, so it is
+    covered here and needs no separate entry.
+    """
+    return (doc_path.startswith("docs/grimoire/")
+            and doc_path != "docs/grimoire/README.md")
+
+
 def _is_docs_gap_allowed(flavor_a, flavor_b, doc_path, allow_set):
     """Return True if the gap (flavor_a has doc_path, flavor_b does not) is in the allow-list."""
     if _RELEASE_PLAN_RE.match(doc_path):
         return True  # release-planning archives are always root-only; never flag
+    if _is_internal_grimoire_doc(doc_path):
+        return True  # framework-internal tier — root-only by design (bulkhead)
     return (flavor_a, flavor_b, doc_path) in allow_set
 
 
@@ -446,6 +427,20 @@ def check_flavor_parity(root, _allow_set=None):
         ("claude-code", cc_docs, "copilot",     cp_docs),
         ("root",        rt_docs, "copilot",     cp_docs),
     ]
+
+    # ── codex flavor (v3.55): ported from claude-code, docs mirror copilot's
+    # set plus docs/design/codex-flavor-design.md. Guarded by codex/ presence
+    # (a consumer or a pre-v3.55 monorepo has no codex/ dir — skip then, like
+    # the copilot_root guard above). When present, compare codex against every
+    # other flavor so four-flavor docs parity is enforced.
+    codex_root = os.path.join(root, "codex")
+    if os.path.isdir(codex_root):
+        cx_docs = _docs_filenames(root, codex_root)
+        pairs += [
+            ("root",        rt_docs, "codex", cx_docs),
+            ("claude-code", cc_docs, "codex", cx_docs),
+            ("copilot",     cp_docs, "codex", cx_docs),
+        ]
     for fa, fa_docs, fb, fb_docs in pairs:
         # files in fa but not fb
         for doc in sorted(fa_docs - fb_docs):
@@ -535,7 +530,7 @@ def check_links(root):
 # relocated doc." A shipped doc linking a target that never ships would dangle
 # in a consumer install. We reuse the build gate's EXCLUDED_PATH_PREFIXES as the
 # single exclusion source — no second hardcoded copy (clean-room-design §4).
-_SHIPPED_FLAVORS = ("", "claude-code", "copilot")  # "" == repo-root (the dogfood flavor)
+_SHIPPED_FLAVORS = ("", "claude-code", "codex", "copilot")  # "" == repo-root (the dogfood flavor)
 
 # Exclude-and-seed targets (clean-room-design §4 / v3.39 §2): excluded at the
 # ship gates (Grimoire's own copy never ships) BUT a consumer receives an empty
@@ -590,7 +585,10 @@ def check_shipped_pointers(root):
         if not os.path.isdir(docs_dir):
             continue
         for p in glob.glob(f"{docs_dir}/**/*.md", recursive=True):
-            # Source surface excludes the docs/grimoire/** subtree (never ships).
+            # Source surface excludes never-ships subtrees: docs/grimoire/** and
+            # (v3.45) the relocated docs/release-planning/** tier. Links *from*
+            # inside an excluded doc are never consumer-visible, so they cannot
+            # dangle in a consumer install.
             src_rel = os.path.relpath(p, flavor_root).replace(os.sep, "/")
             if src_rel.startswith(("docs/grimoire/", "docs/release-planning/")):
                 continue
@@ -736,8 +734,20 @@ def check_docs_map(root, write=False):
 VER_RE = re.compile(r"^##\s+v(\d+\.\d+)", re.M)
 def check_release_consistency(root):
     findings = []
-    vh = open(f"{root}/docs/version-history.md").read()
-    rm = open(f"{root}/docs/roadmap.md").read()
+    # The release-consistency surface (version-history, roadmap, feature-manifest,
+    # config) is framework-owned and seeded by bootstrap.  A downstream project
+    # that has not adopted one of these files should report it as a finding, not
+    # crash with an unhandled FileNotFoundError (#183 consumer-mode robustness).
+    vh_path = f"{root}/docs/version-history.md"
+    rm_path = f"{root}/docs/roadmap.md"
+    if not os.path.exists(vh_path):
+        findings.append("docs/version-history.md missing — release consistency cannot be checked")
+        return findings
+    if not os.path.exists(rm_path):
+        findings.append("docs/roadmap.md missing — release consistency cannot be checked")
+        return findings
+    vh = open(vh_path).read()
+    rm = open(rm_path).read()
     hist = set(VER_RE.findall(vh))
     # roadmap shipped versions: a vX.Y section whose body says Shipped/released
     shipped = set()
@@ -747,12 +757,20 @@ def check_release_consistency(root):
     for v in sorted(hist - shipped, key=lambda s: tuple(map(int, s.split(".")))):
         findings.append(f"v{v} in version-history but not marked Shipped in roadmap")
     # manifest-version monotonic int + framework-version >= newest shipped
-    mani = open(f"{root}/.claude/skills/grm-sync-from-upstream/feature-manifest.md").read()
-    mv = re.search(r"manifest-version:\s*(\d+)", mani)
-    if not mv:
-        findings.append("feature-manifest.md: no integer manifest-version")
-    cfg = json.load(open(f"{root}/.claude/grimoire-config.json"))
-    fw = cfg.get("framework-version", "").lstrip("v")
+    mani_path = f"{root}/.claude/skills/grm-sync-from-upstream/feature-manifest.md"
+    if os.path.exists(mani_path):
+        mani = open(mani_path).read()
+        mv = re.search(r"manifest-version:\s*(\d+)", mani)
+        if not mv:
+            findings.append("feature-manifest.md: no integer manifest-version")
+    cfg_path = f"{root}/.claude/grimoire-config.json"
+    fw = ""
+    if os.path.exists(cfg_path):
+        try:
+            cfg = json.load(open(cfg_path))
+            fw = cfg.get("framework-version", "").lstrip("v")
+        except (ValueError, AttributeError):
+            findings.append(".claude/grimoire-config.json: unreadable or malformed framework-version")
     if hist:
         newest = max(hist, key=lambda s: tuple(map(int, s.split("."))))
         if fw and tuple(map(int, fw.split("."))) < tuple(map(int, newest.split("."))):
@@ -760,7 +778,7 @@ def check_release_consistency(root):
     return findings
 
 
-# ── Check 5b: feature-manifest detect-predicate hygiene (#135) ──────
+# ── Check 5b: feature-manifest detect-predicate hygiene (#135) ──────────
 def check_manifest_detect_hygiene(root):
     """A feature-manifest DETECT predicate must reference only artifacts that
     are actually distributed to a consumer (skills, scripts, config). It must
@@ -1648,6 +1666,77 @@ def self_test():
         _sh26.rmtree(t26, ignore_errors=True)
     cases.append(("anti-patterns reference-stub bullet is never measured", len(f26) == 0))
 
+    # ── Consumer-mode regression tests (#149/#155/#164/#167) ─────────────
+    # 27. find_root on a no-flavor root (CLAUDE.md only, no claude-code/ or copilot/)
+    #     must return consumer_mode=True and not raise SystemExit.
+    tmp_consumer = _tmpmod.mkdtemp()
+    try:
+        open(_os.path.join(tmp_consumer, "CLAUDE.md"), "w").write("# consumer project\n")
+        root_c, mode_c = find_root(tmp_consumer)
+        cases.append(("find_root on no-flavor root returns consumer_mode=True",
+                       root_c == tmp_consumer and mode_c is True))
+    except SystemExit:
+        cases.append(("find_root on no-flavor root returns consumer_mode=True", False))
+    finally:
+        shutil.rmtree(tmp_consumer, ignore_errors=True)
+
+    # 28. find_root on a framework monorepo root (has claude-code/) returns consumer_mode=False.
+    tmp_fw = _tmpmod.mkdtemp()
+    try:
+        open(_os.path.join(tmp_fw, "CLAUDE.md"), "w").write("# framework\n")
+        _os.makedirs(_os.path.join(tmp_fw, "claude-code"), exist_ok=True)
+        root_fw, mode_fw = find_root(tmp_fw)
+        cases.append(("find_root on framework monorepo returns consumer_mode=False",
+                       root_fw == tmp_fw and mode_fw is False))
+    except SystemExit:
+        cases.append(("find_root on framework monorepo returns consumer_mode=False", False))
+    finally:
+        shutil.rmtree(tmp_fw, ignore_errors=True)
+
+    # ── Noir paradigm strict-gate detect regression (#171) ────────────────
+    # 29. Simulate a Noir paradigm install: the installed grm-release-phase-merge
+    #     SKILL.md (sourced from .claude/paradigms/noir/release-phase-merge-SKILL.md)
+    #     must contain the strict-gate text so the doc-assurance-strict-gate
+    #     feature-manifest detect predicate passes on a Noir consumer.
+    tmp_noir = _tmpmod.mkdtemp()
+    try:
+        # Build a minimal consumer tree with the Noir paradigm source installed
+        # as the active skill (simulating grm-work-paradigm-switch Noir output).
+        skill_dir = _os.path.join(tmp_noir, ".claude", "skills", "grm-release-phase-merge")
+        _os.makedirs(skill_dir, exist_ok=True)
+        # Write a file that mimics the Noir paradigm source — must contain the strict-gate text.
+        noir_skill_content = (
+            "---\nname: release-phase-merge\ndescription: Noir merge skill.\n---\n\n"
+            "# Release phase merge (Noir)\n\n"
+            "## Per-branch merge procedure\n\n"
+            "### 3b. Doc-assurance --strict gate (v3.36+)\n\n"
+            "Run `python3 .claude/skills/grm-doc-assurance/doc_assurance.py --strict`.\n"
+        )
+        open(_os.path.join(skill_dir, "SKILL.md"), "w").write(noir_skill_content)
+        # The detect predicate: grep for 'Doc-assurance --strict gate' or '§3b'
+        installed = open(_os.path.join(skill_dir, "SKILL.md")).read()
+        detect_passes = ("Doc-assurance --strict gate" in installed or "§3b" in installed)
+        cases.append(("Noir-installed release-phase-merge SKILL passes strict-gate detect (#171)",
+                       detect_passes))
+    finally:
+        shutil.rmtree(tmp_noir, ignore_errors=True)
+
+    # 30. check_release_consistency on a downstream project missing the
+    #     framework release-surface docs must report a finding, not raise
+    #     FileNotFoundError (#183 consumer-mode robustness).
+    tmp_dl = _tmpmod.mkdtemp()
+    try:
+        _os.makedirs(_os.path.join(tmp_dl, "docs"), exist_ok=True)
+        open(_os.path.join(tmp_dl, "CLAUDE.md"), "w").write("# downstream\n")
+        try:
+            f30 = check_release_consistency(tmp_dl)
+            cases.append(("release-consistency on bare downstream reports, no crash",
+                           any("version-history" in x for x in f30)))
+        except FileNotFoundError:
+            cases.append(("release-consistency on bare downstream reports, no crash", False))
+    finally:
+        shutil.rmtree(tmp_dl, ignore_errors=True)
+
     lines, passed, failed = [], 0, 0
     for label, ok in cases:
         lines.append(f"  {'PASS' if ok else 'FAIL'}: {label}")
@@ -1668,9 +1757,17 @@ def main():
         sys.exit(1 if failed else 0)
     strict = "--strict" in args
     write = "--write-map" in args
-    root = find_root(".")
     if "--root" in args:
-        root = os.path.abspath(args[args.index("--root") + 1])
+        idx = args.index("--root")
+        root = os.path.abspath(args[idx + 1])
+        has_cc = os.path.isdir(os.path.join(root, "claude-code"))
+        has_cp = os.path.isdir(os.path.join(root, "copilot"))
+        consumer_mode = not has_cc and not has_cp
+    else:
+        root, consumer_mode = find_root(".")
+    if consumer_mode:
+        print("doc-assurance: consumer-mode (no flavor dirs detected) — "
+              "flavor-parity, manifest-detect-hygiene, shipped-pointers skipped.")
 
     # Determine dial value for check 7 + 8 (relative-links and hierarchy).
     # --strict escalates warn->block, but an explicit 'off' stays off — a project
@@ -1679,10 +1776,17 @@ def main():
     if strict and dial != "off":
         dial = "block"
 
+    # Checks that require the framework monorepo layout (claude-code/ or copilot/
+    # flavor dirs present).  Skipped with a notice in consumer-mode.
+    _FRAMEWORK_ONLY_CHECKS = frozenset({"flavor-parity", "manifest-detect-hygiene", "shipped-pointers"})
+
     named = [a for a in args if a in CHECKS] or CHECKS
     total = 0
     hierarchy_findings_count = 0
     for c in named:
+        if consumer_mode and c in _FRAMEWORK_ONLY_CHECKS:
+            print(f"[{c}] skipped (consumer-mode)")
+            continue
         if c == "flavor-parity":         f = check_flavor_parity(root)
         elif c == "design-layout":       f = check_design_layout(root)
         elif c == "links":               f = check_links(root)

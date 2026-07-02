@@ -1,0 +1,585 @@
+/* ==========================================================================
+   Aura — navigation header EXTRAS stylesheet (opt-in; #395, v3.23).
+
+   Companion to js/nav-header-extras.js: the styles for the design-language-
+   flavoured nav opt-ins that the core css/nav-header.css deliberately does
+   NOT ship — notification bell, chord-navigation HUD, recently-visited panel
+   section (+ empty state), copy-link overlay, sticky total-unread chip,
+   accent colour picker, and panel sort controls.
+
+   NOT part of the css/aura.css barrel or the default dist bundle. Load it
+   AFTER the barrel, only on pages that use an extra:
+
+     <link rel="stylesheet" href="aura/css/aura.css" />
+     <link rel="stylesheet" href="aura/css/nav-header-extras.css" />
+
+   Dist consumers: dist/aura-nav-extras.css (see dist/SRI.txt for its hash).
+
+   All rules live in @layer aura.nav-extras — declared after the barrel's
+   layers, so extras win over core nav rules on equal specificity while any
+   consumer CSS authored WITHOUT @layer still automatically overrides them
+   (same consumer contract as the rest of Aura). The shared keyframes the
+   core owns (e.g. aura-nav-empty-fade) resolve by name across layers.
+   See docs/design/nav-header-design.md §Core / extras split.
+   ========================================================================== */
+@layer aura.nav-extras {
+
+/* ---- Notification bell in user zone ------------------------------------- */
+/* Empty <button class="aura-nav-bell"> — icon from ::before; the unread dot
+   is a REAL child span (.aura-nav-bell-dot, injected by JS) rather than
+   ::after, which the glow engine owns now that the bell is a .aura-glow host
+   (#409/#391). [data-unread] activates the ring animation; JS keeps the dot
+   and the aria-label in sync with the count. */
+.aura-nav-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--aura-control-height-md, 2.5rem);
+  block-size: var(--aura-control-height-md, 2.5rem);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--aura-radius-full);
+  color: var(--aura-text-muted);
+  font-size: 1.1rem;
+  -webkit-appearance: none;
+  appearance: none;
+  transition:
+    background var(--aura-dur-fast, 100ms) var(--aura-ease-standard),
+    color      var(--aura-dur-fast, 100ms) var(--aura-ease-standard);
+}
+.aura-nav-bell:hover,
+.aura-nav-bell:focus-visible {
+  background: color-mix(in oklch, var(--aura-text) 6%, transparent);
+  color: var(--aura-text);
+  outline: none;
+}
+.aura-nav-bell:focus-visible {
+  box-shadow: 0 0 0 2px var(--aura-primary-a25, var(--aura-accent));
+}
+/* Compact detection radius — icon-sized control (#409). */
+.aura-nav-bell {
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+}
+/* Bell icon: currentColor mask (theme-aware), not an emoji glyph — emoji
+   ignore currentColor and render differently per platform (#426). Same
+   sprite path as Aura.icons "bell"; the ring keyframe still rotates it. */
+.aura-nav-bell::before {
+  content: "";
+  inline-size: 1em;
+  block-size: 1em;
+  display: block;
+  background: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9'/%3E%3Cpath d='M13.73 21a2 2 0 0 1-3.46 0'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9'/%3E%3Cpath d='M13.73 21a2 2 0 0 1-3.46 0'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+          mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  transform-origin: 50% 0%;
+}
+@keyframes aura-nav-bell-ring {
+  0%   { transform: rotate(0deg); }
+  10%  { transform: rotate(18deg); }
+  20%  { transform: rotate(-16deg); }
+  30%  { transform: rotate(12deg); }
+  40%  { transform: rotate(-8deg); }
+  50%  { transform: rotate(4deg); }
+  60%  { transform: rotate(-2deg); }
+  70%  { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+.aura-nav-bell[data-unread]::before {
+  animation: aura-nav-bell-ring calc(var(--aura-dur-ambient) * 0.625) var(--aura-ease-out, ease-out) both;
+}
+.aura-nav-bell .aura-nav-bell-dot {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 4px;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-accent);
+  border: 1.5px solid var(--aura-surface-3, transparent);
+  pointer-events: none;
+  animation: aura-nav-bell-dot calc(var(--aura-dur-ambient) * 1.5625) ease-in-out infinite;
+}
+@keyframes aura-nav-bell-dot {
+  0%,  100% { transform: scale(1);    opacity: 1;   }
+  50%        { transform: scale(0.75); opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-nav-bell::before { animation: none; }
+  .aura-nav-bell .aura-nav-bell-dot { animation: none; }
+}
+
+/* Bell replay animation (nav r20-5): JS adds .aura-nav-bell-new when the
+   [data-unread] count increases; this re-triggers the shake so the user
+   notices new notifications arriving while the panel is closed.
+   animation-fill-mode:none here so the bell returns to rest after playing —
+   the static [data-unread]::before rule (fill-mode:both) keeps the last
+   frame alive as long as unread > 0.  We use `forwards` on the class rule
+   to hold the final frame until JS removes the class at animationend.       */
+.aura-nav-bell.aura-nav-bell-new::before {
+  animation: aura-nav-bell-ring calc(var(--aura-dur-ambient) * 0.5) var(--aura-ease-out, ease-out) forwards;
+}
+
+
+/* ---- Chord navigation HUD (nav r17-6) ----------------------------------------
+   When a chord leader key (G) is pressed, JS sets [data-nav-chord-pending="G"]
+   on each .aura-nav-header. This shows a small glass pill in the lower-right of
+   the bar that reads "G → …" to signal the chord is waiting for the second key.
+   The pill auto-hides after 1.5 s (JS removes the attribute). The attr() value
+   is the leader key label that was pressed. */
+.aura-nav-header[data-nav-chord-pending]::after {
+  content: attr(data-nav-chord-pending) " → \2026"; /* "G → …" */
+  position: fixed;
+  inset-block-end: var(--aura-space-4);
+  inset-inline-end: var(--aura-space-4);
+  z-index: calc(var(--aura-z-menu) + 5);
+  padding: var(--aura-space-1) var(--aura-space-3);
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-semibold);
+  font-family: var(--aura-font-mono, monospace);
+  color: var(--aura-accent);
+  background: color-mix(in oklch, var(--aura-nav-panel-surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+          backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+  border: 1px solid color-mix(in oklch, var(--aura-accent) 35%, transparent);
+  border-radius: var(--aura-radius-md);
+  box-shadow: var(--aura-shadow-2, 0 2px 8px rgba(0,0,0,.2));
+  animation: aura-chord-hud-in var(--aura-dur-fast) var(--aura-ease-out) both;
+  pointer-events: none;
+  letter-spacing: 0.04em;
+}
+@keyframes aura-chord-hud-in {
+  from { opacity: 0; scale: 0.85; translate: 0 6px; }
+  to   { opacity: 1; scale: 1;    translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-nav-header[data-nav-chord-pending]::after { animation: none; }
+}
+@media (forced-colors: active) {
+  .aura-nav-header[data-nav-chord-pending]::after {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+}
+
+
+/* ---- Panel "recently visited" section (nav r12-r4) ----------------------- */
+.aura-nav-recently-visited {
+  border-block-end: 1px solid color-mix(in oklch, var(--aura-surface-stroke) 50%, transparent);
+  padding-block-end: var(--aura-space-1);
+  margin-block-end: var(--aura-space-1);
+}
+.aura-nav-recently-visited:empty,
+.aura-nav-recently-visited[hidden] { display: none; }
+.aura-nav-recently-visited [role="menuitem"]::before {
+  content: "⏱";
+  font-size: 0.8em;
+  opacity: 0.5;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-inline-end: calc(-1 * var(--aura-space-1));
+}
+
+/* ---- Recent panel empty state (nav r20-6) --------------------------------
+   Shown inside a [data-nav-recent] panel when the session has no browsing
+   history AND the panel contains no visible (non-filtered) items.
+   Fades in via the shared aura-nav-empty-fade keyframe.                    */
+.aura-nav-recent-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--aura-space-1);
+  padding: var(--aura-space-4) var(--aura-space-3);
+  text-align: center;
+  animation: aura-nav-empty-fade var(--aura-dur-base) var(--aura-ease-standard) both;
+}
+.aura-nav-recent-empty-icon {
+  font-size: 2rem;
+  line-height: 1;
+  opacity: 0.5;
+  display: block;
+  margin-block-end: var(--aura-space-1);
+}
+.aura-nav-recent-empty-msg {
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text-muted);
+  margin: 0;
+}
+.aura-nav-recent-empty-sub {
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+  margin: 0;
+}
+/* "Browse to get started" CTA link. */
+.aura-nav-recent-empty-cta {
+  color: var(--aura-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--aura-accent) 50%, transparent);
+  text-underline-offset: 2px;
+  font-size: inherit;
+}
+.aura-nav-recent-empty-cta:hover {
+  text-decoration-color: var(--aura-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-nav-recent-empty { animation: none; }
+}
+
+
+/* ---- Copy-link button on panel menu items (nav r20-7) --------------------
+   Hovering a [role="menuitem"] that has an href shows a faint copy-icon button
+   at the inline-end edge.  Clicking it copies the href to the clipboard without
+   navigating.  The button is injected by JS (ensureCopyBtn) and styled here.
+
+   Design (#383):
+   • OPT-IN per panel via [data-nav-copy-link]; injected as an aria-hidden,
+     non-interactive <span> (delegated click) so the anchor stays the single
+     interactive/named target — no nested-interactive, no accname pollution.
+   • position:absolute so it overlays the item without shifting layout; the
+     parent gains position:relative via the :has() rule below (no JS inline
+     styles).
+   • Appears only on :hover / :focus-within of the parent menuitem via opacity.
+   • Its own .aura-glow host at the compact radius — the glow affordance reads
+     on the overlay, and the parent's rim flood is cancelled while it is
+     hovered (see below) so a full-rim glow never promises navigation when the
+     click copies.
+   • After a successful copy, a transient [data-copied] attribute swaps the
+     icon glyph to "✓" for 1.5s via content: attr() fallback.
+   • coarse pointers: suppressed entirely — at 24px it sat far below the
+     --aura-tap-min contract and stole navigation taps.                       */
+
+/* Anchor the absolute overlay without a JS inline-style write. */
+.aura-nav-header [role="menuitem"]:has(> .aura-nav-copy-btn),
+[data-aura-nav-portal] [role="menuitem"]:has(> .aura-nav-copy-btn) {
+  position: relative;
+}
+
+.aura-nav-copy-btn {
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--aura-space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+  opacity: 0;
+  border-radius: var(--aura-radius-xs);
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  transition:
+    opacity  var(--aura-dur-fast) var(--aura-ease-standard),
+    color    var(--aura-dur-fast) var(--aura-ease-standard),
+    background var(--aura-dur-fast) var(--aura-ease-standard);
+  /* Ensure it stacks above the item text without the parent needing
+     position:relative — the parent already has it from other rules. */
+  z-index: 1;
+}
+
+/* Show on parent hover / focus-within. */
+.aura-nav-header [role="menuitem"]:hover .aura-nav-copy-btn,
+.aura-nav-header [role="menuitem"]:focus-within .aura-nav-copy-btn,
+[data-aura-nav-portal] [role="menuitem"]:hover .aura-nav-copy-btn,
+[data-aura-nav-portal] [role="menuitem"]:focus-within .aura-nav-copy-btn {
+  opacity: 0.55;
+}
+
+.aura-nav-copy-btn:hover {
+  opacity: 1 !important;
+  color: var(--aura-text);
+  background: color-mix(in oklch, var(--aura-text) 8%, transparent);
+}
+
+/* Copied confirmation: swap the sprite icon for a check mark (#426 — the
+   base glyph is an injected currentColor <svg>, hidden while copied). */
+.aura-nav-copy-btn[data-copied]::before {
+  content: "✓";
+  color: var(--aura-accent);
+}
+.aura-nav-copy-btn[data-copied] .aura-icon { display: none; }
+
+/* #383: hovering the copy overlay must not flood the PARENT item's rim — a
+   full-rim glow on the anchor promises navigation while the click copies.
+   The overlay is an ancestor-:hover, so glow.css's `.aura-glow:hover` flood
+   (spot → flood, ::after opacity → 1) also fires on the anchor; zero the
+   shine-strength dial AND restore the proximity opacity formula so the parent
+   falls back to its resting rim while the overlay (its own glow host)
+   carries the hover affordance. */
+.aura-nav-header [role="menuitem"]:has(.aura-nav-copy-btn:hover),
+[data-aura-nav-portal] [role="menuitem"]:has(.aura-nav-copy-btn:hover) {
+  --aura-edge-shine-strength: 0;
+}
+.aura-nav-header [role="menuitem"].aura-glow:has(.aura-nav-copy-btn:hover):not([loading])::after,
+[data-aura-nav-portal] [role="menuitem"].aura-glow:has(.aura-nav-copy-btn:hover):not([loading])::after {
+  opacity: calc(var(--aura-glow-intensity, 0) * var(--aura-edge-shine-max) * var(--aura-edge-shine-strength));
+}
+
+/* Coarse pointers: suppress the overlay (#383). A 24px pointer-hover control
+   has no place on touch — it sat permanently semi-visible below the 44px
+   --aura-tap-min and intercepted navigation taps. */
+@media (hover: none), (pointer: coarse) {
+  .aura-nav-copy-btn { display: none; }
+}
+
+
+/* ---- Sticky total-unread mini-badge (nav r14-r5) ------------------------
+   JS scans all [data-unread="N"] sources within the header and sums them.
+   The total is written to a .aura-nav-total-unread chip that is injected
+   once into [data-nav-zone="start"] (or the first zone in the header) as a
+   sticky pill anchored to the top-end corner of the zone container.
+
+   The chip is position:absolute relative to its zone container (which gets
+   position:relative). It counts ALL [data-unread] sources — notification
+   bell, nav items, badges — and hides itself when total === 0.             */
+.aura-nav-total-unread {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--aura-space-1, 0.25rem));
+  inset-inline-end: calc(-1 * var(--aura-space-1, 0.25rem));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.25em;
+  block-size: 1.25em;
+  padding-inline: 0.3em;
+  border-radius: 999px;
+  font-size: 0.65em;
+  font-weight: var(--aura-weight-medium, 500);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  background: var(--aura-accent);
+  color: oklch(1 0 0); /* white — accent is always dark enough */
+  border: 2px solid var(--aura-surface-solid);
+  pointer-events: none;
+  z-index: 2;
+  /* Entrance animation: scale up from center. */
+  transform-origin: center;
+}
+@keyframes aura-total-unread-enter {
+  from { transform: scale(0.5); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+.aura-nav-total-unread[data-unread-visible] {
+  animation: aura-total-unread-enter var(--aura-dur-base) var(--aura-ease-spring) both;
+}
+.aura-nav-total-unread[hidden] { display: none; }
+/* Make sure the zone container establishes a positioning context. */
+.aura-nav-header [data-nav-zone] {
+  position: relative;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-nav-total-unread[data-unread-visible] { animation: none; }
+}
+@media (forced-colors: active) {
+  .aura-nav-total-unread { background: Highlight; color: HighlightText; border-color: ButtonFace; }
+}
+
+
+/* ---- Accent color picker (nav r16-7) ----------------------------------------
+   JS injects a .aura-nav-accent-swatch button into [data-nav-zone="user"] on
+   headers with [data-nav-accent-picker]. Clicking it opens a .aura-nav-accent-flyout
+   dialog with 5 circular preset swatches. The chosen accent is applied to :root. */
+.aura-nav-accent-swatch {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--aura-accent);
+  border: 2px solid color-mix(in oklch, var(--aura-accent) 60%, transparent);
+  border-radius: var(--aura-radius-full);
+  inline-size: 1.35rem;
+  block-size: 1.35rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--aura-dur-fast) var(--aura-ease-standard), box-shadow var(--aura-dur-fast);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--aura-accent) 35%, transparent);
+}
+.aura-nav-accent-swatch:hover {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--aura-accent) 35%, transparent);
+}
+.aura-nav-accent-swatch:focus-visible {
+  outline: 2px solid var(--aura-accent);
+  outline-offset: 2px;
+}
+
+/* Accent flyout — fixed-positioned popover, anchored by JS. */
+.aura-nav-accent-flyout {
+  position: fixed;
+  z-index: calc(var(--aura-z-sticky) + 20);
+  padding: var(--aura-space-3);
+  background: var(--aura-nav-panel-surface);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-lg);
+  box-shadow: var(--aura-nav-panel-shadow), inset 0 1px 0 var(--aura-edge-light);
+  -webkit-backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+  backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+  animation: --aura-accent-flyout-in var(--aura-dur-fast) var(--aura-ease-out, ease-out) both;
+}
+.aura-nav-accent-flyout[hidden] { display: none; }
+@keyframes --aura-accent-flyout-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.aura-nav-accent-flyout-inner {
+  display: flex;
+  gap: var(--aura-space-2);
+}
+
+/* Individual preset swatch buttons. */
+.aura-nav-accent-option {
+  /* JS writes the preset hex into --aura-accent-preview per swatch (a data
+     value, not styling); the accent seam is the no-JS default. */
+  --aura-accent-preview: var(--aura-accent);
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--aura-accent-preview);
+  border: 2px solid transparent;
+  border-radius: var(--aura-radius-full);
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  cursor: pointer;
+  transition: transform var(--aura-dur-fast) var(--aura-ease-standard), border-color var(--aura-dur-fast);
+}
+.aura-nav-accent-option:hover {
+  transform: scale(1.15);
+}
+.aura-nav-accent-option:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.aura-nav-accent-option[aria-pressed="true"] {
+  border-color: white;
+  box-shadow: 0 0 0 2px var(--aura-accent-preview);
+  transform: scale(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-nav-accent-swatch,
+  .aura-nav-accent-option { transition: none; transform: none !important; }
+  .aura-nav-accent-flyout { animation: none; }
+}
+@media (forced-colors: active) {
+  .aura-nav-accent-swatch { background: Highlight; border-color: ButtonBorder; }
+  .aura-nav-accent-flyout { background: Canvas; border-color: CanvasText; }
+  .aura-nav-accent-option { background: Highlight; border-color: ButtonBorder; }
+}
+
+
+/* ---- Panel sort controls (nav r19-9) ---------------------------------------
+   A compact toolbar injected at the top of [data-nav-sortable] panels by
+   js/nav-header.js.  Two segmented toggle buttons — "A–Z" and "Recent" — let
+   users sort panel items alphabetically or restore original DOM order.
+
+   The toolbar uses a pill-shaped segmented control aesthetic that matches the
+   glass surface of the panel without drawing attention away from the items. */
+
+.aura-nav-sort-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-block: var(--aura-space-2);
+  padding-inline: var(--aura-space-2);
+  border-block-end: 1px solid var(--aura-surface-stroke);
+  margin-block-end: var(--aura-space-1);
+}
+
+.aura-nav-sort-btn {
+  flex: 0 0 auto;
+  padding-block: 3px;
+  padding-inline: var(--aura-space-3);
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--aura-radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--aura-nav-header-menu-duration-fast) var(--aura-ease-out),
+    background var(--aura-nav-header-menu-duration-fast) var(--aura-ease-out),
+    border-color var(--aura-nav-header-menu-duration-fast) var(--aura-ease-out);
+}
+.aura-nav-sort-btn:hover {
+  color: var(--aura-text);
+  background: var(--aura-surface-2);
+}
+.aura-nav-sort-btn[aria-pressed="true"] {
+  color: var(--aura-text);
+  background: var(--aura-surface-2);
+  border-color: var(--aura-surface-stroke);
+}
+.aura-nav-sort-btn:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: 1px;
+}
+
+
+/* Opaque fallback (#399): chord HUD + accent flyout render as solid panels on
+   engines without backdrop-filter, mirroring the nav-header panel fallbacks. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-nav-header[data-nav-chord-pending]::after,
+  .aura-nav-accent-flyout {
+    background: var(--aura-nav-panel-surface-solid);
+  }
+}
+
+
+/* Lite effects mode (#401): chord HUD + accent flyout go opaque, no blur. */
+[data-aura-effects="lite"] .aura-nav-header[data-nav-chord-pending]::after,
+[data-aura-effects="lite"] .aura-nav-accent-flyout {
+  background: var(--aura-nav-panel-surface-solid);
+  -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+}
+
+/* #700: the accent flyout is a fixed glass popover that paints a real blur over
+   content, but it was absent from BOTH media accommodations (it is neither a
+   [role="menu"] nor a portal, so the core nav contrast block missed it). Drop
+   the blur and raise it to the opaque panel seam for reduced-transparency AND
+   increased-contrast users, mirroring its lite / @supports treatment above.
+   #722: unlike the rest of the nav glass family, the accent flyout's CANONICAL
+   resting / lite / @supports recipe carries NO --aura-glass-tint-layer (it paints
+   the bare --aura-nav-panel-surface), so it stays untinted here too — matching
+   its reference treatment rather than introducing a tint it never had. */
+@media (prefers-reduced-transparency: reduce) {
+  .aura-nav-accent-flyout {
+    background: var(--aura-nav-panel-surface-solid);
+    -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .aura-nav-accent-flyout {
+    background: var(--aura-nav-panel-surface-solid);
+    -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+    border-color: var(--aura-text-muted);
+  }
+}
+
+/* ---- Coarse-pointer tap-min for the extras icon controls (#404) -----------
+   Same contract as the core block (css/nav-header.css): >= --aura-tap-min in
+   both axes on coarse pointers, box expansion (the bell's dot/icon pseudos
+   and the glow rim occupy ::before/::after), no fine-pointer change. */
+@media (pointer: coarse) {
+  .aura-nav-bell,
+  .aura-nav-accent-swatch,
+  .aura-nav-sort-btn {
+    min-inline-size: var(--aura-tap-min, 44px);
+    min-block-size: var(--aura-tap-min, 44px);
+  }
+}
+
+} /* @layer aura.nav-extras */

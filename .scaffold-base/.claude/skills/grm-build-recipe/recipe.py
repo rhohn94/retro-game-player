@@ -21,8 +21,8 @@ Parameter resolution (highest wins): CLI flag -> env var -> recipe default ->
 interface (Grimoire) default. The `server` target's `--port` defaults to the
 `GRIMOIRE_APP_PORT` env var (claimed by claim_port.py, #77) when present.
 
-Design authority: docs/design/build-recipe-interface-design.md
-(+ scripting-unification, docs/design/scripting-unification-design.md §3).
+Design authority: docs/grimoire/design/build-recipe-interface-design.md
+(+ scripting-unification, docs/grimoire/design/scripting-unification-design.md §3).
 
 Usage:
   recipe.py <target> [--port N] [--env dev|prod|test] [--filter S] [--fixture S]
@@ -67,7 +67,7 @@ INTERFACE = {
     "deploy":  {"desc": "install / self-update a deployed instance from a bundle",
                 "params": {"env": {"env": None, "default": "prod"}}},
     # v3 (dependency channel, DEP-CH-3): the consume side of the first-party
-    # dependency substrate (docs/design/dependency-channel-design.md §4/§5/§6).
+    # dependency substrate (docs/grimoire/design/dependency-channel-design.md §4/§5/§6).
     # `grm-sync-deps` reconciles/vendors deps from a release channel (resolve ->
     # download -> verify sha256 -> atomic-replace -> write vendor.lock); its
     # `mode` selects --check (drift-only) / --update (re-pin latest) / --offline
@@ -85,7 +85,7 @@ INTERFACE = {
     # asserts HTTP 2xx + correct Content-Type for each. Exits 0 on pass, nonzero
     # on failure. No browser required. Web/server stacks get a curl-based stub;
     # cli/library stacks leave it unimplemented (exit 2, advisory).
-    # Full spec: docs/design/runtime-verification-design.md.
+    # Full spec: docs/grimoire/design/runtime-verification-design.md.
     "smoke":    {"desc": "Boot app and verify entry page + critical assets return 2xx "
                          "with correct content-type. Exit 2 when unimplemented.",
                  "params": {"port": {"env": "GRIMOIRE_APP_PORT", "default": "3000"}}},

@@ -31,11 +31,11 @@ Documented behavior this engine CODIFIES (it invents no new semantics):
 
 File-write contract: writes ONLY `.claude/component-registry.json`, atomically
 (temp + os.replace). Never runs git, never mutates component code. The agent
-commits. Design: docs/design/scripting-unification-design.md §5 +
-docs/design/component-catalog-architecture-design.md (Pillars 1+2) +
+commits. Design: docs/grimoire/design/scripting-unification-design.md §5 +
+docs/grimoire/design/component-catalog-architecture-design.md (Pillars 1+2) +
 docs/design/mcp-expansion-audit.md rank 3.
 
-Standard: Python 3 stdlib-only (docs/design/scripting-unification-design.md §3).
+Standard: Python 3 stdlib-only (docs/grimoire/design/scripting-unification-design.md §3).
 
 CLI:
   component_registry.py build   [--root DIR] [--stdout]

@@ -1,6 +1,6 @@
 ---
 name: grm-architecture-audit
-description: Evaluate a managed project's architecture as deterministic fitness functions — read the declarative .claude/architecture-rules.json (layers, allowed dependency edges, forbidden imports, no-cycles) and report every violation (file:line — rule-id) over the project's import graph. Read-only report by default; an optional --gate escalates. Use when auditing architecture fitness or checking layer boundaries / dependency direction.
+description: Evaluate a managed project's architecture and standard structure as deterministic fitness functions from .claude/architecture-rules.json (layers, allowed edges, forbidden imports, no-cycles, structure block) — report each violation (file:line — rule-id) over the import graph and directory layout. Read-only by default; optional --gate escalates. Use when auditing architecture fitness, layer boundaries, or standard-structure conformance.
 ---
 
 # architecture-audit
@@ -28,6 +28,10 @@ schema):
   `pattern`, `severity`).
 - `forbid-cycles` — when true, any import cycle across layers/modules is a
   violation.
+- `structure` — the standard project layout (full contract:
+  `docs/project-structure.md`): `required` (top-level dirs that must exist),
+  `aliases` (nonstandard dir name → its standard home), `gitignored` (dirs that
+  must not be tracked by git). Absent → skip structure conformance (Step 3a).
 
 ## Step 2 — Resolve layers and extract imports
 
@@ -54,14 +58,33 @@ Map each imported symbol/path back to a layer (by the same globs / module roots)
 
 Each finding: `file:line — rule-id — message` plus the offending import.
 
+## Step 3a — Structure conformance (optional)
+
+If the ruleset has a `structure` block, evaluate the standard project layout as
+fitness functions over the top-level directory listing (and `git ls-files` for
+the tracked check). If absent, skip — report nothing.
+
+1. **`structure-required`** — for each name in `required` not present as a
+   top-level directory, emit a violation (`error`): `missing required directory`.
+2. **`structure-nonstandard`** — for each top-level directory whose name is a key
+   in `aliases`, emit a violation (`warn`): `rename <dir>/ → <aliases[dir]>/`.
+   (Covers `vendor/`→`lib/third-party/`, `test/`→`tests/`, …)
+3. **`structure-tracked-output`** — for each name in `gitignored` that git is
+   tracking (appears in `git ls-files`), emit a violation (`warn`):
+   `<dir>/ is build output and must not be committed`.
+
+Findings use the same `path — rule-id — message` shape. Remediation for
+nonstandard / output findings is the **`grm-structure-migrate`** skill.
+
 ## Step 4 — Report
 
 Emit a machine block + a human table:
 
 ```
-architecture-audit — 2 violation(s): 1 disallowed-edge (error), 1 forbidden-import (warn)
-  src/ui/Cart.tsx:4   no-sql-in-view (error)   presentation imports prisma
-  src/services/x.ts:9 allowed-edge   (error)   application → presentation not allowed
+architecture-audit — 3 violation(s): 1 disallowed-edge (error), 1 forbidden-import (warn), 1 nonstandard-dir (warn)
+  src/ui/Cart.tsx:4   no-sql-in-view (error)         presentation imports prisma
+  src/services/x.ts:9 allowed-edge   (error)         application → presentation not allowed
+  vendor/             structure-nonstandard (warn)   rename vendor/ → lib/third-party/
 ```
 
 ## Step 5 — Gate (optional)
@@ -76,5 +99,8 @@ reports (default), `block` stops the merge. Severity comes from each rule's
   graph — cheap, repeatable, language-agnostic. For deeper analysis, defer to a
   language-native tool and record it in the ruleset's notes.
 - Cite the same rule ids as `architecture-guidelines.md`
-  (`arch-dependency-direction`, `arch-public-surface`, …) so the narrative and
-  deterministic passes share one vocabulary.
+  (`arch-dependency-direction`, `arch-public-surface`, `arch-standard-layout`, …)
+  so the narrative and deterministic passes share one vocabulary.
+- Structure conformance (Step 3a) checks *top-level names and placement* against
+  `docs/project-structure.md`; in-`src/` layout is the job of
+  `coding-standards/*.md`, not this audit.

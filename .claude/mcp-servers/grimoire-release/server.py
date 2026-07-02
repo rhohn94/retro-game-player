@@ -11,7 +11,7 @@ Python 3 stdlib only).
 File-write-only contract: this server NEVER runs git mutations. It parses,
 computes, and edits the §5 ledger file only when asked via `tick_rows` (and the
 loop-state file via `advance_loop`); the AGENT commits. Design:
-docs/design/grimoire-release-server-design.md.
+docs/grimoire/design/grimoire-release-server-design.md.
 
 Registered by the project-root .mcp.json as `grimoire-release`:
     { "command": "python3",

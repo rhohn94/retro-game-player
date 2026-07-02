@@ -1,0 +1,131 @@
+/* ==========================================================================
+   Aura blueprint — Error Page  (templates/error-page.css)
+
+   A status / empty-state archetype for 404 / 403 / 500 / maintenance screens:
+   a vertically + horizontally centred column with a large status code, a
+   headline, an explanatory blurb, an action row, and an optional muted support
+   footnote. Built to sit inside the `content-page` substrate family — it reuses
+   tokens and the centred-column convention, adding only the centred error frame
+   and the oversized status code.
+
+   CASCADE LAYER: error-page  (declared in css/aura.css)
+   Sits above the core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply. Ordered
+   immediately after `dashboard-page`.
+
+   ── CANONICAL BEM SELECTORS ────────────────────────────────────────────────
+   .aura-error-page          Block  — outer wrapper; centres its content block
+                                      both axes and fills the available height.
+   .aura-error-page__inner   Element — the centred content column (constrained
+                                      width, stacked, centre-aligned).
+   .aura-error-page__code    Element — oversized status code (404 / 500 …),
+                                      rendered with the brand gradient.
+   .aura-error-page__title   Element — headline summarising the error.
+   .aura-error-page__lead    Element — muted explanatory paragraph.
+   .aura-error-page__actions Element — centred action row (Home, Back, Retry…).
+   .aura-error-page__support Element — small muted support / reference footnote.
+
+   ── TUNABLE CUSTOM PROPERTIES ──────────────────────────────────────────────
+   Override on any scope that wraps a .aura-error-page. Defaults sit on
+   :where(:root) so they carry zero specificity and override trivially.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Max inline size of the centred error content column. */
+  --aura-error-page-size: var(--aura-size-md);
+  /* Font size of the oversized status code. */
+  --aura-error-page-code-size: var(--aura-text-3xl);
+  /* The oversized code is trimmed below a 30rem CONTAINER width so it never
+     overflows. Keyed off the page's layout container (host aura-region/shell,
+     container-type: inline-size), not the viewport — a half-snapped window trims
+     the code like a phone. The breakpoint is the literal in the @container rule
+     below: a container-query feature value cannot read a custom property, so
+     this is NOT a runtime dial — retune it at the @container literal itself. */
+}
+
+/* ── .aura-error-page — full-height centring frame ──────────────────────── */
+.aura-error-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 100%;
+  padding: var(--aura-space-7) var(--aura-space-5);
+  box-sizing: border-box;
+}
+
+/* ── .aura-error-page__inner — centred content column ───────────────────── */
+.aura-error-page__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--aura-space-4);
+  inline-size: 100%;
+  max-inline-size: var(--aura-error-page-size);
+  text-align: center;
+}
+
+/* ── .aura-error-page__code — oversized status code ─────────────────────── */
+.aura-error-page__code {
+  margin: 0;
+  /* Scale the code well past the largest type token while staying token-based:
+     a unitless multiplier on the 3xl token keeps it re-skinnable. */
+  font-size: calc(var(--aura-error-page-code-size) * 2.5);
+  font-weight: var(--aura-weight-bold);
+  line-height: var(--aura-leading-tight);
+  letter-spacing: var(--aura-tracking-tight);
+  font-variant-numeric: tabular-nums;
+  /* Signature Aura primary→secondary diagonal, clipped to the glyphs. */
+  background: linear-gradient(135deg, var(--aura-primary), var(--aura-secondary));
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+/* ── .aura-error-page__title — headline ─────────────────────────────────── */
+.aura-error-page__title {
+  margin: 0;
+  font-size: var(--aura-text-2xl);
+  line-height: var(--aura-leading-tight);
+  color: var(--aura-text);
+}
+
+/* ── .aura-error-page__lead — explanatory blurb ─────────────────────────── */
+.aura-error-page__lead {
+  margin: 0;
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-lg);
+  line-height: var(--aura-leading-normal);
+}
+
+/* ── .aura-error-page__actions — centred action row ─────────────────────── */
+.aura-error-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aura-space-3);
+  margin-block-start: var(--aura-space-2);
+}
+
+/* ── .aura-error-page__support — muted reference footnote ───────────────── */
+.aura-error-page__support {
+  margin: 0;
+  color: var(--aura-text-subtle);
+  font-size: var(--aura-text-sm);
+}
+
+/* ── Narrow CONTAINER — trim the oversized code so it never overflows ────── */
+/* Unnamed query → keys off the nearest container ancestor (host
+   aura-region/shell, container-type: inline-size), so a half-snapped window
+   trims the code like a phone with no viewport rule. */
+@container (max-width: 30rem) {
+  .aura-error-page {
+    align-items: flex-start;
+    padding: var(--aura-space-6) var(--aura-space-4);
+  }
+
+  .aura-error-page__code {
+    font-size: calc(var(--aura-error-page-code-size) * 1.8);
+  }
+}

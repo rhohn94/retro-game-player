@@ -1,17 +1,18 @@
 {
-  "deps": {},
-  "schema_version": 1,
-  "submodules": {
+  "deps": {
     "aura": {
+      "artifact": "aura-v3.541.0.tar.gz",
+      "artifact_sha256": "sha256:f22f7c52f36296e85e76783b7367e0438ffad2ebd5e42c8a9d40ad82731cc502",
       "channel": "stable",
-      "consumes": "bindings/react",
-      "kind": "git-submodule",
-      "path": "vendor/aura",
-      "pin": "v3.20",
-      "reason": "design-language#858 — v3.20 release asset omits bindings/react; consumed from the source tree",
-      "repo": "rhohn94/design-language",
-      "sha": "83c50b3fa0014433abd0ce783ae5911b8a29f1d4",
-      "url": "https://github.com/rhohn94/design-language"
+      "git_sha": "d389da5cbabb1a4ee08834f2066b4631c867663b",
+      "release_json_sha256": "sha256:fd5019956cff6a480622a0c0a06a8ff8d1074605ae3b0ad543fd953dce813086",
+      "release_tag": "v3.541.0",
+      "release_url": "https://github.com/rhohn94/design-language/releases/tag/v3.541.0",
+      "signature_verified": false,
+      "synced_at": "2026-07-02T19:47:28Z",
+      "tree_sha256": "sha256:be8b9aa562664d4f9d618d38ca62271f9bd8808ad833a16ae1df6898b640026b",
+      "version": "3.541.0"
     }
-  }
+  },
+  "schema_version": 1
 }

@@ -2,8 +2,8 @@
 
 > Authority for the linter/formatter + pre-commit layer a managed project ships
 > with (v1.27). Complements the agent-driven `grm-coding-practices-audit` with fast,
-> deterministic, CI-runnable tools. Design:
-> [`grimoire/design/managed-project-tooling-design.md`](../grimoire/design/managed-project-tooling-design.md).
+> deterministic, CI-runnable tools. Design: the managed-project tooling spec,
+> maintained in the upstream Grimoire repo.
 
 ## Single source of truth
 

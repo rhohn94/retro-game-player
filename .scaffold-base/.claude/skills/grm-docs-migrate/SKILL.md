@@ -1,6 +1,6 @@
 ---
 name: grm-docs-migrate
-description: Detect and migrate old-style docs to the wiki hierarchy — detect mode classifies FLAT_TIER/ORPHAN/ABSOLUTE_LINK/PROSE_LINK/NO_BREADCRUMB findings; --apply archives then rewrites (breadcrumbs, relative links). Downstream-safe. Use when migrating docs or fixing breadcrumbs / absolute links.
+description: Detect and migrate old-style docs to the wiki hierarchy — detect mode classifies FLAT_TIER/ORPHAN/ABSOLUTE_LINK/PROSE_LINK/NO_BREADCRUMB findings; --apply archives then auto-resolves NO_BREADCRUMB (inserts breadcrumbs) and ABSOLUTE_LINK (rewrites to relative). PROSE_LINK/ORPHAN/FLAT_TIER are detection-only (manual fix). Downstream-safe. Use when migrating docs or fixing breadcrumbs / absolute links.
 ---
 
 # docs-migrate
@@ -30,13 +30,13 @@ python3 .claude/skills/grm-docs-migrate/docs_migrate.py
 Classifies every `docs/**/*.md` file (excluding exempt files and `README.md`
 index pages) into one or more finding codes:
 
-| Code | Meaning |
-|---|---|
-| `FLAT_TIER` | File sits directly in `docs/` with no tier subdirectory |
-| `ORPHAN` | File not reachable from `docs/README.md` via index links |
-| `ABSOLUTE_LINK` | Contains an internal link starting with `/` |
-| `PROSE_LINK` | Bare `` `filename.md` `` backtick ref to a known docs file |
-| `NO_BREADCRUMB` | Missing `> **Up:** [↑ ...]` breadcrumb within first ~10 lines |
+| Code | Meaning | `--apply` |
+|---|---|---|
+| `FLAT_TIER` | File sits directly in `docs/` with no tier subdirectory | detection-only |
+| `ORPHAN` | File not reachable from `docs/README.md` via index links | detection-only |
+| `ABSOLUTE_LINK` | Contains an internal link starting with `/` | auto-rewritten |
+| `PROSE_LINK` | Bare `` `filename.md` `` backtick ref to a known docs file | detection-only |
+| `NO_BREADCRUMB` | Missing `> **Up:** [↑ ...]` breadcrumb within first ~10 lines | auto-inserted |
 
 Exit 0 = no findings. Exit 1 = findings present. Exit 2 = error.
 
@@ -49,12 +49,18 @@ python3 .claude/skills/grm-docs-migrate/docs_migrate.py --apply
 1. Archives all affected files verbatim to `.grimoire-archive/<timestamp>/`
    + writes `MANIFEST.md` there.
 2. Inserts breadcrumb up-links (canonical WH-0 form) as the first non-blank,
-   non-heading content after the `# Title` line.
-3. Rewrites resolvable absolute/prose links to relative paths.
+   non-heading content after the `# Title` line (resolves `NO_BREADCRUMB`).
+3. Rewrites resolvable **absolute** internal links to relative paths
+   (resolves `ABSOLUTE_LINK`). **`PROSE_LINK`, `ORPHAN`, and `FLAT_TIER` are
+   detection-only — `--apply` does not rewrite or move them** (they need human
+   judgement on anchor/section, index wiring, and physical placement).
 4. Leaves `<!-- docs-migrate: UNRESOLVED <original> -->` for any ref that
    cannot be resolved — prints a loud banner and exits 1. **Never guesses,
    never deletes.**
-5. Idempotent — a second run on an already-migrated tree is a no-op.
+5. Prints a summary of any detection-only categories
+   (`PROSE_LINK`/`ORPHAN`/`FLAT_TIER`) it left untouched, so a clean `--apply`
+   is never mistaken for zero remaining findings.
+6. Idempotent — a second run on an already-migrated tree is a no-op.
 
 ### --self-test
 

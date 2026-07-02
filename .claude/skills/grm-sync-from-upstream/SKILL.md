@@ -26,13 +26,24 @@ placeholders in newly-added generic files, and deciding what to keep.
 ## Step 0 — Safety preconditions
 
 1. **Clean tree.** The script refuses `--apply` on a dirty git tree (commit or
-   stash first; `--force` only if you truly mean it).
+   stash first; `--force` only if you truly mean it). Only **tracked** changes
+   count as dirty — untracked files (gitignored archive/source dirs, scratch
+   output) never block `--apply` and need no flag (#143).
 2. **Backups.** On `--apply`, every rewritten file is copied to
    `.scaffold-sync-backup/<timestamp>/`. Git-ignore that directory.
 3. **Provenance.** The 3-way merge needs a *base* — a snapshot of the upstream
    state your local copy descends from, kept in `.scaffold-base/`. Commit
    `.scaffold-base/` and `.scaffold-upstream.conf` so the provenance travels
    with the repo.
+
+### BMI-3 boundary rules (where a sync may run)
+
+`--apply` runs only on the integration line (`branch-model.integration-branch`,
+default `dev`) and refuses when `main` carries work the line lacks (a real fork).
+By default the two lines must also be tree-identical; after a sync the line is
+normally one commit ahead of `main`, which blocks the next sync — pass
+**`--allow-ahead`** to permit a merely-ahead line (a genuine fork is still
+refused, #144/#146/#162/#173). Full rule + recovery: `reference.md` BMI-3 rules.
 
 ---
 
@@ -72,8 +83,9 @@ non-empty value, so set it once and it persists across future bootstrap runs.
 | `UPDATE`   | You never edited it; upstream changed. | Applied automatically (fast-forward). |
 | `local`    | You customized it; upstream unchanged. | Kept your version. |
 | `MERGED`   | Both changed, no overlap. | Auto-merged — review the combined diff. |
-| `CONFLICT` | Both changed the same region. | Git markers written on `--apply`; resolve by hand. Base is **not** advanced until you do. |
+| `CONFLICT` | Both changed the same region. | Git markers on `--apply`; resolve by hand, then advance the base (re-run, or `--mark-resolved`). |
 | `REVIEW`   | Differs, but no recorded base. | Kept local. Reconcile by hand, or `--adopt-base` if your copy already matches upstream. |
+| #180/#181  | Two never-blocking warnings (see Step 4). | Missing-symbol; resolved-but-stale-base. |
 
 ## Step 3 — Apply
 
@@ -90,10 +102,11 @@ their old base so a re-run finishes the job after you resolve them.
 
 ## Step 4 — Resolve and re-specialize
 
-- **CONFLICT files:** open each, resolve the `<<<<<<< local / ======= /
-  >>>>>>> upstream` markers (keep your customization, take upstream's
-  improvement, or blend), remove the markers, then re-run the script so the
-  base advances past the resolved file.
+- **CONFLICT files:** resolve the conflict markers, remove them, then advance the
+  base. A re-run advances it only if the result equals UPSTREAM; a *blended* or
+  permanently-diverged resolution re-conflicts, so advance that one file's base
+  with **`--mark-resolved <file>`** (surgical, unlike `--adopt-base`). Detail plus
+  the #180/#181 warnings: see `reference.md` Merge-walk warnings.
 - **NEW files:** they arrive **generic** (placeholder-laden). Re-specialize
   them for this project — fill `{test-command}`, `{build-command}`,
   `{release-command}`, doc-map rows, etc. Running the **`grm-workflow-bootstrap`**
@@ -134,40 +147,6 @@ Check the active paradigm in `.claude/grimoire-config.json` →
 If a manifest step reads or writes user data that existed before the sync, it
 is **migration** — never merge it into `adopt`. Migration is always offered
 separately, after adoption completes, with a backup before any data moves.
-
-## Step 4.55 — Complete the grm- skill namespacing (remove bare-named survivors)
-
-The file-walk **adds** the upstream `grm-*` skills but never deletes the old
-bare-named dirs (the sync is non-destructive). A project that predates v3.42
-therefore ends up holding BOTH `iterate/` and `grm-iterate/` after `--apply`,
-and its sessions keep surfacing the stale bare names. Complete the cutover here.
-This deterministic check is the **authority** — do not rely on the
-`skill-namespacing` feature-manifest detect alone, which can read a stale
-pre-rename manifest at the old `sync-from-upstream/` path and silently skip:
-
-```bash
-ls .claude/skills/ | grep -vE '^(grm-|README|_)' || echo "(none — cutover complete)"
-```
-
-If any survivor is listed, preview then **offer** the namespacing migrate
-(**NEVER auto-run** — it archives + removes user-referenceable dirs and rewrites
-references):
-
-```bash
-python3 .claude/skills/grm-sync-from-upstream/grm_namespacing.py --root . --dry-run
-```
-
-- **Noir:** offer once with a single confirmation, then run `--apply`.
-- **Supervised / Weiss:** offer per the same prompt; on No, re-offer next sync.
-
-`--apply` archives each stale dir to `.grimoire-archive/grm-namespacing-<ts>/`,
-removes it (the synced `grm-*` copy stays authoritative — it never nests
-`grm-<name>/<name>/`), and rewrites references per the two-tier rule. Re-run the
-`ls` check after; it must report none. Then refresh `.grimoire-source/` (next
-step) so the pristine source reflects the cleaned tree.
-
-**Under Stealth Mode:** suppress the offer (skill writes must not reach source
-control); leave survivors untouched.
 
 ## Step 4.6 — Refresh `.grimoire-source/`
 
@@ -222,14 +201,29 @@ No commits from this skill.
 
 ---
 
+## Feature manifest — v3.53 additions
+
+`manifest-version: 62`. v3.53 ships one new adoption feature:
+
+- **`standard-justfile-recipes`** — Justfile contract: `build`, `run`, and
+  `deploy` recipes with standard argument signatures. Projects with a `justfile`
+  that still carry a `grimoire:placeholder` marker on those recipes are offered
+  the adoption step, which instructs implementing them per
+  `docs/design/justfile-standard-design.md` and verifying with `grm-install-doctor`.
+
+---
+
 ## Reference (load on demand)
 
 - `When to use this skill` — see `reference.md`
 - `Anti-patterns` — see `reference.md`
 - `Stale-upstream rename detection (non-destructive)` — see `reference.md`
 - `Recognized sync artifact — `.claude/component-registry.json`` — see `reference.md`
+- `Merge-walk warnings (#180 / #181)` — see `reference.md`
 - `What the script tells you` — see `reference.md`
 - `How to evaluate the manifest` — see `reference.md`
 - `Advancing `framework-version`` — see `reference.md`
 - `Paradigm-file update caveat` — see `reference.md`
 - `When the adoption phase is a no-op` — see `reference.md`
+- `BMI-3 boundary rules (full)` — see `reference.md`
+- `Step 4.55 — Complete the grm- skill namespacing (remove bare-named survivors)` — see `reference.md`

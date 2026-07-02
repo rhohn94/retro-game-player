@@ -1,0 +1,275 @@
+/* ==========================================================================
+   Aura — tabs component.
+
+   CSS-first: aura-tablist / aura-tab / aura-tabpanel are styled on tag names
+   and attributes so markup renders correctly before and without JS.
+
+   Configurable aesthetics — all visual dials surface as component-scoped
+   --aura-tabs-* vars that default to global tokens. Re-skin by overriding
+   these vars (or the global tokens they reference) with zero component edits.
+
+   New dials introduced here (see docs/design/tabs-design.md §Aesthetic dials):
+     --aura-tabs-tab-gap          gap between tab buttons
+     --aura-tabs-tab-px           horizontal padding inside each tab
+     --aura-tabs-tab-py           vertical padding inside each tab
+     --aura-tabs-font-size        tab label font size
+     --aura-tabs-font-weight      tab label font weight
+     --aura-tabs-radius           tab corner radius (top corners)
+     --aura-tabs-border-color     tablist bottom-rule colour
+     --aura-tabs-indicator-color  active-tab indicator colour
+     --aura-tabs-indicator-size   indicator + border-rule thickness (no global
+                                  border-width token exists; surfaced here)
+     --aura-tabs-panel-pt         top padding on each panel
+     --aura-tabs-dur              transition duration
+     --aura-tabs-ease             transition easing
+     --aura-tabs-slide            panel slide distance during cross-fade
+   ========================================================================== */
+
+/* ---- Component-scoped aesthetic dials (on the root element) ----------- */
+aura-tabs {
+  --aura-tabs-tab-gap:         var(--aura-space-1);
+  --aura-tabs-tab-px:          var(--aura-space-4);
+  --aura-tabs-tab-py:          var(--aura-space-2);
+  --aura-tabs-font-size:       var(--aura-text-sm);
+  --aura-tabs-font-weight:     var(--aura-weight-medium);
+  --aura-tabs-radius:          var(--aura-radius-sm);
+  --aura-tabs-border-color:    var(--aura-surface-stroke);
+  --aura-tabs-indicator-color: var(--aura-primary);
+  --aura-tabs-indicator-size:  2px; /* component var — no global border-width token */
+  --aura-tabs-panel-pt:        var(--aura-space-5);
+  --aura-tabs-dur:             var(--aura-dur-base);
+  --aura-tabs-ease:            var(--aura-ease-out);
+  --aura-tabs-slide:           4px;    /* panel slide distance; set 0 for pure cross-fade */
+}
+
+/* ---- aura-tabs: root container ---------------------------------------- */
+/* position:relative makes aura-tabs the offset parent for absolutely-
+   positioned leaving panels during the cross-fade transition.             */
+aura-tabs { display: block; position: relative; }
+
+/* ---- aura-tablist: the tab bar ---------------------------------------- */
+aura-tablist {
+  display: flex;
+  flex-direction: row;
+  gap: var(--aura-tabs-tab-gap);
+  align-items: flex-end;
+  border-bottom: var(--aura-tabs-indicator-size) solid var(--aura-tabs-border-color);
+}
+
+/* Overflow (#127): opt in with data-overflow="scroll" on a horizontal tablist
+   so more tabs than fit scroll horizontally instead of wrapping/crushing. A
+   thin scrollbar is the affordance; arrow-key nav (js/tabs.js moves focus)
+   scrolls the focused tab into view natively. overflow-y is set explicitly to
+   hidden so it does NOT inherit auto from overflow-x (which would clip the
+   active indicator); the indicator moves inside the tab in this mode. */
+aura-tablist[data-overflow="scroll"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--aura-space-4);
+}
+aura-tablist[data-overflow="scroll"] > aura-tab { flex: 0 0 auto; scroll-snap-align: start; }
+aura-tablist[data-overflow="scroll"] aura-tab::after { bottom: 0; }
+
+/* ---- aura-tab: individual tab button ---------------------------------- */
+aura-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  padding: var(--aura-tabs-tab-py) var(--aura-tabs-tab-px);
+  font-size: var(--aura-tabs-font-size);
+  font-weight: var(--aura-tabs-font-weight);
+  color: var(--aura-text-muted);
+  background: transparent;
+  border: none;                       /* no top/side border */
+  border-radius: var(--aura-tabs-radius) var(--aura-tabs-radius) 0 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  white-space: nowrap;
+  /* Negative bottom margin so the tab's ::after indicator can overlap the
+     tablist border without causing layout shift.                           */
+  margin-bottom: calc(-1 * var(--aura-tabs-indicator-size));
+  /* Animate text-colour change */
+  transition: color var(--aura-tabs-dur) var(--aura-tabs-ease),
+              background-color var(--aura-tabs-dur) var(--aura-tabs-ease);
+  /* Remove default outline — focus ring is on :focus-visible below */
+  outline: none;
+}
+
+/* Proximity glow (v3.2): the tab is interactive so it gets the edge shine +
+   magnetic lean. The tab's own ::after is the selected-state underline, so the
+   rim is routed to an inner .aura-glow__target overlay (js/tabs.js inserts it).
+   The target is an inert, pointer-transparent layer matching the tab's box and
+   top-rounded corners; glow.js lights its rim. A small compact-density magnet
+   gives a subtle lean without crowding a dense tab row. */
+aura-tab {
+  /* Tighter detection radius for a dense tab row (matches range/radio). The
+     global --aura-magnet-shift (1px) is inherited, giving a subtle default lean
+     with no extra declaration. */
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+}
+.aura-tab__glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Active indicator: a coloured line that overlaps the tablist border-bottom */
+aura-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * var(--aura-tabs-indicator-size));
+  height: var(--aura-tabs-indicator-size);
+  background: transparent;
+  transition: background-color var(--aura-tabs-dur) var(--aura-tabs-ease);
+}
+
+/* Hover state */
+aura-tab:hover {
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+}
+
+/* Selected / active state — set by JS (aria-selected) and CSS attribute */
+aura-tab[selected],
+aura-tab[aria-selected="true"] {
+  color: var(--aura-text);
+}
+aura-tab[selected]::after,
+aura-tab[aria-selected="true"]::after {
+  background: var(--aura-tabs-indicator-color);
+}
+
+/* Focus-visible ring using the global focus-ring token */
+aura-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--aura-ring);
+  background: var(--aura-surface-1);
+}
+
+/* Forced-colors (Windows High Contrast): the selected-tab underline is a pure
+   background ::after and the focus cue is a box-shadow — both dropped in HCM,
+   leaving selected/unselected and focused/unfocused identical. Repaint the
+   indicator with a system colour and promote focus to a real outline. */
+@media (forced-colors: active) {
+  aura-tab[selected]::after,
+  aura-tab[aria-selected="true"]::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  aura-tab:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+/* Disabled tab */
+aura-tab[disabled],
+aura-tab[aria-disabled="true"] {
+  opacity: var(--aura-disabled-opacity);
+  pointer-events: none;
+  cursor: default;
+}
+
+/* ---- aura-tabpanel: panel content ------------------------------------- */
+aura-tabpanel {
+  display: block;
+  padding-top: var(--aura-tabs-panel-pt);
+  outline: none;
+}
+
+/* Keyboard-focus ring on panels (for users who Tab into panel content) */
+aura-tabpanel:focus-visible {
+  outline: 2px solid var(--aura-primary-a40);
+  outline-offset: var(--aura-space-2);
+  border-radius: var(--aura-radius-sm);
+}
+
+/* Hidden panels (managed by JS; authors can also set this in markup for
+   correct initial state without JS — the progressive-enhancement contract). */
+aura-tabpanel[hidden] { display: none !important; }
+
+/* ---- Panel transitions ------------------------------------------------ */
+/* Panels cross-fade and slide a short distance (--aura-tabs-slide) when
+   tabs are switched.  JS orchestrates two phases:
+     1. Leaving panel: taken out of normal flow (position:absolute, top set
+        inline by JS), then fades + slides upward.
+     2. Entering panel: stays in normal flow (sets container height), starts
+        invisible, then fades + slides up into view.
+   JS is the primary gate for prefers-reduced-motion; the @media rule below
+   is a belt-and-suspenders fallback.                                        */
+
+/* Leaving panel: absolute-positioned so it doesn't affect layout height,
+   fades out and slides up.  top is set via inline style by tabs.js.        */
+aura-tabpanel[data-aura-leaving] {
+  position: absolute;
+  left:  0;
+  right: 0;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--aura-tabs-slide)));
+  transition:
+    opacity   var(--aura-tabs-dur) var(--aura-tabs-ease),
+    transform var(--aura-tabs-dur) var(--aura-tabs-ease);
+}
+
+/* Entering panel: in normal flow (sets container height), initially
+   invisible with a downward offset.                                        */
+aura-tabpanel[data-aura-entering] {
+  opacity: 0;
+  transform: translateY(var(--aura-tabs-slide));
+  transition:
+    opacity   var(--aura-tabs-dur) var(--aura-tabs-ease),
+    transform var(--aura-tabs-dur) var(--aura-tabs-ease);
+}
+
+/* Active state added after a reflow triggers the CSS transition.           */
+aura-tabpanel[data-aura-entering][data-aura-entering-active] {
+  opacity: 1;
+  transform: none;
+}
+
+/* prefers-reduced-motion fallback — JS skips the transition entirely, but
+   this ensures no motion even if the JS check is bypassed.                 */
+@media (prefers-reduced-motion: reduce) {
+  aura-tabpanel[data-aura-leaving],
+  aura-tabpanel[data-aura-entering] {
+    transition: none;
+  }
+}
+
+/* ---- Vertical orientation variant ------------------------------------- */
+/* Set aria-orientation="vertical" on aura-tablist to activate.           */
+aura-tablist[aria-orientation="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  border-bottom: none;
+  /* logical inline-end so the rail mirrors under dir="rtl" (#131) */
+  border-inline-end: var(--aura-tabs-indicator-size) solid var(--aura-tabs-border-color);
+  margin-bottom: 0;
+}
+
+aura-tablist[aria-orientation="vertical"] aura-tab {
+  /* round the inline-start corners (left in LTR, right in RTL) */
+  border-radius: 0;
+  border-start-start-radius: var(--aura-tabs-radius);
+  border-end-start-radius: var(--aura-tabs-radius);
+  margin-bottom: 0;
+  margin-inline-end: calc(-1 * var(--aura-tabs-indicator-size));
+}
+
+aura-tablist[aria-orientation="vertical"] aura-tab::after {
+  /* Indicator runs along the inline-end edge instead of the bottom. */
+  inset-block: 0;
+  inset-inline-start: auto;
+  inset-inline-end: calc(-1 * var(--aura-tabs-indicator-size));
+  width: var(--aura-tabs-indicator-size);
+  height: auto;
+}

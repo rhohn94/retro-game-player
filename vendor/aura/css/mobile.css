@@ -1,0 +1,285 @@
+/* ==========================================================================
+   Aura — mobile, touch & input-modality layer (v1.6).
+
+   Layers responsive + touch + keyboard behaviour ON TOP OF the desktop look
+   without forking it. Everything tunes through tokens.css; no magic numbers.
+   See docs/design/mobile-and-input-modality-design.md.
+
+   Three concerns:
+     1. :focus-visible ring        — one recipe, every focusable surface.
+     2. coarse-pointer hit targets — finger-sized without changing the visual.
+     3. bottom-sheet overlays + shell drawer — narrow-viewport presentation.
+   ========================================================================== */
+
+/* ---- 1. Single focus-visible ring -------------------------------------- *
+   Keyboard focus is always visible and consistent. Pointer focus stays quiet
+   (:focus-visible only fires for keyboard / programmatic focus).            */
+:where(
+  a, button, input, select, textarea, summary, [tabindex],
+  aura-button, aura-checkbox, aura-radio, aura-switch, aura-select,
+  [role="button"], [role="menuitem"], [role="tab"], [role="option"],
+  [role="separator"], [role="spinbutton"], [role="slider"]
+):focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+  border-radius: var(--aura-radius-sm);
+}
+
+/* ---- 2. Coarse-pointer hit targets ------------------------------------- *
+   The VISUAL box is unchanged; only the HIT area grows to --aura-tap-min.
+   Scoped to (pointer: coarse) so the desktop mouse look is untouched.       */
+@media (pointer: coarse) {
+  aura-button .aura-btn,
+  .aura-btn,
+  button,
+  [role="button"] {
+    min-block-size: var(--aura-tap-min);
+  }
+
+  /* Menu / select rows, picker cells, listbox options: pad to tap height. */
+  [role="menuitem"],
+  [role="option"],
+  .aura-menu__item,
+  .aura-select__option {
+    min-block-size: var(--aura-tap-min);
+    display: flex;
+    align-items: center;
+  }
+
+  /* Compact controls keep their small VISUAL part but expand the HIT area
+     with an invisible ::before that captures the press. */
+  aura-checkbox, aura-radio, aura-switch {
+    position: relative;
+  }
+  aura-checkbox::before,
+  aura-radio::before,
+  aura-switch::before {
+    content: "";
+    position: absolute;
+    inset: 50% auto auto 50%;
+    inline-size: var(--aura-tap-min);
+    block-size: var(--aura-tap-min);
+    transform: translate(-50%, -50%);
+  }
+
+  /* Date/time/colour picker cells reach tap-min in both axes. */
+  .aura-datepicker__day,
+  .aura-timepicker__option,
+  .aura-color-picker__swatch {
+    min-inline-size: var(--aura-tap-min);
+    min-block-size: var(--aura-tap-min);
+  }
+
+  /* Colour-picker numeric channel inputs are finger-tappable in height. */
+  .aura-color-picker__channel-input {
+    min-block-size: var(--aura-tap-min);
+  }
+
+  /* Resizable dividers get a fat invisible grab zone (thin visual line). */
+  .aura-split__handle {
+    position: relative;
+  }
+  .aura-split__handle::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* expand the press zone symmetrically around the thin visual handle */
+    margin: calc(var(--aura-tap-min) / -2);
+  }
+
+  /* No hover-only reveals: the proximity glow is pointer-driven and absent on
+     coarse pointers, so give interactive glass a static rim instead so it still
+     reads as interactive. */
+  .aura-glow {
+    box-shadow: inset 0 0 0 var(--aura-border-width) var(--aura-surface-stroke);
+  }
+}
+
+/* ---- 3a. Safe-area insets ---------------------------------------------- *
+   Content clears the notch / home indicator on devices that report insets.  */
+aura-shell, .aura-shell {
+  padding-top: var(--aura-safe-top);
+  padding-inline: var(--aura-safe-left) var(--aura-safe-right);
+}
+.aura-toast-region {
+  padding-bottom: var(--aura-safe-bottom);
+}
+aura-dialog .aura-dialog__surface {
+  margin-bottom: var(--aura-safe-bottom);
+}
+
+/* ---- 3b. Bottom-sheet overlays ----------------------------------------- *
+   Aura.overlay adds .aura-overlay--sheet on coarse pointers / narrow viewport.
+   CSS owns all sheet geometry; placeAtAnchor is skipped in this mode.        */
+.aura-overlay--sheet {
+  position: fixed;
+  inset: auto 0 0 0;                 /* pin to the bottom edge, full width    */
+  inline-size: auto;
+  max-inline-size: none;
+  max-block-size: var(--aura-sheet-max-block);
+  margin: 0;
+  padding-bottom: calc(var(--aura-space-3) + var(--aura-safe-bottom));
+  border-start-start-radius: var(--aura-radius-xl);
+  border-start-end-radius: var(--aura-radius-xl);
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  transform-origin: bottom center;
+}
+
+/* Grab-handle affordance at the top of every sheet. */
+.aura-overlay--sheet::before {
+  content: "";
+  display: block;
+  inline-size: var(--aura-space-7);
+  block-size: var(--aura-space-1);
+  margin: var(--aura-space-2) auto var(--aura-space-3);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-surface-stroke-strong);
+}
+
+/* Scrim behind a sheet — a single element Aura.overlay inserts. */
+.aura-overlay-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--aura-bg) 55%, transparent);
+  opacity: 0;
+  /* Literal fallback matches the token's resolved value (#681): --aura-overlay-dur-in
+     -> --aura-dur-fast -> 120ms (css/overlay.css:17, css/tokens.css:312). */
+  animation: aura-scrim-in var(--aura-overlay-dur-in, 120ms) ease forwards;
+  z-index: var(--aura-z-overlay, 1000);
+}
+.aura-overlay-scrim--closing {
+  animation: aura-scrim-out var(--aura-overlay-dur-out, 120ms) ease forwards;
+}
+
+/* Sheet slide-in/out — reduced-motion falls back to an opacity-only fade. */
+.aura-overlay--sheet.aura-overlay--open {
+  animation: aura-sheet-in var(--aura-overlay-dur-in, 120ms) var(--aura-ease-out);
+}
+.aura-overlay--sheet.aura-overlay--closing {
+  animation: aura-sheet-out var(--aura-overlay-dur-out, 120ms) ease-in forwards;
+}
+
+@keyframes aura-sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes aura-sheet-out {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+@keyframes aura-scrim-in  { to { opacity: 1; } }
+@keyframes aura-scrim-out { from { opacity: 1; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-overlay--sheet.aura-overlay--open,
+  .aura-overlay--sheet.aura-overlay--closing {
+    animation: none;
+  }
+}
+
+/* ---- 3c. App-shell collapsing sidebar (drawer) ------------------------- *
+   js/shell-nav.js marks the shell [data-aura-shell-collapsed] below the
+   breakpoint; CSS drives the off-canvas drawer + scrim. Above the breakpoint
+   the sidebar is in normal flow and the toggle is hidden.                    */
+[data-aura-shell-toggle] { display: none; }
+
+@container (max-width: 40rem) {
+  /* The shell is container-type: inline-size (layout.css), so a container query
+     tracks the shell width — works even when the shell is embedded, not just
+     full viewport. */
+  [data-aura-shell-toggle] {
+    display: inline-flex;
+    min-block-size: var(--aura-tap-min);
+    min-inline-size: var(--aura-tap-min);
+  }
+  [data-aura-sidebar] {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: calc(var(--aura-z-overlay, 1000) + 1);
+    inline-size: min(80vw, 20rem);
+    padding-top: var(--aura-safe-top);
+    padding-bottom: var(--aura-safe-bottom);
+    transform: translateX(-100%);
+    /* Real named token (#681): the phantom --aura-dur-2 resolved nowhere, pinning
+       the slide to the 220ms literal and making it un-re-skinnable. --aura-dur-base
+       (200ms) is the documented "everyday transition" tier the rest of the motion
+       language routes through. */
+    transition: transform var(--aura-dur-base, 200ms) var(--aura-ease-out);
+    overflow: auto;
+  }
+  [data-aura-shell-open] [data-aura-sidebar] {
+    transform: translateX(0);
+  }
+  /* RTL: inset-inline-start:0 anchors the drawer to the RIGHT edge, so the
+     hidden state must sit off-screen to the right (+100%), not the left.
+     CRITICAL: this hidden rule has the same (0,2,0) specificity as the OPEN rule
+     above and comes later, so it would otherwise also override the open state and
+     push an OPEN drawer off-screen. The open-state override below (specificity
+     0,3,0) re-asserts translateX(0) for the open drawer under RTL — mirroring how
+     dialog.css guards its RTL drawer transforms by state, not blanket. */
+  [dir="rtl"] [data-aura-sidebar] {
+    transform: translateX(100%);
+  }
+  [dir="rtl"] [data-aura-shell-open] [data-aura-sidebar] {
+    transform: translateX(0);
+  }
+  [data-aura-shell-open]::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: var(--aura-z-overlay, 1000);
+    background: color-mix(in srgb, var(--aura-bg) 55%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-aura-sidebar] { transition: none; }
+}
+
+/* ---- 3d. Context menu / select as a sheet ------------------------------ *
+   The menu engine (js/menu.js) runs its own stack-based lifecycle and toggles
+   .aura-menu--sheet (not .aura-overlay--sheet). Mirror the sheet geometry here
+   and override the menu's anchored scale animation with the slide. This layer
+   loads after `menu`, so these win.                                          */
+.aura-menu--sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  inline-size: auto;
+  min-inline-size: 0;
+  max-inline-size: none;
+  max-block-size: var(--aura-sheet-max-block);
+  margin: 0;
+  padding-bottom: calc(var(--aura-space-3) + var(--aura-safe-bottom));
+  border-start-start-radius: var(--aura-radius-xl);
+  border-start-end-radius: var(--aura-radius-xl);
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.aura-menu--sheet::before {
+  content: "";
+  display: block;
+  inline-size: var(--aura-space-7);
+  block-size: var(--aura-space-1);
+  margin: var(--aura-space-2) auto var(--aura-space-3);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-surface-stroke-strong);
+}
+/* Roomier rows in sheet mode — finger-friendly. */
+.aura-menu--sheet .aura-menu-item { min-block-size: var(--aura-tap-min); }
+
+.aura-menu--sheet.aura-menu--open {
+  animation: aura-sheet-in var(--aura-menu-dur-in, 220ms) var(--aura-ease-out);
+}
+.aura-menu--sheet.aura-menu--closing {
+  animation: aura-sheet-out var(--aura-menu-dur-out, 180ms) ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-menu--sheet.aura-menu--open,
+  .aura-menu--sheet.aura-menu--closing { animation: none; }
+}

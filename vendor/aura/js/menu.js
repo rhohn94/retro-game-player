@@ -1,0 +1,815 @@
+/* ==========================================================================
+   Aura — context menu engine.
+
+   Menus are authored declaratively as hidden <aura-menu> blocks. This module:
+     - decorates each item once into icon | body | meta structure (idempotent),
+     - opens menus via DELEGATED contextmenu/click listeners (HTMX-safe),
+     - positions + flips them to stay on screen, handles submenus,
+     - implements full keyboard nav + ARIA, and dismissal.
+   It never binds per-trigger at load, so swapped-in triggers/menus just work.
+
+   Exit animation: JS adds .aura-menu--closing (keeping .aura-menu--open for
+   display:block), awaits animationend (with a timeout fallback), then strips
+   both classes and calls restoreHome. Every dismiss path routes through
+   closeMenu(). cancelMenuClose() aborts a mid-close safely so openRoot /
+   openAtAnchor / openSubmenu can re-open the same menu immediately.
+   prefers-reduced-motion → instant close.
+
+   See docs/design/context-menu-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura) return;
+
+  var PAD = 8;                       // viewport edge padding for placement (px)
+  var ANCHOR_GAP = 4;               // gap between an anchored menu and its trigger (px)
+  var SUBMENU_DELAY = 90;            // hover dwell before a submenu opens (ms)
+  var TYPEAHEAD_RESET_MS = 600;      // idle gap that clears the typeahead buffer
+  var SUBMENU_OVERLAP = 4;          // horizontal overlap of a submenu over its parent (px)
+  var SUBMENU_TOP_OFFSET = 6;       // submenu vertical nudge above the parent item (px)
+  var CLOSE_FALLBACK_BUFFER_MS = 100; // extra wait past the CSS duration for the close fallback
+  var stack = [];          // open menus, root first
+  var trigger = null;      // element that opened the root (focus returns here)
+  var _menuTypeahead = null; /* lazy singleton from Aura.keyboardNav (#322) */
+  var submenuTimer = 0;
+
+  /* ---- Decoration ------------------------------------------------------ */
+  function levelItems(menu) {
+    // items belonging directly to `menu` (not to a nested submenu)
+    return Array.prototype.filter.call(
+      menu.querySelectorAll("aura-menu-item"),
+      function (it) { return it.closest("aura-menu") === menu; }
+    );
+  }
+
+  function labelText(item, submenu) {
+    var t = "";
+    item.childNodes.forEach(function (n) {
+      if (n === submenu) return;
+      if (n.nodeType === 3) t += n.textContent;
+      else if (n.nodeType === 1 && n.tagName.toLowerCase() !== "aura-menu") t += n.textContent;
+    });
+    return t.trim();
+  }
+
+  function decorate(menu) {
+    if (menu.getAttribute("role") !== "menu") menu.setAttribute("role", "menu");
+    if (!menu.hasAttribute("tabindex")) menu.tabIndex = -1;
+
+    /* Groups & separators: explicit ARIA roles so the role="menu" container
+       has no role-less element children (axe aria-required-children, #394).
+       The group header is painted by CSS (::before content:attr(label)) and
+       is purely visual, so the accessible name is mirrored via aria-label. */
+    Array.prototype.forEach.call(
+      menu.querySelectorAll("aura-menu-group, aura-menu-separator"),
+      function (child) {
+        if (child.closest("aura-menu") !== menu) return; // belongs to a submenu level
+        if (child.tagName.toLowerCase() === "aura-menu-separator") {
+          child.setAttribute("role", "separator");
+        } else {
+          child.setAttribute("role", "group");
+          var groupLabel = child.getAttribute("label");
+          if (groupLabel) child.setAttribute("aria-label", groupLabel);
+        }
+      }
+    );
+
+    levelItems(menu).forEach(function (item) {
+      if (item.__auraDecorated) {
+        var sub0 = item.__auraSubmenu;
+        if (sub0) decorate(sub0);
+        return;
+      }
+      var submenu = item.querySelector(":scope > aura-menu");
+      var type = item.getAttribute("type");
+      var label = labelText(item, submenu);
+
+      var frag = document.createDocumentFragment();
+
+      // left column: state indicator or icon
+      if (type === "checkbox" || type === "radio") {
+        var check = document.createElement("span");
+        check.className = "aura-menu-item__check";
+        check.appendChild(Aura.icon("check"));
+        frag.appendChild(check);
+      } else if (item.getAttribute("icon")) {
+        frag.appendChild(Aura.icon(item.getAttribute("icon"), "aura-menu-item__icon"));
+      } else {
+        frag.appendChild(document.createElement("span")); // keep grid columns aligned
+      }
+
+      // body: label + optional description
+      var body = document.createElement("span");
+      body.className = "aura-menu-item__body";
+      var lab = document.createElement("span");
+      lab.className = "aura-menu-item__label";
+      lab.textContent = label;
+      body.appendChild(lab);
+      var desc = item.getAttribute("description");
+      if (desc) {
+        var d = document.createElement("span");
+        d.className = "aura-menu-item__desc";
+        d.textContent = desc;
+        body.appendChild(d);
+      }
+      frag.appendChild(body);
+
+      // meta: shortcut / badge / submenu caret
+      var meta = document.createElement("span");
+      meta.className = "aura-menu-item__meta";
+      var badge = item.getAttribute("badge");
+      if (badge) {
+        var b = document.createElement("span");
+        b.className = "aura-badge";
+        b.textContent = badge;
+        meta.appendChild(b);
+      }
+      var sc = item.getAttribute("shortcut");
+      if (sc) {
+        var kbd = document.createElement("kbd");
+        kbd.textContent = sc;
+        meta.appendChild(kbd);
+      }
+      if (submenu) {
+        var caret = Aura.icon("chevron-right", "aura-menu-item__caret");
+        meta.appendChild(caret);
+      }
+      frag.appendChild(meta);
+
+      // swap content in, preserving the submenu element as a hidden child
+      Aura.clearChildren(item);
+      item.appendChild(frag);
+      if (submenu) {
+        item.appendChild(submenu);
+        item.__auraSubmenu = submenu;
+        item.setAttribute("aria-haspopup", "menu");
+        item.setAttribute("aria-expanded", "false");
+        decorate(submenu);
+      }
+
+      // Proximity glow (v3.2): menu items are high-traffic clickable rows, so
+      // they glow + lean like every other interactive widget. A plain .aura-glow
+      // host suffices (the item has no competing ::after); the rim rides the
+      // item's own ::after. A compact glow radius (menu.css) keeps the detection
+      // tight so a densely-packed list does not light several rows at once. The
+      // engine zeroes disabled items automatically (glow.js suppressed()).
+      item.classList.add("aura-glow");
+
+      // ARIA role for the item
+      item.setAttribute(
+        "role",
+        type === "checkbox" ? "menuitemcheckbox" : type === "radio" ? "menuitemradio" : "menuitem"
+      );
+      if (type) item.setAttribute("aria-checked", item.hasAttribute("checked") ? "true" : "false");
+      if (item.hasAttribute("disabled")) item.setAttribute("aria-disabled", "true");
+      item.tabIndex = -1;
+      item.__auraDecorated = true;
+    });
+  }
+
+  /* ---- Geometry -------------------------------------------------------- */
+  function vw() { return window.innerWidth; }
+  function vh() { return window.innerHeight; }
+
+  function placeAtPoint(menu, x, y) {
+    var r = menu.getBoundingClientRect();
+    var left = x, top = y, ox = "left", oy = "top";
+    if (left + r.width > vw() - PAD) { left = Math.max(PAD, x - r.width); ox = "right"; }
+    if (top + r.height > vh() - PAD) { top = Math.max(PAD, y - r.height); oy = "bottom"; }
+    left = Math.min(Math.max(PAD, left), vw() - PAD - r.width);
+    top = Math.min(Math.max(PAD, top), vh() - PAD - r.height);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.setProperty("--aura-menu-origin", oy + " " + ox);
+  }
+
+  /* Anchored placement is shared with the picker overlays — delegate to the
+     Aura.overlay primitive (identical flip/clamp geometry), passing the menu's
+     own transform-origin property so the open/close keyframes are unaffected.
+
+     overlay.js is the canonical owner of this geometry, but anchored menus
+     (aura-select, dropdowns) are core menu functionality and must not die when
+     a page loads menu.js without the optional overlay.js (the cause of the dead
+     aura-select in #38). When Aura.overlay is absent we fall back to an inline
+     copy of the same flip/clamp math so the menu still opens, positioned. */
+  function placeAtAnchor(menu, rect) {
+    if (Aura.popupOverlay && Aura.overlay) {
+      Aura.popupOverlay.placeAtAnchor(menu, rect, "--aura-menu-origin");
+      return;
+    }
+    placeAtAnchorFallback(menu, rect);
+  }
+
+  /* Inline anchored placement — mirrors Aura.overlay.placeAtAnchor: anchor
+     below the trigger, flip above on vertical overflow, clamp into the padded
+     viewport, and record the transform-origin so the enter keyframe grows from
+     the anchored corner. */
+  function placeAtAnchorFallback(menu, rect) {
+    var box = menu.getBoundingClientRect();
+    var left = rect.left;
+    var top = rect.bottom + ANCHOR_GAP;
+    var oy = "top";
+
+    if (left + box.width > vw() - PAD) { left = Math.max(PAD, rect.right - box.width); }
+    left = Math.min(Math.max(PAD, left), vw() - PAD - box.width);
+
+    if (top + box.height > vh() - PAD) {
+      top = Math.max(PAD, rect.top - ANCHOR_GAP - box.height);
+      oy = "bottom";
+    }
+    top = Math.min(Math.max(PAD, top), Math.max(PAD, vh() - PAD - box.height));
+
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.setProperty("--aura-menu-origin", oy + " left");
+  }
+
+  function placeSubmenu(menu, parentRect) {
+    var r = menu.getBoundingClientRect();
+    var left = parentRect.right - SUBMENU_OVERLAP, ox = "left";
+    if (left + r.width > vw() - PAD) { left = Math.max(PAD, parentRect.left - r.width + SUBMENU_OVERLAP); ox = "right"; }
+    var top = Math.min(Math.max(PAD, parentRect.top - SUBMENU_TOP_OFFSET), vh() - PAD - r.height);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.setProperty("--aura-menu-origin", "top " + ox);
+  }
+
+  /* ---- Open / close ---------------------------------------------------- */
+  function detachToBody(menu) {
+    menu.__auraHome = { parent: menu.parentNode, next: menu.nextSibling };
+    document.body.appendChild(menu);
+    armOrphanWatch();
+  }
+  function restoreHome(menu) {
+    var h = menu.__auraHome;
+    if (h && h.parent) h.parent.insertBefore(menu, h.next);
+    menu.__auraHome = null;
+  }
+
+  /* ---- Disconnect-reclaim for body-portaled menus (#440) ----------------
+     A menu opened via the delegated trigger is portaled to document.body and
+     records its light-DOM home (__auraHome). An aura-select reclaims its own
+     menu in disconnectedCallback (#455), but a STANDALONE <aura-menu> (a
+     context/dropdown menu whose trigger lives in app markup) is not a custom
+     element, so when an SPA unmounts the subtree that owns it while it is open,
+     nothing closes it: the panel + its scrim linger on <body>, and a later
+     restoreHome() re-inserts it into a now-detached parent (invisibly lost).
+     None of the dismiss gestures (click/scroll/resize/blur) fire on a bare DOM
+     removal. Mirror the tooltip #691 / nav-flyout disconnect-watch: a single,
+     lazily-armed MutationObserver scans open menus on every mutation and
+     reclaim()s any whose recorded home parent has left the document — same
+     orphan class the codebase fixed in #455/#502/#673/#691. */
+  var orphanObserver = null;
+  function armOrphanWatch() {
+    if (orphanObserver || typeof MutationObserver === "undefined") return;
+    orphanObserver = new MutationObserver(reclaimOrphans);
+    orphanObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+  /* Reclaim every body-portaled menu whose home subtree (the parent it will be
+     restored into on close) is no longer connected — its owner unmounted while
+     the menu was open. Scans ALL body-level <aura-menu> children, not just the
+     open stack: a menu popped into an animated close (off the stack but still
+     parked on <body> until its close timer fires) whose home then disappears
+     must be reclaimed NOW too, or it lingers — and restoreHome() would otherwise
+     re-home it into a detached parent. reclaim() is idempotent and mutates the
+     stack, so iterate a static snapshot. */
+  function reclaimOrphans() {
+    var candidates = Array.prototype.filter.call(
+      document.body.children,
+      function (n) { return n.__auraHome; } // recorded a home ⇒ portaled by us
+    );
+    for (var i = 0; i < candidates.length; i++) {
+      var menu = candidates[i];
+      var home = menu.__auraHome;
+      /* Orphaned when the recorded home parent has left the document. A menu
+         still anchored to a connected home is left alone — only a true
+         owner-unmount triggers reclaim. */
+      if (home && home.parent && !home.parent.isConnected) reclaim(menu);
+    }
+  }
+
+  /* _finishMenuClose: final DOM cleanup after the exit animation (or
+     immediately under instant-close). Called only once per close.           */
+  function _finishMenuClose(menu) {
+    menu.classList.remove("aura-menu--open");
+    menu.classList.remove("aura-menu--closing");
+    menu.classList.remove("aura-menu--sheet");
+    menu.style.left = menu.style.top = "";
+    menu.style.removeProperty("--aura-menu-origin");
+    if (menu.__auraScrim && Aura.overlay) { Aura.overlay.removeScrim(menu.__auraScrim); menu.__auraScrim = null; }
+    if (menu.__auraOpener) { menu.__auraOpener = null; }
+    restoreHome(menu);
+  }
+
+  /* A root menu opened on a coarse pointer / narrow viewport presents as a
+     bottom sheet (the same treatment Aura.overlay gives the pickers). Submenus
+     stay inline. Returns true when sheet mode was applied, so the caller skips
+     anchored placement. */
+  function maybeSheet(menu) {
+    if (!Aura.overlay || !Aura.overlay.wantsSheet || !Aura.overlay.wantsSheet()) return false;
+    menu.classList.add("aura-menu--sheet");
+    menu.__auraScrim = Aura.overlay.addScrim();
+    return true;
+  }
+
+  /* cancelMenuClose: abort an in-progress close so the menu can be
+     re-opened immediately. Snaps the menu to a clean closed state and
+     invalidates the in-flight finish() via the token.                       */
+  function cancelMenuClose(menu) {
+    if (!menu._auraMenuClosing) return;
+    if (menu._auraMenuCloseToken) menu._auraMenuCloseToken.cancelled = true;
+    menu._auraMenuClosing    = false;
+    menu._auraMenuCloseToken = null;
+    /* Snap to closed state so openRoot/openAtAnchor starts fresh.
+       Classes and position are cleared; detachToBody will re-attach.        */
+    _finishMenuClose(menu);
+  }
+
+  /* closeMenu: initiate the exit animation (or instant close). The menu is
+     already removed from `stack` by the caller before this runs.            */
+  function closeMenu(menu) {
+    /* Double-close guard. */
+    if (menu._auraMenuClosing) return;
+
+    /* Update ARIA and active state immediately. */
+    if (menu.__auraOpener) {
+      menu.__auraOpener.setAttribute("aria-expanded", "false");
+    }
+    clearActive(menu);
+
+    /* Instant close under reduced-motion. */
+    if (Aura.env.reducedMotion()) {
+      _finishMenuClose(menu);
+      return;
+    }
+
+    /* -- Animated close -------------------------------------------------- */
+    menu._auraMenuClosing = true;
+
+    var token = { cancelled: false };
+    menu._auraMenuCloseToken = token;
+
+    /* Keep .aura-menu--open so display:block remains; add --closing to
+       trigger the exit keyframe (higher specificity wins animation).        */
+    menu.classList.add("aura-menu--closing");
+
+    var dur = Aura.parseDuration(
+      getComputedStyle(menu).getPropertyValue("--aura-menu-dur-out")
+    );
+
+    var done = false;
+    function finish() {
+      if (done || token.cancelled) return;
+      done = true;
+      menu._auraMenuClosing    = false;
+      menu._auraMenuCloseToken = null;
+      _finishMenuClose(menu);
+    }
+
+    /* Primary: animationend on the menu element itself (not child bubbles). */
+    menu.addEventListener("animationend", function handler(e) {
+      if (e.target !== menu) return;
+      menu.removeEventListener("animationend", handler);
+      finish();
+    });
+
+    /* Fallback timeout so a cancelled/skipped animationend never stalls.   */
+    setTimeout(finish, dur + CLOSE_FALLBACK_BUFFER_MS);
+  }
+
+  function openRoot(menu, x, y, opener) {
+    closeAll();
+    cancelMenuClose(menu); /* abort if this menu itself was mid-close */
+    decorate(menu);
+    trigger = opener || null;
+    detachToBody(menu);
+    menu.classList.add("aura-menu--open");
+    menu.__auraActive = -1;
+    if (!maybeSheet(menu)) placeAtPoint(menu, x, y);
+    stack = [menu];
+    armDismissal();
+    menu.focus({ preventScroll: true });
+  }
+
+  function openAtAnchor(menu, rect, opener) {
+    closeAll();
+    cancelMenuClose(menu); /* abort if this menu itself was mid-close */
+    decorate(menu);
+    trigger = opener || null;
+    detachToBody(menu);
+    menu.classList.add("aura-menu--open");
+    menu.__auraActive = -1;
+    if (!maybeSheet(menu)) placeAtAnchor(menu, rect);
+    stack = [menu];
+    armDismissal();
+    menu.focus({ preventScroll: true });
+  }
+
+  function openSubmenu(parentItem) {
+    var sub = parentItem.__auraSubmenu;
+    /* Use the stack (logical state) rather than the class to check open
+       status, so a mid-close submenu (off the stack) can be re-opened.     */
+    if (!sub || stack.indexOf(sub) !== -1) return;
+    // close any submenu siblings deeper than this item's menu
+    var ownerMenu = parentItem.closest("aura-menu");
+    closeDeeperThan(ownerMenu);
+    cancelMenuClose(sub); /* abort if the submenu was mid-close */
+    decorate(sub);
+    sub.__auraOpener = parentItem;
+    detachToBody(sub);
+    sub.classList.add("aura-menu--open");
+    sub.__auraActive = -1;
+    placeSubmenu(sub, parentItem.getBoundingClientRect());
+    parentItem.setAttribute("aria-expanded", "true");
+    stack.push(sub);
+  }
+
+  function closeDeeperThan(menu) {
+    var idx = stack.indexOf(menu);
+    if (idx === -1) return;
+    /* Pop and animate each deeper menu. Stack is mutated synchronously so
+       subsequent calls to openSubmenu / closeDeeperThan see consistent state
+       while animations run concurrently in the background.                  */
+    while (stack.length > idx + 1) closeMenu(stack.pop());
+  }
+
+  function closeAll() {
+    while (stack.length) closeMenu(stack.pop());
+    disarmDismissal();
+    if (trigger && typeof trigger.focus === "function") trigger.focus({ preventScroll: true });
+    trigger = null;
+  }
+
+  /* ---- Active item ----------------------------------------------------- */
+  /* The engine keeps DOM focus on the menu panel itself (or, for a searchable
+     aura-select, on its filter combobox input) and moves a VIRTUAL highlight
+     via data-aura-active. announceActive mirrors that highlight to assistive
+     tech through aria-activedescendant on the focused element (#394) — items
+     receive a generated id on first highlight (shared Aura.nextId source). */
+  function enabledItems(menu) {
+    return levelItems(menu).filter(function (it) {
+      return !it.hasAttribute("disabled") && it.offsetParent !== null;
+    });
+  }
+  function announceActive(menu, item) {
+    if (!item.id) item.id = Aura.nextId("aura-menu-item-");
+    menu.setAttribute("aria-activedescendant", item.id);
+    /* AT follows aria-activedescendant on the FOCUSED element, but DOM focus
+       does not always sit on `menu`. Two cases need the highlight mirrored
+       onto whatever element actually holds focus (#728):
+         - Combobox: focus is on a control INSIDE the panel (the aura-select
+           filter input) — a descendant of `menu`.
+         - Submenu: the engine leaves DOM focus on the ROOT panel while the
+           active stack entry is a detached submenu (an ANCESTOR-direction
+           sibling, so `menu.contains(focused)` is false) — without this the
+           focused root panel keeps pointing at the last ROOT item and screen
+           readers announce nothing as you arrow through submenu items.
+       In both cases mirror onto document.activeElement and remember the host
+       for cleanup/retarget on move + open/close. */
+    var focused = document.activeElement;
+    if (focused && focused !== menu &&
+        focused.nodeType === 1 && focused !== document.body) {
+      /* Retarget: if a prior highlight was mirrored onto a different host
+         (e.g. focus moved, or a submenu opened/closed), clear that stale one
+         first so only the live focused element carries the descendant. */
+      if (menu.__auraActiveDescHost && menu.__auraActiveDescHost !== focused) {
+        menu.__auraActiveDescHost.removeAttribute("aria-activedescendant");
+      }
+      focused.setAttribute("aria-activedescendant", item.id);
+      menu.__auraActiveDescHost = focused;
+    }
+  }
+  function clearActive(menu) {
+    levelItems(menu).forEach(function (it) { it.removeAttribute("data-aura-active"); });
+    menu.removeAttribute("aria-activedescendant");
+    if (menu.__auraActiveDescHost) {
+      menu.__auraActiveDescHost.removeAttribute("aria-activedescendant");
+      menu.__auraActiveDescHost = null;
+    }
+    menu.__auraActive = -1;
+  }
+  function setActive(menu, idx) {
+    var items = enabledItems(menu);
+    if (!items.length) return;
+    idx = (idx + items.length) % items.length;
+    levelItems(menu).forEach(function (it) { it.removeAttribute("data-aura-active"); });
+    var it = items[idx];
+    it.setAttribute("data-aura-active", "");
+    announceActive(menu, it);
+    it.scrollIntoView({ block: "nearest" });
+    menu.__auraActive = items.indexOf(it);
+    menu.__auraItemsCache = items;
+  }
+  function activeItem(menu) {
+    var items = enabledItems(menu);
+    return items[menu.__auraActive] || null;
+  }
+
+  /* ---- Activation ------------------------------------------------------ */
+  /* Navigate to `href` honoring any standard new-tab/new-window affordance from
+     the originating pointer event (Ctrl/Cmd-click, middle-click, Shift-click)
+     and the item's authored `target`. window.location.href ignores all of these
+     — for a link-bearing menu that is a real UX/a11y regression vs a real
+     anchor. Falls back to a same-tab navigation for keyboard activation (no
+     event) or a plain primary click (#565). */
+  function navigate(item, href, e) {
+    var target = item.getAttribute("target");
+    var newContext = !!(e && (e.metaKey || e.ctrlKey || e.button === 1));
+    var newWindow  = !!(e && e.shiftKey);
+    if (newContext || newWindow || (target && target !== "_self")) {
+      var features = newWindow ? "noopener,noreferrer,width=1024,height=768" : "noopener,noreferrer";
+      window.open(href, newWindow ? "_blank" : (target || "_blank"), features);
+      return;
+    }
+    window.location.href = href;
+  }
+
+  function activate(item, e) {
+    if (!item || item.hasAttribute("disabled")) return;
+    if (item.__auraSubmenu) { openSubmenu(item); setActive(item.__auraSubmenu, 0); return; }
+
+    var type = item.getAttribute("type");
+    if (type === "checkbox") {
+      toggleChecked(item, !item.hasAttribute("checked"));
+      emit(item);
+      return; // keep open for multiple toggles
+    }
+    if (type === "radio") {
+      var name = item.getAttribute("name");
+      /* Single-selection across the WHOLE menu tree (v1.8 multi-level groups):
+         a radio group keyed by `name` may span submenus, so we deselect matching
+         siblings from the OUTERMOST menu down, not just this level. Submenus nest
+         in the DOM, so one query over the root covers every level. */
+      var rootMenu = item.closest("aura-menu"), up;
+      while (rootMenu.parentElement && (up = rootMenu.parentElement.closest("aura-menu"))) {
+        rootMenu = up;
+      }
+      Array.prototype.forEach.call(rootMenu.querySelectorAll("aura-menu-item"), function (sib) {
+        if (sib.getAttribute("type") === "radio" && sib.getAttribute("name") === name) {
+          toggleChecked(sib, sib === item);
+        }
+      });
+      emit(item);
+      closeAll();
+      return;
+    }
+
+    emit(item);
+    var href = item.getAttribute("href");
+    closeAll();
+    if (href) navigate(item, href, e);
+  }
+
+  function toggleChecked(item, on) {
+    if (on) item.setAttribute("checked", "");
+    else item.removeAttribute("checked");
+    item.setAttribute("aria-checked", on ? "true" : "false");
+  }
+
+  function emit(item) {
+    var label = (item.querySelector(".aura-menu-item__label") || {}).textContent || "";
+    item.dispatchEvent(new CustomEvent("aura:menu-select", {
+      bubbles: true,
+      detail: {
+        value: item.getAttribute("value") || label.trim(),
+        label: label.trim(),
+        checked: item.hasAttribute("checked"),
+        item: item,
+        action: item.getAttribute("data-aura-action") || null
+      }
+    }));
+  }
+
+  /* ---- Delegated triggers --------------------------------------------- */
+  function resolveMenu(sel) {
+    if (!sel) return null;
+    try { return document.querySelector(sel); } catch (e) { return null; }
+  }
+
+  document.addEventListener("contextmenu", function (e) {
+    if (e.target.closest("aura-menu.aura-menu--open")) { e.preventDefault(); return; }
+    var t = e.target.closest("[data-aura-menu]");
+    if (!t || t.getAttribute("data-aura-menu-trigger") === "click") {
+      if (stack.length) closeAll();
+      return;
+    }
+    var menu = resolveMenu(t.getAttribute("data-aura-menu"));
+    if (!menu) return;
+    e.preventDefault();
+    openRoot(menu, e.clientX, e.clientY, t);
+  });
+
+  document.addEventListener("click", function (e) {
+    var insideMenu = e.target.closest("aura-menu.aura-menu--open");
+    if (insideMenu) {
+      var item = e.target.closest("aura-menu-item");
+      if (item && item.closest("aura-menu") && stack.indexOf(item.closest("aura-menu")) !== -1) {
+        activate(item, e);
+      }
+      return;
+    }
+    var t = e.target.closest('[data-aura-menu][data-aura-menu-trigger="click"]');
+    if (t) {
+      var menu = resolveMenu(t.getAttribute("data-aura-menu"));
+      if (!menu) return;
+      e.preventDefault();
+      if (stack.length && stack[0] === menu) { closeAll(); return; } // toggle
+      openAtAnchor(menu, t.getBoundingClientRect(), t);
+      return;
+    }
+    if (stack.length) closeAll();
+  });
+
+  /* Middle-click does not fire a `click` event — listen for `auxclick` so a
+     middle-click on a link menu item opens the destination in a new tab, just
+     as it would on a real anchor (#565). */
+  document.addEventListener("auxclick", function (e) {
+    if (e.button !== 1) return;
+    if (!e.target.closest("aura-menu.aura-menu--open")) return;
+    var item = e.target.closest("aura-menu-item");
+    if (!item || !item.getAttribute("href")) return;
+    if (stack.indexOf(item.closest("aura-menu")) === -1) return;
+    e.preventDefault();
+    activate(item, e);
+  });
+
+  /* ---- Hover for submenus + active sync ------------------------------- */
+  document.addEventListener("pointerover", function (e) {
+    if (!stack.length) return;
+    var item = e.target.closest("aura-menu-item");
+    if (!item) return;
+    var menu = item.closest("aura-menu");
+    if (stack.indexOf(menu) === -1) return;
+
+    // make hovered item active within its level
+    var items = enabledItems(menu);
+    var idx = items.indexOf(item);
+    if (idx !== -1) setActive(menu, idx);
+
+    clearTimeout(submenuTimer);
+    if (item.__auraSubmenu) {
+      submenuTimer = setTimeout(function () { openSubmenu(item); }, SUBMENU_DELAY);
+    } else {
+      // hovering a leaf closes any submenu opened from this level
+      submenuTimer = setTimeout(function () { closeDeeperThan(menu); }, SUBMENU_DELAY);
+    }
+  });
+
+  /* ---- Keyboard -------------------------------------------------------- */
+  document.addEventListener("keydown", function (e) {
+    if (!stack.length) return;
+    var menu = stack[stack.length - 1];
+    var cur = menu.__auraActive;
+
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); setActive(menu, cur + 1); break;
+      case "ArrowUp": e.preventDefault(); setActive(menu, cur - 1); break;
+      case "Home": e.preventDefault(); setActive(menu, 0); break;
+      case "End": e.preventDefault(); setActive(menu, enabledItems(menu).length - 1); break;
+      case "ArrowRight": {
+        var it = activeItem(menu);
+        if (it && it.__auraSubmenu) { e.preventDefault(); openSubmenu(it); setActive(it.__auraSubmenu, 0); }
+        break;
+      }
+      case "ArrowLeft":
+        if (stack.length > 1) { e.preventDefault(); closeMenu(stack.pop()); stack[stack.length - 1].focus({ preventScroll: true }); }
+        break;
+      case "Enter":
+      case " ": e.preventDefault(); activate(activeItem(menu)); break;
+      case "Escape": e.preventDefault(); if (stack.length > 1) { closeMenu(stack.pop()); } else { closeAll(); } break;
+      case "Tab": e.preventDefault(); closeAll(); break;
+      default:
+        /* Typeahead only on PLAIN printable keys — modifier chords (⌘C,
+           Ctrl+…, Alt+…) are application shortcuts (often advertised in the
+           menu's own shortcut chips), not typeahead input (#394). */
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          typeaheadMatch(menu, e.key);
+        }
+    }
+  });
+
+  /* Lazy singleton so the collaborator is resolved after all modules are
+     loaded (menu.js runs before keyboard-nav.js in old cherry-pick setups). */
+  function getMenuTypeahead() {
+    if (!_menuTypeahead && Aura.keyboardNav) {
+      _menuTypeahead = Aura.keyboardNav.makeTypeahead(TYPEAHEAD_RESET_MS);
+    }
+    return _menuTypeahead;
+  }
+  function typeaheadMatch(menu, ch) {
+    var ta = getMenuTypeahead();
+    if (!ta) return;
+    var items = enabledItems(menu);
+    var labels = items.map(function (it) {
+      return ((it.querySelector(".aura-menu-item__label") || {}).textContent || "").trim();
+    });
+    var idx = ta.feed(ch, labels);
+    if (idx !== -1) setActive(menu, idx);
+  }
+
+  /* ---- Global-gesture dismissal --------------------------------------- *
+     The scroll / resize / window-blur gesture set is the SAME contract the
+     picker overlays use, so menu delegates it to the shared
+     Aura.overlay.createDismisser instead of duplicating the listeners (#333).
+     The dismisser is armed when the stack becomes non-empty and disarmed by
+     closeAll(). Pointer (outside-press) dismissal is deliberately NOT delegated:
+     for menus it is fused with trigger-toggle resolution in the delegated click
+     handler above (a press on a [data-aura-menu] trigger toggles rather than
+     dismisses), so it stays menu-specific.
+
+     overlay.js is optional — anchored menus must still dismiss when a page loads
+     menu.js without it (the #38 resilience contract). When Aura.overlay is
+     absent we attach an inline copy of the same scroll/resize/blur listeners. */
+  var dismisser = null;
+  function buildDismisser() {
+    if (Aura.popupOverlay && Aura.overlay) {
+      return Aura.popupOverlay.createDismisser({
+        onDismiss: function () { if (stack.length) closeAll(); },
+        /* Menus dismiss on ANY scroll (including their own content) — the
+           pre-#333 behaviour. isInside never suppresses, so the shared gesture
+           set matches exactly; only the listener plumbing is now shared. */
+        isInside: function () { return false; },
+        pointer: false /* outside-press dismissal stays in the click handler */
+      });
+    }
+    /* Fallback dismisser — mirrors the shared scroll/resize/blur gesture set. */
+    function onScroll() { if (stack.length) closeAll(); }
+    function onResize() { if (stack.length) closeAll(); }
+    function onBlur() { if (stack.length) closeAll(); }
+    return {
+      arm: function () {
+        window.addEventListener("scroll", onScroll, true);
+        window.addEventListener("resize", onResize);
+        window.addEventListener("blur", onBlur);
+      },
+      disarm: function () {
+        window.removeEventListener("scroll", onScroll, true);
+        window.removeEventListener("resize", onResize);
+        window.removeEventListener("blur", onBlur);
+      }
+    };
+  }
+  function armDismissal() {
+    if (!dismisser) dismisser = buildDismisser();
+    dismisser.arm();
+  }
+  function disarmDismissal() {
+    if (dismisser) dismisser.disarm();
+  }
+
+  /* reclaim: synchronously, instantly tear down ONE menu's open/portaled state
+     when its host is going away (e.g. an aura-select disconnect while open,
+     #455). Unlike closeMenu/closeAll this skips the exit animation, never moves
+     focus, and guarantees the body-portaled node + its scrim are released NOW
+     so nothing is orphaned on <body>. Idempotent: a no-op for a menu that is
+     neither stacked, mid-close, nor portaled. */
+  function reclaim(menu) {
+    if (!menu) return;
+    var idx = stack.indexOf(menu);
+    if (idx !== -1) {
+      /* Drop this menu (and any deeper submenus it owns) off the stack. */
+      while (stack.length > idx) stack.pop();
+      if (!stack.length) disarmDismissal();
+    }
+    /* Abort any in-flight animated close so its deferred finish() can't fire
+       against a detached node later. */
+    if (menu._auraMenuCloseToken) menu._auraMenuCloseToken.cancelled = true;
+    menu._auraMenuClosing    = false;
+    menu._auraMenuCloseToken = null;
+    /* Instant cleanup: strips classes, releases the scrim, restores the node to
+       its light-DOM home (or, if home is gone, leaves it detached for the host
+       removal to GC — it is no longer a <body> child after restoreHome). */
+    _finishMenuClose(menu);
+    /* Defensive: if the node is still parked on <body> (home parent already
+       detached so restoreHome could not re-home it), remove it explicitly so no
+       orphan panel lingers. */
+    if (menu.parentNode === document.body) document.body.removeChild(menu);
+  }
+
+  /* ---- Public API ------------------------------------------------------ */
+  Aura.menu = {
+    open: function (selectorOrEl, x, y) {
+      var m = typeof selectorOrEl === "string" ? resolveMenu(selectorOrEl) : selectorOrEl;
+      if (m) openRoot(m, x || 100, y || 100, null);
+    },
+    /* Open a menu anchored below an element (e.g. for dropdowns/selects).
+       anchorEl must be a DOM element whose getBoundingClientRect() is used to
+       position the menu. opener is the element that gets focus on close. */
+    openAtAnchor: function (selectorOrEl, anchorEl, opener) {
+      var m = typeof selectorOrEl === "string" ? resolveMenu(selectorOrEl) : selectorOrEl;
+      if (m) openAtAnchor(m, anchorEl.getBoundingClientRect(), opener || null);
+    },
+    closeAll: closeAll,
+    /* Number of menus currently on the open stack — 0 when the engine is fully
+       dismissed and its global dismissal listeners are disarmed. Read-only;
+       lets consumers/tests verify clean teardown (#624). */
+    openCount: function () { return stack.length; },
+    /* Instantly reclaim one menu's portaled/open state (host teardown, #455). */
+    reclaim: reclaim,
+    decorate: decorate
+  };
+})();

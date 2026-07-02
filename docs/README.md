@@ -1,7 +1,26 @@
 # Docs
 
-> **Docs root.** Design docs live in [`design/`](design/README.md);
-> Grimoire-internal docs live in [`grimoire/`](grimoire/README.md).
+> **Docs root.** Each tier below has an index; start here and follow links down.
+
+## Overview
+
+Harmony's documentation tree. Each tier below has an index; start here and
+follow links down.
+
+## Tiers
+
+- [design/](design/README.md) — Design docs: architecture, feature designs, decision records
+- [grimoire/](grimoire/README.md) — Agent-only operational docs: organization, playbooks
+- [coding-standards/](coding-standards/README.md) — Per-language coding standards
+
+## Reference docs
+
+- [quickstart.md](quickstart.md) — Getting started with Grimoire
+- [project-structure.md](project-structure.md) — Standard project directory layout
+- [architecture-guidelines.md](architecture-guidelines.md) — Architectural principles & module boundaries
+- [features.md](features.md) — Feature reference: all shipped capabilities and their docs
+- [roadmap.md](roadmap.md) — Release roadmap and backlog
+- [version-history.md](version-history.md) — Shipped release history
 
 <!-- docs-map:begin -->
 ### Top level
@@ -9,6 +28,7 @@
 - [`architecture-guidelines.md`](architecture-guidelines.md)
 - [`coding-standards.md`](coding-standards.md)
 - [`features.md`](features.md)
+- [`project-structure.md`](project-structure.md)
 - [`quickstart.md`](quickstart.md)
 - [`roadmap.md`](roadmap.md)
 

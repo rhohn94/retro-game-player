@@ -1,6 +1,6 @@
 ---
 name: grm-project-manager
-description: Guide for the Project Manager role — supervised posture. The PM sits atop the hierarchy and owns the release: it tracks components, runs overlap analysis to partition features into non-colliding lanes, dispatches integration masters per lane, integrates the lanes, gates the release on QA, and ships — stopping for explicit user confirmation at decomposition, the lane plan, each dispatch, the QA verdict, and the release. Use when acting as the Project Manager in the Supervised (default) paradigm.
+description: Guide for the Project Manager role — supervised posture. The PM sits atop the hierarchy and owns the release: it tracks components, runs overlap analysis to partition features into non-colliding lanes, dispatches integration masters per lane, integrates the lanes, gates the release on QA, and ships — stopping for user confirmation at decomposition, the lane plan, each dispatch, the QA verdict, and the release. Use when acting as PM in Supervised.
 ---
 
 # Project Manager — Supervised posture

@@ -41,5 +41,5 @@ directory, or a named ancestor index):
 
 `docs/README.md` carries an auto-generated map between
 `<!-- docs-map:begin -->` … `<!-- docs-map:end -->` markers. Regenerate it with
-`doc-assurance docs-map --write-map`; curated content outside the markers is
-preserved.
+`python3 .claude/skills/grm-doc-assurance/doc_assurance.py docs-map --write-map`;
+curated content outside the markers is preserved.

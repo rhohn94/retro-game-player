@@ -2,7 +2,7 @@
 """dependency_channel_conformance.py — Dependency Channel conformance gate.
 
 Validates a repo's vendored dependencies against the Dependency Channel
-contract (`docs/design/dependency-channel-design.md` §5): every dependency must
+contract (`docs/grimoire/design/dependency-channel-design.md` §5): every dependency must
 be pulled from a release channel (not a git submodule), its vendored bytes must
 match the `vendor.lock` `tree_sha256`, and its pinned release must be published
 on its channel.
@@ -12,19 +12,30 @@ This is the implementation behind the **`recipe.py vendor-check`** verb
 on `fleet_conformance.py` — a `ConformanceResult` finding collector, FIXTURE
 constants, and a deterministic offline `--self-test`.
 
-Three checks (kickoff §4; design §5). Each finding is normalized to:
+Four finding classes (kickoff §4; design §5). Each finding is normalized to:
 
     {check, dep, channel, severity, detail, locked_sha, observed_sha}
 
   1. non-channel-source  — a dep is a git submodule (`.gitmodules` entry) or is
                            otherwise not sourced from a release channel.
-  2. lock-bytes-mismatch — vendored bytes under `vendor/<dep>/` lack a matching
+  2. lock-bytes-mismatch — vendored bytes under `lib/third-party/<dep>/` (or the
+                           legacy `vendor/<dep>/` root) lack a matching
                            lock entry, OR their recomputed `tree_sha256` differs
                            from the locked `tree_sha256`.
-  3. unpublished-release — a `vendor.toml` dep is not a published release on its
-                           channel (the only network-dependent check; it
-                           **degrades gracefully and reports** when the channel
-                           is unreachable — never a hard fail offline).
+  3. unpublished-release — a `vendor.toml` dep's pinned release tag does not exist
+                           on its channel.
+  4. malformed-release   — the pinned release tag EXISTS but is not a conformant
+                           producer: its artifact trio (`<artifact>.tar.gz` +
+                           `release.json` + `SHA256SUMS`) is missing an asset or
+                           is not self-consistent (a checksum disagrees, the
+                           manifest's `primary_artifact_sha256` ≠ the tarball's
+                           real hash, `artifact_kind` ≠ the pinned `kind`, …).
+
+Checks 3 & 4 are the network surface: the publish probe verifies *attachment and
+self-consistency of the trio*, not merely that a tag exists. It **degrades
+gracefully and reports** when the channel is unreachable (never a hard fail
+offline). The byte-level trio verification is factored into the pure
+`evaluate_trio()` function, which the `--self-test` exercises entirely offline.
 
 **Warn-only (advisory) this release.** The merge-gate reads the existing
 `code-quality.audit-gate` dial live ({off,warn,block}); this script merely emits
@@ -36,11 +47,11 @@ Usage:
     # Offline self-test (CI / no network):
     python3 dependency_channel_conformance.py --self-test
 
-    # Audit a real repo (offline checks 1 & 2; check 3 needs `gh`):
+    # Audit a real repo (offline checks 1 & 2; checks 3 & 4 need `gh` + network):
     python3 dependency_channel_conformance.py --root /path/to/repo
     python3 dependency_channel_conformance.py --root . --offline   # skip network
 
-Design: docs/design/dependency-channel-design.md §5
+Design: docs/grimoire/design/dependency-channel-design.md §5
 """
 
 from __future__ import annotations
@@ -63,16 +74,32 @@ SEVERITY_INFO = "info"
 SEVERITY_WARN = "warn"
 SEVERITY_ERROR = "error"
 
-#: The three check identifiers (stable keys; used in the dedupe key downstream).
+#: The check identifiers (stable keys; used in the dedupe key downstream).
 CHECK_NON_CHANNEL_SOURCE = "non-channel-source"
 CHECK_LOCK_BYTES_MISMATCH = "lock-bytes-mismatch"
 CHECK_UNPUBLISHED_RELEASE = "unpublished-release"
+CHECK_MALFORMED_RELEASE = "malformed-release"
 
 #: Sentinel used in a finding's sha slots when the value is unknown / absent.
 SHA_ABSENT = None
 
 #: Network timeout for the published-release probe (seconds).
 PUBLISH_PROBE_TIMEOUT_S = 10
+#: Network timeout for downloading a release asset during trio verification (seconds).
+DOWNLOAD_TIMEOUT_S = 60
+
+#: The fixed names of the two always-present trio members (design §2). The third
+#: member — the primary artifact tarball — is named by the manifest / pin.
+RELEASE_MANIFEST = "release.json"
+CHECKSUMS_FILE = "SHA256SUMS"
+
+#: The release.json `schema_version` this gate understands (design §2).
+KNOWN_MANIFEST_SCHEMA = 1
+
+#: Publish-verdict statuses returned by the channel probe / `evaluate_trio`.
+PUBLISH_CONFORMANT = "conformant"    # tag exists + trio attached + self-consistent
+PUBLISH_UNPUBLISHED = "unpublished"  # tag does not exist on the channel
+PUBLISH_MALFORMED = "malformed"      # tag exists but the trio is missing / inconsistent
 
 
 # ── Finding model ──────────────────────────────────────────────────────────────
@@ -222,44 +249,256 @@ def tree_sha256(tree_root: str) -> str:
     return f"sha256:{h.hexdigest()}"
 
 
+# ── Publish verdict + pure trio verification ───────────────────────────────────
+
+class PublishVerdict:
+    """The outcome of probing a pinned release on its channel.
+
+    A richer verdict than a bare bool: a release tag can EXIST yet fail to be a
+    conformant producer (its artifact trio missing an asset or self-inconsistent).
+    `status` is one of `PUBLISH_CONFORMANT` / `PUBLISH_UNPUBLISHED` /
+    `PUBLISH_MALFORMED`; `detail` explains a non-conformant verdict; `primary_sha256`
+    carries the verified bare-hex sha256 of the primary artifact when known.
+    """
+
+    def __init__(
+        self,
+        status: str,
+        detail: str = "",
+        primary_sha256: Optional[str] = None,
+    ) -> None:
+        self.status = status
+        self.detail = detail
+        self.primary_sha256 = primary_sha256
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"PublishVerdict({self.status}, {self.detail!r})"
+
+
+def _parse_sha256sums(text: str) -> dict[str, str]:
+    """Parse a coreutils-style `SHA256SUMS` body into `{name: lowercase-hex}`.
+
+    Each non-empty line is `"<hex>  <name>"`; the binary-mode `*` marker on the
+    name (`"<hex> *<name>"`) is tolerated and stripped. Malformed lines are
+    skipped (the caller's required-entry checks surface any resulting gap).
+    """
+    sums: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        hex_digest, name = parts
+        name = name.lstrip("*").strip()
+        if name:
+            sums[name] = hex_digest.lower()
+    return sums
+
+
+def evaluate_trio(
+    assets: dict[str, bytes],
+    expected_artifact: Optional[str] = None,
+    expected_kind: Optional[str] = None,
+) -> PublishVerdict:
+    """Decide whether the fetched release *assets* form a conformant trio.
+
+    Pure and offline: *assets* is `{asset_name: raw_bytes}` already fetched from
+    the release. This is the heart of the publish hardening — it asserts the
+    `release.json` + `SHA256SUMS` + primary-artifact trio is **attached** and
+    **self-consistent** (design §2), so a published-but-broken release is caught
+    rather than passed. Returns a `PUBLISH_MALFORMED` verdict (with a specific
+    detail) on the first contract breach, else `PUBLISH_CONFORMANT`.
+
+    `expected_artifact` / `expected_kind` come from the consumer's `vendor.toml`
+    pin (`artifact` / `kind`); when given they are cross-checked against the
+    manifest so a pin pointing at the wrong asset or kind is flagged.
+    """
+    def malformed(detail: str) -> PublishVerdict:
+        return PublishVerdict(PUBLISH_MALFORMED, detail)
+
+    # 1. The two fixed-name members must be attached.
+    if RELEASE_MANIFEST not in assets:
+        return malformed(f"release manifest {RELEASE_MANIFEST!r} is not attached to the release")
+    if CHECKSUMS_FILE not in assets:
+        return malformed(f"checksums file {CHECKSUMS_FILE!r} is not attached to the release")
+
+    # 2. The manifest must be valid JSON of a known schema.
+    try:
+        manifest = json.loads(assets[RELEASE_MANIFEST].decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return malformed(f"{RELEASE_MANIFEST} is not valid JSON: {exc}")
+    if not isinstance(manifest, dict):
+        return malformed(f"{RELEASE_MANIFEST} is not a JSON object")
+    schema = manifest.get("schema_version")
+    if schema != KNOWN_MANIFEST_SCHEMA:
+        return malformed(
+            f"{RELEASE_MANIFEST} schema_version {schema!r} is not the understood "
+            f"version {KNOWN_MANIFEST_SCHEMA}"
+        )
+
+    # 3. artifact_kind must match the pin (when the pin declares one).
+    kind = manifest.get("artifact_kind")
+    if expected_kind is not None and kind != expected_kind:
+        return malformed(
+            f"{RELEASE_MANIFEST} artifact_kind {kind!r} != pinned kind {expected_kind!r}"
+        )
+
+    # 4. The manifest must name a primary artifact, and the pin (if any) must agree.
+    primary = manifest.get("primary_artifact")
+    if not primary or not isinstance(primary, str):
+        return malformed(f"{RELEASE_MANIFEST} does not name a primary_artifact")
+    if expected_artifact is not None and primary != expected_artifact:
+        return malformed(
+            f"{RELEASE_MANIFEST} primary_artifact {primary!r} != pinned artifact "
+            f"{expected_artifact!r}"
+        )
+
+    # 5. The primary artifact must itself be attached.
+    if primary not in assets:
+        return malformed(f"primary artifact {primary!r} named by the manifest is not attached")
+
+    # 6. SHA256SUMS must list — and correctly hash — the trio members we hold.
+    sums = _parse_sha256sums(assets[CHECKSUMS_FILE].decode("utf-8", errors="replace"))
+    for required in (primary, RELEASE_MANIFEST):
+        if required not in sums:
+            return malformed(f"{CHECKSUMS_FILE} has no entry for {required!r}")
+    for name, claimed_hex in sums.items():
+        if name in assets:
+            actual_hex = _sha256_bytes(assets[name])
+            if actual_hex != claimed_hex.lower():
+                return malformed(
+                    f"{CHECKSUMS_FILE} hash for {name!r} ({claimed_hex[:12]}…) does not "
+                    f"match the attached bytes ({actual_hex[:12]}…)"
+                )
+
+    # 7. The manifest's own claim about the primary must match the real bytes.
+    primary_sha = _sha256_bytes(assets[primary])
+    claimed_primary = manifest.get("primary_artifact_sha256")
+    if claimed_primary != primary_sha:
+        return malformed(
+            f"{RELEASE_MANIFEST} primary_artifact_sha256 ({str(claimed_primary)[:12]}…) "
+            f"does not match the real {primary!r} hash ({primary_sha[:12]}…)"
+        )
+
+    return PublishVerdict(PUBLISH_CONFORMANT, "trio attached and self-consistent", primary_sha)
+
+
 # ── Channel probe (the only network-dependent surface) ─────────────────────────
 
 class ChannelProbe:
-    """Resolves whether a dep's pinned release is published on its channel.
+    """Resolves whether a dep's pinned release is a conformant producer.
 
     The base probe shells out to `gh` (the GitHub CLI). It is isolated behind
     this class so the offline `--self-test` can inject a deterministic stub
-    (`StubChannelProbe`) — no network in self-test.
+    (`StubChannelProbe`) — no network in self-test. The pure verdict logic lives
+    in `evaluate_trio`; this class only adds the network fetch around it.
     """
 
-    def is_published(self, repo: str, release_tag: str) -> bool:
-        """Return True iff *release_tag* is a published release of *repo*.
+    def verify_release(
+        self,
+        repo: str,
+        release_tag: str,
+        expected_artifact: Optional[str] = None,
+        expected_kind: Optional[str] = None,
+    ) -> PublishVerdict:
+        """Probe *release_tag* of *repo* and verify its artifact trio.
+
+        Verdict semantics:
+          - tag absent on the channel            → `PUBLISH_UNPUBLISHED`
+          - tag present, trio missing/inconsistent → `PUBLISH_MALFORMED`
+          - tag present, trio attached & consistent → `PUBLISH_CONFORMANT`
 
         Raises `ChannelUnreachable` when the channel cannot be reached (no `gh`,
-        no network, auth failure) so the caller can degrade gracefully rather
-        than treating an unreachable channel as "unpublished".
+        no network, auth failure, or a download error) so the caller degrades
+        gracefully rather than manufacturing a false verdict.
         """
         if shutil.which("gh") is None:
             raise ChannelUnreachable("the `gh` CLI is not installed")
+        # 1. Existence + asset inventory.
         try:
             proc = subprocess.run(
-                ["gh", "release", "view", release_tag, "--repo", repo, "--json", "tagName"],
+                ["gh", "release", "view", release_tag, "--repo", repo,
+                 "--json", "tagName,assets"],
                 capture_output=True,
                 text=True,
                 timeout=PUBLISH_PROBE_TIMEOUT_S,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise ChannelUnreachable(f"`gh` invocation failed: {exc}") from exc
-        if proc.returncode == 0:
-            return True
-        stderr = (proc.stderr or "").lower()
-        # A clean "not found" means reachable-but-unpublished; anything else
-        # (auth, rate-limit, network) is an unreachable degrade, not a verdict.
-        if "release not found" in stderr or "not found" in stderr:
-            return False
-        raise ChannelUnreachable(
-            f"`gh release view` did not yield a verdict: {proc.stderr.strip()!r}"
-        )
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").lower()
+            # A clean "not found" means reachable-but-unpublished; anything else
+            # (auth, rate-limit, network) is an unreachable degrade, not a verdict.
+            if "release not found" in stderr or "not found" in stderr:
+                return PublishVerdict(PUBLISH_UNPUBLISHED, f"release {release_tag!r} not found")
+            raise ChannelUnreachable(
+                f"`gh release view` did not yield a verdict: {proc.stderr.strip()!r}"
+            )
+        try:
+            view = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise ChannelUnreachable(f"`gh release view` returned unparseable JSON: {exc}") from exc
+        asset_names = {
+            a.get("name") for a in view.get("assets", []) if isinstance(a, dict) and a.get("name")
+        }
+        # Short-circuit: without the two fixed members we cannot even read the
+        # manifest — that is a malformed (published-but-broken) release.
+        if RELEASE_MANIFEST not in asset_names or CHECKSUMS_FILE not in asset_names:
+            missing = [n for n in (RELEASE_MANIFEST, CHECKSUMS_FILE) if n not in asset_names]
+            return PublishVerdict(
+                PUBLISH_MALFORMED,
+                f"release {release_tag!r} is published but missing trio asset(s): "
+                f"{', '.join(missing)}",
+            )
+        # 2. Fetch the trio and hand the bytes to the pure verifier.
+        tmp = tempfile.mkdtemp(prefix="dep-ch-verify-")
+        try:
+            assets: dict[str, bytes] = {}
+            for name in (RELEASE_MANIFEST, CHECKSUMS_FILE):
+                assets[name] = self._download_asset(repo, release_tag, name, tmp)
+            # Discover the primary artifact from the manifest and fetch it too
+            # (only when it is actually attached — else evaluate_trio flags it).
+            try:
+                manifest = json.loads(assets[RELEASE_MANIFEST].decode("utf-8"))
+                primary = manifest.get("primary_artifact") if isinstance(manifest, dict) else None
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                primary = None
+            if isinstance(primary, str) and primary in asset_names:
+                assets[primary] = self._download_asset(repo, release_tag, primary, tmp)
+            return evaluate_trio(assets, expected_artifact, expected_kind)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _download_asset(self, repo: str, release_tag: str, name: str, dest_dir: str) -> bytes:
+        """Download a single named release asset and return its raw bytes.
+
+        A failure here means the channel could not be read reliably, so it raises
+        `ChannelUnreachable` (degrade) rather than letting a half-fetched trio
+        masquerade as malformed.
+        """
+        try:
+            proc = subprocess.run(
+                ["gh", "release", "download", release_tag, "--repo", repo,
+                 "--pattern", name, "--dir", dest_dir, "--clobber"],
+                capture_output=True,
+                text=True,
+                timeout=DOWNLOAD_TIMEOUT_S,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ChannelUnreachable(f"downloading asset {name!r} failed: {exc}") from exc
+        if proc.returncode != 0:
+            raise ChannelUnreachable(
+                f"downloading asset {name!r} of {release_tag!r} failed: "
+                f"{proc.stderr.strip()!r}"
+            )
+        path = os.path.join(dest_dir, name)
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except OSError as exc:
+            raise ChannelUnreachable(f"reading downloaded asset {name!r} failed: {exc}") from exc
 
 
 class ChannelUnreachable(RuntimeError):
@@ -272,10 +511,17 @@ class DependencyChannelConformance:
     """Runs the three Dependency Channel conformance checks over a repo root.
 
     Layout assumptions (design §3):
-      <root>/vendor.toml   — human intent (TOML; parsed via tomllib on 3.11+).
-      <root>/vendor.lock   — resolved truth (JSON).
-      <root>/vendor/<dep>/ — committed vendored bytes.
-      <root>/.gitmodules   — submodule registry (a non-channel source signal).
+      <root>/vendor.toml             — human intent (TOML; parsed via tomllib on 3.11+).
+      <root>/vendor.lock             — resolved truth (JSON).
+      <root>/lib/third-party/<dep>/  — committed vendored bytes (current default).
+      <root>/vendor/<dep>/           — committed vendored bytes (legacy root).
+      <root>/.gitmodules             — submodule registry (a non-channel source signal).
+
+    Vendored bytes are dual-rooted: the orphan-scan walks BOTH `lib/third-party/`
+    (the current default) and the legacy `vendor/` tree, so a mid-migration repo
+    that still carries a `vendor/` tree keeps auditing correctly. An absent
+    `vendor.toml` `dest` defaults to `lib/third-party/<dep>`; an explicit `dest`
+    (e.g. a legacy `vendor/<dep>`) is always honored verbatim.
 
     All findings default to WARN severity (advisory this release); the merge-gate
     decides block/warn/off via the live `code-quality.audit-gate` dial.
@@ -283,7 +529,10 @@ class DependencyChannelConformance:
 
     VENDOR_TOML = "vendor.toml"
     VENDOR_LOCK = "vendor.lock"
-    VENDOR_DIR = "vendor"
+    # The current default vendoring root; an absent `dest` defaults under it.
+    VENDOR_DIR = "lib/third-party"
+    # The legacy root, still scanned so a mid-migration repo audits correctly.
+    LEGACY_VENDOR_DIR = "vendor"
     GITMODULES = ".gitmodules"
 
     def __init__(self, root: str, probe: Optional[ChannelProbe] = None) -> None:
@@ -336,16 +585,30 @@ class DependencyChannelConformance:
                         paths.add(value.rstrip("/"))
         return paths
 
-    def _vendored_dep_dirs(self) -> dict[str, str]:
-        """Return {dep_name: abs_dir} for each immediate child of `vendor/`."""
-        vendor_root = os.path.join(self.root, self.VENDOR_DIR)
-        result: dict[str, str] = {}
-        if not os.path.isdir(vendor_root):
-            return result
-        for name in sorted(os.listdir(vendor_root)):
-            abs_dir = os.path.join(vendor_root, name)
-            if os.path.isdir(abs_dir):
-                result[name] = abs_dir
+    def _vendored_roots(self) -> list[str]:
+        """Vendoring roots to scan, current default first then legacy."""
+        return [self.VENDOR_DIR, self.LEGACY_VENDOR_DIR]
+
+    def _vendored_dep_dirs(self) -> dict[str, tuple[str, str]]:
+        """Return {dep_name: (abs_dir, dest)} for each immediate child of every
+        vendoring root (`lib/third-party/` then legacy `vendor/`).
+
+        `dest` is the repo-relative path the dir was found at (e.g.
+        `lib/third-party/aura` or `vendor/aura`) so check 2 reports and the
+        submodule-skip test reflect the dir's real location. When the same dep
+        name appears under both roots, the current default wins (scanned first).
+        """
+        result: dict[str, tuple[str, str]] = {}
+        for rel_root in self._vendored_roots():
+            vendor_root = os.path.join(self.root, rel_root)
+            if not os.path.isdir(vendor_root):
+                continue
+            for name in sorted(os.listdir(vendor_root)):
+                if name in result:
+                    continue  # earlier root (current default) takes precedence
+                abs_dir = os.path.join(vendor_root, name)
+                if os.path.isdir(abs_dir):
+                    result[name] = (abs_dir, f"{rel_root}/{name}")
         return result
 
     # ── Individual checks ───────────────────────────────────────────────────
@@ -356,7 +619,7 @@ class DependencyChannelConformance:
         submodule_paths = self._load_submodule_paths()
         if not submodule_paths:
             return
-        # Map each manifest dep to its declared dest (defaults to vendor/<dep>).
+        # Map each manifest dep to its declared dest (absent → lib/third-party/<dep>).
         for dep, spec in manifest.items():
             channel = spec.get("channel") if isinstance(spec, dict) else None
             dest = None
@@ -377,34 +640,37 @@ class DependencyChannelConformance:
                         ),
                     )
                 )
-        # Also flag a submodule landing directly under vendor/ even if the
-        # manifest does not name it (a stray submodule-sourced vendored dir).
+        # Also flag a submodule landing directly under a vendoring root
+        # (lib/third-party/ or legacy vendor/) even if the manifest does not name
+        # it (a stray submodule-sourced vendored dir).
         for sub_path in sorted(submodule_paths):
             norm = sub_path.replace("\\", "/")
-            if norm.startswith(f"{self.VENDOR_DIR}/"):
-                dep = norm[len(self.VENDOR_DIR) + 1:].split("/", 1)[0]
-                if dep not in manifest:
-                    result.add(
-                        Finding(
-                            check=CHECK_NON_CHANNEL_SOURCE,
-                            dep=dep,
-                            channel=None,
-                            severity=SEVERITY_WARN,
-                            detail=(
-                                f"a git submodule is mounted under vendor/ at "
-                                f"{sub_path!r} but is not declared in vendor.toml; "
-                                f"vendored deps must come from a release channel"
-                            ),
+            for rel_root in self._vendored_roots():
+                prefix = f"{rel_root}/"
+                if norm.startswith(prefix):
+                    dep = norm[len(prefix):].split("/", 1)[0]
+                    if dep not in manifest:
+                        result.add(
+                            Finding(
+                                check=CHECK_NON_CHANNEL_SOURCE,
+                                dep=dep,
+                                channel=None,
+                                severity=SEVERITY_WARN,
+                                detail=(
+                                    f"a git submodule is mounted under {prefix} at "
+                                    f"{sub_path!r} but is not declared in vendor.toml; "
+                                    f"vendored deps must come from a release channel"
+                                ),
+                            )
                         )
-                    )
+                    break
 
     def check_lock_bytes_mismatch(self, result: ConformanceResult) -> None:
         """Check 2 — flag vendored bytes with no/incorrect lock entry."""
         lock = self._load_lock()
         manifest = self._load_manifest()
         submodule_paths = self._load_submodule_paths()
-        for dep, abs_dir in self._vendored_dep_dirs().items():
-            dest = f"{self.VENDOR_DIR}/{dep}"
+        for dep, (abs_dir, dest) in self._vendored_dep_dirs().items():
             # A submodule-mounted dir is handled by check 1; do not double-flag
             # it here (it has no vendored-bytes contract).
             if dest in submodule_paths:
@@ -446,12 +712,15 @@ class DependencyChannelConformance:
                     )
                 )
 
-    def check_unpublished_release(
+    def check_published_release(
         self, result: ConformanceResult, offline: bool = False
     ) -> None:
-        """Check 3 — flag a pinned release that is not published on its channel.
+        """Checks 3 & 4 — verify each pinned release is a conformant producer.
 
-        Network-dependent. Degrades gracefully: when offline or the channel is
+        The probe renders a three-way verdict (`evaluate_trio`): the tag may be
+        unpublished (check 3), published-but-malformed — trio missing or
+        self-inconsistent (check 4) — or conformant (no finding). Network-
+        dependent. Degrades gracefully: when offline or the channel is
         unreachable, it records a degradation and renders no verdict (never a
         hard fail).
         """
@@ -460,8 +729,8 @@ class DependencyChannelConformance:
             return
         if offline:
             result.degrade(
-                "unpublished-release check skipped (--offline): "
-                "release publication is not verifiable without network access"
+                "publish/trio check skipped (--offline): release publication and "
+                "artifact conformance are not verifiable without network access"
             )
             return
         lock = self._load_lock()
@@ -476,15 +745,19 @@ class DependencyChannelConformance:
             # Prefer the lock's resolved release_tag; fall back to v<version>.
             lock_entry = lock.get(dep) if isinstance(lock.get(dep), dict) else {}
             release_tag = lock_entry.get("release_tag") or f"v{version}"
+            expected_artifact = spec.get("artifact")
+            expected_kind = spec.get("kind")
             try:
-                published = self.probe.is_published(repo, release_tag)
+                verdict = self.probe.verify_release(
+                    repo, release_tag, expected_artifact, expected_kind
+                )
             except ChannelUnreachable as exc:
                 result.degrade(
-                    f"unpublished-release check for dep {dep!r} degraded: {exc} "
+                    f"publish/trio check for dep {dep!r} degraded: {exc} "
                     f"(channel unreachable — reported, not failed)"
                 )
                 continue
-            if not published:
+            if verdict.status == PUBLISH_UNPUBLISHED:
                 result.add(
                     Finding(
                         check=CHECK_UNPUBLISHED_RELEASE,
@@ -497,6 +770,20 @@ class DependencyChannelConformance:
                         ),
                     )
                 )
+            elif verdict.status == PUBLISH_MALFORMED:
+                result.add(
+                    Finding(
+                        check=CHECK_MALFORMED_RELEASE,
+                        dep=dep,
+                        channel=channel,
+                        severity=SEVERITY_WARN,
+                        detail=(
+                            f"pinned release {release_tag!r} of {repo!r} exists but is "
+                            f"not a channel-conformant producer: {verdict.detail}"
+                        ),
+                        observed_sha=verdict.primary_sha256,
+                    )
+                )
 
     # ── Orchestration ────────────────────────────────────────────────────────
 
@@ -505,7 +792,7 @@ class DependencyChannelConformance:
         result = ConformanceResult(label)
         self.check_non_channel_source(result)
         self.check_lock_bytes_mismatch(result)
-        self.check_unpublished_release(result, offline=offline)
+        self.check_published_release(result, offline=offline)
         return result
 
 
@@ -514,24 +801,39 @@ class DependencyChannelConformance:
 class StubChannelProbe(ChannelProbe):
     """Offline probe stub for `--self-test`.
 
-    Drives the three publish outcomes deterministically with no network:
-      - a tag in `published`         → published (True)
-      - a tag in `unpublished`       → not published (False)
-      - a tag in `unreachable`       → raises ChannelUnreachable (degrade path)
+    Drives every publish verdict deterministically with no network:
+      - a tag in `conformant`   → `PUBLISH_CONFORMANT`
+      - a tag in `malformed`    → `PUBLISH_MALFORMED` (detail from the map value)
+      - a tag in `unreachable`  → raises ChannelUnreachable (degrade path)
+      - any other tag           → `PUBLISH_UNPUBLISHED`
     """
 
     def __init__(
         self,
-        published: Optional[set[str]] = None,
+        conformant: Optional[set[str]] = None,
+        malformed: Optional[dict[str, str]] = None,
         unreachable: Optional[set[str]] = None,
     ) -> None:
-        self.published = published or set()
+        self.conformant = conformant or set()
+        self.malformed = dict(malformed or {})
         self.unreachable = unreachable or set()
 
-    def is_published(self, repo: str, release_tag: str) -> bool:
+    def verify_release(
+        self,
+        repo: str,
+        release_tag: str,
+        expected_artifact: Optional[str] = None,
+        expected_kind: Optional[str] = None,
+    ) -> PublishVerdict:
         if release_tag in self.unreachable:
             raise ChannelUnreachable(f"stub: {release_tag} unreachable")
-        return release_tag in self.published
+        if release_tag in self.malformed:
+            return PublishVerdict(PUBLISH_MALFORMED, self.malformed[release_tag])
+        if release_tag in self.conformant:
+            return PublishVerdict(
+                PUBLISH_CONFORMANT, "stub: conformant", primary_sha256="00" * 32
+            )
+        return PublishVerdict(PUBLISH_UNPUBLISHED, f"stub: {release_tag} unpublished")
 
 
 def _write(path: str, content: str) -> None:
@@ -541,8 +843,12 @@ def _write(path: str, content: str) -> None:
 
 
 def _build_conformant_repo(root: str) -> None:
-    """A fully conformant repo: one channel dep, locked, bytes match."""
-    dep_dir = os.path.join(root, "vendor", "aura")
+    """A fully conformant repo: one channel dep, locked, bytes match.
+
+    Exercises the current default root (`lib/third-party/`) with NO explicit
+    `dest` in vendor.toml, so the absent-dest default is what's audited.
+    """
+    dep_dir = os.path.join(root, "lib", "third-party", "aura")
     _write(os.path.join(dep_dir, "css", "aura.css"), "body{color:#000}\n")
     _write(os.path.join(dep_dir, "README.md"), "Aura bundle\n")
     observed = tree_sha256(dep_dir)
@@ -554,7 +860,6 @@ def _build_conformant_repo(root: str) -> None:
         'channel = "stable"\n'
         'version = "3.20.0"\n'
         'artifact = "aura-v3.20.0.tar.gz"\n'
-        'dest = "vendor/aura"\n'
         'kind = "asset-bundle"\n',
     )
     lock = {
@@ -572,7 +877,11 @@ def _build_conformant_repo(root: str) -> None:
 
 
 def _build_submodule_repo(root: str) -> None:
-    """A repo whose vendored dep is sourced from a git submodule (check 1)."""
+    """A repo whose vendored dep is sourced from a git submodule (check 1).
+
+    Deliberately uses the LEGACY `vendor/` root with an explicit `dest` to keep
+    legacy-root detection covered under dual-rooting (a mid-migration repo).
+    """
     dep_dir = os.path.join(root, "vendor", "aura")
     _write(os.path.join(dep_dir, "css", "aura.css"), "body{color:#000}\n")
     _write(
@@ -595,8 +904,12 @@ def _build_submodule_repo(root: str) -> None:
 
 
 def _build_unlocked_repo(root: str) -> None:
-    """A repo with vendored bytes but no lock entry (check 2: unlocked dir)."""
-    dep_dir = os.path.join(root, "vendor", "ollama")
+    """A repo with vendored bytes but no lock entry (check 2: unlocked dir).
+
+    Bytes under the default `lib/third-party/` root with NO explicit `dest`, so
+    the default-root orphan scan is what surfaces the unlocked dir.
+    """
+    dep_dir = os.path.join(root, "lib", "third-party", "ollama")
     _write(os.path.join(dep_dir, "bin", "ollama"), "#!/bin/sh\n")
     _write(
         os.path.join(root, "vendor.toml"),
@@ -605,15 +918,17 @@ def _build_unlocked_repo(root: str) -> None:
         'repo = "ollama/ollama"\n'
         'channel = "stable"\n'
         'version = "0.3.12"\n'
-        'dest = "vendor/ollama"\n'
         'kind = "asset-bundle"\n',
     )
     _write(os.path.join(root, "vendor.lock"), json.dumps({"schema_version": 1, "deps": {}}) + "\n")
 
 
 def _build_drifted_repo(root: str) -> None:
-    """A repo whose vendored bytes drifted from the locked tree_sha256 (check 2)."""
-    dep_dir = os.path.join(root, "vendor", "aura")
+    """A repo whose vendored bytes drifted from the locked tree_sha256 (check 2).
+
+    Bytes under the default `lib/third-party/` root with NO explicit `dest`.
+    """
+    dep_dir = os.path.join(root, "lib", "third-party", "aura")
     _write(os.path.join(dep_dir, "css", "aura.css"), "body{color:#FFF}\n")  # changed bytes
     _write(
         os.path.join(root, "vendor.toml"),
@@ -622,7 +937,6 @@ def _build_drifted_repo(root: str) -> None:
         'repo = "rhohn94/design-language"\n'
         'channel = "stable"\n'
         'version = "3.20.0"\n'
-        'dest = "vendor/aura"\n'
         'kind = "asset-bundle"\n',
     )
     lock = {
@@ -637,6 +951,41 @@ def _build_drifted_repo(root: str) -> None:
         },
     }
     _write(os.path.join(root, "vendor.lock"), json.dumps(lock, indent=2) + "\n")
+
+
+def _make_trio(
+    artifact: str = "aura-v3.20.0.tar.gz",
+    kind: str = "asset-bundle",
+    tar_bytes: bytes = b"fake tarball bytes\n",
+) -> dict[str, bytes]:
+    """Build a fully conformant in-memory trio for `evaluate_trio` self-tests.
+
+    Returns `{artifact: bytes, "release.json": bytes, "SHA256SUMS": bytes}` with
+    a manifest and checksums that are mutually consistent. Tests mutate a copy to
+    synthesize each malformed shape.
+    """
+    tar_sha = _sha256_bytes(tar_bytes)
+    manifest = {
+        "schema_version": KNOWN_MANIFEST_SCHEMA,
+        "artifact_kind": kind,
+        "name": "aura",
+        "version": "3.20.0",
+        "channel": "stable",
+        "primary_artifact": artifact,
+        "primary_artifact_sha256": tar_sha,
+        "assets": [{"name": artifact, "bytes": len(tar_bytes), "sha256": tar_sha}],
+        "signature": None,
+    }
+    manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    manifest_sha = _sha256_bytes(manifest_bytes)
+    sums_bytes = (
+        f"{tar_sha}  {artifact}\n{manifest_sha}  {RELEASE_MANIFEST}\n"
+    ).encode("utf-8")
+    return {
+        artifact: tar_bytes,
+        RELEASE_MANIFEST: manifest_bytes,
+        CHECKSUMS_FILE: sums_bytes,
+    }
 
 
 def run_self_test() -> int:
@@ -680,16 +1029,92 @@ def run_self_test() -> int:
         print("Group: tree_sha256 determinism")
         d1 = os.path.join(tmp, "tree-a")
         _build_conformant_repo(d1)
-        h_a = tree_sha256(os.path.join(d1, "vendor", "aura"))
-        h_b = tree_sha256(os.path.join(d1, "vendor", "aura"))
+        h_a = tree_sha256(os.path.join(d1, "lib", "third-party", "aura"))
+        h_b = tree_sha256(os.path.join(d1, "lib", "third-party", "aura"))
         if h_a != h_b or not h_a.startswith("sha256:"):
             failures.append(f"tree_sha256 not deterministic / malformed: {h_a} vs {h_b}")
         else:
             print(f"  OK: tree_sha256 stable across two runs ({h_a[:18]}…)")
 
+        # ── evaluate_trio: pure offline trio verification ────────────────────
+        print("\nGroup: evaluate_trio (pure trio verification)")
+
+        def expect_verdict(
+            label: str, verdict: PublishVerdict, status: str
+        ) -> None:
+            if verdict.status != status:
+                failures.append(
+                    f"evaluate_trio[{label}]: expected {status!r}, got "
+                    f"{verdict.status!r} ({verdict.detail})"
+                )
+            else:
+                print(f"  OK: {label} → {status}")
+
+        # (a) A well-formed trio is conformant, and surfaces the primary sha.
+        good = _make_trio()
+        v_good = evaluate_trio(good, expected_artifact="aura-v3.20.0.tar.gz",
+                               expected_kind="asset-bundle")
+        expect_verdict("conformant", v_good, PUBLISH_CONFORMANT)
+        if v_good.primary_sha256 != _sha256_bytes(good["aura-v3.20.0.tar.gz"]):
+            failures.append("evaluate_trio[conformant]: primary_sha256 not surfaced correctly")
+
+        # (b) Missing SHA256SUMS → malformed.
+        no_sums = dict(_make_trio()); no_sums.pop(CHECKSUMS_FILE)
+        expect_verdict("missing-SHA256SUMS", evaluate_trio(no_sums), PUBLISH_MALFORMED)
+
+        # (c) Missing release.json → malformed.
+        no_manifest = dict(_make_trio()); no_manifest.pop(RELEASE_MANIFEST)
+        expect_verdict("missing-release.json", evaluate_trio(no_manifest), PUBLISH_MALFORMED)
+
+        # (d) Primary artifact not attached → malformed.
+        no_primary = dict(_make_trio()); no_primary.pop("aura-v3.20.0.tar.gz")
+        expect_verdict("missing-primary", evaluate_trio(no_primary), PUBLISH_MALFORMED)
+
+        # (e) Tarball bytes drift from the SHA256SUMS entry → malformed.
+        bad_bytes = dict(_make_trio()); bad_bytes["aura-v3.20.0.tar.gz"] = b"tampered\n"
+        expect_verdict("checksum-mismatch", evaluate_trio(bad_bytes), PUBLISH_MALFORMED)
+
+        # (f) Manifest's primary_artifact_sha256 lies about the tarball → malformed.
+        #     (Rebuild SHA256SUMS so only the manifest's self-claim is wrong.)
+        lying = _make_trio()
+        m = json.loads(lying[RELEASE_MANIFEST].decode())
+        m["primary_artifact_sha256"] = "ff" * 32
+        lying[RELEASE_MANIFEST] = (json.dumps(m, indent=2, sort_keys=True) + "\n").encode()
+        man_sha = _sha256_bytes(lying[RELEASE_MANIFEST])
+        tar_sha = _sha256_bytes(lying["aura-v3.20.0.tar.gz"])
+        lying[CHECKSUMS_FILE] = (
+            f"{tar_sha}  aura-v3.20.0.tar.gz\n{man_sha}  {RELEASE_MANIFEST}\n".encode()
+        )
+        expect_verdict("manifest-sha-lie", evaluate_trio(lying), PUBLISH_MALFORMED)
+
+        # (g) artifact_kind disagrees with the pinned kind → malformed.
+        v_kind = evaluate_trio(_make_trio(kind="asset-bundle"),
+                               expected_kind="vendored-crate")
+        expect_verdict("kind-mismatch", v_kind, PUBLISH_MALFORMED)
+
+        # (h) Pinned artifact name disagrees with the manifest → malformed.
+        v_name = evaluate_trio(_make_trio(), expected_artifact="other-v9.tar.gz")
+        expect_verdict("artifact-name-mismatch", v_name, PUBLISH_MALFORMED)
+
+        # (i) release.json not valid JSON → malformed.
+        bad_json = dict(_make_trio()); bad_json[RELEASE_MANIFEST] = b"{not json"
+        expect_verdict("bad-json", evaluate_trio(bad_json), PUBLISH_MALFORMED)
+
+        # (j) Unknown schema_version → malformed.
+        bad_schema = _make_trio()
+        ms = json.loads(bad_schema[RELEASE_MANIFEST].decode()); ms["schema_version"] = 99
+        bad_schema[RELEASE_MANIFEST] = (json.dumps(ms, sort_keys=True) + "\n").encode()
+        # Re-sum so only schema is wrong (checksums stay self-consistent).
+        man_sha = _sha256_bytes(bad_schema[RELEASE_MANIFEST])
+        tar_sha = _sha256_bytes(bad_schema["aura-v3.20.0.tar.gz"])
+        bad_schema[CHECKSUMS_FILE] = (
+            f"{tar_sha}  aura-v3.20.0.tar.gz\n{man_sha}  {RELEASE_MANIFEST}\n".encode()
+        )
+        expect_verdict("unknown-schema", evaluate_trio(bad_schema), PUBLISH_MALFORMED)
+
         # ── Conformant repo: no violations ───────────────────────────────────
         print("\nGroup: conformant repo (no violations)")
-        probe_ok = StubChannelProbe(published={"v3.20.0"})
+        probe_ok = StubChannelProbe(conformant={"v3.20.0"})
         expect_pass(
             DependencyChannelConformance(d1, probe=probe_ok).run(
                 "conformant", offline=False
@@ -738,11 +1163,28 @@ def run_self_test() -> int:
         print("\nGroup: check 3 — unpublished release (stubbed network)")
         d_unpub = os.path.join(tmp, "unpub")
         _build_conformant_repo(d_unpub)
-        probe_unpub = StubChannelProbe(published=set())  # v3.20.0 NOT published
+        probe_unpub = StubChannelProbe()  # v3.20.0 in no set → unpublished
         r_unpub = DependencyChannelConformance(d_unpub, probe=probe_unpub).run(
             "unpublished-release", offline=False
         )
         expect_finding(r_unpub, CHECK_UNPUBLISHED_RELEASE)
+
+        # ── Check 4: published-but-malformed release → WARN (distinct check) ──
+        print("\nGroup: check 4 — malformed release (published, broken trio)")
+        d_malformed = os.path.join(tmp, "malformed")
+        _build_conformant_repo(d_malformed)
+        probe_malformed = StubChannelProbe(
+            malformed={"v3.20.0": "SHA256SUMS hash for the tarball does not match"}
+        )
+        r_malformed = DependencyChannelConformance(d_malformed, probe=probe_malformed).run(
+            "malformed-release", offline=False
+        )
+        expect_finding(r_malformed, CHECK_MALFORMED_RELEASE)
+        # A malformed release must NOT be miscounted as merely unpublished.
+        if any(f.check == CHECK_UNPUBLISHED_RELEASE for f in r_malformed.violations):
+            failures.append("malformed release must not also raise unpublished-release")
+        else:
+            print("  OK: malformed release is distinct from unpublished-release")
 
         # ── Check 3: offline degrades gracefully (no hard fail) ──────────────
         print("\nGroup: check 3 — offline graceful degrade")
@@ -828,7 +1270,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Dependency Channel conformance gate (the `vendor-check` verb's "
-            "implementation). See docs/design/dependency-channel-design.md §5."
+            "implementation). See docs/grimoire/design/dependency-channel-design.md §5."
         )
     )
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -840,7 +1282,8 @@ def main() -> int:
     mode.add_argument(
         "--root",
         metavar="DIR",
-        help="Repo root to audit (expects vendor.toml / vendor.lock / vendor/).",
+        help="Repo root to audit (expects vendor.toml / vendor.lock / "
+             "lib/third-party/ — legacy vendor/ also scanned).",
     )
     parser.add_argument(
         "--offline",

@@ -1,0 +1,263 @@
+/* ==========================================================================
+   Aura — aura-timepicker: segmented field + anchored spinner popup.
+
+   CSS owns all appearance; JS (js/timepicker.js) adds behaviour and ARIA only.
+   The field is legible before/without JS (tag/attribute selectors); the popup
+   reuses the menu/overlay glass surface tokens so it re-skins automatically.
+
+   Configurable aesthetics (BINDING — §1 of release-planning-v1.3.md):
+   Every visual value is either an existing global token or a component-scoped
+   --aura-timepicker-* custom property that DEFAULTS to a global token. Change
+   any :root token (or override the --aura-timepicker-* vars on an ancestor) to
+   re-skin without touching component code.
+
+   Dials (with defaults):
+     --aura-timepicker-height            var(--aura-select-height, 2.75rem)
+     --aura-timepicker-radius            var(--aura-radius-md)
+     --aura-timepicker-bg                var(--aura-surface-1)
+     --aura-timepicker-border            var(--aura-surface-stroke)
+     --aura-timepicker-font              var(--aura-font-mono)
+     --aura-timepicker-font-size         var(--aura-text-sm)
+     --aura-timepicker-padding-x         var(--aura-space-3)
+     --aura-timepicker-segment-active-bg var(--aura-primary-a15)
+     --aura-timepicker-col-max-h         14rem
+     --aura-timepicker-cell-disabled-opacity var(--aura-disabled-opacity)
+     --aura-timepicker-dur               var(--aura-dur-base)
+     --aura-timepicker-ease              var(--aura-ease-standard)
+     --aura-timepicker-popup-dur-in      var(--aura-dur-fast)
+     --aura-timepicker-popup-dur-out     var(--aura-dur-fast)
+
+   See docs/design/timepicker-design.md.
+   ========================================================================== */
+
+aura-timepicker {
+  display: inline-block;
+  position: relative;   /* measurement anchor; the popup detaches to <body> */
+}
+
+/* ---- Range (start–end paired) mode ------------------------------------- */
+/* The range host lays its two endpoint pickers side by side with a separator.
+   Each endpoint IS a single-mode aura-timepicker, so it keeps its own field /
+   popup / glow with zero duplicated styling. */
+aura-timepicker[range] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-timepicker-range-gap, var(--aura-space-2));
+}
+.aura-timepicker__range-sep {
+  color: var(--aura-text-subtle);
+  user-select: none;
+}
+
+/* ---- Segmented field --------------------------------------------------- */
+.aura-timepicker__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  block-size: var(--aura-timepicker-height, var(--aura-select-height, 2.75rem));
+  padding-inline: var(--aura-timepicker-padding-x, var(--aura-space-3));
+  font-family: var(--aura-timepicker-font, var(--aura-font-mono));
+  font-size: var(--aura-timepicker-font-size, var(--aura-text-sm));
+  font-variant-numeric: tabular-nums;
+  color: var(--aura-text);
+  background: var(--aura-timepicker-bg, var(--aura-surface-1));
+  border: 1px solid var(--aura-timepicker-border, var(--aura-surface-stroke));
+  border-radius: var(--aura-timepicker-radius, var(--aura-radius-md));
+  /* #499: no backdrop-filter — a tier-1 (0px) blur is a visual no-op that still
+     forced a compositing layer, so it was pure waste regardless of fill opacity.
+     Dropped across every timepicker instance. (Note: --aura-surface-1 is
+     TRANSLUCENT in the dark default and opaque only in light mode / flat-primary;
+     the blur removal does not depend on the fill being opaque.) */
+  user-select: none;
+  transition:
+    border-color var(--aura-timepicker-dur, var(--aura-dur-base)) var(--aura-timepicker-ease, var(--aura-ease-standard)),
+    background   var(--aura-timepicker-dur, var(--aura-dur-base)) var(--aura-timepicker-ease, var(--aura-ease-standard)),
+    box-shadow   var(--aura-timepicker-dur, var(--aura-dur-base)) var(--aura-timepicker-ease, var(--aura-ease-standard));
+}
+
+.aura-timepicker__field:hover {
+  border-color: var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+}
+
+/* Field carries the focus ring whenever a segment within it is focused, and
+   while the popup is open. */
+.aura-timepicker__field:focus-within,
+aura-timepicker[open] .aura-timepicker__field {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  background: var(--aura-surface-2);
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Segments ---------------------------------------------------------- */
+.aura-timepicker__segment {
+  /* Proximity glow (v3.2): js/timepicker.js makes each segment its own
+     .aura-glow host so it lights + leans on approach. A compact detection
+     radius suits the small segments; the subtle global magnet-shift is
+     inherited. The rim rides the segment's own ::after. */
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.6em;
+  padding-block: var(--aura-space-1);
+  padding-inline: var(--aura-space-1);
+  border-radius: var(--aura-radius-xs);
+  line-height: 1.2;
+  cursor: text;
+  transition: background-color var(--aura-timepicker-dur, var(--aura-dur-base)) var(--aura-timepicker-ease, var(--aura-ease-standard));
+}
+
+.aura-timepicker__segment[data-empty] { color: var(--aura-text-subtle); }
+
+.aura-timepicker__segment:focus,
+.aura-timepicker__segment:focus-visible {
+  outline: none;
+  background: var(--aura-timepicker-segment-active-bg, var(--aura-primary-a15));
+  color: var(--aura-text);
+}
+
+.aura-timepicker__sep {
+  color: var(--aura-text-subtle);
+  padding-inline: 1px;
+}
+
+/* ---- Disabled / readonly ---------------------------------------------- */
+aura-timepicker[disabled] .aura-timepicker__field {
+  opacity: var(--aura-disabled-opacity);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+aura-timepicker[readonly] .aura-timepicker__segment { cursor: default; }
+
+/* ---- Spinner popup ----------------------------------------------------- */
+/* Motion dials live on the panel element itself (not the host) so they still
+   resolve after the floating popup is detached to <body> on open — a descendant
+   selector off aura-timepicker would no longer match once detached. */
+.aura-timepicker__popup {
+  display: none;
+  --aura-timepicker-popup-dur-in: var(--aura-dur-fast);
+  --aura-timepicker-popup-dur-out: var(--aura-dur-fast);
+}
+
+/* Open surface — styled by the panel's OWN class so it applies both in-flow
+   (inline) and detached-to-body (floating). */
+.aura-timepicker__popup--open {
+  display: flex;
+  gap: var(--aura-space-1);
+  padding: var(--aura-space-1);
+  color: var(--aura-text);
+  /* #594: tint-wash layer so a theme tint reaches the timepicker glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-surface-4);
+  -webkit-backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-timepicker-radius, var(--aura-radius-md));
+  box-shadow: var(--aura-shadow-4), inset 0 1px 0 var(--aura-edge-light);
+  /* Floating default: JS detaches the panel to <body> and positions it. */
+  position: fixed;
+  z-index: var(--aura-z-menu);
+  transform-origin: var(--aura-timepicker-popup-origin, top left);
+  animation: aura-timepicker-in
+    var(--aura-timepicker-popup-dur-in) var(--aura-ease-out);
+}
+
+/* Inline variant stays in-flow under the field (never detached), so the
+   descendant selector reaches it and resets the floating positioning. */
+aura-timepicker[inline] .aura-timepicker__popup--open {
+  position: static;
+  z-index: auto;
+  animation: none;
+  margin-block-start: var(--aura-space-2);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-timepicker__popup--open { background: var(--aura-glass-tint-layer), var(--aura-surface-solid); }
+}
+/* Lite effects mode drops the blur for an opaque popup (mirrors menu.css). The
+   popup detaches to <body>, so the central .aura-surface lite rule cannot reach
+   it by descendant selector — it carries its own swap (#491). */
+[data-aura-effects="lite"] .aura-timepicker__popup--open {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+}
+
+@keyframes aura-timepicker-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Exit animation: --closing keeps --open's display:flex while overriding the
+   entry keyframe (higher specificity). */
+.aura-timepicker__popup--open.aura-timepicker__popup--closing {
+  animation: aura-timepicker-out
+    var(--aura-timepicker-popup-dur-out) var(--aura-timepicker-ease, var(--aura-ease-standard)) both;
+}
+aura-timepicker[inline] .aura-timepicker__popup--open.aura-timepicker__popup--closing { animation: none; }
+
+@keyframes aura-timepicker-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(0.96) translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-timepicker__field,
+  .aura-timepicker__segment { transition: none; }
+  .aura-timepicker__popup--open,
+  .aura-timepicker__popup--open.aura-timepicker__popup--closing { animation: none; }
+}
+
+/* ---- Columns & cells --------------------------------------------------- */
+.aura-timepicker__col {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-block-size: var(--aura-timepicker-col-max-h, 14rem);
+  overflow-y: auto;
+  scroll-snap-type: y proximity;
+  scrollbar-width: thin;
+}
+.aura-timepicker__col:focus { outline: none; }
+.aura-timepicker__col:focus-visible { box-shadow: var(--aura-ring); border-radius: var(--aura-radius-sm); }
+
+.aura-timepicker__cell {
+  display: block;
+  padding: var(--aura-space-1) var(--aura-space-3);
+  border-radius: var(--aura-radius-sm);
+  font-family: var(--aura-timepicker-font, var(--aura-font-mono));
+  font-size: var(--aura-timepicker-font-size, var(--aura-text-sm));
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  cursor: pointer;
+  scroll-snap-align: center;
+  transition: background-color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-timepicker__cell:hover { background: var(--aura-surface-2); }
+.aura-timepicker__cell[aria-selected="true"] {
+  /* CONTRAST: the selected-cell text routes through --aura-timepicker-cell-active-text,
+     which DEFAULTS to the pale --aura-primary-100 — correct on the dark default (and
+     dark named themes), where pale-on-dark-tint clears AA with headroom (~10:1). On the
+     LIGHT axis (light/auto-light MODE) and the LIGHT named themes (frutiger-aero,
+     retro-pc) that pale lavender would sit on a near-white --aura-primary-a15 tile and
+     fail WCAG AA (~1.2:1); those contexts override the token to a DEEPER on-brand primary
+     tone (token swap only — no component CSS override). Mirrors --aura-btn-secondary-text
+     (#839). */
+  background: var(--aura-timepicker-segment-active-bg, var(--aura-primary-a15));
+  color: var(--aura-timepicker-cell-active-text, var(--aura-primary-100));
+  font-weight: var(--aura-weight-semibold);
+}
+.aura-timepicker__cell[aria-disabled="true"] {
+  /* Routes through the shared disabled-opacity dial like every other disabled
+     state in the codebase (e.g. .aura-datepicker__day--disabled, an equally
+     dense grid, uses the same shared default with no override) — no
+     legibility rationale was found for a component-specific deviation. */
+  opacity: var(--aura-timepicker-cell-disabled-opacity, var(--aura-disabled-opacity));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-timepicker__cell { transition: none; }
+  .aura-timepicker__col { scroll-behavior: auto; }
+}

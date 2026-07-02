@@ -1,0 +1,294 @@
+/* ==========================================================================
+   Aura — edge glow (contextual discovery, rim-light variant).
+
+   Light rides the EDGES of surfaces and interactive widgets rather than
+   pooling as a halo or a cursor-tracked fill. The lit point on the rim is
+   brightest on the edge nearest the cursor and follows it around the border,
+   so a control feels magnetically "aware" of the pointer without any glow
+   washing over its face.
+
+   The visuals are pure CSS, driven by custom properties js/glow.js writes:
+     --aura-glow-intensity : 0..1, how close the cursor is (1 = at/over)
+     --aura-glow-x / -y     : pointer position relative to the element
+     --aura-magnet-dx / -dy : tiny offset that leans a widget toward the cursor
+   JS only sets custom properties (no layout writes), so the effect composites
+   on the GPU with no reflow. See docs/design/proximity-glow-design.md.
+
+   Two opt-in affordances (presence of the class is the whole contract):
+     .aura-glow  — interactive widgets: a bright edge shine + magnetic lean
+     .aura-sheen — glass surfaces:      a soft edge rim that lights near cursor
+
+   Both are painted with the "gradient border" mask trick: a pseudo-element
+   filled with a radial gradient centred on the cursor, masked down to just the
+   border ring so only the edges glow.
+   ========================================================================== */
+
+/* Register --aura-glow-intensity as a typed <number> so calc() expressions
+   using it resolve inside complex CSS functions (filter:drop-shadow, color-mix
+   inside filter) where untyped custom properties are not evaluated by the
+   browser's math engine. inherits:true preserves sub-part cascade behaviour. */
+@property --aura-glow-intensity {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* Shared border-ring mask: show only the padding ring of the pseudo-element. */
+.aura-glow,
+.aura-sheen { position: relative; }
+
+.aura-glow::after,
+.aura-sheen:not(.aura-glow)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask-composite: exclude;
+}
+
+/* ---- Interactive edge shine (.aura-glow) ---------------------------------
+   Bright, primary-coloured rim whose hotspot tracks the cursor. Suppressed
+   during a button's loading state so the spinner owns ::after (disjoint).   */
+.aura-glow:not([loading])::after {
+  padding: var(--aura-edge-shine-width);
+  background: radial-gradient(
+    var(--aura-edge-shine-spot) circle
+      at var(--aura-glow-x, 50%) var(--aura-glow-y, 50%),
+    var(--aura-edge-color),
+    color-mix(in srgb, var(--aura-edge-color) 25%, transparent) 45%,
+    transparent 72%
+  );
+  opacity: calc(var(--aura-glow-intensity, 0) * var(--aura-edge-shine-max) * var(--aura-edge-shine-strength));
+  transition: opacity var(--aura-dur-fast) linear;
+}
+
+/* Hover: the control now owns the pointer. Flood the ENTIRE rim at full
+   strength — a complete bright outline — rather than a localized, cursor-
+   tracked hotspot. Blowing the gradient's spot radius far past the element
+   parks the whole border ring inside the solid colour band, so every edge
+   lights evenly regardless of where the cursor entered. */
+.aura-glow:hover { --aura-edge-shine-spot: var(--aura-edge-shine-flood); }
+.aura-glow:hover:not([loading])::after { opacity: 1; }
+
+/* Magnetic lean: the widget itself inches toward the cursor. Uses the
+   independent `translate` property so it composes with any `transform`
+   (e.g. the hover lift below) instead of overwriting it.                    */
+.aura-glow {
+  translate: var(--aura-magnet-dx, 0) var(--aura-magnet-dy, 0);
+  transition:
+    transform var(--aura-dur-base) var(--aura-ease-out),
+    box-shadow var(--aura-dur-base) var(--aura-ease-out);
+}
+
+/* Hover raise: once the cursor is over a control, the magnetic lean settles
+   to zero and the control rises one elevation layer. Scoped away from buttons
+   and the select trigger (which define their own richer hover) AND from passive
+   glass surfaces — a `.aura-sheen` pane gets the rim shine but must not
+   physically rise on hover; only interactive widgets lift (#52). The lift uses
+   `transform` so it stacks with the magnet's `translate`.                    */
+.aura-glow:not(aura-button):not(.aura-btn):not(.aura-select__trigger):not(.aura-sheen):not(aura-menu-item):not(aura-tab):hover {
+  transform: translateY(calc(-1 * var(--aura-hover-lift)));
+  /* #578: inline var(--aura-e-shadow-raise, …) so the inner var() resolves at
+     THIS element — picking up the per-level raise its .aura-e-N scope sets —
+     instead of through a :root-frozen --aura-hover-shadow that always fell back
+     to tier 3 (the css/elevation.css:131 .aura-tactile pattern). */
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+  z-index: 1;
+}
+
+/* ---- Surface edge rim (.aura-sheen on glass) -----------------------------
+   Softer, lighter rim for raised surfaces. Skipped when the element is also
+   interactive (.aura-glow) so buttons get one clean shine, not two rims.    */
+.aura-sheen:not(.aura-glow)::before {
+  padding: var(--aura-edge-rim-width);
+  background: radial-gradient(
+    var(--aura-edge-rim-spot) circle
+      at var(--aura-glow-x, 50%) var(--aura-glow-y, 50%),
+    var(--aura-edge-rim-color),
+    transparent 70%
+  );
+  opacity: calc(var(--aura-glow-intensity, 0) * var(--aura-edge-rim-max));
+  transition: opacity var(--aura-dur-base) linear;
+}
+
+/* ---- Compact controls (range thumb / radio dot) -------------------------
+   Small, precise sub-part controls need a tighter detection radius than a
+   full-size button — otherwise the glow engages from across the label row,
+   far from the tiny target. They also need a slightly thicker rim so the
+   shine reads on a ~24px circle. Both are tokens (see tokens.css), so the
+   behaviour re-skins by overriding the dial alone. JS reads --aura-glow-radius
+   off each host, so setting it here narrows detection with no script change. */
+aura-range,
+aura-radio { --aura-glow-radius: var(--aura-glow-radius-compact); }
+
+/* ---- Per-density radius presets + magnetic-attract variant (v1.7) --------
+   Density presets set how far a control reaches for the cursor; pick one to
+   match a denser or airier UI. JS reads --aura-glow-radius off each host, so
+   these re-skin detection with no script change. Settable on a single control
+   or a whole scope (e.g. <body class="aura-glow--cozy">).                    */
+.aura-glow--compact     { --aura-glow-radius: var(--aura-glow-radius-compact); }
+.aura-glow--cozy        { --aura-glow-radius: var(--aura-glow-radius-cozy); }
+.aura-glow--comfortable { --aura-glow-radius: var(--aura-glow-radius-comfortable); }
+
+/* Magnetic-attract variant: the control reaches further toward the pointer.
+   JS reads --aura-magnet-shift per host (glow.js magnetFor), so swapping the
+   token is the whole contract. */
+.aura-glow--magnetic { --aura-magnet-shift: var(--aura-magnet-shift-strong); }
+
+/* ---- Text-link glow: glyph-anchored drop-shadow, no box rim --------------- *
+   Edge-lighting follows visible surface edges — borders, outlines, surface
+   strokes. Inline text has no such edge; applying the box rim (::after) paints
+   a rectangular halo around the text's layout bounding box, not its glyphs,
+   producing an artifact that looks like a misapplied outline.
+
+   For aura-link the glow affordance is expressed in text-native form instead:
+   · filter:drop-shadow() radiates from the painted pixel footprint (glyph
+     shapes + underline stroke), so proximity warmth reads as text-native.
+   · Magnetic lean (translate) is suppressed: inline text drifting in its
+     line causes adjacent character reflow and looks like broken typesetting.
+   · Hover lift (transform:translateY) is suppressed: an inline element rising
+     out of a text line is unreadable and structurally wrong.
+   Proximity detection (--aura-glow-intensity) still drives the effect; only
+   the rendering form changes from rim-light to drop-shadow.
+   See docs/design/proximity-glow-design.md §Edge-anchor principle.          */
+aura-link.aura-glow:not([loading])::after { display: none; }
+
+aura-link.aura-glow {
+  translate: none;
+  transition: filter var(--aura-dur-fast) linear;
+  /* Fixed blur; fade color from transparent → full via intensity.
+     @property --aura-glow-intensity (<number>) makes the calc() resolve
+     correctly inside filter:drop-shadow in all current browsers.           */
+  filter: drop-shadow(0 0 0.4em
+    color-mix(in oklch, var(--aura-edge-color) calc(var(--aura-glow-intensity) * 100%), transparent));
+}
+
+aura-link.aura-glow:hover {
+  transform: none;   /* suppress hover lift */
+  box-shadow: none;  /* suppress hover raise shadow */
+  filter: drop-shadow(0 0 0.4em var(--aura-edge-color));
+}
+
+/* ---- Matte escape hatch (.aura-glow--off) --------------------------------
+   The documented opt-out for the rare interactive element that must stay matte
+   (proximity-glow-design.md §Opting out). Suppresses BOTH the rim halo and the
+   magnetic lean: the rim pseudo-element is hidden here, and glow.js early-outs
+   on this class so it writes no intensity or magnet frame work. Disabled
+   controls ([disabled]/[aria-disabled]) are treated the same way by glow.js so
+   only what is genuinely clickable glows or leans. Covers the host rim, the
+   hover flood, and a sub-part target rim. */
+.aura-glow.aura-glow--off::after,
+.aura-glow.aura-glow--off:hover::after,
+.aura-glow.aura-glow--off .aura-glow__target::after { display: none; }
+.aura-glow.aura-glow--off { translate: none; }
+
+aura-range .aura-glow__target,
+aura-radio .aura-glow__target {
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+}
+
+/* Keyboard users get the affordance without a pointer (rim lights evenly). */
+.aura-glow:focus-within,
+.aura-glow:focus-visible,
+aura-field:focus-within { --aura-glow-intensity: 0.9; }
+
+/* Touch / no-hover devices have no cursor to track — keep things still. */
+@media (hover: none), (pointer: coarse) {
+  .aura-glow:not(:focus-within):not(:focus-visible)::after { opacity: 0; }
+  .aura-sheen:not(.aura-glow)::before { opacity: 0; }
+  .aura-glow { translate: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-glow::after,
+  .aura-sheen:not(.aura-glow)::before { transition: none; }
+  /* No movement for motion-sensitive users. */
+  .aura-glow { translate: none; }
+}
+
+/* ==========================================================================
+   Sub-part targeting  (.aura-glow__target inside a .aura-glow host)
+
+   A .aura-glow host may declare a designated child as the visual target of
+   its proximity glow. Add the class .aura-glow__target to the child; the rim
+   light and cursor tracking then land on that child only — the host itself
+   carries no visible rim. The host still governs the proximity-detection area
+   and the magnetic lean.
+
+   JS contract (js/glow.js):
+     --aura-glow-intensity  set on the HOST, inherited by the target
+     --aura-glow-x / -y     set directly on the TARGET in target-relative px
+
+   Author contract:
+     <div class="aura-glow">
+       <!-- rest of host markup, unstyled by glow -->
+       <span class="aura-glow__target"><!-- lit child --></span>
+     </div>
+
+   The target may be any descendant, not just a direct child.
+   See docs/design/proximity-glow-design.md §Sub-part targeting.
+   ========================================================================== */
+
+/* Suppress the host rim entirely when a sub-part target is present.
+   Higher specificity than the proximity rule (0,3,1) and the hover rule
+   (0,4,1 > 0,3,1) so no !important is needed regardless of source order.    */
+.aura-glow:has(.aura-glow__target):not([loading])::after             { opacity: 0; }
+.aura-glow:has(.aura-glow__target):hover:not([loading])::after       { opacity: 0; }
+
+/* Target: establish a containing block for the rim pseudo-element. */
+.aura-glow__target { position: relative; }
+
+/* Target rim: same gradient-border mask trick as the host rim, but anchored
+   on the target element. Reads --aura-glow-x/-y set directly by JS (target-
+   relative px); inherits --aura-glow-intensity from the host via cascade.   */
+.aura-glow__target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  padding: var(--aura-edge-shine-width);
+  background: radial-gradient(
+    var(--aura-edge-shine-spot) circle
+      at var(--aura-glow-x, 50%) var(--aura-glow-y, 50%),
+    var(--aura-edge-color),
+    color-mix(in srgb, var(--aura-edge-color) 25%, transparent) 45%,
+    transparent 72%
+  );
+  opacity: calc(var(--aura-glow-intensity, 0) * var(--aura-edge-shine-max) * var(--aura-edge-shine-strength));
+  transition: opacity var(--aura-dur-fast) linear;
+}
+
+/* Hover: when the host is hovered, flood the target rim at full strength —
+   same behaviour as the whole-element hover, but scoped to the target.
+   --aura-edge-shine-spot: var(--aura-edge-shine-flood) is inherited from the host's :hover rule
+   (.aura-glow:hover) via cascade, so the gradient already floods; we only
+   need to force opacity 1 on the target ::after.                             */
+.aura-glow:hover .aura-glow__target::after { opacity: 1; }
+
+/* Touch / reduced-motion: keep target rim still, matching host behaviour. */
+@media (hover: none), (pointer: coarse) {
+  .aura-glow__target::after { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-glow__target::after { transition: none; }
+}

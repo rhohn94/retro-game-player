@@ -1,0 +1,235 @@
+/* ==========================================================================
+   Aura — aura-select: form-associated dropdown.
+
+   CSS owns all appearance; JS (js/select.js) adds behaviour and ARIA only.
+   The dropdown panel reuses aura-menu styles in full — no overrides needed.
+
+   Configurable aesthetics (BINDING — §1 of release-planning-v1.1.md):
+   Every visual value is either an existing global token or a component-scoped
+   --aura-select-* custom property that DEFAULTS to a global token. Change any
+   :root token (or override the --aura-select-* vars on an ancestor) to
+   re-skin without touching component code.
+
+   New dials surfaced (with their defaults):
+     --aura-select-height       2.75rem          (matches aura-field input)
+     --aura-select-radius       var(--aura-radius-md)
+     --aura-select-bg           var(--aura-surface-1)
+     --aura-select-border       var(--aura-surface-stroke)
+     --aura-select-font-size    var(--aura-text-sm)
+     --aura-select-padding-x    var(--aura-space-3)
+     --aura-select-chevron-color var(--aura-text-subtle)
+     --aura-select-dur          var(--aura-dur-base)
+     --aura-select-ease         var(--aura-ease-standard)
+
+   See docs/design/select-design.md.
+   ========================================================================== */
+
+/* ---- Component custom-property dials (documented defaults below) ----
+   Override any of these on any ancestor element to restyle without touching
+   component code. The properties are NOT defined here on aura-select — they
+   live as var() fallbacks in each rule, so inherited values cascade through.
+
+     --aura-select-height:        2.75rem
+     --aura-select-radius:        var(--aura-radius-md)
+     --aura-select-bg:            var(--aura-surface-1)
+     --aura-select-border:        var(--aura-surface-stroke)
+     --aura-select-font-size:     var(--aura-text-sm)
+     --aura-select-padding-x:     var(--aura-space-3)
+     --aura-select-chevron-color: var(--aura-text-subtle)
+     --aura-select-dur:           var(--aura-dur-base)
+     --aura-select-ease:          var(--aura-ease-standard)
+   ------------------------------------------------------------------ */
+aura-select {
+  display: block;
+  position: relative;   /* anchor for measurements; menu itself goes to body */
+}
+
+/* aura-option elements are data-only; never rendered. */
+aura-option { display: none; }
+
+/* ---- Trigger button ---------------------------------------------------- */
+.aura-select__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-2);
+  inline-size: 100%;
+  block-size: var(--aura-select-height, 2.75rem);
+  padding-inline: var(--aura-select-padding-x, var(--aura-space-3));
+  font-family: inherit;
+  font-size: var(--aura-select-font-size, var(--aura-text-sm));
+  color: var(--aura-text);
+  background: var(--aura-select-bg, var(--aura-surface-1));
+  border: 1px var(--aura-border-style, solid) var(--aura-select-border, var(--aura-surface-stroke));
+  border-radius: var(--aura-select-radius, var(--aura-radius-md));
+  /* #499: no backdrop-filter — a tier-1 (0px) blur is a visual no-op that still
+     forced a compositing layer, so it was pure waste regardless of fill opacity.
+     Dropped, removing the cost and the uncovered-glass concern (#491). (Note:
+     --aura-surface-1 is TRANSLUCENT in the dark default and opaque only in light
+     mode / flat-primary; the blur removal does not depend on the fill being
+     opaque.) */
+  cursor: pointer;
+  user-select: none;
+  text-align: start;
+  transition:
+    border-color  var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard)),
+    background    var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard)),
+    box-shadow    var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard));
+}
+
+.aura-select__trigger:hover {
+  border-color: var(--aura-surface-stroke-strong);
+  /* Raise one layer on hover, matching buttons and glow controls. The
+     focus-visible / open rules below come later and reassert the ring. */
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+}
+
+.aura-select__trigger:focus-visible {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  background: var(--aura-surface-2);
+  box-shadow: var(--aura-ring);
+}
+
+/* Open state: mirror the focus ring on the trigger while dropdown is visible */
+aura-select[open] .aura-select__trigger {
+  border-color: var(--aura-primary-a60);
+  background: var(--aura-surface-2);
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Label ------------------------------------------------------------ */
+.aura-select__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+/* Placeholder style (attr set by JS when no value is selected) */
+.aura-select__label[data-placeholder] {
+  color: var(--aura-text-subtle);
+}
+
+/* ---- Chevron ----------------------------------------------------------- */
+/* chevron-right (→) rotated 90° = points down (↓); reversed when open (↑). */
+.aura-select__chevron {
+  color: var(--aura-select-chevron-color, var(--aura-text-subtle));
+  flex-shrink: 0;
+  /* Pin the chevron to one size + vertical centre regardless of the trigger's
+     font-size, so it reads identically across demo headers (#102). */
+  --aura-icon-size: var(--aura-select-chevron-size, 1.15em);
+  align-self: center;
+  transform: rotate(90deg);
+  transition: transform var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard));
+}
+
+aura-select[open] .aura-select__chevron {
+  transform: rotate(-90deg);
+}
+
+/* ---- Disabled state --------------------------------------------------- */
+aura-select[disabled] .aura-select__trigger,
+aura-select .aura-select__trigger[disabled] {
+  opacity: var(--aura-disabled-opacity);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* ---- Search filter (searchable variant) ------------------------------- */
+/* A sticky input pinned to the top of the popup; narrows the option list as
+   the user types. Tokens only — no magic numbers. */
+.aura-select__filter {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding: var(--aura-space-2);
+  background: var(--aura-surface-1);
+  border-block-end: 1px solid var(--aura-surface-stroke);
+}
+
+.aura-select__filter-input {
+  inline-size: 100%;
+  block-size: var(--aura-select-filter-height, 2.25rem);
+  padding-inline: var(--aura-select-padding-x, var(--aura-space-3));
+  font-family: inherit;
+  font-size: var(--aura-select-font-size, var(--aura-text-sm));
+  color: var(--aura-text);
+  background: var(--aura-surface-2);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-select-radius, var(--aura-radius-md));
+  transition:
+    border-color var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard)),
+    box-shadow   var(--aura-select-dur, var(--aura-dur-base)) var(--aura-select-ease, var(--aura-ease-standard));
+}
+
+.aura-select__filter-input::placeholder {
+  color: var(--aura-text-subtle);
+}
+
+.aura-select__filter-input:focus-visible {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Option groups (aura-option-group) -------------------------------- */
+/* Non-selectable group header rendered inside the popup. */
+.aura-select__group {
+  padding-block: var(--aura-space-1) var(--aura-space-1);
+  padding-inline: var(--aura-space-3);
+}
+
+.aura-select__group-label {
+  display: block;
+  font-size: var(--aura-text-xs, 0.75rem);
+  font-weight: var(--aura-weight-semibold, 600);
+  letter-spacing: var(--aura-tracking-wide, 0.04em);
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}
+
+/* ---- Empty (no-matches) state ----------------------------------------- */
+.aura-select__empty {
+  padding: var(--aura-space-3);
+  font-size: var(--aura-select-font-size, var(--aura-text-sm));
+  color: var(--aura-text-subtle);
+  text-align: center;
+}
+
+/* ---- Multi-select chips ----------------------------------------------- */
+.aura-select__chips {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--aura-space-1);
+  overflow: hidden;
+}
+
+.aura-select__chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-inline-size: 12ch;
+  padding-block: 0;
+  padding-inline: var(--aura-space-2);
+  font-size: var(--aura-text-xs, 0.75rem);
+  line-height: var(--aura-select-chip-height, 1.5rem);
+  color: var(--aura-text);
+  background: var(--aura-select-chip-bg, color-mix(in srgb, var(--aura-primary) 16%, transparent));
+  border: 1px solid var(--aura-select-chip-border, var(--aura-primary-a40));
+  border-radius: var(--aura-radius-full, 999px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Reduced motion --------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .aura-select__trigger,
+  .aura-select__chevron,
+  .aura-select__filter-input {
+    transition: none;
+  }
+}

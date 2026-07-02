@@ -181,7 +181,7 @@ iff `main` carries tree content not reachable from the integration line and does
 **not** false-positive when `main` is ahead only by promotion merges. On a HALT
 the master **must stop** (a stop condition below): reconcile by merging `main`
 INTO the integration line (merge-forward) — never `reset --hard` across the fork.
-See `docs/design/integration-branch-integrity-design.md` §2/§5.
+See `docs/grimoire/integration-workflow.md` §merge-forward recovery.
 
 ---
 

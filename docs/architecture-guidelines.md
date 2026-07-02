@@ -126,9 +126,25 @@ instability `I = Ce/(Ca+Ce)`, and module size. Use them to steer structure:
 
 See `docs/design/modularization-metrics-design.md`.
 
+## Standard project structure
+- Every project follows the canonical top-level layout in
+  [project-structure.md](project-structure.md): first-party source in `src/`,
+  tests in `tests/`, dependencies under `lib/` (`lib/first-party/` for your own
+  reusable libraries, `lib/third-party/` for vendored external deps), build
+  output in a git-ignored `dist/`. Place new files by that contract; a top-level
+  `vendor/`, `test/`, or `build/` is nonstandard.
+<!-- audit: id="arch-standard-layout" check="top-level layout matches docs/project-structure.md: src/ + tests/ present, deps under lib/{first,third}-party/ (no top-level vendor/), build output in git-ignored dist/ (deterministic counterpart: architecture-rules.json structure block)" severity="warn" applies="all" -->
+
+The deterministic counterpart: declare the project's layout in the `structure`
+block of `.claude/architecture-rules.json` and run **`grm-architecture-audit`**;
+adapt an existing project to the standard with **`grm-structure-migrate`**.
+
 ## Dependency management
 - Justify each third-party dependency; prefer the standard library where
   practical.
+- Vendored dependencies live under `lib/third-party/<dep>/` (the
+  **`grm-sync-deps`** target); the project's own shared libraries under
+  `lib/first-party/`.
 
 ## Cross-cutting concerns
 - Error handling, logging, **telemetry** (see [coding-standards.md](coding-standards.md) §Telemetry),

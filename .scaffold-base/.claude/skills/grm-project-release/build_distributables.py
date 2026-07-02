@@ -3,7 +3,7 @@
 
 Part of the v3.23 release-distribution protocol, extended in v3.27 with release
 **channels** and a **signing contract**, and again in v3.29 (the Dependency
-Channel — `docs/design/dependency-channel-design.md` §2) with a canonical
+Channel — `docs/grimoire/design/dependency-channel-design.md` §2) with a canonical
 deterministic **`.tar.gz`** primary artifact and the generalized **`release.json`**
 manifest. The integration master runs this at release time, after the tag is on
 origin, to produce the GitHub Release assets.
@@ -56,7 +56,7 @@ canonical tarball, a byte-identical `release.json` (at a fixed commit), and a
 byte-identical `SHA256SUMS`.
 
 Stdlib-only for the core (`zipfile`, `tarfile`, `pathlib`, `hashlib`, `json`,
-`argparse`) per `docs/design/scripting-unification-design.md`; `minisign` is an
+`argparse`) per `docs/grimoire/design/scripting-unification-design.md`; `minisign` is an
 optional external tool invoked via `subprocess` only when present; `git` is
 invoked best-effort for `git_sha` and degrades loudly to null. Run `--self-test`
 to exercise it.

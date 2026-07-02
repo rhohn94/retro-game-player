@@ -101,7 +101,7 @@ Under the autonomous release pipeline, `grm-release-phase-merge` runs a **qualit
 gate** on each merged branch before ticking the §5 ledger, governed by the
 `code-quality` block in `.claude/grimoire-config.json`. All dials default to
 safe (non-blocking / off), so a project opts into strictness. Authoritative
-design: [`grimoire/design/merge-gate-quality-design.md`](grimoire/design/merge-gate-quality-design.md).
+design: the merge-gate quality spec, maintained in the upstream Grimoire repo.
 
 | Dial | Values (default **bold**) | Effect |
 |------|---------------------------|--------|
@@ -113,6 +113,25 @@ design: [`grimoire/design/merge-gate-quality-design.md`](grimoire/design/merge-g
 A blocked merge rolls back to `ORIG_HEAD` (no partial state) and leaves the §5
 row unticked with a recorded reason, re-runnable once the branch is fixed. The
 gate reads config **live** — no schema-version bump, no file-swap.
+
+## Justfile standards
+
+All Grimoire projects must expose three canonical task-runner recipes in their `justfile`:
+
+| Recipe | Signature | Semantics |
+|---|---|---|
+| `build` | `build env="dev"` | Compile/package the project. `env=prod` for release artifacts. |
+| `run` | `run env="dev" port="8080"` | Start the application locally. |
+| `deploy` | `deploy env dry_run="false"` | Deploy to a live environment. `env` is required (no default). |
+
+**Key rules:**
+- `deploy env` has **no default** — it is a positional required parameter. `just deploy` with no argument exits non-zero, preventing accidental deployments.
+- Unimplemented recipes must carry a `# grimoire:placeholder` comment in the body so `grm-install-doctor` can detect them as PARTIAL rather than OK.
+- The optional `test`, `db-up`, and `db-down` recipes follow the patterns in the quick-start templates.
+
+Full specification: [`docs/design/justfile-standard-design.md`](design/justfile-standard-design.md).
+
+`grm-install-doctor` enforces this contract. Run it to check for MISSING or PARTIAL recipes.
 
 ## Per-language / per-technology standards
 

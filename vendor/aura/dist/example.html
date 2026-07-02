@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-aura-theme="dark">
+<head>
+  <!-- Anti-FOUC theme bootstrap (#582): restore the persisted mode BEFORE the
+       first paint, eliminating the dark->light flash on reload (#526). It must
+       be the first child of <head>, before any stylesheet. <aura-theme-toggle>
+       below arms Aura.theme.persist() under the "aura-theme" key, which stores
+       a JSON { mode, theme } object — so this reads that same key and applies
+       its `mode`. Keep the key in sync with the toggle's PERSIST_KEY. -->
+  <script>
+    (function () {
+      try {
+        var saved = JSON.parse(localStorage.getItem("aura-theme") || "null");
+        if (saved && saved.mode) {
+          document.documentElement.setAttribute("data-aura-theme", saved.mode);
+        }
+      } catch (e) { /* storage blocked — fall through to the CSS default */ }
+    })();
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- #632: the flagship kitchen-sink gets a meta description, matching the
+       discipline every demo/*.html meets (#591) — it is the canonical copyable
+       reference and the most likely page a consumer shares/unfurls. -->
+  <meta name="description" content="Aura kitchen-sink — a copyable reference page running off the two bundled files (dist/aura.css + dist/aura.js): buttons, cards, dialogs, menus, tabs, and selects with glass elevation and proximity glow." />
+  <title>Aura — bundled distribution kitchen-sink</title>
+  <!-- The canonical direct-dist smoke test: loads ONLY the two bundled files a
+       CDN/copy consumer uses, and exercises a representative spread of the whole
+       design language. If the bundle is broken or missing a file, this page
+       breaks — which is the point (demo–distribution parity, v2.5).
+       SRI hashes are in dist/SRI.txt; add integrity="sha384-…" crossorigin
+       when serving over a CDN. Opt-in themes ship under dist/themes/.
+       Authored source: dist-src/example.html; regenerated into dist/ by
+       build.py and gated by tools/check_example_dist.py (#479/#487). -->
+  <link rel="stylesheet" href="./aura.min.css" />
+  <!-- A consumer's own page-layout CSS (not Aura). Kept in a sibling stylesheet,
+       not an inline <style> block, so the flagship matches the demo discipline. -->
+  <link rel="stylesheet" href="./example.css" />
+</head>
+<body>
+  <header class="bar">
+    <span class="aura-brand"><span class="aura-brand__mark">A</span><h1 class="aura-brand__title">Aura — bundled</h1></span>
+    <aura-theme-toggle></aura-theme-toggle>
+  </header>
+
+  <main class="wrap" data-aura-entrance>
+    <div class="aura-page-head">
+      <span class="aura-page-head__eyebrow">dist/aura.min.css + dist/aura.min.js</span>
+      <h2>The whole design language in two files.</h2>
+      <p class="aura-page-head__lead">Every control below renders from the bundle alone — no source tree, no build step.</p>
+    </div>
+
+    <!-- Buttons & form controls -->
+    <div style="display:flex; gap:var(--aura-space-3); flex-wrap:wrap; align-items:center">
+      <aura-button variant="primary">Primary</aura-button>
+      <aura-button>Default</aura-button>
+      <aura-button variant="ghost">Ghost</aura-button>
+      <aura-button icon-only icon="trash" aria-label="Delete" data-aura-tooltip-from-label></aura-button>
+      <aura-switch></aura-switch>
+      <aura-checkbox checked></aura-checkbox>
+      <aura-range min="0" max="100" value="60" style="min-inline-size:12rem"></aura-range>
+    </div>
+
+    <!-- Elevation card grid -->
+    <div class="aura-card-grid">
+      <aura-card class="aura-surface" elevation="1" style="display:block; padding:1.25rem">Level 1</aura-card>
+      <aura-card class="aura-surface" elevation="3" style="display:block; padding:1.25rem">Level 3</aura-card>
+      <aura-card class="aura-surface" elevation="5" style="display:block; padding:1.25rem">Level 5</aura-card>
+    </div>
+
+    <!-- Promoted content-page patterns -->
+    <nav class="aura-nav-list" style="max-inline-size:18rem">
+      <span class="aura-nav-list__section">Workspace</span>
+      <a class="aura-nav-list__item is-active" href="#"><i class="aura-nav-list__dot"></i> Dashboard</a>
+      <a class="aura-nav-list__item" href="#">Reports</a>
+    </nav>
+
+    <div class="aura-prop-row"><span class="aura-prop-row__label">Status</span><span class="aura-prop-row__value">Active</span></div>
+    <ul class="aura-timeline">
+      <li class="aura-timeline__item"><i class="aura-timeline__dot"></i><span class="aura-timeline__time">2h ago</span> Released v2.5</li>
+      <li class="aura-timeline__item"><i class="aura-timeline__dot"></i><span class="aura-timeline__time">yesterday</span> Promoted content-page chrome</li>
+    </ul>
+
+    <div style="display:flex; gap:var(--aura-space-4); flex-wrap:wrap; align-items:center">
+      <span class="aura-swatch" style="--aura-swatch-color: var(--aura-primary)">Primary</span>
+      <span class="aura-swatch" style="--aura-swatch-color: var(--aura-secondary)">Secondary</span>
+      <p class="aura-key-hint">Press <kbd>?</kbd> for shortcuts</p>
+    </div>
+
+    <!-- Overlays -->
+    <div style="display:flex; gap:var(--aura-space-3); flex-wrap:wrap">
+      <aura-button data-aura-dialog="#dlg">Open dialog</aura-button>
+      <aura-button data-aura-menu="#ctx" data-aura-menu-trigger="click">Context menu ▾</aura-button>
+      <aura-select name="fruit" placeholder="Choose…">
+        <aura-option value="a">Aurora apple</aura-option>
+        <aura-option value="b">Boreal berry</aura-option>
+      </aura-select>
+    </div>
+
+    <aura-tabs style="display:block">
+      <aura-tab selected>Overview</aura-tab>
+      <aura-tab>Details</aura-tab>
+      <aura-tabpanel>Tabs, dialogs, menus, selects — all from the bundle.</aura-tabpanel>
+      <aura-tabpanel>Reduced-motion aware, keyboard operable.</aura-tabpanel>
+    </aura-tabs>
+  </main>
+
+  <aura-dialog id="dlg">
+    <div class="aura-dialog__header"><h2 class="aura-dialog__title">A glass dialog</h2></div>
+    <div class="aura-dialog__body"><p>Modal, focus-trapped, built on the elevation system — straight from the bundle.</p></div>
+    <div class="aura-dialog__footer">
+      <aura-button variant="ghost" data-aura-dialog-close>Close</aura-button>
+      <aura-button variant="primary" data-aura-dialog-close>Got it</aura-button>
+    </div>
+  </aura-dialog>
+
+  <aura-menu id="ctx">
+    <aura-menu-item icon="edit">Edit</aura-menu-item>
+    <aura-menu-item icon="copy">Duplicate</aura-menu-item>
+    <aura-menu-separator></aura-menu-separator>
+    <aura-menu-item icon="trash" variant="danger">Delete</aura-menu-item>
+  </aura-menu>
+
+  <script src="./aura.min.js"></script>
+</body>
+</html>

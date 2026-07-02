@@ -39,7 +39,6 @@ sequencing; the master surfaces the diff and waits.
 > `branch-model.integration-branch`, default `dev`). On a HALT, do **not** merge —
 > reconcile by **merging `main` INTO** the integration line (merge-forward); never
 > `reset --hard` across the fork (data loss). See
-> `docs/design/integration-branch-integrity-design.md` §2/§5 and
 > `docs/grimoire/integration-workflow.md` §merge-forward recovery.
 
 1. **HEAD-verification gate (#35).** Assert HEAD is exactly the staging branch

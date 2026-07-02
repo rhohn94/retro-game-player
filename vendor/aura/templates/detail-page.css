@@ -1,0 +1,154 @@
+/* ==========================================================================
+   Aura blueprint — Detail Page  (templates/detail-page.css)
+
+   A record-detail archetype: a hero header (title, subtitle, status, primary
+   actions), an optional sticky in-page navigation rail, and a two-column body
+   that pairs the primary content stream with an aside of metadata / property
+   rows. Built on the v2.5 `content-page` substrate — it composes
+   .aura-page-head, .aura-prop-row, .aura-timeline, .aura-list-row rather than
+   re-declaring them.
+
+   CASCADE LAYER: detail-page  (declared in css/aura.css)
+   Sits above the core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply. Ordered
+   immediately after `content-page` (its substrate).
+
+   ── CANONICAL BEM SELECTORS ────────────────────────────────────────────────
+   .aura-detail-page          Block  — outer page wrapper; typically <main> or a
+                                       <div> inside <aura-region>. Centred column
+                                       with outer padding and vertical rhythm.
+   .aura-detail-page__hero    Element — record header: title block on the leading
+                                       edge, action cluster on the trailing edge.
+   .aura-detail-page__actions Element — trailing action cluster inside the hero.
+   .aura-detail-page__body    Element — responsive two-column split: main content
+                                       stream + trailing aside. Collapses to one
+                                       column at the fixed @container breakpoint
+                                       (max-width: 52rem) below.
+   .aura-detail-page__main    Element — primary content column (vertical stack).
+   .aura-detail-page__aside   Element — metadata / property sidebar; becomes
+                                       sticky on wide viewports.
+   .aura-detail-page__section Element — a titled content block inside __main.
+
+   ── TUNABLE CUSTOM PROPERTIES ──────────────────────────────────────────────
+   Override on any scope that wraps a .aura-detail-page. Defaults sit on
+   :where(:root) so they carry zero specificity and override trivially.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Max width of the centred detail column. */
+  --aura-detail-page-size: var(--aura-size-xl);
+  /* Inline size of the metadata aside in the two-column body. */
+  --aura-detail-page-aside-size: 18rem;
+  /* The body collapses to a single column below a 52rem CONTAINER width — keyed
+     off the body's own container (not the viewport), so a half-snapped window on
+     a wide monitor collapses because its container is narrow. The breakpoint is
+     the literal in the @container rule below: a container-query feature value
+     cannot read a custom property, so this is NOT a runtime dial — retune it at
+     the @container literal itself. */
+}
+
+/* ── .aura-detail-page — centred record column ──────────────────────────── */
+/* The page wrapper is the query container (named `aura-detail-page`), so the
+   collapse @container below — which restyles the __body grid, a DESCENDANT —
+   keys off the wrapper's own width. (A container element cannot match its own
+   container query, so the container lives on the wrapper, not on __body.) A
+   half-snapped window narrows the wrapper and collapses the body with no
+   viewport rule. */
+.aura-detail-page {
+  container: aura-detail-page / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  inline-size: 100%;
+  max-inline-size: var(--aura-detail-page-size);
+  margin-inline: auto;
+  padding: var(--aura-space-6) var(--aura-space-5);
+  box-sizing: border-box;
+}
+
+/* ── .aura-detail-page__hero — record header ────────────────────────────── */
+.aura-detail-page__hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+}
+
+.aura-detail-page__hero > :is(h1, h2, h3) {
+  margin: 0;
+  line-height: var(--aura-leading-tight);
+}
+
+/* ── .aura-detail-page__actions — trailing action cluster ───────────────── */
+.aura-detail-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--aura-space-2);
+}
+
+/* ── .aura-detail-page__body — main + aside split ───────────────────────── */
+/* Collapses to one column via @container below (keyed off the .aura-detail-page
+   wrapper container, whose width tracks the half-snapped window). */
+.aura-detail-page__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--aura-detail-page-aside-size);
+  gap: var(--aura-space-6);
+  align-items: start;
+}
+
+/* ── .aura-detail-page__main — primary content stream ───────────────────── */
+.aura-detail-page__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  min-inline-size: 0;
+}
+
+/* Cap the prose stream at the readable measure on wide screens; the reclaimed
+   inline space falls to the gutter/aside rather than stretching the line length
+   past a comfortable ~66ch. Targets the content paragraphs, not the headings
+   or full-width structural rows (prop-rows, timelines, cards). */
+.aura-detail-page__main > p,
+.aura-detail-page__section > p {
+  max-inline-size: var(--aura-measure);
+}
+
+/* ── .aura-detail-page__aside — sticky metadata sidebar ─────────────────── */
+.aura-detail-page__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-4);
+  min-inline-size: 0;
+  position: sticky;
+  inset-block-start: var(--aura-space-5);
+}
+
+/* ── .aura-detail-page__section — titled content block ──────────────────── */
+.aura-detail-page__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+}
+
+.aura-detail-page__section > :is(h2, h3, h4) {
+  margin: 0;
+  font-size: var(--aura-text-lg);
+}
+
+/* ── Narrow CONTAINER — collapse to a single column ─────────────────────── */
+/* Keyed off the body's own container width (named above), not the viewport, so
+   a half-snapped window collapses exactly like a narrow screen with no separate
+   code path — the container-query-first payoff. */
+@container aura-detail-page (max-width: 52rem) {
+  .aura-detail-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The aside flows under the main content; un-stick it so it does not pin. */
+  .aura-detail-page__aside {
+    position: static;
+  }
+}

@@ -1,0 +1,99 @@
+/* ==========================================================================
+   Aura theme — "extra-depth".
+
+   The opposite pole from flat: MAXIMUM layering and depth so stacking of
+   planes is unmistakable. Rich shadows, strong bevels, larger glass blur,
+   increased hover lift, and pronounced edge lighting — every elevation tier
+   reads as a distinctly raised plane.
+
+   It is a TOKEN SET ONLY — no component rules. Every value here is an
+   existing --aura-* dial, so the deep look is achieved by re-skinning, not
+   rewriting. Deliberately MODE-AGNOSTIC: it overrides no surface/neutral
+   colours, so the dark/light mode axis (theme.css) keeps working underneath
+   it untouched. Text contrast is preserved — depth is raised without
+   crushing legibility.
+
+   Activate: Aura.theme.setTheme("extra-depth") (or pin()), which flips
+   [data-aura-theme-name] on a scope. Register it for switchers with
+   Aura.theme.registerTheme("extra-depth", { label: "Extra Depth" }).
+   See docs/design/theming-and-configuration-design.md §8.
+   ========================================================================== */
+
+[data-aura-theme-name="extra-depth"] {
+  /* ---- Primary — deepened slightly so white on-primary clears WCAG AA
+         (≥ 4.5:1) with margin: this richer violet gives ≈5.4:1 vs the stock
+         #7654f5 primary. All other brand semantics are unchanged. */
+  --aura-primary: oklch(0.47 0.26 286);
+
+  /* ---- Master depth dial — push well above 1 so all shadow/bevel
+         expressions that multiply by --aura-depth read noticeably heavier. */
+  --aura-depth: 1.4;
+
+  /* ---- Shadow boost — additional multiplier on top of --aura-depth,
+         making drop shadows heavier still at every elevation tier. */
+  --aura-shadow-boost: 1.5;
+
+  /* ---- Bevel — thicker base so the computed bevel-size (base × depth)
+         produces a clearly raised edge on every panel and control. */
+  --aura-bevel-base: 1.5px;
+
+  /* ---- 3-D frame bevel — strong top-left highlight and bottom-right
+         shadow convey a raised plane; keep frame-inset as a real inset
+         expression so the bevel renders. */
+  --aura-frame-highlight: rgba(255, 255, 255, 0.38);
+  --aura-frame-shadow:    rgba(0, 0, 0, 0.55);
+  --aura-frame-inset:
+    inset  2px  2px 0 0 var(--aura-frame-highlight),
+    inset -2px -2px 0 0 var(--aura-frame-shadow);
+
+  /* ---- Glass — richer backdrop blur at every tier makes it unmistakable
+         that surfaces are translucent planes stacked in depth. Larger
+         blur-2..5 values also separate the tiers visually. */
+  --aura-glass-saturate: 1.8;
+  /* Set blur-1 too (#678): leaving it at the base 0px left explicit elevation="1"
+     surfaces glass-less between a flat level-0 and a heavily-frosted level-2,
+     contradicting "richer backdrop blur at every tier". 8px keeps the ramp
+     monotonic and nonzero (8->16->20->28->36->44). */
+  --aura-blur-1: 8px;
+  --aura-blur-2: 16px;
+  --aura-blur-3: 20px;
+  --aura-blur-4: 28px;
+  --aura-blur-5: 36px;
+  /* Extend the heightened ramp to the top tier (#490) so the shrunk nav pill +
+     global-search modal — which forward through --aura-nav-{shrunk,search}-blur
+     → --aura-blur-6 — pick up this theme's deeper glass instead of the 20px base.
+     NOTE (#490, expected): this only reaches the nav when the theme is applied
+     at the ROOT (`<html data-aura-theme-name="extra-depth">`, what the switcher
+     does). The <aura-nav-header> is GLOBAL chrome — a sibling of any in-page
+     scoped theme-preview region (e.g. demo/themes.html's per-theme cards), not
+     a descendant of it — so a SCOPED theme legitimately cannot and should not
+     restyle the global nav's blur. That is correct cascade scoping, not a bug. */
+  --aura-blur-6: 44px;
+
+  /* ---- Hover lift — raise the hover-translate so interactive cards
+         float noticeably above their resting plane. */
+  --aura-hover-lift: 4px;
+
+  /* ---- Edge lighting — stronger shine and rim glow reinforces the
+         sense that light catches the raised edge of each panel. */
+  --aura-edge-shine-max: 1.0;
+  --aura-edge-rim-max:   0.7;
+
+  /* ---- Radii — keep rounded (slightly larger) so deep shadows curve
+         naturally and don't feel sharp/angular. #656: include xs so the WHOLE
+         ramp scales coherently (xs->sm stays the ~1.4x step the rest follows) —
+         leaving xs at the 0.25rem default made the smallest-radius components
+         squarer than the deliberately-rounded family, the partial-ramp mismatch
+         #496 fixed for warm-dusk/modern-flat. */
+  --aura-radius-xs:  0.4375rem;
+  --aura-radius-sm:  0.625rem;
+  --aura-radius-md:  0.875rem;
+  --aura-radius-lg:  1.25rem;
+  --aura-radius-xl:  1.75rem;
+  --aura-radius-2xl: 2.5rem;
+}
+
+/* nav-header glass tint intensity for extra-depth (moved from nav-header.css, #438) */
+[data-aura-theme-name="extra-depth"] {
+  --aura-nav-header-tint-intensity: 0.7;
+}

@@ -82,6 +82,80 @@ def _resolve_golden_root(root: Path) -> Path | None:
     return cached if cached.is_dir() else None
 
 # ---------------------------------------------------------------------------
+# Golden-staleness predicate
+#
+# Copied from grm-install-doctor/install_doctor.py (GoldenStaleness). Both
+# tools must agree on "live file is newer than golden" so a post-sync file is
+# never rolled back by regenerate. The long-term home is generate_golden.py;
+# this copy is a consolidation candidate (#159 follow-up).
+# ---------------------------------------------------------------------------
+
+
+class GoldenStaleness:
+    """Decides whether a live file is *newer than* the resolved golden baseline.
+
+    When `grm-sync-from-upstream --apply` advances a framework file past the
+    last golden freeze, that file differs from golden yet is correct — restoring
+    it from golden would revert the sync (#159). This predicate lets restore_from_golden
+    skip such files (classifying them as ahead-of-golden rather than drifted).
+
+    The comparison is by modification time against the golden archive's freeze
+    instant. When no archive timestamp is resolvable the predicate is
+    conservative and returns False (treat as a genuine difference) so it never
+    *hides* real drift that should be restored.
+    """
+
+    def __init__(self, golden_mtime: float | None):
+        self._golden_mtime = golden_mtime
+
+    @classmethod
+    def for_root(cls, root: Path) -> "GoldenStaleness":
+        """Build the predicate for `root`, resolving the golden freeze time.
+
+        Prefers the frozen archive's mtime (the authoritative freeze instant);
+        falls back to the extracted-tree mtime; None if neither exists.
+        """
+        import importlib.util
+        gen_path = root / GENERATE_GOLDEN_REL
+        cache = root / ".grimoire-golden"
+        archive_glob = "golden-v*.tar.gz"
+        tree_subdir = "tree"
+        # Try to read the attribute from the generate_golden module if available.
+        if gen_path.exists():
+            spec = importlib.util.spec_from_file_location("generate_golden", gen_path)
+            mod = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(mod)
+                archive_glob = getattr(mod, "GOLDEN_ARCHIVE_GLOB", archive_glob)
+                tree_subdir = getattr(mod, "GOLDEN_TREE_SUBDIR", tree_subdir)
+                cache_attr = getattr(mod, "GOLDEN_CACHE_DIR", None)
+                if cache_attr:
+                    cache = root / cache_attr
+            except Exception:
+                pass
+        archives = sorted(cache.glob(archive_glob)) if cache.is_dir() else []
+        if archives:
+            return cls(archives[-1].stat().st_mtime)
+        tree = cache / tree_subdir
+        if tree.is_dir():
+            return cls(tree.stat().st_mtime)
+        return cls(None)
+
+    @property
+    def resolvable(self) -> bool:
+        return self._golden_mtime is not None
+
+    def is_newer(self, live: Path) -> bool:
+        """True iff `live` was modified after the golden baseline was frozen."""
+        if self._golden_mtime is None or not live.exists():
+            return False
+        try:
+            return live.stat().st_mtime > self._golden_mtime
+        except OSError:
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Golden <-> repo path mapping
 #
 # The golden/ tree uses a flattened layout: framework dirs (hooks/, skills/,
@@ -300,13 +374,31 @@ def _write_archive_manifest(archive_root: Path, ts: str, rows: list[tuple[str, s
 # ---------------------------------------------------------------------------
 
 
-def restore_from_golden(root: Path, layout: GoldenLayout, delete_set: list[str]):
-    """Delete each delete-set file then copy its golden source over it."""
+def restore_from_golden(
+    root: Path,
+    layout: GoldenLayout,
+    delete_set: list[str],
+    staleness: "GoldenStaleness | None" = None,
+) -> list[str]:
+    """Delete each delete-set file then copy its golden source over it.
+
+    If `staleness` is provided, any live file that is newer than the golden
+    baseline (i.e. was advanced by grm-sync-from-upstream) is skipped rather
+    than overwritten, so a post-sync update is never rolled back (#159).
+
+    Returns a list of repo-relative paths that were skipped (newer than golden).
+    """
+    skipped: list[str] = []
     for rel in delete_set:
         dest = root / rel
+        if staleness is not None and staleness.is_newer(dest):
+            skipped.append(rel)
+            continue
         if dest.exists():
             dest.unlink()
     for rel in delete_set:
+        if rel in skipped:
+            continue
         golden_rel = layout.repo_to_golden(rel)
         if golden_rel is None:
             continue
@@ -316,6 +408,7 @@ def restore_from_golden(root: Path, layout: GoldenLayout, delete_set: list[str])
         dest = root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
+    return skipped
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +454,10 @@ def merge_settings_json(current_text: str | None, golden_text: str) -> str:
 
 
 SENTINEL = "<!-- GRIMOIRE_ONBOARDING_SENTINEL -->"
-PLACEHOLDER_RE = re.compile(r"\{[a-z][a-z0-9-]*\}")
+# Matches both lowercase tokens like {build-command} and UPPERCASE tokens like
+# {ACTIVE}. The original lowercase-only pattern silently skipped {ACTIVE},
+# causing the paradigm stamp to be left unreplaced after merge (#160).
+PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z][a-zA-Z0-9-]*\}")
 
 
 def merge_agent_guidance(current_text: str | None, golden_text: str) -> str:
@@ -628,6 +724,10 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
     mixed_entries = by_class["mixed"]
     preserve_entries = by_class["project-owned"]
 
+    # Golden-staleness predicate: files newer than the golden freeze (e.g. post-
+    # sync updates) must not be rolled back — skip them in the restore (#159).
+    staleness = GoldenStaleness.for_root(root)
+
     # Pre-flight summary (§3 step 1).
     print("=== regenerate-grimoire — pre-flight summary ===")
     print(f"  root:     {root}")
@@ -635,6 +735,10 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
     print(f"  delete+restore (pure-framework): {len(delete_set)} files")
     print(f"  split/merge (mixed):            {len(mixed_entries)} entries")
     print(f"  preserve (project-owned):       {len(preserve_entries)} entries (untouched)")
+    if staleness.resolvable:
+        ahead = [r for r in delete_set if staleness.is_newer(root / r)]
+        if ahead:
+            print(f"  newer-than-golden (will skip, not roll back): {len(ahead)} files")
 
     if check:
         print("\n[--check] dry-run; nothing will be written.\n")
@@ -642,7 +746,8 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
         for e in mixed_entries:
             status, _ = apply_mixed_merge(root, layout, e, audience, write=False)
             print(f"  mixed  {e['path']}: would be {status}")
-        # Report delete-set files not currently at golden (would be restored).
+        # Report delete-set files not currently at golden (would be restored or
+        # skipped if newer-than-golden).
         drift = 0
         for rel in delete_set:
             golden_rel = layout.repo_to_golden(rel)
@@ -650,7 +755,10 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
             cur = root / rel
             if gp and gp.exists():
                 if not cur.exists() or cur.read_bytes() != gp.read_bytes():
-                    drift += 1
+                    if staleness.is_newer(cur):
+                        print(f"  pure-framework (newer-than-golden, would skip): {rel}")
+                    else:
+                        drift += 1
         print(f"\n  pure-framework files differing from golden (would be restored): {drift}")
         return 0
 
@@ -668,8 +776,13 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
     print(f"\nArchived delete-set + merge-set to {archive_root.relative_to(root)}")
 
     try:
-        restore_from_golden(root, layout, delete_set)
-        print(f"Restored {len(delete_set)} pure-framework files from golden.")
+        skipped = restore_from_golden(root, layout, delete_set, staleness)
+        restored = len(delete_set) - len(skipped)
+        print(f"Restored {restored} pure-framework files from golden.")
+        if skipped:
+            print(f"  Skipped {len(skipped)} newer-than-golden file(s) (post-sync, not rolled back):")
+            for rel in skipped:
+                print(f"    {rel}")
         for e in mixed_entries:
             status, _ = apply_mixed_merge(root, layout, e, audience, write=True)
             print(f"  mixed  {e['path']}: {status}")
@@ -678,8 +791,33 @@ def regenerate(root: Path, check: bool, assume_yes: bool, now=None) -> int:
         _rollback(root, archive_root)
         return 3
 
+    removed = _cleanup_transient_on_success(root)
+    if removed:
+        print("Cleaned transient workspace artifacts: " + ", ".join(removed))
+
     print("\nRegenerate complete. Project files preserved; framework layer restored.")
     return 0
+
+
+# Transient workspace dirs swept after a SUCCESSFUL regenerate (v3.52 Lane F).
+# Re-clonable / regenerable staging + rollback backups that otherwise linger in
+# the consumer's project root. Load-bearing state (.scaffold-base/, .claude/,
+# the .grimoire-golden/ cache, the .grimoire-archive/ safety net) is NEVER swept.
+TRANSIENT_CLEANUP_DIRS = (".scaffold-sync-backup", ".grimoire-source")
+
+
+def _cleanup_transient_on_success(root: Path) -> list[str]:
+    """Remove transient staging/backup dirs left in the workspace after a clean
+    regenerate. Idempotent; returns the repo-relative names actually removed.
+    Hard-coded to the transient set only — never deletes load-bearing state."""
+    removed: list[str] = []
+    for name in TRANSIENT_CLEANUP_DIRS:
+        target = root / name
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+            if not target.exists():
+                removed.append(name + "/")
+    return removed
 
 
 def _rollback(root: Path, archive_root: Path):
@@ -710,7 +848,9 @@ def _build_fixture(base: Path) -> Path:
     (golden / "hooks" / "guard.sh").write_text("#!/bin/sh\necho golden-guard\n")
     (golden / "skills" / "demo-skill" / "SKILL.md").write_text("# demo-skill (golden)\n")
     (golden / "CLAUDE.md").write_text(
-        SENTINEL + "\n# CLAUDE.md\n\n| Run tests | `{test-command}` |\n"
+        SENTINEL + "\n# CLAUDE.md\n\n"
+        "> **Paradigm:** {ACTIVE} — one of Supervised · Weiss · Noir.\n\n"
+        "| Run tests | `{test-command}` |\n"
     )
     (golden / "settings.json").write_text(json.dumps({
         "permissions": {"allow": ["fw_allow_1", "fw_allow_2"]},
@@ -727,16 +867,25 @@ def _build_fixture(base: Path) -> Path:
     )
 
     # --- live repo files ---
-    # pure-framework, drifted (will be restored to golden):
+    # pure-framework, drifted (will be restored to golden).
+    # Backdate the hook to before the golden tree mtime so GoldenStaleness does
+    # not classify it as newer-than-golden and skip the restore — this ensures
+    # the fixture tests the "genuinely drifted → restore" path, not the skip path.
     (root / ".claude" / "hooks").mkdir(parents=True)
-    (root / ".claude" / "hooks" / "guard.sh").write_text("#!/bin/sh\necho TAMPERED\n")
+    hook_file = root / ".claude" / "hooks" / "guard.sh"
+    hook_file.write_text("#!/bin/sh\necho TAMPERED\n")
+    old_time = (root / GOLDEN_CACHE_REL).stat().st_mtime - 10.0
+    os.utime(hook_file, (old_time, old_time))
     # pure-framework, will be DELETED entirely then restored:
     (root / ".claude" / "skills" / "demo-skill").mkdir(parents=True)
     # (intentionally leave SKILL.md missing to test restore-of-missing)
 
-    # mixed: CLAUDE.md with a RESOLVED placeholder, no sentinel (live project):
+    # mixed: CLAUDE.md with RESOLVED placeholders (both lowercase and uppercase),
+    # no sentinel (live project). The {ACTIVE} token is uppercase — regression #160.
     (root / "CLAUDE.md").write_text(
-        "# CLAUDE.md\n\n| Run tests | `pytest -q` |\n"
+        "# CLAUDE.md\n\n"
+        "> **Paradigm:** Noir — one of Supervised · Weiss · Noir.\n\n"
+        "| Run tests | `pytest -q` |\n"
     )
     # mixed: settings.json with a project key the merge must preserve:
     (root / ".claude" / "settings.json").write_text(json.dumps({
@@ -881,7 +1030,9 @@ def _run_self_test() -> int:
         check("mixed settings: project allow kept", "project_allow" in settings["permissions"]["allow"])
         check("mixed settings: fw allow restored", "fw_allow_1" in settings["permissions"]["allow"])
         claude = (root / "CLAUDE.md").read_text()
-        check("mixed CLAUDE: placeholder kept", "pytest -q" in claude)
+        check("mixed CLAUDE: lowercase placeholder kept", "pytest -q" in claude)
+        check("mixed CLAUDE: uppercase {ACTIVE} not left in output", "{ACTIVE}" not in claude)
+        check("mixed CLAUDE: paradigm value Noir preserved", "Noir" in claude)
         gi = (root / ".gitignore").read_text()
         check("mixed gitignore: project kept", "node_modules/" in gi and "dist/" in gi)
         rm = (root / "docs" / "roadmap.md").read_text()
@@ -908,6 +1059,84 @@ def _run_self_test() -> int:
         check("--check exit 0", rc3 == 0)
         check("--check wrote nothing", _snapshot(root) == before)
 
+    # ---- Regression: #160 — uppercase {ACTIVE} placeholder preserved ----
+    # The old PLACEHOLDER_RE only matched lowercase tokens; {ACTIVE} was silently
+    # left unreplaced after the merge, reverting the paradigm stamp.
+    print("\n--- regression #160: uppercase placeholder (ACTIVE) ---")
+    g_active = (
+        SENTINEL + "\n# CLAUDE.md\n\n"
+        "> **Paradigm:** {ACTIVE} — one of Supervised · Weiss · Noir.\n"
+        "> Switch via `grm-work-paradigm-switch`.\n\n"
+        "| Build | `{build-command}` |\n"
+    )
+    c_active = (
+        "# CLAUDE.md\n\n"
+        "> **Paradigm:** Noir — one of Supervised · Weiss · Noir.\n"
+        "> Switch via `grm-work-paradigm-switch`.\n\n"
+        "| Build | `cargo build` |\n"
+    )
+    m_active = merge_agent_guidance(c_active, g_active)
+    check("ACTIVE: paradigm value preserved (Noir)", "Noir" in m_active)
+    check("ACTIVE: {ACTIVE} token not left in output", "{ACTIVE}" not in m_active)
+    check("ACTIVE: build-command preserved", "cargo build" in m_active)
+    check("ACTIVE: sentinel not re-armed (clean project)", not m_active.startswith(SENTINEL))
+    check("ACTIVE idempotent", merge_agent_guidance(m_active, g_active) == m_active)
+
+    # ---- Regression: #159 — newer-than-golden files not rolled back ----
+    # GoldenStaleness.is_newer must skip files that a post-sync has advanced past
+    # the golden freeze time, so restore_from_golden never reverts them.
+    print("\n--- regression #159: newer-than-golden files not rolled back ---")
+    import time
+    with tempfile.TemporaryDirectory() as td:
+        root_ng = Path(td) / "repo"
+        golden_ng = root_ng / GOLDEN_CACHE_REL
+        (golden_ng / "hooks").mkdir(parents=True)
+        (golden_ng / "skills" / "synced-skill").mkdir(parents=True)
+        (root_ng / ".claude" / "hooks").mkdir(parents=True)
+        (root_ng / ".claude" / "skills" / "synced-skill").mkdir(parents=True)
+
+        # Write golden file first, then write live version 0.1s later (newer).
+        (golden_ng / "hooks" / "guard.sh").write_text("#!/bin/sh\necho GOLDEN\n")
+        (golden_ng / "skills" / "synced-skill" / "SKILL.md").write_text("# golden-skill\n")
+        # Manufacture a golden archive mtime in the past.
+        cache_dir = root_ng / ".grimoire-golden"
+        arch_file = cache_dir / "golden-v3.50.tar.gz"
+        arch_file.write_bytes(b"x")
+        past_time = time.time() - 5.0  # archive frozen 5 seconds ago
+        os.utime(arch_file, (past_time, past_time))
+
+        # Live skill SKILL.md is newer than the archive (simulates post-sync).
+        time.sleep(0.05)
+        synced_live = root_ng / ".claude" / "skills" / "synced-skill" / "SKILL.md"
+        synced_live.write_text("# synced-skill — newer version from upstream\n")
+
+        # Live hook is older than the archive (genuinely drifted — should be restored).
+        drifted_hook = root_ng / ".claude" / "hooks" / "guard.sh"
+        drifted_hook.write_text("#!/bin/sh\necho TAMPERED\n")
+        old_time = past_time - 10.0  # hook was last touched before the golden freeze
+        os.utime(drifted_hook, (old_time, old_time))
+
+        manifest_ng = {
+            "schema_version": 1,
+            "grimoire_version": "test",
+            "flavor": "consumer",
+            "entries": [
+                {"path": ".claude/hooks/guard.sh", "class": "pure-framework"},
+                {"path": ".claude/skills/**", "class": "pure-framework"},
+            ],
+        }
+        (root_ng / ".claude").mkdir(parents=True, exist_ok=True)
+        (root_ng / ".claude" / MANIFEST_FILENAME).write_text(json.dumps(manifest_ng, indent=2))
+
+        rc_ng = regenerate(root_ng, check=False, assume_yes=True)
+        check("newer-than-golden: regenerate exits 0", rc_ng == 0)
+        # The synced SKILL.md must NOT be reverted to the golden version.
+        check("newer-than-golden: synced file not rolled back",
+              "newer version from upstream" in synced_live.read_text())
+        # The drifted hook MUST be restored to golden (it is older, so not skipped).
+        check("newer-than-golden: genuinely-drifted hook is restored",
+              "GOLDEN" in drifted_hook.read_text())
+
     # ---- copilot-style refusal: no golden ----
     print("\n--- no-golden refusal ---")
     with tempfile.TemporaryDirectory() as td:
@@ -918,6 +1147,29 @@ def _run_self_test() -> int:
         )
         rc = regenerate(root, check=False, assume_yes=True)
         check("refuses without golden (exit 2)", rc == 2)
+
+    # ---- transient cleanup-on-success (v3.52 Lane F) ----
+    print("\n--- transient cleanup ---")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "ws"
+        # transient (must be swept)
+        (root / ".scaffold-sync-backup" / "20260101-000000").mkdir(parents=True)
+        (root / ".grimoire-source" / ".claude").mkdir(parents=True)
+        # load-bearing / cache (must NEVER be swept)
+        (root / ".scaffold-base").mkdir(parents=True)
+        (root / ".claude").mkdir(parents=True)
+        (root / ".grimoire-golden").mkdir(parents=True)
+        (root / ".grimoire-archive").mkdir(parents=True)
+        removed = _cleanup_transient_on_success(root)
+        check("cleanup: .scaffold-sync-backup removed", not (root / ".scaffold-sync-backup").exists())
+        check("cleanup: .grimoire-source removed", not (root / ".grimoire-source").exists())
+        check("cleanup: load-bearing .scaffold-base kept", (root / ".scaffold-base").is_dir())
+        check("cleanup: .claude kept", (root / ".claude").is_dir())
+        check("cleanup: .grimoire-golden cache kept", (root / ".grimoire-golden").is_dir())
+        check("cleanup: .grimoire-archive safety net kept", (root / ".grimoire-archive").is_dir())
+        check("cleanup: reports removed names", set(removed) == {".scaffold-sync-backup/", ".grimoire-source/"})
+        # idempotent: second run removes nothing, raises nothing
+        check("cleanup idempotent (no-op second run)", _cleanup_transient_on_success(root) == [])
 
     print(f"\n{'PASS' if fails == 0 else 'FAIL'} — {fails} failure(s)")
     return 0 if fails == 0 else 1

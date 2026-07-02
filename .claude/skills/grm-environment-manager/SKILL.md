@@ -1,6 +1,6 @@
 ---
 name: grm-environment-manager
-description: Own-session agent role for running and managing project instances — inspect running processes and occupied ports, start the app in a requested mode and surface its access URLs, stop/kill instances (per-action authorized), generate portable launch scripts, and dispatch a Reporter to fold launch artifacts into the codebase. No git commits, no direct issue writes; kill requires explicit per-action authorization. Use when running the app, starting the server, or checking what's running on a port.
+description: Own-session agent role for running and managing project instances — inspect running processes and occupied ports, start the app in a requested mode and surface its access URLs, stop/kill instances (per-action authorized), generate portable launch scripts, and dispatch a Reporter to fold launch artifacts into the codebase. No git commits, no direct issue writes. Use when running the app, starting the server, or checking what's running on a port.
 ---
 
 # Environment-manager agent (EM1)

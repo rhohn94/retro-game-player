@@ -1,0 +1,388 @@
+/* ==========================================================================
+   Aura — aura-form: form-flow availability states.
+
+   CSS owns all appearance; JS (js/form.js) only sets the data-aura-flow state
+   and the control's native `disabled`. Styling keys on that attribute:
+     data-aura-flow="ready"     enabled, no extra treatment
+     data-aura-flow="blocked"   depends-on unsatisfied (no auto-populate): dim
+     data-aura-flow="pending"   auto-populate, awaiting its blocker: dim + sweep
+
+   Configurable aesthetics (BINDING — §1 of release-planning-v1.2.md):
+   Every value is an existing global token or a component-scoped --aura-form-*
+   dial that DEFAULTS to a global token. Override any :root token (or set an
+   --aura-form-* var on an ancestor) to re-skin without touching component code.
+
+   Dials (defaults):
+     --aura-form-disabled-opacity  var(--aura-disabled-opacity)
+     --aura-form-pending-tint      var(--aura-primary-a25)  (visible sweep, #55)
+     --aura-form-pending-dur       var(--aura-dur-ambient) * 0.5625  (900ms, #55,
+                                    derives from the shared ambient-motion base —
+                                    see animation-design.md, #841-class, v3.534)
+     --aura-form-pending-ease      var(--aura-ease-standard)
+
+   See docs/design/form-flow-design.md.
+   ========================================================================== */
+
+aura-form { display: block; }
+
+/* ---- Keyboard focus ring (a11y) --------------------------------------- */
+/* A visible :focus-visible outline for inputs/textareas using the global
+   focus-ring token, so keyboard users get a consistent affordance. The
+   outline rides outside the control's rounded box (offset token); the
+   per-control box-shadow ring (components.css) still composes underneath. */
+aura-form :where(input, textarea):focus-visible,
+aura-field :where(input, textarea):focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+
+/* ---- Dimmed/blocked control ------------------------------------------- */
+/* Native controls are wrapped in .aura-field__control by aura-field; aura-select
+   / aura-switch dim themselves via their own [disabled] rules. Suppressing the
+   edge shine (max → 0) keeps the proximity glow off a control you can't touch. */
+aura-field[data-aura-flow="blocked"] .aura-field__control,
+aura-field[data-aura-flow="pending"] .aura-field__control {
+  opacity: var(--aura-form-disabled-opacity, var(--aura-disabled-opacity));
+  --aura-edge-shine-max: 0;
+  cursor: not-allowed;
+}
+
+/* The wrapper owns the fade — neutralise the UA's own disabled recolour so the
+   control doesn't double-dim. */
+aura-field[data-aura-flow="blocked"] :where(input, select, textarea):disabled,
+aura-field[data-aura-flow="pending"] :where(input, select, textarea):disabled {
+  color: var(--aura-text);
+  -webkit-text-fill-color: currentColor;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Muted label echoes the unavailable state. */
+aura-field[data-aura-flow="blocked"] > .aura-field__label,
+aura-field[data-aura-flow="pending"] > .aura-field__label {
+  color: var(--aura-text-muted);
+}
+
+/* ---- Pending sweep (auto-populate, awaiting blocker) ------------------ */
+/* A slow primary-tinted highlight glides across the control — "we'll fill this
+   in once the field above resolves". Clipped to the control's rounded box. */
+aura-field[data-aura-flow="pending"] .aura-field__control {
+  position: relative;
+  overflow: hidden;
+}
+aura-field[data-aura-flow="pending"] .aura-field__control::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--aura-form-pending-tint, var(--aura-primary-a25)) 50%,
+    transparent 80%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: aura-form-shimmer
+    var(--aura-form-pending-dur)
+    var(--aura-form-pending-ease, var(--aura-ease-standard)) infinite;
+}
+
+/* High-contrast preference: the subtle tinted sweep is easy to miss, so swap in
+   a stronger, more opaque sweep so the "pending" state is unmistakable (#55). */
+@media (prefers-contrast: more) {
+  aura-field[data-aura-flow="pending"] .aura-field__control::before {
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      var(--aura-form-pending-tint-contrast, var(--aura-primary-a60)) 50%,
+      transparent 80%
+    );
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+  }
+}
+
+@keyframes aura-form-shimmer {
+  from { background-position: 180% 0; }
+  to   { background-position: -80% 0; }
+}
+
+/* Motion-sensitive users: keep the dim, drop the moving sweep. */
+@media (prefers-reduced-motion: reduce) {
+  aura-field[data-aura-flow="pending"] .aura-field__control::before {
+    animation: none;
+    background: none;
+  }
+}
+
+/* ==========================================================================
+   FORM-STATE VOCABULARY (v2.15 — #106 #107 #149 #150 #151)
+
+   Validation and grouping recipes for native controls inside .aura-field /
+   aura-field. Appearance is colour-PLUS-icon-PLUS-text — never colour alone —
+   so the state survives colour-blindness, greyscale, and forced-colors. The
+   message recipes carry their own glyph via an SVG mask, so a downstream
+   consumer gets the icon from the stylesheet with no sprite dependency and the
+   demo HTML stays free of inline component CSS (parity gate).
+
+   The base invalid border/ring lives in components.css; this layer (which
+   imports AFTER components in the barrel) adds the icon-bearing message
+   recipes, the success mirror, the danger ring on the class hooks, and the
+   required/optional + fieldset conventions.
+
+   State hooks (any of these mark a field invalid — author or JS driven):
+     aura-field[invalid]                      (set by aura-field.js `error` attr)
+     .aura-field--invalid / .is-invalid       (declarative class hook)
+     control[aria-invalid="true"]             (native ARIA hook)
+   Success mirror:
+     .aura-field--valid / .is-valid           (declarative class hook)
+
+   Dials (all default to a global token — override to re-skin):
+     --aura-field-invalid-accent   var(--aura-danger)
+     --aura-field-invalid-ring     var(--aura-danger-a25)
+     --aura-field-valid-accent     var(--aura-success)
+     --aura-field-valid-ring       color-mix(success 25%)  (no success-a25 token)
+     --aura-field-required-mark    var(--aura-danger)
+   ========================================================================== */
+
+/* ---- #106 Invalid field: danger border + ring on the class hooks --------
+   components.css already reddens the border for [invalid] and
+   [aria-invalid="true"]; mirror it for the declarative class hooks and apply
+   the focus ring uniformly so every hook focuses identically. */
+.aura-field--invalid :where(input, select, textarea),
+.is-invalid :where(input, select, textarea),
+aura-field.aura-field--invalid :where(input, select, textarea),
+aura-field.is-invalid :where(input, select, textarea) {
+  border-color: var(--aura-field-invalid-accent, var(--aura-danger));
+}
+aura-field[invalid] :where(input, select, textarea):focus,
+.aura-field--invalid :where(input, select, textarea):focus,
+.is-invalid :where(input, select, textarea):focus,
+:where(input, select, textarea)[aria-invalid="true"]:focus {
+  border-color: var(--aura-field-invalid-accent, var(--aura-danger));
+  box-shadow: 0 0 0 3px var(--aura-field-invalid-ring, var(--aura-danger-a25));
+}
+
+/* ---- #150 Success / validated field: positive border + ring -------------
+   Mirrors the invalid recipe with the success accent. Authors add
+   .aura-field--valid (or .is-valid) once a field passes validation. */
+.aura-field--valid :where(input, select, textarea),
+.is-valid :where(input, select, textarea),
+aura-field.aura-field--valid :where(input, select, textarea),
+aura-field.is-valid :where(input, select, textarea) {
+  border-color: var(--aura-field-valid-accent, var(--aura-success));
+}
+.aura-field--valid :where(input, select, textarea):focus,
+.is-valid :where(input, select, textarea):focus {
+  border-color: var(--aura-field-valid-accent, var(--aura-success));
+  box-shadow: 0 0 0 3px var(--aura-field-valid-ring,
+    color-mix(in srgb, var(--aura-success) 25%, transparent));
+}
+
+/* ---- #106 / #150 Status messages (error + success) ----------------------
+   Shared layout: a small line, the accent colour, and a leading glyph that
+   makes the state legible without colour. The glyph is an inline SVG mask
+   tinted with the accent (currentColor would also work, but a mask keeps the
+   icon crisp at any text colour and needs no markup). The message must be
+   associated to its control via aria-describedby (author markup or, for the
+   `error` attribute path, aura-field.js does it automatically). */
+.aura-field__error,
+.aura-field__status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--aura-space-2);
+  margin-top: var(--aura-space-2);
+  font-size: var(--aura-text-xs);
+  line-height: var(--aura-leading-tight, 1.3);
+}
+
+/* Leading glyph, shared geometry. Each state sets its own mask + colour. */
+.aura-field__error::before,
+.aura-field__status::before {
+  content: "";
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
+  margin-top: 0.05em; /* optically centre the glyph on the first text line */
+  background-color: currentColor;
+  -webkit-mask: var(--aura-field-status-icon) center / contain no-repeat;
+  mask: var(--aura-field-status-icon) center / contain no-repeat;
+}
+
+/* Error message — danger accent + an alert (exclamation-in-circle) glyph. */
+.aura-field__error {
+  color: var(--aura-field-invalid-accent, var(--aura-danger));
+  --aura-field-status-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='8' x2='12' y2='13'/%3E%3Cline x1='12' y1='16.5' x2='12' y2='16.5'/%3E%3C/svg%3E");
+}
+
+/* Success message — positive accent + a check-in-circle glyph. Authors add
+   .aura-field__status.aura-field__status--success and wire aria-describedby;
+   role="status" on the node announces the pass to assistive tech. */
+.aura-field__status--success {
+  color: var(--aura-field-valid-accent, var(--aura-success));
+  --aura-field-status-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpolyline points='8.5 12.5 11 15 15.5 9.5'/%3E%3C/svg%3E");
+}
+
+/* ---- #149 Help text + character count -----------------------------------
+   Help text is muted and associated via aria-describedby (same wiring as the
+   built-in hint, but an explicit author-owned recipe). The char-count rides
+   to the right on the same baseline; pair it with aria-live="polite" so the
+   running total is announced as the user types. */
+.aura-field__help {
+  display: block;
+  margin-top: var(--aura-space-2);
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+}
+
+/* Help + count on one row when the field wants both. */
+.aura-field__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+  margin-top: var(--aura-space-2);
+}
+.aura-field__meta .aura-field__help { margin-top: 0; }
+
+.aura-field__count {
+  flex: none;
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-subtle);
+  font-variant-numeric: tabular-nums; /* digits don't jitter as the count ticks */
+}
+/* At/over the limit, the count turns to the danger accent (it still reads as
+   text, so the warning is never colour-only). */
+.aura-field__count--over { color: var(--aura-field-invalid-accent, var(--aura-danger)); }
+
+/* ---- #107 Required / optional indicators --------------------------------
+   Convention: mark the SHORTER set. If most fields are required, suffix the
+   few optional ones with .aura-field__optional ("Optional"). If most are
+   optional, mark the few required ones with .aura-field__required (a red
+   asterisk). Never rely on the asterisk alone — pair the visible "*" (which is
+   aria-hidden) with a visually-hidden "(required)" so screen readers hear it,
+   and add `required` to the control itself.
+
+   .aura-field__required  → visible asterisk; expects a nested .aura-sr-only
+                            "(required)" for the accessible name.
+   .aura-field__optional  → muted "Optional" suffix on the label. */
+.aura-field__required {
+  margin-inline-start: var(--aura-space-1);
+  color: var(--aura-field-required-mark, var(--aura-danger));
+  font-weight: var(--aura-weight-semibold);
+}
+.aura-field__optional {
+  margin-inline-start: var(--aura-space-2);
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-regular);
+  color: var(--aura-text-subtle);
+}
+
+/* Visually-hidden accessible text (e.g. the "(required)" cue). Scoped to the
+   form layer so it ships with this vocabulary; safe to reuse anywhere. */
+.aura-sr-only {
+  position: absolute !important;
+  inline-size: 1px; block-size: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap; border: 0;
+}
+
+/* ---- #151 Fieldset + legend (grouped radios / checkboxes) ---------------
+   A styled grouping container so a set of radios/checkboxes reads as one
+   labelled unit. The native <fieldset>/<legend> gives the group an accessible
+   name and a programmatic boundary for free; this just dresses it to match the
+   surface language. Use .aura-fieldset on a real <fieldset>.
+
+   v3.530: .aura-fieldset used to be a flat, hardcoded box (plain
+   --aura-surface-1 fill, no shadow/blur/edge-light) that read as visually
+   dead next to glass inputs and elevated cards — flagged as an open design
+   question in the prior loop iteration, not a deliberate "flat" exception.
+   Resolved here: a fieldset is a grouping container, structurally analogous
+   to a low-elevation card, so it now participates in elevation.css's
+   four-dial model at level 1 (shadow + blur + tint + edge-light) — the same
+   resting weight aura-card/.aura-surface carry via --aura-e-1. The resolved
+   level-1 dial values + the .aura-surface consumption recipe are inlined
+   directly below (rather than relying on a .aura-e-1 class on the <fieldset>
+   markup, which is out of scope for this CSS-only change). See
+   css/elevation.css for the canonical dial source and
+   docs/design/motion-depth-light-design.md for the elevation system. */
+.aura-fieldset {
+  position: relative;
+  margin: 0;
+  padding: var(--aura-space-4);
+  border: var(--aura-frame-border-width) var(--aura-border-style, solid) var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-md);
+  /* Resolved .aura-e-1 dials (css/elevation.css), inlined rather than read
+     from --aura-e-* so the fieldset never silently re-levels if an ancestor
+     happens to set --aura-e-* for an unrelated surface nearby. No
+     backdrop-filter: --aura-e-1's blur dial (--aura-blur-1) is 0px in the
+     base theme — a real-but-inert blur that paints nothing while forcing a
+     needless compositing layer, the same #499/#710 reasoning that already
+     keeps backdrop-filter off the plain form controls (see
+     preferences.css §THE OPAQUE-GLASS INVARIANT) and off this opaque-glass
+     parity gate (tools/check_opaque_glass_parity.py). */
+  background:
+    var(--aura-surface-pattern),
+    linear-gradient(0deg, var(--aura-frame-face), var(--aura-frame-face)),
+    var(--aura-glass-tint-layer),
+    var(--aura-surface-1);
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-shadow-1),
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+}
+.aura-fieldset > legend,
+.aura-fieldset__legend {
+  padding-inline: var(--aura-space-2);
+  margin-inline-start: calc(-1 * var(--aura-space-1));
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text);
+}
+/* Optional help line under the legend, before the options. */
+.aura-fieldset > .aura-field__help { margin-block: 0 var(--aura-space-3); }
+/* Stack the grouped controls with consistent rhythm. */
+.aura-fieldset__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+}
+/* A horizontal variant for short option sets (e.g. a 3-way radio). */
+.aura-fieldset__options--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--aura-space-4);
+}
+/* When the whole group is invalid, redden the boundary and pair it with an
+   .aura-field__error message inside (colour + icon + text). */
+.aura-fieldset.aura-field--invalid,
+.aura-fieldset.is-invalid {
+  border-color: var(--aura-field-invalid-accent, var(--aura-danger));
+}
+
+/* ---- layout="row" horizontal field layout (#410 Part B) -----------------
+   When `layout="row"` is authored on an aura-field (or the equivalent
+   data-layout="row" data attribute is set by aura-field.js), the label and
+   control sit side-by-side on one line. The label is fixed-width so controls
+   across a column of row-layout fields stay vertically aligned. */
+aura-field[data-layout="row"],
+.aura-field[data-layout="row"] {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-4);
+}
+aura-field[data-layout="row"] .aura-field__label,
+.aura-field[data-layout="row"] .aura-field__label {
+  flex: 0 0 auto;
+  min-inline-size: 10rem;
+}
+/* The hint/error sit below the control in row layout — break out of the flex
+   row by making the control span and pushing the description to a new line. */
+aura-field[data-layout="row"] .aura-field__control,
+.aura-field[data-layout="row"] .aura-field__control {
+  flex: 1 1 auto;
+}

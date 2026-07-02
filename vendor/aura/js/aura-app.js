@@ -1,0 +1,61 @@
+/* ==========================================================================
+   Aura — aura-app: theme + wallpaper scope.
+
+   The declarative root scope. Reflects its theme/primary/secondary/wallpaper
+   attributes onto the corresponding custom properties (and the
+   data-aura-theme hook) on itself, so the whole subtree themes from one element.
+   Light-DOM + CSS-first per the architecture doc; JS only mirrors attributes.
+   Lifecycle comes from Aura.BaseElement (js/element-base.js): the scope has no
+   internal DOM, so it overrides only _sync (run on connect + every observed
+   attribute change) to mirror its brand attributes.
+   See docs/design/declarative-markup-design.md and tokens-and-theming-design.md.
+
+   Load order: core.js → element-base.js → aura-app.js (self-registers).
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* Summary: theme/wallpaper scope element; mirrors brand attributes to CSS
+     custom properties on connect and whenever they change. */
+  Aura.define("aura-app", class extends Aura.BaseElement {
+    static get observedAttributes() { return ["theme", "theme-name", "primary", "secondary", "wallpaper"]; }
+
+    /* Mirror theme/theme-name/primary/secondary/wallpaper attributes onto this
+       element's custom properties + data-aura-theme(-name) so the subtree picks
+       up the scope. */
+    _sync() {
+      /* Mirror each brand attribute, and CLEAR the mirrored property/attribute
+         when its source is removed — the mirror must reflect the current state,
+         not a high-water mark. A controlled re-render that drops `theme` must
+         revert the subtree theme; clearing `primary` must restore the default
+         brand color (#556). */
+      /* `theme` drives the dark/light MODE axis (data-aura-theme), while
+         `theme-name` drives the orthogonal NAMED-theme axis that carries the
+         colour tokens (data-aura-theme-name) — the #570/#574/#597 axis split. */
+      if (this.hasAttribute("theme")) this.setAttribute("data-aura-theme", this.getAttribute("theme"));
+      else this.removeAttribute("data-aura-theme");
+      if (this.hasAttribute("theme-name")) this.setAttribute("data-aura-theme-name", this.getAttribute("theme-name"));
+      else this.removeAttribute("data-aura-theme-name");
+      if (this.getAttribute("primary")) this.style.setProperty("--aura-primary", this.getAttribute("primary"));
+      else this.style.removeProperty("--aura-primary");
+      if (this.getAttribute("secondary")) this.style.setProperty("--aura-secondary", this.getAttribute("secondary"));
+      else this.style.removeProperty("--aura-secondary");
+      var wp = this.getAttribute("wallpaper");
+      // "custom" is a CSS hook set by Aura.theme.setWallpaper; the actual value
+      // already lives in --aura-wallpaper, so don't overwrite (or clear) it here.
+      if (wp && wp !== "aurora" && wp !== "none" && wp !== "custom") {
+        this.style.setProperty("--aura-wallpaper", wp);
+      } else if (wp !== "custom") {
+        // Mirror the current state, not a high-water mark (#556/#680): when the
+        // wallpaper is absent or a built-in (aurora/none), clear any stale custom
+        // --aura-wallpaper so switching away from a custom image fully reverts.
+        this.style.removeProperty("--aura-wallpaper");
+      }
+    }
+  });
+})();

@@ -39,7 +39,7 @@ trust server-supplied names.
 stdlib-only. `tomllib` requires Python 3.11+ (an explicit floor; a <3.11 fallback
 parser is a NON-GOAL this release). vendor.lock + the read/gate path stay pure JSON.
 
-Design: docs/design/dependency-channel-design.md §3-§4.
+Design: docs/grimoire/design/dependency-channel-design.md §3-§4.
 """
 
 import argparse

@@ -1,6 +1,6 @@
 ---
 name: grm-vendor-migrate
-description: One-shot migration of an existing git submodule (or hand-vendored dir) into the Dependency Channel consumer artifacts — vendor.toml + vendor.lock. Derives the GitHub owner/repo slug, fetches published releases on the channel, and matches the one whose extracted bytes equal the present tree (preferring the pinned tag), then reconciles through the sync-deps engine. When no release matches it emits a LOUD fallback (commented stub), never silently pinning to a moving ref. Re-run never clobbers a hand-edited vendor.toml (--force overrides). Use when migrating a submodule or hand-vendored dir to the dependency channel.
+description: One-shot migration of an existing git submodule (or hand-vendored dir) into the Dependency Channel artifacts — vendor.toml + vendor.lock. Derives the GitHub owner/repo slug, fetches published releases, and matches the one whose extracted bytes equal the present tree, then reconciles through sync-deps. When none matches it emits a LOUD commented-stub fallback, never pinning a moving ref. Use when migrating a submodule or vendored dir.
 ---
 
 # vendor-migrate

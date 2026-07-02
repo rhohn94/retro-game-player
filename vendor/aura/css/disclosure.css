@@ -1,0 +1,217 @@
+/* ==========================================================================
+   Aura — disclosure (collapsible section).   Registered in css/aura.css under
+   layer(disclosure).
+
+   Built on the native <details>/<summary> element, so it needs NO JavaScript:
+   the browser handles open/close, keyboard operation, and the implicit
+   `aria-expanded` semantics. Authors who need controlled state can still toggle
+   the `open` attribute. Everything is token-driven.
+
+       <details class="aura-disclosure">
+         <summary class="aura-disclosure__summary aura-glow">
+           <svg class="aura-icon aura-disclosure__chevron" aria-hidden="true">
+             <use href="#aura-icon-chevron-right"></use>
+           </svg>
+           Section title
+         </summary>
+         <div class="aura-disclosure__panel"> … </div>
+       </details>
+
+   Proximity glow (v3.531, Item A): `.aura-disclosure__summary` is a directly
+   clickable toggle, so the Coverage principle (proximity-glow-design.md) says
+   it should carry the edge-shine + magnetic lean like any other interactive
+   control. A native <summary> is NOT a replaced element (unlike <input>/
+   <select>), so it can host the `.aura-glow::after` rim directly — no sub-part
+   overlay (the aura-tab `.aura-tab__glow` pattern) is needed here.
+
+   Direct class vs. default-on, and why this stays author-applied: glow.js's
+   registry is a literal `document.querySelectorAll(".aura-glow, .aura-sheen")`
+   (js/glow.js) — there is no tag-name fallback. Every other CSS-only-looking
+   case that "just glows" (aura-button, aura-tab, aura-field's wrapped control)
+   is in fact a custom element whose JS does `classList.add("aura-glow")` on
+   connect. `aura-disclosure` is deliberately zero-JS (this file's own header
+   comment), so there is no connectedCallback to add the class at runtime, and
+   adding one solely to inject a class would contradict the component's
+   progressive-enhancement contract for a purely decorative affordance. A pure
+   CSS rule cannot add a class to an element, so default-on coverage isn't
+   reachable without either JS or a markup change — and JS is off the table.
+   The smallest correct fix is therefore the documented author opt-in already
+   used for "bespoke / non-Aura interactive markup" in proximity-glow-design.md
+   §Design: authors add `aura-glow` to `class="aura-disclosure__summary"`, same
+   as the bare `.aura-input` outside `aura-field` case in that doc's
+   Follow-ups. See docs/design/disclosure-design.md for the full writeup.
+
+   Panel open/close motion (v3.531, Item B): `.aura-disclosure__panel` reveals
+   and collapses via @starting-style + transition-behavior: allow-discrete
+   (see the comment block above the panel rules below for the full technique
+   writeup, the open-vs-close-direction trap, and why this was chosen over
+   the grid-template-rows wrapper alternative). Still zero-JS — the animation
+   is driven entirely by the native [open] attribute the browser already
+   manages. */
+
+.aura-disclosure {
+  border-block-end: 1px solid var(--aura-surface-stroke);
+}
+
+.aura-disclosure__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  padding-block: var(--aura-space-3);
+  padding-inline: var(--aura-space-2);
+  margin-inline: calc(-1 * var(--aura-space-2));
+  border-radius: var(--aura-radius-sm);
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text);
+  cursor: pointer;
+  list-style: none;            /* drop the default disclosure triangle … */
+  user-select: none;
+  transition: background-color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-disclosure__summary::-webkit-details-marker { display: none; }  /* … incl. WebKit */
+
+/* Hover: same background tint as other interactive-row treatments in the
+   system (aura-tab:hover, the v3.530 table row-hover). Text colour is
+   already --aura-text at rest (the summary is semibold, not muted, unlike
+   aura-tab's resting --aura-text-muted), so there is no colour to shift —
+   the background lift alone supplies the affordance. */
+.aura-disclosure__summary:hover {
+  background: var(--aura-surface-1);
+}
+
+/* glow.css's generic .aura-glow:hover rule (the "hover raise") lifts a glow
+   host with translateY + an elevation box-shadow on hover, excluding a fixed
+   list of flush-row controls that define their own hover (aura-tab among
+   them) so they don't visually detach from their row. glow.css's exclusion
+   list cannot be edited from here (out of scope for this item — see file
+   header), so the same opt-out is reproduced locally: .aura-disclosure__summary
+   sits flush against the disclosure's border-block-end exactly like a tab
+   sits flush in its tablist row, so it must not float free of that border on
+   hover either. This re-zeroes the lift/raise without touching glow.css. */
+.aura-disclosure__summary.aura-glow:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.aura-disclosure__summary:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+  border-radius: var(--aura-radius-sm);
+}
+
+/* The chevron points right when closed and rotates down when open. */
+.aura-disclosure__chevron {
+  flex: none;
+  color: var(--aura-text-subtle);
+  transition: transform var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-disclosure[open] .aura-disclosure__chevron { transform: rotate(90deg); }
+/* RTL: the closed chevron points right (toward LTR expand); mirror it to point
+   left. The open state rotates DOWN (non-directional), so it is left untouched. */
+[dir="rtl"] .aura-disclosure:not([open]) .aura-disclosure__chevron { transform: scaleX(-1); }
+
+/* ---- Panel open/close motion (v3.531, Item B) --------------------------
+   Native <details> reveals/hides its non-summary children via the UA
+   stylesheet rule `details:not([open]) > *:not(summary) { display: none }`,
+   applied synchronously on attribute change — there is no transitionable
+   intermediate state, so content snaps instantly (only the chevron rotated
+   before this item).
+
+   Technique chosen: @starting-style + transition-behavior: allow-discrete,
+   NOT the grid-template-rows: 0fr → 1fr wrapper trick. Rationale:
+
+   1. Correctness in BOTH directions. allow-discrete lets `display` itself
+      participate in the transition: the browser keeps the element rendered
+      for the duration of the transition in EITHER direction (post-flip on
+      open, pre-flip on close) instead of yanking it to `display:none`
+      synchronously. The grid-rows technique never transitions `display` at
+      all — it fights the UA's synchronous display:none by overriding it
+      with `display: block !important` unconditionally, which keeps closed
+      panels in the accessibility/layout tree (and tab order) even though
+      they are visually height:0. allow-discrete keeps the real semantics
+      (closed panel is genuinely display:none at rest, matching <details>'
+      native contract) while still animating the transition window.
+   2. No wrapper markup. The grid-rows trick needs the 0fr/1fr track on a
+      grid CONTAINER with the animated content in exactly one grid ITEM
+      child, so it can't apply to .aura-disclosure__panel directly unless
+      panel content is guaranteed to be a single child — disclosure panels
+      are authored as arbitrary free-form content (see Scope), so we would
+      need to inject an inner wrapper div, touching markup the way Item A's
+      glow integration deliberately avoided.
+   3. Support is no longer a real tradeoff. @starting-style + allow-discrete
+      shipped in Chrome/Edge 117 (Sep 2023), Firefox 129 (Aug 2024), and
+      Safari 17.5 (May 2024) — all mature for well over a year as of this
+      release. The rest of tokens.css already assumes an equivalently
+      modern evergreen baseline (color-mix(in oklch, …) for the entire
+      colour ramp), so this is consistent with, not ahead of, the project's
+      existing support posture.
+
+   THE CLOSE-DIRECTION TRAP (why this needs care, not just "open works"):
+   the naive version of this technique still snaps shut, because the
+   *measured* end-state size for the closing transition is taken from
+   `grid-template-rows: 1fr` → `0fr` at the moment [open] is removed — but
+   if the panel is simultaneously animating `display: none`, Chrome/Safari/
+   Firefox all compute the discrete `display` jump independently of how
+   long the *other* (non-discrete) properties take, UNLESS `display` is
+   explicitly listed in `transition-property` with `transition-behavior:
+   allow-discrete`. Omitting `display` from transition-property (even with
+   the allow-discrete keyword present elsewhere) silently reverts to the
+   synchronous snap on close while open looks fine — verified by testing
+   both directions explicitly, not just reading the open state. */
+.aura-disclosure__panel {
+  padding-block-end: var(--aura-space-4);
+  color: var(--aura-text-muted);
+  overflow: hidden;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--aura-dur-base) var(--aura-ease-out),
+    opacity var(--aura-dur-base) var(--aura-ease-out),
+    display var(--aura-dur-base) var(--aura-ease-out) allow-discrete;
+}
+
+/* Closed resting state still needs `display:none` for real (matches the
+   native <details> contract — content is unreachable by keyboard/AT when
+   collapsed), but reached via the transition above instead of the UA's
+   synchronous rule, so allow-discrete has a transition to discretely defer.
+   `details:not([open])`'s UA rule already supplies display:none at rest;
+   this re-states it under our own specificity so it participates as the
+   transition's discrete end value rather than winning instantly. */
+.aura-disclosure:not([open]) .aura-disclosure__panel {
+  display: none;
+}
+
+/* Open state: a single-row grid (1fr) lets content's own intrinsic height
+   drive the transition's measured end size — this is what makes a
+   "height: auto"-equivalent transition possible without JS measuring the
+   content's pixel height. The inner content needs `min-height: 0` behaviour
+   for the 0fr collapse to actually reach zero, which a single implicit grid
+   row provides for free (no wrapper element needed: the panel acts as its
+   own one-row grid container, and its children become that row's content
+   via normal block flow inside the grid item formed by the row itself —
+   the panel needs no extra wrapper because it is shown via `display: grid`,
+   not `display: block`, while open). */
+.aura-disclosure[open] .aura-disclosure__panel {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* @starting-style supplies the FROM state for the opening transition (the
+   moment [open] is added and display flips from none → grid). Without this,
+   the browser has no "before" value to transition from on open and the
+   panel would still jump straight to its 1fr/opacity:1 resting state. */
+@starting-style {
+  .aura-disclosure[open] .aura-disclosure__panel {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+/* Respect reduced-motion: no chevron rotation tween, no panel reveal/collapse
+   tween — content still opens/closes (native <details> behaviour is
+   untouched), it just snaps instead of animating. */
+@media (prefers-reduced-motion: reduce) {
+  .aura-disclosure__chevron { transition: none; }
+  .aura-disclosure__panel { transition: none; }
+}

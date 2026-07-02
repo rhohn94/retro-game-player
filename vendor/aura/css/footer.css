@@ -1,0 +1,489 @@
+/* ==========================================================================
+   Aura — reveal-on-scroll-end site footer (<aura-footer>).   Registered in
+   css/aura.css under layer(footer).
+
+   The site footer is SUMMONED chrome, not a stationed band (space-economy —
+   docs/design/space-economy-design.md). Under data-aura-footer="reveal" the
+   footer rests translated fully off the bottom edge so it holds NO viewport
+   space while the user reads; it slides in only when the user reaches the end
+   of the content. js/footer.js observes an end-of-content sentinel with an
+   IntersectionObserver (rooted on the app-shell scroll region, not window) and
+   flips data-aura-revealed; CSS owns every pixel of the translate + its motion.
+
+   Sized to content: a single minimal --aura-footer-pad-block band, never the
+   old decorative --aura-space-5 ring. Colours, sizing, distance, duration and
+   easing are token-driven (--aura-footer-*), so a theme re-tunes it globally,
+   and the reveal degrades to an instant state change under reduced motion.
+
+   CASCADE LAYER: footer (declared in css/aura.css), placed after nav-header so
+   it composes with the same chrome language while staying overridable by the
+   later layout / mobile / utilities layers.
+   ========================================================================== */
+
+/* ---- Root footer --------------------------------------------------------- */
+/* The element is the contentinfo landmark; <aura-footer> is not a known
+   landmark tag, so js/footer.js names role="contentinfo". Sized to its
+   content height — minimal symmetric block padding, no decorative band.
+
+   Static footer (no data-aura-footer="reveal"): INTENTIONAL for use cases where
+   the footer must always be visible in the content flow — e.g. a config page with
+   persistent navigation or legal notices that must never be hidden (#775).  Static
+   mode is NOT a bug; it is the "permanent footer" pattern.  If you want the
+   space-economy summoned-chrome behaviour, add data-aura-footer="reveal". */
+/* Space-economy cross-reference (#828): the footer's reveal mode IS the
+   stash-default equivalent for the bottom chrome — see js/footer.js and
+   docs/design/footer-design.md §Reveal vs static / space-economy notes. */
+aura-footer,
+.aura-footer {
+  display: block;
+  box-sizing: border-box;
+  padding-block: var(--aura-footer-pad-block);
+  padding-inline: var(--aura-footer-pad-inline);
+  /* The ,0px fallback ensures the calc() is valid even when --aura-safe-bottom
+     is not defined (i.e. the page has no shell app element or env() wiring) (#776). */
+  padding-block-end: calc(var(--aura-footer-pad-block) + var(--aura-safe-bottom, 0px));
+  /* #809 — text contrast: --aura-footer-color resolves to --aura-text-subtle
+     (see tokens.css). At 14px WCAG AA requires 4.5:1 contrast.
+     Assumption: --aura-text-subtle over --aura-footer-surface-solid meets 4.5:1
+     in the default theme (verified via check-theme-contrast). The glass backdrop
+     blurs the content behind the footer, effectively raising the background
+     luminance toward the surface-solid value. If a custom theme drives this below
+     4.5:1, set --aura-footer-color to --aura-text (primary body text) for
+     compliance. TODO: add automated per-theme footer contrast to check-theme-contrast
+     if the theme palette expands significantly. */
+  color: var(--aura-footer-color, var(--aura-text-subtle));
+  font-size: var(--aura-text-sm);
+  text-align: center;
+  /* #594: tint-wash layer so a theme tint reaches the footer glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-footer-bg);
+  border-block-start: 1px solid var(--aura-footer-border-color);
+  /* z-index: the footer sits below the nav-header so nav-header dropdowns always
+     win when the two overlap (#817). --aura-footer-z-index is one tier below
+     --aura-z-sticky (the nav-header base z-index). */
+  z-index: var(--aura-footer-z-index);
+  /* Chrome glass (#400): the reveal footer overlays scrolling content, so the
+     four depth dials move together like the nav header's (elevation-design.md
+     §chrome-over-content) — backdrop blur + saturate, a shadow cast
+     UPWARD toward the content above it (negative y, tier-2 recipe — the footer is
+     at the bottom, content scrolls above it, so the shadow is cast upward into the
+     content zone), and a light catch along its TOP edge (#737 — the footer's top
+     edge faces the scrolling content above; a glass surface facing upward gets an
+     inset light catch at its top: `inset 0 1px 0 var(--aura-edge-light)` is correct
+     and intentional, not a bug). All token seams (--aura-footer-*, tokens.css). */
+  -webkit-backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
+  backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
+  box-shadow: var(--aura-footer-shadow), inset 0 1px 0 var(--aura-edge-light);
+}
+
+/* ---- Inner content max-width (#822) ------------------------------------- */
+/* On wide screens centered text with no max-width looks bad — constrain
+   the footer's direct children to a legible measure.  Uses the dedicated token
+   --aura-footer-max-width (defaults to 80rem) so a theme can retune the footer
+   alone without touching any global measure token. */
+aura-footer > *,
+.aura-footer > * {
+  max-inline-size: var(--aura-footer-max-width);
+  margin-inline: auto;
+}
+
+/* ---- Multi-column layout API (#812) ------------------------------------- */
+/* data-aura-footer-layout="split" arranges direct children as a flex row:
+   left-aligned content on the start side, right-aligned on the end side.
+   Default is "center" (text-align:center, established above on the host). */
+aura-footer[data-aura-footer-layout="split"],
+.aura-footer[data-aura-footer-layout="split"] {
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--aura-footer-layout-gap);
+  text-align: start;
+}
+/* In split layout the child max-inline-size / margin:auto centering from the
+   rule above would fight the justify-content:space-between distribution.
+   Reset to allow natural flex sizing. */
+aura-footer[data-aura-footer-layout="split"] > *,
+.aura-footer[data-aura-footer-layout="split"] > * {
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
+/* Opaque fallback for engines without backdrop-filter (progressive — the same
+   contract as .aura-surface and the nav header). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  aura-footer,
+  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+}
+
+/* Reduced effects: drop the blur and go opaque on constrained hardware
+   ([data-aura-effects="lite"] — the page-wide escape hatch, elevation.css). */
+[data-aura-effects="lite"] aura-footer,
+[data-aura-effects="lite"] .aura-footer {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
+}
+
+/* Coarse-pointer (mobile) devices: drop the expensive backdrop blur (#797).
+   On touch screens with a coarse pointer the glass effect is typically
+   imperceptible — the contrast gain from a solid surface is greater than the
+   aesthetic loss, and skipping the blur saves a compositing layer.
+   Placed BEFORE the reduced-transparency block so an explicit
+   `prefers-reduced-transparency: no-preference` preference (if a UA ever adds
+   an override) can still win in the cascade. */
+@media (pointer: coarse) {
+  aura-footer,
+  .aura-footer {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
+  }
+}
+
+/* Footer links sit in a text block, not running prose, so the base.css
+   prose-underline rule does not reach them. Underline them here so they are
+   distinguishable without relying on colour alone (WCAG 1.4.1 — the
+   link-in-text-block axe rule). Token-driven decoration colour mirrors the
+   inline-link treatment in base.css.
+   Scoped via :where() to lower specificity so Aura interactive elements (link,
+   button variants) can override without needing !important (#819). The aura-link
+   inner anchor suppression below then explicitly resets text-decoration so
+   ghost-variant links are never force-underlined by this block rule.
+   css/footer.css is listed in the aura-link catalog `styles` because of the rule
+   below. */
+:where(aura-footer, .aura-footer) a {
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.15em;
+  text-decoration-color: var(--aura-footer-link-color);
+}
+:where(aura-footer, .aura-footer) a:hover { text-decoration-color: currentColor; }
+/* Suppress forced underline for anchors hosted inside aura-link within a footer
+   (#819). aura-link owns its own underline styling (ghost variant sets none); the
+   :where() above keeps specificity at 0-0-1 so aura-link's component rules already
+   win, but this explicit reset is the reliable safety net for ghost-variant anchors.
+   NOTE: because this rule names aura-link, css/footer.css is declared in the
+   aura-link catalog `styles` list. */
+:where(aura-footer, .aura-footer) aura-link a,
+:where(aura-footer, .aura-footer) .aura-link a {
+  text-decoration: none;
+}
+
+/* ---- Reveal behaviour + Floating Menu Button (FMB) — v3.4 / v3.87 -------- */
+/* data-aura-footer="reveal" makes the footer summoned chrome. v3.87 replaces
+   the "translate fully off-screen" resting state with a Floating Menu Button
+   (FMB): a compact circle anchored at the shell's bottom-right corner that is
+   ALWAYS visible as a navigation affordance. Hovering, focusing, or JS cursor-
+   proximity temporarily expands it to the full footer bar; the IntersectionObserver
+   sentinel permanently reveals it when the user reaches the end of the content.
+
+   This mirrors the nav-header FMB (data-stashed) at the top chrome, giving the
+   page symmetrical floating access points at the top-left and bottom-right.
+
+   FMB collapse mechanism (all animated by the channels in the base transition):
+     margin-inline-start: calc(100% - fmb-size - pad-inline)
+                                — right-anchors the footer; effective inline-size
+                                  resolves to exactly --aura-footer-fmb-size because
+                                  margin-end (pad-inline) + margin-start + fmb-size = 100%
+     margin-inline-end: pad-inline  — edge gap between FMB and shell right wall
+     margin-block-end:  pad-inline  — floating gap above the shell bottom edge
+     padding-inline: 0; padding-block: 0
+                                — removes internal padding so content area = fmb-size²
+     block-size: fmb-size       — forces square geometry for border-radius: 50% circle
+     border-radius: 50%         — circle shape (animates via border-radius channel)
+     gap: 0                     — zeroes any flex gap so the mark fills the circle
+
+   Non-mark direct children (data-footer-zone ≠ "mark") are zeroed in flex layout
+   (max-inline-size: 0; overflow: hidden) and faded (opacity: 0; pointer-events: none).
+   The [data-footer-zone="mark"] child fills the FMB (flex: 1; justify-content: center).
+
+   Hover / :focus-within / data-footer-expanded (JS proximity) reverses every change,
+   expanding the FMB back to the full footer bar via the same animated channels.
+   data-aura-revealed (permanent reveal from IO) bypasses the FMB entirely.
+
+   #735 BIDIRECTIONAL TRANSITION: the transition is on the BASE state so it applies
+   in both directions (FMB → expanded and expanded → FMB).
+   #766 #804: :focus-within forces the expanded state (full footer) so keyboard
+   users are never trapped inside an invisible control. */
+aura-footer[data-aura-footer="reveal"],
+.aura-footer[data-aura-footer="reveal"] {
+  /* Bidirectional FMB ↔ full-footer transition channels. */
+  transition:
+    margin-inline     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    margin-block-end  var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    padding-inline    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    padding-block     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    border-radius     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    translate         var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    /* v3.87: ghostly FMB fade/desaturate channels. */
+    opacity           var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    filter            var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
+}
+
+/* ---- FMB stash state (resting): compact circle at bottom-left ------------ */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) {
+  translate: 0 0;
+  /* Flex layout so zone children can be hidden/shown identically to nav-header. */
+  display: flex;
+  align-items: center;
+  /* Left-anchor: start margin gives the edge gap; end margin fills the remaining
+     viewport so effective inline-size = fmb-size. Mirrors the nav-header anchor. */
+  margin-inline-start: var(--aura-footer-pad-inline);
+  margin-inline-end: calc(100% - var(--aura-footer-fmb-size) - var(--aura-footer-pad-inline));
+  /* Float above the very bottom of the shell. */
+  margin-block-end: var(--aura-footer-pad-inline);
+  /* No internal padding — content area is exactly fmb-size². */
+  padding-inline: 0;
+  padding-block: 0;
+  /* Circle geometry: force square dimensions and clip to 50% radius. */
+  block-size: var(--aura-footer-fmb-size);
+  border-radius: 50%;
+  overflow: hidden;
+  gap: 0;
+  /* Ghostly FMB: monochrome + semi-transparent at rest; restores on expand. */
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+/* Glow-vs-ghost conflict (v3.532 #A): the host's own opacity:0.35 +
+   filter:grayscale(1) composite through the .aura-glow rim too (CSS
+   filter/opacity apply to the whole rendered subtree, pseudo-elements
+   included) — so as the cursor approaches within the 130px glow radius but
+   before it crosses the FMB's own tight ~14px expand-px ring, the vivid
+   --aura-edge-color rim would render fully desaturated and at ~0.27
+   effective opacity: a barely-visible smudge rather than the intended
+   "you're getting close" cue. Same conflict as sidebar.css (see its comment
+   for the verification note); identical fix here — suppress the rim while
+   still collapsed, it un-suppresses the instant the FMB itself expands (the
+   block below already sets opacity:1/filter:none at that point). The host
+   stays a fully-fledged .aura-glow member throughout — magnetic lean and
+   :focus-visible intensity pinning are unaffected — only the rim
+   pseudo-element's visibility window is scoped to skip the ghost state.
+   The chain follows sidebar.css's reference shape (one :not() term per
+   expand state) plus one extra term — :not([data-aura-revealed]) — because
+   the footer's ghost state only exists in reveal mode before the permanent
+   reveal, and it is doubled for the element/class host twins. Contract:
+   docs/design/proximity-glow-design.md §Ghosted FMB rim suppression
+   (v3.541, #1021). */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):not(:hover):not(:focus-within):not([data-footer-expanded]):not([data-fmb-pinned])::after,
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):not(:hover):not(:focus-within):not([data-footer-expanded]):not([data-fmb-pinned])::after {
+  opacity: 0;
+}
+
+/* Non-mark children: zero-width + invisible in FMB state. */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]) {
+  max-inline-size: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
+}
+
+/* Mark zone: fill the FMB circle and centre the affordance mark. Use full-brightness
+   text so the icon reads at the ghostly 0.35 opacity (footer inherits text-muted which
+   is too dim at that opacity against the dark background).
+   flex: 0 0 100% instead of flex: 1 — the demo-theme-panel has margin-inline-start:auto
+   (unlayered CSS, higher cascade priority) which absorbs all flex free space before
+   flex-grow can act. Claiming 100% flex-basis directly fills the FMB circle width
+   regardless of sibling free-space consumption. */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > [data-footer-zone="mark"] {
+  flex: 0 0 100%;
+  /* align-self: stretch should fill the FMB circle height, but browsers do not
+     always honour it when the flex item is also a flex container — add an explicit
+     min-block-size:100% so the zone always fills the circle vertically and the SVG
+     is centred by align-items:center rather than sitting at the top edge. */
+  align-self: stretch;
+  min-block-size: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  color: var(--aura-text);
+}
+
+/* ---- FMB → full footer: hover / focus / JS proximity / click-pin ---------- */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover,
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
+aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
+aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover,
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
+.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
+.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) {
+  margin-inline-start: 0;
+  margin-inline-end: 0;
+  margin-block-end: 0;
+  padding-inline: var(--aura-footer-pad-inline);
+  padding-block: var(--aura-footer-pad-block);
+  block-size: auto;
+  border-radius: 0;
+  opacity: 1;
+  filter: none;
+}
+
+/* Restore non-mark zones on FMB expand. */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > :not([data-footer-zone="mark"]),
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > :not([data-footer-zone="mark"]),
+aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
+aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > :not([data-footer-zone="mark"]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > :not([data-footer-zone="mark"]),
+.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
+.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]) {
+  max-inline-size: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Restore mark zone to natural flex sizing on expand. */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > [data-footer-zone="mark"],
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > [data-footer-zone="mark"],
+aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > [data-footer-zone="mark"],
+aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > [data-footer-zone="mark"] {
+  flex: 0 0 auto;
+  align-self: auto;
+  justify-content: initial;
+  align-items: initial;
+  overflow: visible;
+}
+
+/* ---- Permanently revealed (IntersectionObserver sentinel intersects) ------ */
+aura-footer[data-aura-footer="reveal"][data-aura-revealed],
+.aura-footer[data-aura-footer="reveal"][data-aura-revealed] {
+  /* Full-width footer at the shell bottom; all margin/padding channels reset. */
+  translate: 0 0;
+  /* #787: publish the current footer height as a CSS custom property so consumers
+     can reference it in CSS without JS. JS sets the real px value on reveal. */
+  --aura-footer-height-current: auto;
+}
+
+/* ---- Shell-contained reveal footer: position re-assertion --------------- *
+   css/layout.css (layer: layout) sets position:absolute on a reveal footer
+   that is a direct child of the shell, taking it out of the grid so it holds
+   no row. The glow layer is ordered AFTER layout in the cascade, so its rule
+   .aura-sheen { position: relative } overrides layout's absolute when the
+   footer carries the aura-sheen class. The footer layer is ordered after glow,
+   so re-asserting position:absolute here wins the cascade and restores the
+   correct out-of-flow shell placement. */
+aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"],
+.aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"] {
+  position: absolute;
+}
+
+/* ---- Standalone reveal footer: take out of flow (#770) ------------------ *
+   In standalone mode (no shell) the reveal footer is not a child of an absolutely-
+   positioned shell, so it participates in normal document flow. js/footer.js marks
+   standalone footers with .aura-footer--standalone during _enhance(); CSS applies
+   position:fixed so the footer is out-of-flow. In FMB state, margin-inline math
+   uses 100% = viewport width, correctly anchoring the circle to the viewport's
+   bottom-right corner. The IntersectionObserver sentinel still provides the trigger
+   for permanent full-footer reveal. */
+aura-footer[data-aura-footer="reveal"].aura-footer--standalone,
+.aura-footer[data-aura-footer="reveal"].aura-footer--standalone {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+}
+
+/* ---- Reduced motion ------------------------------------------------------ */
+/* The reveal still CHANGES state — it just snaps, with no animated slide
+   (space-economy + animation contract). */
+@media (prefers-reduced-motion: reduce) {
+  aura-footer[data-aura-footer="reveal"],
+  .aura-footer[data-aura-footer="reveal"] {
+    transition: none;
+  }
+}
+
+/* ---- Initial-load snap (#755) -------------------------------------------- */
+/* When the page loads with the user already scrolled to the bottom, the footer
+   must reveal INSTANTLY (no slide-in animation) rather than animate in.
+   js/footer.js adds .aura-footer--no-transition on the first IO callback when
+   it fires with isIntersecting:true; a rAF removes it so subsequent reveals
+   animate normally.  The !important defeats the base reveal-state transition. */
+aura-footer.aura-footer--no-transition,
+.aura-footer.aura-footer--no-transition {
+  transition: none !important;
+}
+
+/* ---- Short-content permanent reveal (#789 #808) -------------------------- */
+/* On short-content pages (scroll container has no overflow) the sentinel is
+   always in view — the user has already seen all content, so the footer should
+   be permanently revealed.  js/footer.js detects this and calls
+   setAttribute(REVEALED_ATTR) immediately; it also adds .aura-footer--short-content
+   as a marker so consumers can target this state in CSS if needed.
+   The reveal here must be instant (no slide-in), which is handled by js/footer.js
+   setting the attribute before rAF so the browser applies both reveal + no-transition
+   in the same paint.  No additional CSS rule is needed: the existing
+   [data-aura-revealed] rule provides the correct final state. */
+/* (marker class — no additional rules beyond the data-aura-revealed state above) */
+
+/* ---- Modal-dialog compositing pause (#815) ------------------------------- */
+/* When an aura-dialog with aria-modal="true" is open it fully overlays the
+   viewport, obscuring the reveal footer completely. Drop its backdrop-filter
+   so the GPU compositor does not need to maintain a blur surface for hidden
+   chrome. js/footer.js also disconnects the IO while the dialog is open.
+   :has() is supported in all modern browsers; browsers without support ignore
+   this rule (the JS side always handles the IO pause anyway). */
+@supports selector(:has(a)) {
+  body:has(aura-dialog[open][aria-modal="true"]) aura-footer[data-aura-footer="reveal"],
+  body:has(aura-dialog[open][aria-modal="true"]) .aura-footer[data-aura-footer="reveal"] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ---- Responsive inline padding (#816) ------------------------------------ */
+/* On narrow viewports (≤ --aura-bp-narrow / 22.5rem / 360px) the default
+   --aura-footer-pad-inline (1.5rem) leaves very little horizontal content
+   space. Use a narrower token seam --aura-footer-pad-inline-narrow that falls
+   back to --aura-space-3 (0.75rem) so a theme can retune it independently.
+   Literal 22.5rem matches --aura-bp-narrow (#561 conformance). */
+@media (max-width: 22.5rem) {  /* --aura-bp-narrow */
+  aura-footer,
+  .aura-footer {
+    padding-inline: var(--aura-footer-pad-inline-narrow, var(--aura-space-3));
+  }
+}
+
+/* ---- Image / logo sizing inside the footer (#831) ------------------------ */
+/* Consumers frequently place a logo <img> in the footer. Without constraints
+   it renders inline with no vertical alignment or height cap, causing visual
+   jank. Cap the height and keep the aspect ratio; vertical-align:middle keeps
+   the logo aligned with adjacent inline text when not in a flex context.
+   When the footer is in split layout (flex context), align-items:center on the
+   parent already handles vertical alignment — vertical-align is a no-op there.
+   See docs/design/footer-design.md §Token vocabulary / Image guidance. */
+aura-footer img,
+.aura-footer img {
+  max-block-size: 2rem;   /* cap logo height; images wider than this retain aspect ratio */
+  block-size: auto;
+  inline-size: auto;
+  vertical-align: middle; /* logical: use align-items in flex context */
+}
+
+/* ---- Forced colors (#738 #802) ------------------------------------------ */
+/* In Windows High Contrast / forced-colors mode the backdrop-filter glass
+   disappears and custom border/background colors are replaced by system colors.
+   The glass blur leaves transparent areas if not explicitly removed. Explicitly
+   set system color keywords so the footer reads cleanly against the page.
+   This block is listed in css/preferences.css (forced-colors section) for
+   cross-reference to the unified surface inventory. */
+@media (forced-colors: active) {
+  aura-footer,
+  .aura-footer {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: Canvas;
+    border-block-start: 1px solid ButtonText;
+    color: CanvasText;
+    box-shadow: none;
+  }
+}

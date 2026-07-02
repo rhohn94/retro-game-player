@@ -73,8 +73,10 @@ FRAMEWORK_TOP_LEVEL = (
     "docs/features.md",
     "docs/architecture-guidelines.md",
     "docs/coding-standards.md",
-    "docs/version-design.md",
-    "docs/integration-workflow.md",
+    # clean-room-separation (v3.41) relocates these operational docs under
+    # docs/grimoire/ — the canonical homes, not the stranded top-level paths.
+    "docs/grimoire/version-design.md",
+    "docs/grimoire/integration-workflow.md",
     ".claude/grimoire-config.json",
     ".claude/settings.json",
     ".claude/push-allowlist",
@@ -102,6 +104,7 @@ PROJECT_OWNED_GLOB_EXCLUSIONS = (
     ".claude/architecture-rules.json",
     "vendor.lock",
     "vendor/**",
+    "lib/third-party/**",
     "claude-code/**",
     "copilot/**",
     ".DS_Store",
@@ -358,9 +361,19 @@ def _run_self_test() -> int:
     assert_true("CLAUDE.md looks fw", _looks_framework_owned("CLAUDE.md"))
     assert_true(".claude/hooks/push-guard.sh looks fw", _looks_framework_owned(".claude/hooks/push-guard.sh"))
     assert_true("docs/grimoire/README.md looks fw", _looks_framework_owned("docs/grimoire/README.md"))
+    assert_true("docs/grimoire/version-design.md looks fw", _looks_framework_owned("docs/grimoire/version-design.md"))
+    assert_true("docs/grimoire/integration-workflow.md looks fw", _looks_framework_owned("docs/grimoire/integration-workflow.md"))
     assert_true("docs/quickstart.md looks fw", _looks_framework_owned("docs/quickstart.md"))
     assert_false("docs/design/x.md not fw", _looks_framework_owned("docs/design/x.md"))
     assert_false(".grimoire-archive/x not fw", _looks_framework_owned(".grimoire-archive/x"))
+
+    print("\n--- Self-test: FRAMEWORK_TOP_LEVEL clean-room homes (issue #187) ---")
+    # clean-room-separation relocates these under docs/grimoire/; the stranded
+    # top-level paths must NOT be required, the grimoire/ homes MUST be.
+    assert_false("stranded top-level version-design dropped", "docs/version-design.md" in FRAMEWORK_TOP_LEVEL)
+    assert_false("stranded top-level integration-workflow dropped", "docs/integration-workflow.md" in FRAMEWORK_TOP_LEVEL)
+    assert_true("grimoire version-design required", "docs/grimoire/version-design.md" in FRAMEWORK_TOP_LEVEL)
+    assert_true("grimoire integration-workflow required", "docs/grimoire/integration-workflow.md" in FRAMEWORK_TOP_LEVEL)
 
     print("\n--- Self-test: _check_unlisted_present ---")
     entries = [{"path": "CLAUDE.md", "class": "mixed"}]

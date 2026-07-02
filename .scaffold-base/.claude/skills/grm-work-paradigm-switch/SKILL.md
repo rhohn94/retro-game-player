@@ -1,6 +1,6 @@
 ---
 name: grm-work-paradigm-switch
-description: Install or switch the active Work Paradigm by reading work-paradigm.value from .claude/grimoire-config.json and file-swapping the correct content set from .claude/paradigms/<paradigm>/ into the active paths. Idempotent — exits early if the paradigm is already installed. Also performs the config schema v1→v2 migration. Use when onboarding selects a paradigm, when the user wants to switch paradigms, or when workflow-bootstrap --restore runs.
+description: Install or switch the active Work Paradigm by reading work-paradigm.value from .claude/grimoire-config.json and file-swapping the correct content set from .claude/paradigms/<paradigm>/ into the active paths. Idempotent — exits early if already installed. Preserves the existing schema-version (only the legacy v1 path raises it). Use when onboarding selects a paradigm, when the user switches paradigms, or when workflow-bootstrap --restore runs.
 ---
 
 # Work Paradigm Switch
@@ -18,8 +18,9 @@ Design authority: `docs/grimoire/design/work-paradigm-design.md`.
 The Work Paradigm system stores three content sets under `.claude/paradigms/`:
 `supervised/`, `weiss/`, and `noir/`. This skill reads `work-paradigm.value`
 from `.claude/grimoire-config.json`, resolves the correct content set, and
-writes each file to its **stable active path** (see Install Map §2). It also
-migrates schema-version 1 configs to version 2.
+writes each file to its **stable active path** (see Install Map §2). It
+**preserves** the config's existing `schema-version` — only the documented
+legacy `schema-version: 1` path raises it to the current schema version.
 
 ---
 
@@ -67,11 +68,12 @@ Before making any changes:
 1. Read `work-paradigm.value` from `.claude/grimoire-config.json`.
 2. Compare each active file (target path) byte-for-byte against its paradigm
    source file.
-3. If **all** files match and `schema-version` is already `2` → print
+3. If **all** files match and `schema-version` is **not** the legacy `1`
+   (i.e. it is already a current, non-legacy version) → print
    "Work paradigm <Paradigm> is already active. No changes made." and exit.
 
-If any file differs, or if `schema-version` is `1`, proceed with the full
-install.
+If any file differs, or if `schema-version` is `1` (or absent), proceed with
+the full install.
 
 ---
 
@@ -145,18 +147,23 @@ If the source file is missing, log a warning and skip (partial install).
 Read the current config. Apply these changes:
 
 - Set `work-paradigm.value` to the canonical form (e.g. `"Supervised"`).
-- Remove `work-paradigm.in-development` (this field does not exist in
-  schema-version 2).
-- Set `schema-version` to `2`.
+- Remove `work-paradigm.in-development` (this legacy field exists only in the
+  `schema-version: 1` shape).
+- **Preserve `schema-version`** — read its current value and write it back
+  unchanged. The *only* exception is the legacy `schema-version: 1` (or absent)
+  path of §5, which raises it to the current schema version. **Never** write a
+  pinned literal here, and never lower an existing value — doing so would
+  downgrade a current config and break `grm-config-validate`.
 - Leave all other fields unchanged.
 
 Write the updated config back to `.claude/grimoire-config.json`.
 
-Schema-version 2 example:
+Example (the `schema-version` shown is illustrative — preserve whatever the
+config already carries):
 
 ```json
 {
-  "schema-version": 2,
+  "schema-version": <existing value, preserved>,
   "name": "<project name>",
   "work-paradigm": {
     "value": "Supervised"
@@ -193,20 +200,23 @@ Print:
 
 ---
 
-## §5 — v1→v2 config migration
+## §5 — Legacy v1 config migration
 
 When the skill encounters a `schema-version: 1` config (or a config with no
 `schema-version`):
 
 - Treat `work-paradigm` as advisory (it was `in-development` — valid values
   may be v1 aliases: `Autonomous` → `Noir`, `Collaborative` → `Weiss`).
-- Resolve the alias to its canonical v2 name.
+- Resolve the alias to its canonical name.
 - Proceed with the full install.
-- The config update in §4.5 writes `schema-version: 2`, completing the
-  migration.
+- The config update in §4.5 raises `schema-version` from the legacy `1` to the
+  **current schema version** (the value enforced by `grm-config-validate`),
+  completing the migration. For any non-legacy `schema-version`, §4.5 preserves
+  the existing value untouched.
 
-This is the **only** migration path. No automated migration runs silently
-without the switch skill being called.
+This v1 case is the **only** path that changes `schema-version`. No automated
+migration runs silently without the switch skill being called, and the skill
+never lowers an existing version.
 
 ---
 

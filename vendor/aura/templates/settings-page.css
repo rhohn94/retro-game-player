@@ -1,0 +1,172 @@
+/* ==========================================================================
+   Aura blueprint — Settings Page  (templates/settings-page.css)
+
+   A preferences archetype: a settings nav rail on the leading edge paired with
+   a scrolling stack of grouped setting panels. Each panel holds titled rows
+   that pair a label + description with a trailing control (toggle, select,
+   input). Built on the v2.5 `content-page` substrate — the nav rail reuses
+   .aura-nav-list and the page header reuses .aura-page-head; this blueprint
+   adds only the settings-specific frame and the label/control row.
+
+   CASCADE LAYER: settings-page  (declared in css/aura.css)
+   Sits above the core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply. Ordered
+   immediately after `detail-page`.
+
+   ── CANONICAL BEM SELECTORS ────────────────────────────────────────────────
+   .aura-settings-page          Block  — outer wrapper: a two-column grid of nav
+                                         rail + content, centred with padding.
+   .aura-settings-page__nav     Element — leading settings navigation rail
+                                         (typically wraps an .aura-nav-list);
+                                         sticky on wide viewports.
+   .aura-settings-page__content Element — scrolling stack of setting groups.
+   .aura-settings-page__group   Element — a titled group of related settings,
+                                         rendered as a card-like surface.
+   .aura-settings-page__group-head
+                                Element — group title + optional description.
+   .aura-settings-page__row     Element — one setting: __label/__desc on the
+                                         leading edge, control on the trailing
+                                         edge. Wraps on narrow viewports.
+   .aura-settings-page__label   Element — the setting's name.
+   .aura-settings-page__desc    Element — muted helper text under the label.
+
+   ── TUNABLE CUSTOM PROPERTIES ──────────────────────────────────────────────
+   Override on any scope that wraps a .aura-settings-page. Defaults sit on
+   :where(:root) so they carry zero specificity and override trivially.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Max width of the centred settings layout. */
+  --aura-settings-page-size: var(--aura-size-xl);
+  /* Inline size of the leading settings nav rail. */
+  --aura-settings-page-nav-size: 14rem;
+  /* The nav rail stacks above the content below a 48rem CONTAINER width — keyed
+     off the page's layout container (the host aura-region/shell, both
+     container-type: inline-size) rather than the viewport, so a half-snapped
+     window stacks the rail exactly like a phone. The breakpoint is the literal
+     in the @container rule below: a container-query feature value cannot read a
+     custom property, so this is NOT a runtime dial — retune it at the @container
+     literal itself. */
+}
+
+/* ── .aura-settings-page — nav + content layout ─────────────────────────── */
+.aura-settings-page {
+  display: grid;
+  grid-template-columns: var(--aura-settings-page-nav-size) minmax(0, 1fr);
+  gap: var(--aura-space-6);
+  align-items: start;
+  inline-size: 100%;
+  max-inline-size: var(--aura-settings-page-size);
+  margin-inline: auto;
+  padding: var(--aura-space-6) var(--aura-space-5);
+  box-sizing: border-box;
+}
+
+/* ── .aura-settings-page__nav — leading settings rail ───────────────────── */
+.aura-settings-page__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+  min-inline-size: 0;
+  position: sticky;
+  inset-block-start: var(--aura-space-5);
+}
+
+/* ── .aura-settings-page__content — grouped panels stack ────────────────── */
+.aura-settings-page__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  min-inline-size: 0;
+}
+
+/* ── .aura-settings-page__group — a titled settings panel ───────────────── */
+.aura-settings-page__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-5);
+  border-radius: var(--aura-radius-lg);
+  border: var(--aura-border-width) solid var(--aura-surface-stroke);
+  background: var(--aura-surface-1);
+}
+
+/* ── .aura-settings-page__group-head — group title + blurb ──────────────── */
+.aura-settings-page__group-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+  padding-block-end: var(--aura-space-3);
+  margin-block-end: var(--aura-space-1);
+  border-block-end: var(--aura-border-width) solid var(--aura-surface-stroke);
+}
+
+.aura-settings-page__group-head > :is(h2, h3, h4) {
+  margin: 0;
+  font-size: var(--aura-text-lg);
+}
+
+.aura-settings-page__group-head > p {
+  margin: 0;
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+}
+
+/* ── .aura-settings-page__row — one setting row ─────────────────────────── */
+.aura-settings-page__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-4);
+  padding-block: var(--aura-space-3);
+  border-block-end: var(--aura-border-width) solid var(--aura-surface-stroke);
+}
+
+.aura-settings-page__row:last-child {
+  border-block-end: 0;
+}
+
+/* Leading label + description cluster; grows to fill, pushing the control to
+   the trailing edge. min-inline-size: 0 lets long descriptions wrap cleanly. */
+.aura-settings-page__row > :first-child {
+  flex: 1 1 14rem;
+  min-inline-size: 0;
+}
+
+.aura-settings-page__label {
+  display: block;
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text);
+}
+
+.aura-settings-page__desc {
+  display: block;
+  margin-block-start: var(--aura-space-1);
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+}
+
+/* ── Narrow CONTAINER — stack the nav rail above the content ─────────────── */
+/* Unnamed query → keys off the nearest container ancestor: the host aura-region
+   / aura-shell (both container-type: inline-size), whose width IS the page's own
+   available width. A half-snapped window narrows that container and stacks the
+   rail with no viewport-breakpoint rule — the container-query-first payoff. */
+@container (max-width: 48rem) {
+  .aura-settings-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .aura-settings-page__nav {
+    position: static;
+  }
+
+  /* Let the control drop below the label on the narrowest screens so neither
+     is squeezed. */
+  .aura-settings-page__row {
+    align-items: flex-start;
+  }
+}

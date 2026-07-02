@@ -7,7 +7,7 @@ it wraps the available system tool, parses its output into a stable JSON shape,
 and degrades cleanly when a tool is absent. Read-only — it never kills or starts
 anything (lifecycle actions are the agent's, gated per-action).
 
-Design authority: docs/design/environment-manager-design.md.
+Design authority: docs/grimoire/design/environment-manager-design.md.
 
 Usage:
   env_probe.py                      # list listening TCP ports + owning processes

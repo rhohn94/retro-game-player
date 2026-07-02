@@ -1,0 +1,191 @@
+/* ==========================================================================
+   Aura — image thumbnail catalog (<aura-catalog> / .aura-catalog).   Registered
+   in css/aura.css under layer(catalog).
+
+   A responsive, framework-neutral grid of image thumbnails for browsing and
+   selecting a collection at a glance. CSS-first: the grid, aspect handling,
+   hover / focus / selected states, and the empty / loading / error recipes are
+   all styling — no JS is required. Selection is expressed two ways, both
+   keyboard-accessible and axe-clean:
+
+     - Browse catalog — each tile is a real <a> (navigates); hover/focus/keyboard
+       come for free from the native control.
+     - Selectable catalog — each tile is a <label> wrapping a visually-hidden
+       native checkbox; `:has(:checked)` paints the selected ring + check badge
+       and `:has(:focus-visible)` lifts the focus ring onto the tile. Real
+       multi-select, operable by keyboard, with no JS and no ARIA bookkeeping.
+
+   Everything is token-driven (--aura-catalog-*) so a theme re-skins it globally
+   and there are no magic numbers / colours. See docs/design/image-catalog-design.md.
+
+   GLOW (signature affordance — required on interactive tiles): each interactive
+   tile carries `.aura-glow` so it participates in Aura's proximity rim-glow +
+   magnetic lean + hover lift exactly like a button or card — the glow engine
+   (js/glow.js) owns the hover transform/shadow and the cursor-tracked rim. This
+   recipe therefore does NOT define its own hover lift; it only styles resting,
+   focus, and selected states. An interactive catalog tile that omits
+   `.aura-glow` is non-conformant with the design language.
+   ========================================================================== */
+
+/* ---- Grid ---------------------------------------------------------------- */
+/* Auto-fill columns: the min tile width drives how many fit; `min(min, 100%)`
+   keeps a single column from overflowing a container narrower than the dial. */
+.aura-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--aura-catalog-min), 100%), 1fr));
+  gap: var(--aura-catalog-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A list-item wrapper is optional; when present it must not introduce a marker
+   or its own box so the tile fills the grid cell. */
+.aura-catalog__item {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: 0;
+}
+
+/* ---- Tile ---------------------------------------------------------------- */
+/* The focusable surface — an <a> (browse) or a <label> (selectable). */
+.aura-catalog__tile {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-catalog-radius);
+  overflow: clip;
+  color: var(--aura-text);
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: var(--aura-shadow-1);
+  transition:
+    transform var(--aura-catalog-duration) var(--aura-catalog-easing),
+    box-shadow var(--aura-catalog-duration) var(--aura-catalog-easing),
+    border-color var(--aura-catalog-duration) var(--aura-catalog-easing);
+}
+
+/* Hover lift + rim glow are owned by `.aura-glow` (the shared engine), so the
+   recipe only nudges the border on hover for a touch of definition; the lift,
+   shadow, magnetic lean, and cursor-tracked rim all come from the glow layer. */
+@media (hover: hover) {
+  .aura-catalog__tile:hover { border-color: var(--aura-surface-stroke-strong); }
+}
+
+/* Keyboard focus: a link focuses itself; a selectable tile focuses via its
+   hidden input, so lift the ring onto the tile with :has(). */
+.aura-catalog__tile:focus-visible,
+.aura-catalog__tile:has(.aura-catalog__check:focus-visible) {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset, 2px);
+}
+
+/* ---- Thumb (aspect-ratio box) ------------------------------------------- */
+.aura-catalog__thumb {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: var(--aura-catalog-ratio);
+  background: var(--aura-catalog-thumb-bg);
+  overflow: clip;
+}
+
+.aura-catalog__img {
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+  /* Crop by default: fill the box, centre-cropped. */
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Letterbox variant — show the whole image inside the box (no crop). */
+.aura-catalog--contain .aura-catalog__img {
+  object-fit: contain;
+}
+
+/* ---- Caption ------------------------------------------------------------- */
+.aura-catalog__caption {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+  padding: var(--aura-space-3);
+  min-inline-size: 0;
+}
+
+/* Single-line truncation for the name (the documented aura-clamp idiom). */
+.aura-catalog__name {
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aura-catalog__meta {
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Selection ----------------------------------------------------------- */
+/* The native checkbox is visually hidden but focusable and submit-able. */
+.aura-catalog__check {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Selected state — checkbox catalog (:has(:checked)) or a marked browse tile
+   (aria-current). Primary ring + a check badge in the corner. */
+.aura-catalog__tile:has(.aura-catalog__check:checked),
+.aura-catalog__tile[aria-current="true"] {
+  border-color: var(--aura-primary);
+  box-shadow: 0 0 0 2px var(--aura-primary), var(--aura-shadow-3);
+}
+
+.aura-catalog__tile:has(.aura-catalog__check:checked) .aura-catalog__thumb::after,
+.aura-catalog__tile[aria-current="true"] .aura-catalog__thumb::after {
+  content: "";
+  position: absolute;
+  inset-block-start: var(--aura-space-2);
+  inset-inline-end: var(--aura-space-2);
+  inline-size: var(--aura-space-5);
+  block-size: var(--aura-space-5);
+  border-radius: var(--aura-radius-full);
+  background:
+    var(--aura-primary)
+    /* a white check glyph, centred */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E")
+    center / 65% no-repeat;
+  box-shadow: var(--aura-shadow-2);
+}
+
+/* ---- Reduced motion ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .aura-catalog__tile { transition: none; }
+  .aura-catalog__tile:hover { transform: none; }
+}
+
+/* ---- Forced colors ------------------------------------------------------- */
+/* Keep the selected affordance perceivable when system colours replace the
+   token palette (the box-shadow ring is dropped by forced-colors). */
+@media (forced-colors: active) {
+  .aura-catalog__tile:has(.aura-catalog__check:checked),
+  .aura-catalog__tile[aria-current="true"] {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+}

@@ -214,46 +214,25 @@ The Reporter never pushes to origin — that remains human-gated even under Noir
 
 ## §7 — Anti-patterns
 
-- **Duplicating feedback-to-issue logic.** The Reporter is a wrapper. Never
-  re-implement audience inference, title synthesis, near-duplicate checking,
-  or `create` invocation inside a Reporter prompt or session — invoke
-  `grm-feedback-to-issue` and let it handle those steps.
+- **Silent mis-routing to `docs/roadmap.md ## Backlog`.** The core bug this
+  skill prevents: if the resolved `grm-issue-tracker` provider is not `roadmap`,
+  appending to the roadmap sends items to the wrong place. Resolve the provider
+  first (§2 preflight); only fall back to roadmap when the provider IS `roadmap`.
 
-- **Filing to a `version/*` branch.** If the configured tracker is `roadmap`,
-  the Reporter must append to `dev`, not to any release staging branch. Stop
-  and report rather than append to the wrong branch.
+- **Duplicating feedback-to-issue logic.** The Reporter is a wrapper — never
+  re-implement audience inference, title synthesis, near-duplicate checking, or
+  `create`. Invoke `grm-feedback-to-issue` and let it handle those steps.
 
-- **Running in the integration session instead of its own.** Filing multiple
-  issues inline in the integration master's session expands context and
-  introduces tracker-write latency into the merge loop. Spawn a Reporter; let
-  the integration session stay focused on git operations.
+- **Passing a hard-coded tracker name.** Pass `--audience` and let routing
+  resolve the tracker; `--tracker <name>` breaks when the config is renamed.
 
-- **Keeping the Reporter alive between tasks.** The Reporter is one-shot. File
-  all items, report results, exit. Idling a Reporter session between unrelated
-  filing requests wastes tokens on a stale context.
+- **Treating filing as needing extra user consent.** The spawn prompt IS the
+  authorization. Refusing `gh issue create` because GitHub is "external"
+  defeats the skill's purpose; execute it.
 
-- **Passing a hard-coded tracker name.** The Reporter should pass `--audience`
-  to `grm-feedback-to-issue` and let the routing rules resolve the tracker.
-  Hard-coding `--tracker <name>` breaks when the project renames or reorganises
-  its tracker config.
-
-- **Silently appending to `docs/roadmap.md ## Backlog` when a non-roadmap
-  tracker is configured.** This is the bug this skill is designed to prevent.
-  If `.claude/grimoire-config.json` has an `grm-issue-tracker` block whose resolved
-  provider is not `roadmap`, writing to the roadmap is silent mis-routing — items
-  go to the wrong place and the configured tracker is never notified. Always
-  resolve the provider first (§2 preflight); only fall back to roadmap when the
-  provider IS `roadmap`.
-
-- **Treating filing to the configured tracker as an outward action requiring
-  extra user consent.** The Reporter's mandate IS the authorization. A Reporter
-  session that refuses to call `gh issue create` (or the equivalent) because it
-  considers GitHub "external" defeats its entire purpose. The spawn prompt is the
-  authorization; execute it.
-
-- **Skipping the tracker-resolution preflight.** The Reporter must echo the
-  resolved tracker (provider + repo) before filing the first item. Skipping this
-  step hides misconfiguration and makes debugging routing failures harder.
+- **Running in the integration session, or skipping the preflight.** Spawn a
+  one-shot Reporter so the integration session stays focused; echo the resolved
+  tracker (provider + repo) before the first filing, then exit when done.
 
 ---
 

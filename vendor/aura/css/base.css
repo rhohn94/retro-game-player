@@ -1,0 +1,327 @@
+/* ==========================================================================
+   Aura — base. A light reset + typographic baseline. Deliberately gentle so
+   it co-exists with a host app's own styles (and is in an early cascade layer
+   so the app always wins).
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* ---- Fluid type (opt-in, #154) ----------------------------------------- *
+   Add data-aura-type="fluid" to <html> (or any scope) to make the heading /
+   display sizes scale smoothly between a small- and large-viewport bound via
+   clamp(), instead of stepping at breakpoints. Body sizes (xs/sm/md) stay fixed
+   for predictable reading measure; only lg→3xl flex. Re-points the same tokens
+   every component already reads, so it re-skins type with zero component edits.
+   The clamp mins equal the fixed-scale values (no shrink below today's sizes);
+   the vw term scales up to the max on wide viewports. */
+[data-aura-type="fluid"] {
+  --aura-text-lg:  clamp(1.125rem, 1.08rem + 0.22vw, 1.25rem);
+  --aura-text-xl:  clamp(1.375rem, 1.26rem + 0.55vw, 1.625rem);
+  --aura-text-2xl: clamp(1.75rem,  1.49rem + 1.30vw, 2.25rem);
+  --aura-text-3xl: clamp(2.5rem,   1.96rem + 2.70vw, 3.5rem);
+}
+
+/* ---- Stepped type (opt-OUT) -------------------------------------------- *
+   The demo site sets data-aura-type="fluid" on <html> by default (see
+   site/templates/base.html), so type scales phone→ultrawide out of the box. A
+   nested scope can opt back into the fixed, non-scaling scale with
+   data-aura-type="stepped" — it re-points the same heading/display tokens to
+   their fixed values, so the clamp() does not apply within that subtree. (Token
+   defaults already carry these fixed values; restating them here makes the
+   opt-out explicit and robust against a fluid ancestor.) */
+[data-aura-type="stepped"] {
+  --aura-text-lg:  1.125rem;
+  --aura-text-xl:  1.375rem;
+  --aura-text-2xl: 1.75rem;
+  --aura-text-3xl: 2.5rem;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--aura-font-sans);
+  font-size: var(--aura-text-md);
+  line-height: var(--aura-leading-normal);
+  color: var(--aura-text);
+  background: var(--aura-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* When the page isn't wrapped in an <aura-app>, still show a default
+   wallpaper + scrim on the body so the glass surfaces have depth. */
+body:not(:has(aura-app)) {
+  position: relative;
+  isolation: isolate;
+}
+body:not(:has(aura-app))::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  /* Composed diagonal: primary glow top-left, secondary glow bottom-right,
+     so the ambient reads as balanced rather than top-heavy (#74). */
+  background:
+    radial-gradient(42% 55% at 16% 18%, var(--aura-primary-a40), transparent 72%),
+    radial-gradient(40% 52% at 84% 82%, var(--aura-secondary-a40), transparent 72%),
+    var(--aura-bg);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0 0 var(--aura-space-3);
+  line-height: var(--aura-leading-tight);
+  letter-spacing: var(--aura-tracking-tight);
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text);
+}
+h1 { font-size: var(--aura-text-3xl); }
+h2 { font-size: var(--aura-text-2xl); }
+h3 { font-size: var(--aura-text-xl); }
+h4 { font-size: var(--aura-text-lg); }
+
+p { margin: 0 0 var(--aura-space-4); color: var(--aura-text-muted); }
+
+a {
+  color: var(--aura-primary-300);
+  text-decoration: none;
+  transition: color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+a:hover { color: var(--aura-primary-200); }
+/* Light mode: the primary-300 lavender is tuned to read on the DARK surfaces;
+   on a near-white light surface it falls below AA (#442/#436). Deepen raw links
+   to primary-600/700 in light — the same deepening aura-link already applies —
+   so prose links (and any <code> nested in a link, which inherits this colour)
+   clear AA. Mirrors the explicit/auto theme blocks gen_tokens emits. */
+:root[data-aura-theme="light"] a,
+[data-aura-theme="light"] a {
+  color: var(--aura-primary-700);
+}
+:root[data-aura-theme="light"] a:hover,
+[data-aura-theme="light"] a:hover {
+  color: var(--aura-primary-600);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-aura-theme="auto"] a,
+  [data-aura-theme="auto"] a {
+    color: var(--aura-primary-700);
+  }
+  :root[data-aura-theme="auto"] a:hover,
+  [data-aura-theme="auto"] a:hover {
+    color: var(--aura-primary-600);
+  }
+}
+/* Inline links inside running prose get an underline affordance so they're
+   discoverable by more than colour alone (#96). Nav/button-style links live
+   outside <p>/<li> and keep the clean no-underline default. :where() keeps
+   specificity at 0 so app/demo styles override freely. */
+:where(p, li) a {
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.15em;
+  text-decoration-color: var(--aura-primary-a60);
+}
+:where(p, li) a:hover { text-decoration-color: currentColor; }
+/* Disabled links read muted and inert, mirroring disabled buttons (#140). */
+a[aria-disabled="true"], a[disabled] {
+  color: var(--aura-text-subtle);
+  pointer-events: none;
+  text-decoration: none;
+  cursor: default;
+}
+
+small { font-size: var(--aura-text-sm); }
+code, kbd, samp, pre { font-family: var(--aura-font-mono); font-size: 0.95em; }
+
+/* Inline code & keyboard keys read as a subtle surface chip with balanced
+   padding (#83). Excludes code inside <pre> so code blocks aren't double-boxed. */
+:not(pre) > code,
+kbd {
+  padding: 0.12em 0.4em;
+  border-radius: var(--aura-radius-xs);
+  background: var(--aura-surface-2);
+  line-height: 1;
+}
+kbd {
+  border: 1px solid var(--aura-surface-stroke);
+  box-shadow: 0 1px 0 var(--aura-surface-stroke-strong);
+}
+
+hr {
+  border: 0;
+  height: 1px;
+  background: var(--aura-surface-stroke);
+  margin: var(--aura-space-5) 0;
+}
+
+img, svg, video, canvas { max-width: 100%; height: auto; display: block; }
+
+:where(button, input, select, textarea) { font: inherit; color: inherit; }
+
+/* Consistent, themed focus affordance for keyboard users.
+   The themed ring is a box-shadow (so it can be soft + tinted). A box-shadow,
+   however, is clipped by an ancestor's `overflow: hidden` — a control flush
+   against an overflow-clipped card/surface would lose its ring (#144). To
+   guarantee a visible affordance regardless of clipping, we ALSO paint a
+   transparent `outline`: outlines are NEVER clipped by ancestor overflow.
+   It stays invisible (transparent) in normal rendering so the soft ring is
+   what the user sees, but it becomes the visible focus marker wherever the
+   box-shadow is clipped, and is mapped to a system colour under forced-colors
+   below. The matching offset keeps it just outside the box-shadow ring. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: var(--aura-focus-ring-offset, 2px);
+  box-shadow: var(--aura-ring);
+  border-radius: var(--aura-radius-sm);
+}
+
+/* High-contrast text selection in BOTH themes (#124). The old 40%-alpha
+   highlight left selected text poorly legible in light mode; a near-solid
+   primary fill with on-primary (white) text reads clearly on either theme. */
+::selection {
+  background: color-mix(in srgb, var(--aura-primary) 90%, transparent);
+  color: var(--aura-on-primary);
+}
+
+/* Themed scrollbars (subtle, glass-friendly). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--aura-surface-stroke-strong) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+/* A hover/active cue so the thumb reads as grabbable (#142). */
+*::-webkit-scrollbar-thumb:hover { background: var(--aura-text-subtle); }
+
+/* ---- No-page-scroll (app-shell model) -----------------------------------
+   When the page uses <aura-shell>, lock html / body / aura-app to the
+   viewport so only aura-region elements scroll. aura-shell provides the
+   100dvh grid and overflow: clip (layout.css); these rules stop html, body,
+   and aura-app from adding a second scroll layer on top of it.
+   Opt-out: add scroll="page" on <aura-shell> to restore document flow.    */
+html:has(aura-shell) {
+  block-size: 100%;
+  overflow: clip;
+}
+html:has(aura-shell) body {
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: clip;
+}
+html:has(aura-shell) aura-app {
+  block-size: 100dvh;
+  min-block-size: 0;
+}
+html:has(aura-shell[scroll="page"]) {
+  block-size: auto;
+  overflow: auto;
+}
+html:has(aura-shell[scroll="page"]) body {
+  block-size: auto;
+  min-block-size: 100dvh;
+  overflow: auto;
+}
+html:has(aura-shell[scroll="page"]) aura-app {
+  block-size: auto;
+  min-block-size: 100dvh;
+}
+
+/* ---- Pre-size-to-contents helpers ---------------------------------------
+   Containment stops internal changes from reflowing ancestors.
+   content-visibility reserves scrollbar extent before off-screen content
+   renders. All new tokens live in tokens.css (no magic numbers).          */
+
+/* Layout + style containment: mutations inside can't force ancestor reflow. */
+.aura-contain       { contain: layout style; }
+/* Add paint containment when the element also clips its own overflow. */
+.aura-contain-paint { contain: layout style paint; }
+
+/* Intrinsic sizing: region sizes to its own content width rather than
+   stretching to fill the available space. */
+.aura-fit { inline-size: fit-content; }
+
+/* Off-screen rendering: defer paint until visible; reserve intrinsic block
+   size so the scrollbar height is stable before the content renders.      */
+.aura-cv {
+  content-visibility: auto;
+  contain-intrinsic-block-size: var(--aura-intrinsic-size);
+}
+
+/* Reduced motion: render content-visibility regions immediately so there is
+   no visible re-layout pop when items enter the viewport.                 */
+@media (prefers-reduced-motion: reduce) {
+  .aura-cv { content-visibility: visible; }
+}
+
+/* Central reduced-motion safety net (#73, #123, #498). Per-component blocks
+   already tailor individual reductions; this collapses any remaining decorative
+   MOTION to near-instant so nothing — ambient wallpaper drift, skeleton shimmer,
+   entrance choreography, hover springs — keeps moving for a motion-sensitive
+   user, even if a component forgot a guard. Durations go to ~0 rather than
+   `none` so JS `animationend`/`transitionend` listeners (overlay dismissal,
+   menu close) still fire and state stays correct.
+
+   #498: instead of a blanket `transition-duration: 0.01ms` nuke (which also
+   collapsed transition-delay-gated `visibility` hand-offs and broke
+   opacity/visibility-sequenced reveals on popovers/tooltips), the net now
+   restricts WHICH properties transition to the decorative motion/paint set via
+   `transition-property`, and only those are collapsed to ~0. opacity and
+   visibility are deliberately excluded: they fall out of the transition (apply
+   instantly — a fade is not motion), so a reveal that relied on a delayed
+   visibility flip is no longer stranded. NOTE: this net sets transition-property
+   with `!important` on the universal selector, so a per-component reduced-motion
+   block that wants to keep a non-decorative transition must itself use
+   `!important` to re-declare transition-property — an un-!important component
+   rule (even in a later layer) loses to this !important one. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: transform, translate, scale, rotate,
+                         filter, backdrop-filter, box-shadow !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Forced-colors (Windows High Contrast) — #130
+
+   In forced-colors mode the UA replaces authored colours with the user's
+   system palette and DROPS backgrounds, shadows, and box-shadow focus rings.
+   Aura leans heavily on glass tints, elevation shadows, and box-shadow rings,
+   so without a pass here surfaces, structure, and focus all vanish. This block
+   re-establishes the essentials with CSS system colours:
+     - text  → CanvasText, page → Canvas (legible against the forced backdrop)
+     - surfaces/controls get a visible CanvasText/ButtonBorder border so their
+       structure survives once tints + shadows are dropped
+     - focus uses a real `outline` in Highlight (box-shadow rings are ignored)
+   Component-specific forced-colors rules live with their components (buttons +
+   inputs in components.css, the picker sub-parts in color-picker.css).
+   ========================================================================== */
+@media (forced-colors: active) {
+  body { color: CanvasText; background: Canvas; }
+
+  /* Give bare surfaces a structural border so they don't dissolve into the
+     page once their glass tint and elevation shadow are removed. */
+  aura-card, aura-panel, aura-toolbar,
+  .aura-surface {
+    border: 1px solid CanvasText;
+  }
+
+  hr { background: CanvasText; }
+
+  /* Box-shadow focus rings are ignored in forced-colors; promote the always-
+     present transparent outline to a visible system-colour marker. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--aura-focus-ring-offset, 2px);
+  }
+}

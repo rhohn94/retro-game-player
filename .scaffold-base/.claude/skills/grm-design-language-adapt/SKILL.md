@@ -214,40 +214,6 @@ When `source: local`:
 
 ---
 
-## Step 4 — Lifecycle: re-adaptation diff
-
-When `source-sha:` is **already set** in the stub (i.e. this is a re-run
-on an already-adapted project):
-
-1. After fetching the new upstream HEAD (Step 2A), compare it against the
-   previously recorded SHA:
-
-   ```bash
-   git -C .design-language-source diff <recorded-sha>..HEAD
-   ```
-
-2. Present the per-file diff to the user for **selective application**.
-   Do **not** rewrite `docs/design/ux/design-language.md`. The user decides
-   which upstream changes are worth reflecting in the adaptation.
-
-3. Update `source-sha:` to the new HEAD **only after the user approves the
-   new state** — whether they applied some changes, all changes, or
-   consciously declined all of them. Bumping the SHA means "I have reviewed
-   up to this point"; the next re-run will diff only against the new baseline.
-
-4. **Same SHA** (new HEAD == `source-sha:`) → no-op. Report:
-   "Already up to date with `<source-url>@<sha>`." No file edits.
-
-5. **Missing `source-sha:`** → treat as initial adaptation (first run or
-   strict-local → upstream switch). Proceed through Step 3 as if no prior
-   adaptation exists.
-
-**Idempotency rule.** Re-running this skill with no upstream change produces
-no file edits. Re-running with an upstream change always produces review
-material — never a silent overwrite.
-
----
-
 ## Step 5 — Optional: hand off to ux-demo-build
 
 After completing Steps 3–4, **ask** the user:
@@ -265,18 +231,15 @@ After completing Steps 3–4, **ask** the user:
 
 ## Reference (load on demand)
 
-Steps 1–5 above are self-sufficient for the common path. Companion
-`reference.md` (same directory) holds the on-demand detail:
-
-- **Step 3.5 — emit / refresh the theme + components + layout tiers** — the full
-  3.5-A…G procedure with the `theme.md` / `components.md` / `layout.md` schema
-  templates and the `design-language.md` cross-link, UX-index (`README.md`), and
-  breadcrumb blocks. Read it when producing/refreshing the structured tier files
-  after Step 3 / Step 4; a single-file `design-language.md` project never needs it.
-- **Anti-patterns** — the full catalogue (silent clobber, committing
-  `.design-language-source/`, auto-retrying clones, auto-adopting, recording the
-  SHA before review, off-allowlist clones, raw values in `components.md`, copying
-  Aura code, emitting `layout.md` on a non-web stack, …); the load-bearing rules
-  are already inline above.
-- **Step 0 (BMI-3)** — integration-line detection + refusal messages.
-- **Step 1/2A detail** — the v1.13 note, `git clone` variants, offline messages.
+- `Step 0 detail — Integration-line + release-boundary pre-flight (BMI-3)` — see `reference.md`
+- `Step 3.5 — Emit / refresh the theme + components + layout tiers (v1.18+)` — see `reference.md`
+- `3.5-A — Emit `docs/design/ux/theme.md` as a draft` — see `reference.md`
+- `3.5-B — Emit `docs/design/ux/components.md` as a draft` — see `reference.md`
+- `3.5-C — Emit `docs/design/ux/layout.md` as a draft (web/GUI only)` — see `reference.md`
+- `3.5-D — Update `design-language.md` to cross-link the tiers` — see `reference.md`
+- `Theme & components` — see `reference.md`
+- `3.5-E — Create / maintain `docs/design/ux/README.md` (UX tier index)` — see `reference.md`
+- `3.5-F — Up-links in generated UX tier files` — see `reference.md`
+- `3.5-G — Re-adaptation diff (re-runs)` — see `reference.md`
+- `Anti-patterns` — see `reference.md`
+- `Step 4 — Lifecycle: re-adaptation diff` — see `reference.md`

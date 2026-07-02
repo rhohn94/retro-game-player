@@ -25,7 +25,7 @@ not the integration line, refuse and stop:
 ERROR (BMI-3): design-language-adapt refused on branch '<HEAD>'.
   Aura vendoring must run on the integration line ('<INT>'), not on '<HEAD>'.
   Switch to '<INT>' (git switch <INT>) and re-run.
-  See docs/design/integration-branch-integrity-design.md §3 Rule 3a.
+  See docs/grimoire/design/integration-branch-integrity-design.md §3 Rule 3a.
 ```
 
 **Rule 3b — release-boundary check.** Run `git diff --quiet "<INT>" main`.
@@ -36,7 +36,7 @@ ERROR (BMI-3): design-language-adapt refused — not at a clean release boundary
   The integration line ('<INT>') and main have diverged.
   Aura vendoring may only run when the integration line and main are tree-identical.
   Promote the current release first, then re-run.
-  See docs/design/integration-branch-integrity-design.md §3 Rule 3b.
+  See docs/grimoire/design/integration-branch-integrity-design.md §3 Rule 3b.
 ```
 
 **Rule 3c — separate commit reminder.** When this skill writes changes, include
@@ -190,7 +190,7 @@ same lifecycle, and it does **not** record its own `source-sha:` (see step 3).
 
 1. Capture the app-shell and page/layout recipes **by reference** to Aura's
    ready-made page artifacts and the default adoption paths documented in
-   `docs/design/web-app-aura-adoption-design.md` (§ Default paths / layout):
+   `docs/grimoire/design/web-app-aura-adoption-design.md` (§ Default paths / layout):
 
    | Default path | Role |
    |---|---|
@@ -401,3 +401,37 @@ When `theme.md`, `components.md`, and/or `layout.md` already exist on a re-run:
 - **Emitting `layout.md` for a non-web stack.** The layout/app-shell tier
   applies only to web/GUI stacks; on a CLI/library/service stack its absence is
   expected, not a gap. Do not synthesize an app-shell where the stack has none.
+## Step 4 — Lifecycle: re-adaptation diff
+
+When `source-sha:` is **already set** in the stub (i.e. this is a re-run
+on an already-adapted project):
+
+1. After fetching the new upstream HEAD (Step 2A), compare it against the
+   previously recorded SHA:
+
+   ```bash
+   git -C .design-language-source diff <recorded-sha>..HEAD
+   ```
+
+2. Present the per-file diff to the user for **selective application**.
+   Do **not** rewrite `docs/design/ux/design-language.md`. The user decides
+   which upstream changes are worth reflecting in the adaptation.
+
+3. Update `source-sha:` to the new HEAD **only after the user approves the
+   new state** — whether they applied some changes, all changes, or
+   consciously declined all of them. Bumping the SHA means "I have reviewed
+   up to this point"; the next re-run will diff only against the new baseline.
+
+4. **Same SHA** (new HEAD == `source-sha:`) → no-op. Report:
+   "Already up to date with `<source-url>@<sha>`." No file edits.
+
+5. **Missing `source-sha:`** → treat as initial adaptation (first run or
+   strict-local → upstream switch). Proceed through Step 3 as if no prior
+   adaptation exists.
+
+**Idempotency rule.** Re-running this skill with no upstream change produces
+no file edits. Re-running with an upstream change always produces review
+material — never a silent overwrite.
+
+---
+

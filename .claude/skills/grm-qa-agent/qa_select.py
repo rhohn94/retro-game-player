@@ -10,8 +10,8 @@ releases are already QA-verified), and each `docs/release-planning-vX.Y.md`
 work-list naming the target release(s) and the per-feature items to check. The
 agent then does the judgement (read code/tests, decide pass/fail) and the filing.
 
-Design authority: docs/design/qa-agent-design.md (+ scripting-unification
-guidelines, docs/design/scripting-unification-design.md §3).
+Design authority: docs/grimoire/design/qa-agent-design.md (+ scripting-unification
+guidelines, docs/grimoire/design/scripting-unification-design.md §3).
 
 Window selection (config `qa.window-mode` / `qa.window-size`, overridable by flag):
   earliest-unverified (default) -> the single oldest release not marked verified
@@ -249,8 +249,8 @@ def _self_test():
                      "| v3.3 | unverified | — | — |\n")
         with open(os.path.join(d, "docs", "release-planning-v3.3.md"), "w") as fh:
             fh.write("# Release Planning — v3.3\n\n"
-                     "Companion: docs/design/status-broker-design.md and "
-                     "docs/design/scripting-unification-design.md.\n\n"
+                     "Companion: docs/grimoire/design/status-broker-design.md and "
+                     "docs/grimoire/design/scripting-unification-design.md.\n\n"
                      "Framework spec: docs/grimoire/design/onboarding-design.md.\n\n"
                      "## 5. Status Ledger\n\n"
                      "| Item | Design | Implemented | Reviewed | Merged |\n"
@@ -268,7 +268,7 @@ def _self_test():
         sel = w["selected"][0] if w["selected"] else {}
         if len(sel.get("items", [])) != 2:
             failures.append("status-ledger item parse wrong: %r" % sel.get("items"))
-        if "docs/design/status-broker-design.md" not in sel.get("acceptance_sources", []):
+        if "docs/grimoire/design/status-broker-design.md" not in sel.get("acceptance_sources", []):
             failures.append("acceptance source not extracted: %r" % sel.get("acceptance_sources"))
         # v3.39: framework design docs under docs/grimoire/design/ are also collected.
         if "docs/grimoire/design/onboarding-design.md" not in sel.get("acceptance_sources", []):

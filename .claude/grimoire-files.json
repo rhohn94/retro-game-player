@@ -129,6 +129,20 @@
       "regenerate_disposition": "delete+restore from golden"
     },
     {
+      "path": ".claude/hooks/autonomy-allow.sh",
+      "class": "pure-framework",
+      "ships": true,
+      "regenerate_disposition": "delete+restore from golden",
+      "notes": "Paradigm-aware prompt suppression (Noir) — pure framework logic."
+    },
+    {
+      "path": ".claude/hooks/worktree-brief.sh",
+      "class": "pure-framework",
+      "ships": true,
+      "regenerate_disposition": "delete+restore from golden",
+      "notes": "SessionStart isolation brief — pure framework logic."
+    },
+    {
       "path": ".claude/hooks/release-plan-guard.sh",
       "class": "pure-framework",
       "ships": true,
@@ -562,6 +576,18 @@
     },
     {
       "path": ".claude/skills/grm-noir-loop/noir_loop_state.py",
+      "class": "pure-framework",
+      "ships": true,
+      "regenerate_disposition": "delete+restore from golden"
+    },
+    {
+      "path": ".claude/skills/grm-orchestrate-release/SKILL.md",
+      "class": "pure-framework",
+      "ships": true,
+      "regenerate_disposition": "delete+restore from golden"
+    },
+    {
+      "path": ".claude/skills/grm-orchestrate-release/orchestrate_preflight.py",
       "class": "pure-framework",
       "ships": true,
       "regenerate_disposition": "delete+restore from golden"

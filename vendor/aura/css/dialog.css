@@ -1,0 +1,373 @@
+/* ==========================================================================
+   Aura — dialog component.
+
+   Modal and non-modal dialog panels built on the elevation system (level 5).
+   A scrim/backdrop sits between page content and the panel for modal dialogs.
+
+   All visual values derive from tokens or component-scoped --aura-dialog-*
+   vars that default to global tokens. No magic numbers — see the property
+   table in docs/design/dialog-design.md.
+
+   Sits in @layer dialog (declared in aura.css after menu, before utilities).
+   ========================================================================== */
+
+/* ---- Hidden state -------------------------------------------------------- */
+aura-dialog:not([open]) {
+  display: none;
+}
+
+/* ---- Component-scoped custom properties (all token-defaulting) ----------- */
+/* Declared on aura-dialog so authors can override on a per-dialog basis.    */
+aura-dialog {
+  /* Sizing */
+  --aura-dialog-width:      min(90vw, 28rem);
+  --aura-dialog-max-height: 80vh;
+  /* Size presets (max-inline-size caps, viewport-clamped). Each defaults to a
+     global token so a re-skin tunes every dialog; size="…" selects one below.  */
+  --aura-dialog-size-sm:    min(90vw, 22rem);
+  --aura-dialog-size-md:    min(90vw, 32rem);
+  --aura-dialog-size-lg:    min(94vw, 48rem);
+  /* Drawer extent along the cross axis (panel inline-size for start/end edges,
+     block-size for top/bottom). Defaults to the mobile-sheet block cap.        */
+  --aura-dialog-drawer-size:     min(90vw, 22rem);
+  --aura-dialog-drawer-block:    var(--aura-sheet-max-block);
+  /* Drawer slide motion — reuses the dialog's in/out duration + easing dials.  */
+  --aura-dialog-drawer-ease-in:  var(--aura-ease-out);
+  --aura-dialog-drawer-ease-out: var(--aura-ease-standard);
+  /* Shape */
+  --aura-dialog-radius:  var(--aura-radius-xl);
+  --aura-dialog-padding: var(--aura-space-6);
+  /* Scrim */
+  --aura-dialog-scrim-bg:   color-mix(in srgb, var(--aura-bg) 60%, transparent);
+  --aura-dialog-scrim-blur: var(--aura-blur-3);       /* 8 px base — genuinely frosts the modal backdrop (#710). Was --aura-blur-1 (0 px → inert: the scrim never blurred outside extra-depth and still forced a needless compositing layer). blur-3 is a flattenable tier: flat-primary/retro-pc retune it to 0 (crisp scrim), modern-flat to 6 px, extra-depth to 20 px. */
+  /* Motion */
+  --aura-dialog-dur-in:   var(--aura-dur-base);
+  --aura-dialog-ease-in:  var(--aura-ease-out);
+  --aura-dialog-dur-out:  var(--aura-dur-fast);
+  --aura-dialog-ease-out: var(--aura-ease-standard);
+  /* Stacking — sits one tier above the scrim */
+  --aura-dialog-z: calc(var(--aura-z-modal) + 1);
+}
+
+/* ---- Dialog panel (elevation 5 glass surface) --------------------------- */
+aura-dialog {
+  /* Positioning: fixed, centred */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--aura-dialog-z);
+
+  /* Sizing */
+  width: var(--aura-dialog-width);
+  max-height: var(--aura-dialog-max-height);
+  overflow-y: auto;
+
+  /* Layout */
+  display: flex;
+  flex-direction: column;
+
+  /* Glass surface — consumes elevation-5 dials set by elevation.css.
+     Fallback values match level 5 so the panel looks right even if the
+     elevation attribute hasn't been processed yet.                          */
+  /* #594: tint-wash layer so a theme tint reaches the dialog glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-e-tint, var(--aura-surface-5));
+  -webkit-backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-5))) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-5))) saturate(var(--aura-glass-saturate));
+  border: 1px var(--aura-border-style, solid) var(--aura-surface-stroke);
+  border-radius: var(--aura-dialog-radius);
+  color: var(--aura-text-on-glass);
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-e-shadow, var(--aura-shadow-5)),
+    inset 0 1px 0 var(--aura-e-edge, var(--aura-edge-light));
+  padding: var(--aura-dialog-padding);
+}
+
+/* Opaque fallback for engines without backdrop-filter (progressive). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  aura-dialog { background: var(--aura-glass-tint-layer), var(--aura-surface-solid); }
+}
+
+/* Lite effects mode (#401): the page-wide reduce-effects dial drops the
+   dialog's level-5 blur for an opaque solid — same pattern as toast/menu. */
+[data-aura-effects="lite"] aura-dialog {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+}
+
+/* ---- Entry animation ----------------------------------------------------- */
+aura-dialog[open] {
+  animation: aura-dialog-in var(--aura-dialog-dur-in) var(--aura-dialog-ease-in) both;
+}
+
+@keyframes aura-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + var(--aura-space-3))) scale(var(--aura-overlay-enter-scale));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* ---- Exit animation ------------------------------------------------------ */
+/* Triggered by JS adding [data-aura-closing] while [open] is still present.
+   Higher cascade order than the [open] entry rule ensures the exit animation
+   wins when both attributes coexist during the closing phase.               */
+aura-dialog[data-aura-closing] {
+  animation: aura-dialog-out var(--aura-dialog-dur-out) var(--aura-dialog-ease-out) both;
+}
+
+@keyframes aura-dialog-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + var(--aura-space-3))) scale(var(--aura-overlay-enter-scale));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  aura-dialog[open]          { animation: none; }
+  aura-dialog[data-aura-closing] { animation: none; }
+}
+
+/* ---- Size presets (centred modal) --------------------------------------- *
+   Convenience max-inline-size caps. Token-mapped — no magic numbers; each maps
+   to a --aura-dialog-size-* var that defaults to a global token. `full` drops
+   the cap to a viewport-padded near-full surface. Drawers ignore size (their
+   extent is the drawer-size dial); these rules are scoped to the default
+   (non-drawer) presentation via :not([variant="drawer"]).                     */
+aura-dialog:not([variant="drawer"])[size="sm"]   { --aura-dialog-width: var(--aura-dialog-size-sm); }
+aura-dialog:not([variant="drawer"])[size="md"]   { --aura-dialog-width: var(--aura-dialog-size-md); }
+aura-dialog:not([variant="drawer"])[size="lg"]   { --aura-dialog-width: var(--aura-dialog-size-lg); }
+aura-dialog:not([variant="drawer"])[size="full"] {
+  --aura-dialog-width:      calc(100vw - 2 * var(--aura-space-5));
+  --aura-dialog-max-height: calc(100dvh - 2 * var(--aura-space-5));
+  /* A near-viewport surface warrants the largest radius step so the soft
+     corner treatment scales with the panel area. --aura-radius-2xl (2rem)
+     earns its place here: smaller values look clipped on a full-bleed modal;
+     --aura-radius-full would be too aggressive at this size. (#731) */
+  --aura-dialog-radius:     var(--aura-radius-2xl);
+}
+
+/* ---- Drawer / sheet variant --------------------------------------------- *
+   variant="drawer" pins the panel to one viewport edge (edge="start|end|top|
+   bottom", default end) and slides it in along that edge. It reuses the SAME
+   scrim, focus trap, and dismissal engine as the centred modal — only the
+   geometry and entry/exit keyframes differ. Logical edges (start/end) follow
+   the writing direction; top/bottom are physical.                             */
+aura-dialog[variant="drawer"] {
+  /* Override the centred transform/position; each edge rule re-pins below.     */
+  inset: 0 auto auto 0;       /* neutral baseline; edge rules set the live side */
+  transform: none;
+  border-radius: 0;           /* edge-flush by default; edge rules round the
+                                 exposed inner corners                          */
+  max-height: none;
+  max-block-size: 100dvh;
+  max-inline-size: 100vw;
+}
+
+/* -- Edge: end (default) — right in LTR ----------------------------------- */
+aura-dialog[variant="drawer"]:not([edge]),
+aura-dialog[variant="drawer"][edge="end"] {
+  inset-block: 0;
+  inset-inline-end: 0;
+  inset-inline-start: auto;
+  inline-size: var(--aura-dialog-drawer-size);
+  block-size: 100dvh;
+  border-start-start-radius: var(--aura-dialog-radius);
+  border-end-start-radius: var(--aura-dialog-radius);
+}
+/* -- Edge: start — left in LTR -------------------------------------------- */
+aura-dialog[variant="drawer"][edge="start"] {
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  inline-size: var(--aura-dialog-drawer-size);
+  block-size: 100dvh;
+  border-start-end-radius: var(--aura-dialog-radius);
+  border-end-end-radius: var(--aura-dialog-radius);
+}
+/* -- Edge: top ------------------------------------------------------------ */
+aura-dialog[variant="drawer"][edge="top"] {
+  inset-inline: 0;
+  inset-block-start: 0;
+  inset-block-end: auto;
+  inline-size: 100vw;
+  block-size: auto;
+  max-block-size: var(--aura-dialog-drawer-block);
+  border-end-start-radius: var(--aura-dialog-radius);
+  border-end-end-radius: var(--aura-dialog-radius);
+}
+/* -- Edge: bottom (mobile-sheet-like) ------------------------------------- */
+aura-dialog[variant="drawer"][edge="bottom"] {
+  inset-inline: 0;
+  inset-block-end: 0;
+  inset-block-start: auto;
+  inline-size: 100vw;
+  block-size: auto;
+  max-block-size: var(--aura-dialog-drawer-block);
+  border-start-start-radius: var(--aura-dialog-radius);
+  border-start-end-radius: var(--aura-dialog-radius);
+  padding-bottom: calc(var(--aura-dialog-padding) + var(--aura-safe-bottom));
+}
+
+/* -- Drawer slide-in (entry) — per edge. Overrides the centred scale/fade.
+      Higher cascade order than the generic aura-dialog[open] rule above.       */
+aura-dialog[variant="drawer"][open] {
+  animation: aura-drawer-in-end var(--aura-dialog-dur-in) var(--aura-dialog-drawer-ease-in) both;
+}
+aura-dialog[variant="drawer"][edge="start"][open]  { animation-name: aura-drawer-in-start; }
+aura-dialog[variant="drawer"][edge="top"][open]    { animation-name: aura-drawer-in-top; }
+aura-dialog[variant="drawer"][edge="bottom"][open] { animation-name: aura-drawer-in-bottom; }
+
+/* -- Drawer slide-out (exit) — per edge. Mirrors the entry, reverse direction. */
+aura-dialog[variant="drawer"][data-aura-closing] {
+  animation: aura-drawer-out-end var(--aura-dialog-dur-out) var(--aura-dialog-drawer-ease-out) both;
+}
+aura-dialog[variant="drawer"][edge="start"][data-aura-closing]  { animation-name: aura-drawer-out-start; }
+aura-dialog[variant="drawer"][edge="top"][data-aura-closing]    { animation-name: aura-drawer-out-top; }
+aura-dialog[variant="drawer"][edge="bottom"][data-aura-closing] { animation-name: aura-drawer-out-bottom; }
+
+@keyframes aura-drawer-in-end    { from { transform: translateX(100%); }  to { transform: none; } }
+@keyframes aura-drawer-out-end   { from { transform: none; } to { transform: translateX(100%); } }
+@keyframes aura-drawer-in-start  { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes aura-drawer-out-start { from { transform: none; } to { transform: translateX(-100%); } }
+@keyframes aura-drawer-in-top    { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes aura-drawer-out-top   { from { transform: none; } to { transform: translateY(-100%); } }
+@keyframes aura-drawer-in-bottom { from { transform: translateY(100%); }  to { transform: none; } }
+@keyframes aura-drawer-out-bottom{ from { transform: none; } to { transform: translateY(100%); } }
+
+/* Reduced-motion: drawers appear/disappear instantly (no slide). */
+@media (prefers-reduced-motion: reduce) {
+  aura-dialog[variant="drawer"][open],
+  aura-dialog[variant="drawer"][data-aura-closing] { animation: none; }
+}
+
+/* Logical-edge slide direction follows writing direction: in RTL, start/end
+   swap sides, so the slide must come from the matching physical side.          */
+[dir="rtl"] aura-dialog[variant="drawer"][edge="start"][open]  { animation-name: aura-drawer-in-end; }
+[dir="rtl"] aura-dialog[variant="drawer"][edge="start"][data-aura-closing] { animation-name: aura-drawer-out-end; }
+[dir="rtl"] aura-dialog[variant="drawer"]:not([edge])[open],
+[dir="rtl"] aura-dialog[variant="drawer"][edge="end"][open]    { animation-name: aura-drawer-in-start; }
+[dir="rtl"] aura-dialog[variant="drawer"]:not([edge])[data-aura-closing],
+[dir="rtl"] aura-dialog[variant="drawer"][edge="end"][data-aura-closing] { animation-name: aura-drawer-out-start; }
+
+/* ---- Dialog sections ----------------------------------------------------- */
+.aura-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+  margin-bottom: var(--aura-space-4);
+  flex-shrink: 0;
+}
+
+.aura-dialog__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--aura-text-xl);
+  font-weight: var(--aura-weight-semibold);
+  line-height: var(--aura-leading-tight);
+  color: var(--aura-text);
+  letter-spacing: var(--aura-tracking-tight);
+}
+
+/* Close button — injected by dialog.js using Aura.icon("x") */
+.aura-dialog__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--aura-radius-md);
+  background: transparent;
+  color: var(--aura-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--aura-dur-fast) var(--aura-ease-standard),
+    color            var(--aura-dur-fast) var(--aura-ease-standard),
+    border-color     var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-dialog__close:hover {
+  background: var(--aura-surface-3);
+  color: var(--aura-text);
+  border-color: var(--aura-surface-stroke);
+}
+.aura-dialog__close:focus-visible {
+  outline: none;
+  box-shadow: var(--aura-ring);
+  border-color: var(--aura-primary-a60);
+}
+
+.aura-dialog__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-md);
+  line-height: var(--aura-leading-relaxed);
+}
+
+.aura-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--aura-space-3);
+  margin-top: var(--aura-space-5);
+  padding-top: var(--aura-space-4);
+  border-top: 1px solid var(--aura-surface-stroke);
+  flex-shrink: 0;
+}
+
+/* ---- Scrim (modal backdrop) ---------------------------------------------- */
+.aura-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--aura-z-modal);
+  /* The blur is applied STATICALLY here and is never opacity-animated:
+     animating opacity on a backdrop-filtered layer forces the (expensive) blur
+     to be re-rasterised every frame (#45). The fade-in lives on the ::before
+     tint layer below, which carries no filter, so only a cheap layer composites
+     per frame while the blur simply appears with the scrim. */
+  -webkit-backdrop-filter: blur(var(--aura-dialog-scrim-blur, var(--aura-blur-3)));
+  backdrop-filter: blur(var(--aura-dialog-scrim-blur, var(--aura-blur-3)));
+}
+
+/* Dark tint + fade on a separate, unfiltered layer (#45). */
+.aura-dialog-scrim::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--aura-dialog-scrim-bg,
+    color-mix(in srgb, var(--aura-bg) 60%, transparent));
+  animation: aura-scrim-in var(--aura-dialog-dur-in) var(--aura-ease-standard) both;
+}
+
+@keyframes aura-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Scrim exit — paired with dialog exit; [data-aura-closing] added by JS. */
+.aura-dialog-scrim[data-aura-closing]::before {
+  animation: aura-scrim-out var(--aura-dialog-dur-out) var(--aura-ease-standard) both;
+}
+
+@keyframes aura-scrim-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-dialog-scrim::before                    { animation: none; }
+  .aura-dialog-scrim[data-aura-closing]::before { animation: none; }
+}

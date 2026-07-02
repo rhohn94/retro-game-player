@@ -8,8 +8,8 @@ zero-LLM-cost structured layer — `grimoire-config.json`, `version-history.md`,
 JSON overview (#74). The agent then layers the issue tracker (cheapest,
 authoritative for tracked work) and, only as a last resort, source code.
 
-Design authority: docs/design/status-broker-design.md (+ scripting-unification
-guidelines, docs/design/scripting-unification-design.md §3).
+Design authority: docs/grimoire/design/status-broker-design.md (+ scripting-unification
+guidelines, docs/grimoire/design/scripting-unification-design.md §3).
 
 Field source mapping (#74):
   zero-LLM (this script):
@@ -59,11 +59,16 @@ def read_config(root):
 
 
 def parse_releases(version_history_text):
-    """Extract '## vX.Y — Title' sections, newest-first as written."""
+    """Extract '## vX.Y[.Z] — Title' sections, newest-first as written.
+
+    Matches both two-part (vX.Y) and three-part (vX.Y.Z) version headings so
+    that patch-level releases (e.g. v3.37.2) are not silently truncated to their
+    minor version (#141).
+    """
     if not version_history_text:
         return []
     rels = []
-    for m in re.finditer(r"^##\s+(v\d+\.\d+)\s*(?:[—\-–]\s*(.*))?$",
+    for m in re.finditer(r"^##\s+(v\d+\.\d+(?:\.\d+)*)\s*(?:[—\-–]\s*(.*))?$",
                          version_history_text, re.MULTILINE):
         rels.append({"version": m.group(1), "title": (m.group(2) or "").strip()})
     return rels
@@ -170,8 +175,11 @@ def build_status(root):
     else:
         degraded.append("docs/roadmap.md (missing)")
 
+    # Read the feature-manifest from the grm--prefixed path introduced in v3.42
+    # namespacing (#142, #157). The legacy bare-name path "sync-from-upstream"
+    # is no longer valid; only the grm- prefix is shipped to consumers.
     manifest = _read(os.path.join(
-        root, ".claude", "skills", "sync-from-upstream", "feature-manifest.md"))
+        root, ".claude", "skills", "grm-sync-from-upstream", "feature-manifest.md"))
     manifest_version = parse_manifest_version(manifest)
     if manifest is not None:
         sources_read.append(".claude/skills/grm-sync-from-upstream/feature-manifest.md")
@@ -182,6 +190,10 @@ def build_status(root):
 
     return {
         "project": name,
+        # Canonical hyphenated keys match grimoire-config.json field names (#147).
+        "framework-version": framework_version,
+        "work-paradigm": paradigm,
+        # Legacy underscore aliases kept for backward compatibility.
         "framework_version": framework_version,
         "schema_version": schema_version,
         "paradigm": paradigm,
@@ -202,7 +214,8 @@ def _self_test():
     import tempfile
     failures = []
     with tempfile.TemporaryDirectory() as d:
-        os.makedirs(os.path.join(d, ".claude", "skills", "sync-from-upstream"))
+        # Use the grm--prefixed path that matches the real install (#142, #157).
+        os.makedirs(os.path.join(d, ".claude", "skills", "grm-sync-from-upstream"))
         os.makedirs(os.path.join(d, "docs"))
         with open(os.path.join(d, ".claude", "grimoire-config.json"), "w") as fh:
             json.dump({"schema-version": 4, "name": "Demo",
@@ -211,13 +224,15 @@ def _self_test():
                        "stealth-mode": {"value": "off"},
                        "project-manager": {"max-parallel": {"value": 3}}}, fh)
         with open(os.path.join(d, "docs", "version-history.md"), "w") as fh:
-            fh.write("# Version History\n\n## v3.2 — Sync reliability\n\nbody\n\n"
+            # Include a three-part version heading to exercise the #141 fix.
+            fh.write("# Version History\n\n## v3.2.1 — Sync reliability patch\n\nbody\n\n"
+                     "## v3.2 — Sync reliability\n\nbody\n\n"
                      "## v3.1 — Project Manager agent role\n\nbody\n")
         with open(os.path.join(d, "docs", "roadmap.md"), "w") as fh:
             fh.write("# Roadmap\n\n## v3.3 — Scripting & status-broker\n\n"
                      "planned, not yet shipped\n\n## v3.2 — Sync reliability\n\n"
                      "Shipped — see version-history.md.\n")
-        with open(os.path.join(d, ".claude", "skills", "sync-from-upstream",
+        with open(os.path.join(d, ".claude", "skills", "grm-sync-from-upstream",
                                "feature-manifest.md"), "w") as fh:
             fh.write("manifest-version: 19\n\n# Feature manifest\n")
         with open(os.path.join(d, "pyproject.toml"), "w") as fh:
@@ -225,14 +240,34 @@ def _self_test():
 
         s = build_status(d)
         if s["project"] != "Demo": failures.append("name not read")
-        if s["framework_version"] != "v3.2": failures.append("framework-version not read")
+        if s["framework_version"] != "v3.2": failures.append("framework-version (underscore) not read")
         if s["paradigm"] != "Noir": failures.append("paradigm not read")
-        if not s["latest_release"] or s["latest_release"]["version"] != "v3.2":
-            failures.append("latest release wrong: %r" % s["latest_release"])
-        if len(s["recent_releases"]) != 2: failures.append("recent releases count")
+
+        # #147: hyphenated keys must be present in JSON output.
+        if s.get("framework-version") != "v3.2":
+            failures.append("framework-version (hyphen) missing or wrong: %r" % s.get("framework-version"))
+        if s.get("work-paradigm") != "Noir":
+            failures.append("work-paradigm missing or wrong: %r" % s.get("work-paradigm"))
+
+        # #141: three-part version (v3.2.1) must be the latest release, not silently
+        # collapsed to v3.2 or skipped.
+        if not s["latest_release"] or s["latest_release"]["version"] != "v3.2.1":
+            failures.append("latest release wrong (three-part version not parsed): %r"
+                            % s["latest_release"])
+        if len(s["recent_releases"]) != 3:
+            failures.append("recent releases count wrong (expected 3): %d" % len(s["recent_releases"]))
+        if s["recent_releases"][0]["version"] != "v3.2.1":
+            failures.append("first recent release should be v3.2.1, got %r"
+                            % s["recent_releases"][0]["version"])
+
         if not s["in_flight"] or s["in_flight"]["version"] != "v3.3":
             failures.append("in-flight detection wrong: %r" % s["in_flight"])
-        if s["feature_manifest_version"] != 19: failures.append("manifest version")
+
+        # #142/#157: manifest must be read from the grm--prefixed path.
+        if s["feature_manifest_version"] != 19:
+            failures.append("manifest version wrong (grm- path not used): %r"
+                            % s["feature_manifest_version"])
+
         if not any(t.get("version") == "0.4.2" for t in s["tech_stack"]):
             failures.append("pyproject version not read")
         if "stealth-mode" not in s["dials"]: failures.append("dials missing stealth-mode")
@@ -246,6 +281,23 @@ def _self_test():
         s2 = build_status(empty)
         if not s2["degraded"]: failures.append("degraded not flagged on empty project")
         if s2["latest_release"] is not None: failures.append("latest release should be None")
+        # Hyphenated keys must still be present even when config is missing.
+        if "framework-version" not in s2:
+            failures.append("framework-version key absent in degraded output")
+        if "work-paradigm" not in s2:
+            failures.append("work-paradigm key absent in degraded output")
+
+    # Three-part version regression: parse_releases must yield full "vX.Y.Z" strings.
+    three_part_vh = ("## v3.37.4 — Patch\n\nbody\n\n"
+                     "## v3.37.3 — Earlier patch\n\nbody\n\n"
+                     "## v3.37 — Minor\n\nbody\n")
+    rels = parse_releases(three_part_vh)
+    if len(rels) != 3:
+        failures.append("three-part version parse: expected 3 releases, got %d" % len(rels))
+    if rels and rels[0]["version"] != "v3.37.4":
+        failures.append("three-part version: first should be v3.37.4, got %r" % rels[0]["version"])
+    if rels and rels[2]["version"] != "v3.37":
+        failures.append("three-part version: third should be v3.37, got %r" % rels[2]["version"])
 
     if failures:
         print("SELF-TEST FAILED:")
@@ -253,7 +305,9 @@ def _self_test():
             print("  - " + f)
         return 1
     print("project_status self-test: OK (config/releases/in-flight/manifest/"
-          "tech-stack reads, determinism, missing-source degrade)")
+          "tech-stack reads, determinism, missing-source degrade, "
+          "three-part version (#141), grm--prefixed manifest path (#142/#157), "
+          "framework-version+work-paradigm JSON keys (#147))")
     return 0
 
 

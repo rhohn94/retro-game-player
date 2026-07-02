@@ -1,6 +1,6 @@
 {
   "schema-version": 4,
-  "framework-version": "v3.49",
+  "framework-version": "v3.63",
   "name": "Harmony",
   "work-paradigm": {
     "value": "Noir"
