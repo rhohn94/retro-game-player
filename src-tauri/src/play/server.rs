@@ -18,6 +18,11 @@
 //!   * `GET /rom/<id>`           → the raw ROM bytes for a library game, resolved
 //!     from the database by id (its own read-only SQLite connection, so the
 //!     server never touches Tauri's managed `Db`).
+//!   * `GET|POST /saves/<id>/sram` and `GET|POST /saves/<id>/state/<slot>` →
+//!     the EmulatorJS save bridge (v0.23 W231): the player page reads/writes
+//!     battery SRAM and save states through the same on-disk layout the
+//!     native path uses ([`crate::play::saves`]), so both paths share one
+//!     save story. Writes go under `saves/` only — never into the library.
 //!   * `GET /healthz`            → `200 ok` liveness probe.
 //!
 //! Like the Fleet status server ([`crate::fleet::server`]) it binds **127.0.0.1
@@ -28,10 +33,17 @@
 //! and in-page play degrades to the native external-RetroArch launch.
 
 use crate::error::{AppError, AppResult};
+use crate::play::saves::{GameSaves, PlayPath};
 use include_dir::{include_dir, Dir};
 use rusqlite::{Connection, OpenFlags};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// Upper bound on a POSTed save body. NES SRAM is 8 KiB and EmulatorJS NES
+/// states are well under a megabyte; 32 MiB leaves room for heavier future
+/// cores while keeping a hostile local process from ballooning memory.
+const SAVE_BODY_CAP: usize = 32 * 1024 * 1024;
 
 /// The vendored EmulatorJS data dir, embedded into the binary at compile time so
 /// the bundled `.app` carries the runtime + the NES core with no on-disk assets.
@@ -79,7 +91,7 @@ impl PlayServer {
 /// EmulatorJS runtime + player page + ROMs resolved from `db_path`. Binds an
 /// ephemeral `127.0.0.1` port. Binding is best-effort: on failure an unavailable
 /// handle is returned so app startup is never blocked.
-pub fn start(db_path: PathBuf) -> PlayServer {
+pub fn start(db_path: PathBuf, saves_root: PathBuf) -> PlayServer {
     let server = match tiny_http::Server::http(format!("{BIND_HOST}:0")) {
         Ok(s) => s,
         Err(e) => {
@@ -95,7 +107,7 @@ pub fn start(db_path: PathBuf) -> PlayServer {
 
     if std::thread::Builder::new()
         .name("harmony-play-server".to_string())
-        .spawn(move || serve_loop(server, db_path))
+        .spawn(move || serve_loop(server, db_path, saves_root))
         .is_err()
     {
         return PlayServer::unavailable();
@@ -105,16 +117,21 @@ pub fn start(db_path: PathBuf) -> PlayServer {
 
 /// Blocking accept loop: route each request and respond. Per-request errors are
 /// swallowed — a dropped client must never kill the server.
-fn serve_loop(server: tiny_http::Server, db_path: PathBuf) {
+fn serve_loop(server: tiny_http::Server, db_path: PathBuf, saves_root: PathBuf) {
     for request in server.incoming_requests() {
-        let _ = handle_request(request, &db_path);
+        let _ = handle_request(request, &db_path, &saves_root);
     }
 }
 
-/// Route + respond to one request. Only `GET`/`HEAD` are meaningful; the
-/// EmulatorJS storage cache issues a `HEAD` probe for the ROM, which we answer
-/// with an empty `200` (a cache miss simply re-downloads — always correct).
-fn handle_request(request: tiny_http::Request, db_path: &Path) -> std::io::Result<()> {
+/// Route + respond to one request. `GET`/`HEAD` for assets/ROMs; `POST` only
+/// on the `/saves/` bridge. The EmulatorJS storage cache issues a `HEAD`
+/// probe for the ROM, which we answer with an empty `200` (a cache miss
+/// simply re-downloads — always correct).
+fn handle_request(
+    request: tiny_http::Request,
+    db_path: &Path,
+    saves_root: &Path,
+) -> std::io::Result<()> {
     let raw = request.url().to_string();
     let path = raw.split('?').next().unwrap_or("").to_string();
 
@@ -126,6 +143,9 @@ fn handle_request(request: tiny_http::Request, db_path: &Path) -> std::io::Resul
 
     if request.method() == &tiny_http::Method::Head {
         return request.respond(tiny_http::Response::empty(200));
+    }
+    if let Some(rest) = path.strip_prefix("/saves/") {
+        return serve_saves(request, db_path, saves_root, rest);
     }
     if path == "/healthz" {
         return request.respond(tiny_http::Response::from_string("ok"));
@@ -143,6 +163,89 @@ fn handle_request(request: tiny_http::Request, db_path: &Path) -> std::io::Resul
         return serve_rom(request, db_path, id_str);
     }
     not_found(request)
+}
+
+/// The EmulatorJS save bridge (W231). Routes, with `<rest>` already stripped
+/// of the `/saves/` prefix:
+///   * `GET|POST <id>/sram`          — battery SRAM bytes
+///   * `GET|POST <id>/state/<slot>`  — a save-state blob (slots 1–4 / auto)
+///
+/// Reads answer 404 when nothing is saved yet (the player boots fresh);
+/// writes are atomic via [`GameSaves`] and tagged `PlayPath::Ejs`.
+fn serve_saves(
+    mut request: tiny_http::Request,
+    db_path: &Path,
+    saves_root: &Path,
+    rest: &str,
+) -> std::io::Result<()> {
+    let mut parts = rest.splitn(3, '/');
+    let id: i64 = match parts.next().and_then(|s| s.parse().ok()) {
+        Some(v) => v,
+        None => return not_found(request),
+    };
+    let saves = match game_saves(db_path, saves_root, id) {
+        Some(s) => s,
+        None => return not_found(request),
+    };
+    let kind = parts.next().unwrap_or("");
+    let slot = parts.next().map(str::to_string);
+    let is_post = request.method() == &tiny_http::Method::Post;
+
+    match (kind, slot, is_post) {
+        ("sram", None, false) => match saves.read_sram() {
+            Some(bytes) => respond_bytes(request, &bytes, "application/octet-stream"),
+            None => not_found(request),
+        },
+        ("sram", None, true) => match read_capped_body(&mut request) {
+            Some(bytes) => respond_result(request, saves.write_sram(&bytes)),
+            None => payload_too_large(request),
+        },
+        ("state", Some(slot), false) => match saves.read_state(&slot) {
+            Ok(bytes) => respond_bytes(request, &bytes, "application/octet-stream"),
+            Err(_) => not_found(request),
+        },
+        ("state", Some(slot), true) => match read_capped_body(&mut request) {
+            Some(bytes) => respond_result(request, saves.write_state(&slot, &bytes, PlayPath::Ejs)),
+            None => payload_too_large(request),
+        },
+        _ => not_found(request),
+    }
+}
+
+/// Reads the request body up to [`SAVE_BODY_CAP`]; `None` means over-cap.
+fn read_capped_body(request: &mut tiny_http::Request) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    let mut reader = request.as_reader().take((SAVE_BODY_CAP + 1) as u64);
+    reader.read_to_end(&mut body).ok()?;
+    (body.len() <= SAVE_BODY_CAP).then_some(body)
+}
+
+/// `204` on success, `400` with the error text on failure.
+fn respond_result(request: tiny_http::Request, result: AppResult<()>) -> std::io::Result<()> {
+    match result {
+        Ok(()) => request.respond(tiny_http::Response::empty(204)),
+        Err(e) => request
+            .respond(tiny_http::Response::from_string(e.to_string()).with_status_code(400)),
+    }
+}
+
+fn payload_too_large(request: tiny_http::Request) -> std::io::Result<()> {
+    request.respond(tiny_http::Response::from_string("save too large").with_status_code(413))
+}
+
+/// Resolve a game id to its [`GameSaves`] layout via the server's read-only
+/// connection (`system` + ROM path give the save dir + stem).
+fn game_saves(db_path: &Path, saves_root: &Path, id: i64) -> Option<GameSaves> {
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.busy_timeout(DB_BUSY_TIMEOUT).ok()?;
+    let (system, path): (String, String) = conn
+        .query_row(
+            "SELECT system, path FROM games WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok()?;
+    Some(GameSaves::new(saves_root, &system, Path::new(&path)))
 }
 
 /// Serve a library game's ROM bytes by id. Maps id → on-disk path via a fresh
@@ -250,11 +353,11 @@ mod tests {
         let _ = std::fs::remove_file(&db);
         let conn = Connection::open(&db).expect("open");
         conn.execute_batch(
-            "CREATE TABLE games (id INTEGER PRIMARY KEY, path TEXT NOT NULL);",
+            "CREATE TABLE games (id INTEGER PRIMARY KEY, system TEXT NOT NULL DEFAULT 'nes', path TEXT NOT NULL);",
         )
         .expect("schema");
         conn.execute(
-            "INSERT INTO games (id, path) VALUES (1, ?1)",
+            "INSERT INTO games (id, system, path) VALUES (1, 'nes', ?1)",
             [rom_file.to_str().unwrap()],
         )
         .expect("insert");
@@ -262,11 +365,30 @@ mod tests {
     }
 
     /// Bind an ephemeral server over a given db and run `serve_loop` on a thread.
-    fn spawn(db_path: PathBuf) -> u16 {
+    fn spawn(db_path: PathBuf, saves_root: PathBuf) -> u16 {
         let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
         let port = server.server_addr().to_ip().unwrap().port();
-        std::thread::spawn(move || serve_loop(server, db_path));
+        std::thread::spawn(move || serve_loop(server, db_path, saves_root));
         port
+    }
+
+    /// Minimal blocking HTTP POST over a raw socket → status code.
+    fn http_post(port: u16, path: &str, body: &[u8]) -> u16 {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        let req = format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(req.as_bytes()).unwrap();
+        stream.write_all(body).unwrap();
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).unwrap();
+        String::from_utf8_lossy(&raw)
+            .lines()
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|c| c.parse::<u16>().ok())
+            .unwrap_or(0)
     }
 
     /// Minimal blocking HTTP GET over a raw socket → (status, body bytes).
@@ -300,7 +422,8 @@ mod tests {
         ));
         std::fs::write(&rom, b"NES\x1a fake rom bytes").unwrap();
         let db = temp_db_with_game("routes", &rom);
-        let port = spawn(db.clone());
+        let saves_root = tempfile::tempdir().expect("tempdir");
+        let port = spawn(db.clone(), saves_root.path().to_path_buf());
 
         // player.html
         let (status, body) = http_get(port, "/player.html");
@@ -324,6 +447,42 @@ mod tests {
         let (status, body) = http_get(port, "/healthz");
         assert_eq!(status, 200);
         assert_eq!(body, b"ok");
+
+        let _ = std::fs::remove_file(&rom);
+        let _ = std::fs::remove_file(&db);
+    }
+
+    #[test]
+    fn save_bridge_round_trips_sram_and_states() {
+        let rom = std::env::temp_dir().join(format!(
+            "harmony-rom-saves-{}-{:?}.nes",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::write(&rom, b"NES\x1a").unwrap();
+        let db = temp_db_with_game("saves", &rom);
+        let saves_root = tempfile::tempdir().expect("tempdir");
+        let port = spawn(db.clone(), saves_root.path().to_path_buf());
+
+        // Fresh game: nothing saved yet.
+        assert_eq!(http_get(port, "/saves/1/sram").0, 404);
+        assert_eq!(http_get(port, "/saves/1/state/1").0, 404);
+
+        // SRAM round-trip.
+        assert_eq!(http_post(port, "/saves/1/sram", b"battery!"), 204);
+        let (status, body) = http_get(port, "/saves/1/sram");
+        assert_eq!(status, 200);
+        assert_eq!(body, b"battery!");
+
+        // State round-trip (slot validated; bad slot rejected).
+        assert_eq!(http_post(port, "/saves/1/state/2", b"statebytes"), 204);
+        let (status, body) = http_get(port, "/saves/1/state/2");
+        assert_eq!(status, 200);
+        assert_eq!(body, b"statebytes");
+        assert_eq!(http_post(port, "/saves/1/state/99", b"x"), 400);
+
+        // Unknown game id → 404, never a write.
+        assert_eq!(http_post(port, "/saves/42/sram", b"x"), 404);
 
         let _ = std::fs::remove_file(&rom);
         let _ = std::fs::remove_file(&db);

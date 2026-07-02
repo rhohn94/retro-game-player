@@ -32,8 +32,9 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // --- v0.15: loopback EmulatorJS host server for in-page WASM play. Best-
     // effort (bind failure degrades to the native launch); serves ROMs via its
     // own read-only connection to the same db file, so it never contends for the
-    // managed Db handle. ---
-    app.manage(play::start(db_path));
+    // managed Db handle. v0.23 W231: also bridges EmulatorJS saves to the
+    // shared on-disk saves layout. ---
+    app.manage(play::start(db_path, paths.saves_dir()?));
 
     // --- v0.21 "Bedrock" W214: holds the single in-flight native libretro
     // core session, if any (see commands::native_play). ---
