@@ -1,0 +1,68 @@
+/* ==========================================================================
+   Aura — aura-stepper (#110): number input with −/+ controls.
+
+   A single segmented control: [−][ value ][+]. The buttons abut the input with
+   shared rounded outer corners (like the segmented editor toolbar, #116) so it
+   reads as one control. The input reuses .aura-input's box (height, border,
+   focus) — the buttons only drop their own outer border to avoid doubling it.
+   ========================================================================== */
+@layer stepper {
+  .aura-stepper {
+    display: inline-flex;
+    align-items: stretch;
+    max-inline-size: 100%;
+  }
+
+  .aura-stepper__btn {
+    /* Proximity glow (v3.2): js/aura-stepper.js adds .aura-glow so the buttons
+       light + lean on approach. A compact detection radius suits the small
+       square buttons; the subtle global magnet-shift (1px) is inherited. */
+    --aura-glow-radius: var(--aura-glow-radius-compact);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.75rem; /* square, matching the .aura-input height */
+    flex: none;
+    font-size: var(--aura-text-lg);
+    line-height: 1;
+    color: var(--aura-text);
+    background: var(--aura-surface-1);
+    border: var(--aura-border-width) var(--aura-border-style, solid) var(--aura-surface-stroke);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--aura-dur-fast) var(--aura-ease-standard),
+      color var(--aura-dur-fast) var(--aura-ease-standard);
+  }
+  .aura-stepper__dec { border-radius: var(--aura-radius-md) 0 0 var(--aura-radius-md); border-inline-end: 0; }
+  .aura-stepper__inc { border-radius: 0 var(--aura-radius-md) var(--aura-radius-md) 0; border-inline-start: 0; }
+  .aura-stepper__btn:hover:not(:disabled) { background: var(--aura-surface-2); }
+  .aura-stepper__btn:active:not(:disabled) { background: var(--aura-surface-3); }
+
+  /* The middle input: square off the joined edges and centre the number. */
+  .aura-stepper__input {
+    inline-size: 4rem;
+    text-align: center;
+    border-radius: 0;
+    /* keep a focus ring on top of the buttons */
+    position: relative;
+    z-index: 1;
+  }
+
+  .aura-stepper[disabled] .aura-stepper__btn,
+  .aura-stepper__btn:disabled {
+    opacity: var(--aura-disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  @media (forced-colors: active) {
+    .aura-stepper__btn { border: 1px solid ButtonBorder; color: ButtonText; }
+    .aura-stepper__btn:disabled { color: GrayText; border-color: GrayText; }
+  }
+
+  /* Motion-sensitive users: suppress the button transitions (matches every
+     other component CSS). The glow rim/magnet motion is gated separately by
+     glow.css's own reduced-motion block. */
+  @media (prefers-reduced-motion: reduce) {
+    .aura-stepper__btn { transition: none; }
+  }
+}

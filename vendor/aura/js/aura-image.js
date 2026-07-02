@@ -1,0 +1,360 @@
+/* ==========================================================================
+   Aura — aura-image: content-first image frame with lightbox + zoom/pan.
+
+   A light-DOM custom element that renders an image fill-to-extents (cover)
+   inside a rounded glass frame (the content-first display philosophy, #22), and
+   — when `expandable` — opens a shared fullscreen lightbox with wheel / pinch
+   zoom, drag pan, glass control chrome, captions, and full keyboard operation.
+
+   Authors:
+     <aura-image src="photo.jpg" alt="A harbour at dusk"
+                 caption="Harbour, 2026" ratio="3/2" expandable></aura-image>
+
+   One Lightbox instance is shared across every aura-image (mirrors the single
+   reused tooltip bubble) — opened with the clicked image's src/alt/caption.
+
+   Load order: core.js → overlay.js → media-base.js → aura-image.js. HTMX-safe
+   (custom-element lifecycle). See docs/design/content-first-display-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.MediaElementBase) return;
+
+  /* Control-chrome icons not in the base set. */
+  Aura.icons.register("zoom-in",  '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>');
+  Aura.icons.register("zoom-out", '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/>');
+  Aura.icons.register("maximize", '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>');
+
+  var MIN_SCALE = 1;
+  var MAX_SCALE = 6;
+  var ZOOM_STEP = 0.35;   // per wheel notch / button press (multiplicative-ish)
+
+  /* ---- Shared fullscreen lightbox ------------------------------------- */
+  /* Summary: one reusable fullscreen overlay (scrim + contained image + glass
+     control chrome) shared by every aura-image. Owns the zoom/pan gesture and
+     keyboard controller; opened with a given image's src/alt/caption. */
+  function Lightbox() {
+    this.built = false;
+    this.scale = 1;
+    this.tx = 0;
+    this.ty = 0;
+    this.opener = null;
+    this.pointers = new Map(); // pointerId → {x,y} for pinch/pan
+    this.pinchStart = null;
+    this._onKey = this._onKey.bind(this);
+  }
+
+  Lightbox.prototype._build = function () {
+    if (this.built) return;
+    this.built = true;
+
+    var root = document.createElement("div");
+    root.className = "aura-lightbox";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.hidden = true;
+
+    var scrim = document.createElement("div");
+    scrim.className = "aura-lightbox__scrim";
+
+    var stage = document.createElement("div");
+    stage.className = "aura-lightbox__stage";
+
+    var img = document.createElement("img");
+    img.className = "aura-lightbox__img";
+    img.alt = "";
+    img.draggable = false;
+    stage.appendChild(img);
+
+    /* Glass control bar (content-first: chrome floats over the image). */
+    var bar = document.createElement("div");
+    bar.className = "aura-surface aura-e-3 aura-chrome aura-lightbox__bar";
+
+    var zoomOut = this._iconBtn("zoom-out", "Zoom out");
+    var zoomIn  = this._iconBtn("zoom-in", "Zoom in");
+    var reset   = this._iconBtn("maximize", "Fit to screen");
+    var close   = this._iconBtn("x", "Close");
+    close.classList.add("aura-lightbox__close");
+
+    var caption = document.createElement("span");
+    caption.className = "aura-lightbox__caption";
+
+    bar.appendChild(zoomOut);
+    bar.appendChild(zoomIn);
+    bar.appendChild(reset);
+    bar.appendChild(caption);
+    bar.appendChild(close);
+
+    root.appendChild(scrim);
+    root.appendChild(stage);
+    root.appendChild(bar);
+    document.body.appendChild(root);
+
+    this.root = root;
+    this.stage = stage;
+    this.img = img;
+    this.caption = caption;
+    this.closeBtn = close;
+
+    /* Wiring. */
+    var self = this;
+    scrim.addEventListener("click", function () { self.close(); });
+    close.addEventListener("click", function () { self.close(); });
+    zoomIn.addEventListener("click", function () { self._zoomBy(ZOOM_STEP, null); });
+    zoomOut.addEventListener("click", function () { self._zoomBy(-ZOOM_STEP, null); });
+    reset.addEventListener("click", function () { self._reset(); self._apply(); });
+
+    stage.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      self._zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP, { x: e.clientX, y: e.clientY });
+    }, { passive: false });
+
+    stage.addEventListener("dblclick", function (e) {
+      if (self.scale > 1) { self._reset(); }
+      else { self._zoomBy(2, { x: e.clientX, y: e.clientY }); }
+      self._apply();
+    });
+
+    this._bindPointer(stage);
+  };
+
+  Lightbox.prototype._iconBtn = function (icon, label) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "aura-lightbox__btn aura-glow";
+    b.setAttribute("aria-label", label);
+    b.setAttribute("data-aura-tooltip", label);
+    b.appendChild(Aura.icon(icon));
+    return b;
+  };
+
+  /* Pointer-driven pan (1 pointer) and pinch-zoom (2 pointers). */
+  Lightbox.prototype._bindPointer = function (stage) {
+    var self = this;
+    stage.addEventListener("pointerdown", function (e) {
+      stage.setPointerCapture(e.pointerId);
+      self.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (self.pointers.size === 2) self.pinchStart = self._pinchState();
+    });
+    stage.addEventListener("pointermove", function (e) {
+      if (!self.pointers.has(e.pointerId)) return;
+      var prev = self.pointers.get(e.pointerId);
+      self.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (self.pointers.size === 2 && self.pinchStart) {
+        var now = self._pinchState();
+        var ratio = now.dist / (self.pinchStart.dist || 1);
+        self._setScale(self.pinchStart.scale * ratio, now.mid);
+        self._apply();
+      } else if (self.pointers.size === 1 && self.scale > 1) {
+        self.tx += e.clientX - prev.x;
+        self.ty += e.clientY - prev.y;
+        self._clampPan();
+        self._apply();
+      }
+    });
+    function release(e) {
+      self.pointers.delete(e.pointerId);
+      if (self.pointers.size < 2) self.pinchStart = null;
+    }
+    stage.addEventListener("pointerup", release);
+    stage.addEventListener("pointercancel", release);
+  };
+
+  Lightbox.prototype._pinchState = function () {
+    var pts = Array.from(this.pointers.values());
+    var dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+    return {
+      dist: Math.hypot(dx, dy),
+      mid: { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 },
+      scale: this.scale
+    };
+  };
+
+  /* Zoom by a delta, optionally keeping the point `origin` (viewport coords)
+     stationary on screen. */
+  Lightbox.prototype._zoomBy = function (delta, origin) {
+    this._setScale(this.scale * (1 + delta), origin);
+    this._apply();
+  };
+
+  Lightbox.prototype._setScale = function (next, origin) {
+    next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+    if (origin) {
+      /* Keep the cursor/pinch point fixed: adjust translate by the focal delta. */
+      var rect = this.img.getBoundingClientRect();
+      var cx = rect.left + rect.width / 2;
+      var cy = rect.top + rect.height / 2;
+      var fx = origin.x - cx;
+      var fy = origin.y - cy;
+      var k = next / this.scale - 1;
+      this.tx -= fx * k;
+      this.ty -= fy * k;
+    }
+    this.scale = next;
+    if (this.scale <= MIN_SCALE) { this.tx = 0; this.ty = 0; }
+    this._clampPan();
+    this.stage.classList.toggle("aura-lightbox__stage--zoomed", this.scale > 1);
+  };
+
+  /* Keep the image from being dragged entirely off-screen. */
+  Lightbox.prototype._clampPan = function () {
+    var rect = this.img.getBoundingClientRect();
+    if (!rect.width) return;
+    var scaledW = rect.width;   // already reflects current scale
+    var scaledH = rect.height;
+    var maxX = Math.max(0, (scaledW - this.stage.clientWidth) / 2 + this.stage.clientWidth * 0.25);
+    var maxY = Math.max(0, (scaledH - this.stage.clientHeight) / 2 + this.stage.clientHeight * 0.25);
+    this.tx = Math.min(maxX, Math.max(-maxX, this.tx));
+    this.ty = Math.min(maxY, Math.max(-maxY, this.ty));
+  };
+
+  Lightbox.prototype._reset = function () { this.scale = 1; this.tx = 0; this.ty = 0; this.stage.classList.remove("aura-lightbox__stage--zoomed"); };
+
+  Lightbox.prototype._apply = function () {
+    this.img.style.transform = "translate(" + this.tx + "px," + this.ty + "px) scale(" + this.scale + ")";
+  };
+
+  Lightbox.prototype.open = function (src, alt, caption, opener) {
+    this._build();
+    this.opener = opener || null;
+    this.img.src = src;
+    this.img.alt = alt || "";
+    this.caption.textContent = caption || "";
+    this.caption.hidden = !caption;
+    this.root.setAttribute("aria-label", alt || caption || "Image viewer");
+    this._reset();
+    this._apply();
+    this.root.hidden = false;
+    document.documentElement.classList.add("aura-lightbox-open"); // scroll lock
+    /* Back the role="dialog" aria-modal="true" promise: inert + aria-hidden the
+       background and lock scroll via the shared dialog.js machinery (the same
+       inert isolation aura-dialog got in #546), rather than relying on the
+       scroll-lock class + minimal Tab trap alone. AT virtual-cursor browse and
+       background focus() can otherwise still reach the page behind the scrim
+       (#638). isolateBackground returns a restore() we reverse on close. */
+    if (Aura.dialog && Aura.dialog.isolateBackground) {
+      this._restoreBg = Aura.dialog.isolateBackground(this.root);
+    }
+    /* Force layout then animate in (unless reduced motion). */
+    if (!Aura.env.reducedMotion()) this.root.classList.add("aura-lightbox--in");
+    document.addEventListener("keydown", this._onKey, true);
+    var self = this;
+    requestAnimationFrame(function () { self.closeBtn.focus({ preventScroll: true }); });
+  };
+
+  Lightbox.prototype.close = function () {
+    if (!this.built || this.root.hidden) return;
+    this.root.hidden = true;
+    this.root.classList.remove("aura-lightbox--in");
+    document.documentElement.classList.remove("aura-lightbox-open");
+    /* Restore the background exactly (lift inert/aria-hidden, unlock scroll)
+       before returning focus to the opener (#638). */
+    if (this._restoreBg) { this._restoreBg(); this._restoreBg = null; }
+    document.removeEventListener("keydown", this._onKey, true);
+    if (this.opener && typeof this.opener.focus === "function") {
+      this.opener.focus({ preventScroll: true });
+    }
+    this.opener = null;
+  };
+
+  Lightbox.prototype._onKey = function (e) {
+    switch (e.key) {
+      case "Escape":     e.preventDefault(); this.close(); break;
+      case "+": case "=": e.preventDefault(); this._zoomBy(ZOOM_STEP, null); break;
+      case "-": case "_": e.preventDefault(); this._zoomBy(-ZOOM_STEP, null); break;
+      case "0":          e.preventDefault(); this._reset(); this._apply(); break;
+      case "ArrowLeft":  if (this.scale > 1) { e.preventDefault(); this.tx += 40; this._clampPan(); this._apply(); } break;
+      case "ArrowRight": if (this.scale > 1) { e.preventDefault(); this.tx -= 40; this._clampPan(); this._apply(); } break;
+      case "ArrowUp":    if (this.scale > 1) { e.preventDefault(); this.ty += 40; this._clampPan(); this._apply(); } break;
+      case "ArrowDown":  if (this.scale > 1) { e.preventDefault(); this.ty -= 40; this._clampPan(); this._apply(); } break;
+      case "Tab": {
+        /* Minimal focus trap: keep focus within the lightbox. */
+        var focusables = this.root.querySelectorAll("button");
+        if (!focusables.length) break;
+        var first = focusables[0], last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        break;
+      }
+    }
+  };
+
+  var lightbox = new Lightbox();
+  Aura.lightbox = lightbox; // expose for programmatic open
+
+  /* ---- Custom element: aura-image ------------------------------------- */
+  /* Summary: content-first image frame. Renders cover-fit in a glass frame;
+     when `expandable`, opens the shared lightbox on click / Enter / Space. */
+  Aura.define("aura-image", class extends Aura.MediaElementBase {
+    static get _prefix() { return "aura-image"; }
+    static get observedAttributes() { return ["src", "alt", "caption", "ratio", "fit", "loading", "expandable"]; }
+
+    _build() {
+      this._markFrame();
+      var img = this.querySelector(":scope > img.aura-image__img");
+      if (!img) {
+        img = document.createElement("img");
+        img.className = "aura-image__img";
+        this.insertBefore(img, this.firstChild);
+      }
+      this._img = img;
+
+      var frame = this; // the element itself is the fill/media frame
+      frame.classList.add("aura-fill");
+    }
+
+    _bind() {
+      var self = this;
+      this.addEventListener("click", function () { if (self._expandable()) self._expand(); });
+      this.addEventListener("keydown", function (e) {
+        if (!self._expandable()) return;
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); self._expand(); }
+      });
+    }
+
+    _expandable() { return this.hasAttribute("expandable"); }
+
+    _expand() {
+      lightbox.open(this.getAttribute("src") || "", this.getAttribute("alt") || "",
+                    this.getAttribute("caption") || "", this);
+    }
+
+    _sync() {
+      var src = this.getAttribute("src");
+      if (src != null) this._img.src = src;
+      this._img.alt = this.getAttribute("alt") || "";
+
+      this._mirrorMedia(this._img);
+
+      this.classList.toggle("aura-fill--contain", this.getAttribute("fit") === "contain");
+
+      if (this._expandable()) {
+        this.setAttribute("role", "button");
+        /* Make the frame a tab stop, but only claim a tabindex the author did
+           not author — mark the one we add so the un-expandable branch can drop
+           exactly ours and leave an author-set tabindex intact (#654). */
+        if (!this.hasAttribute("tabindex")) {
+          this.tabIndex = 0;
+          this.setAttribute("data-aura-tabindex-auto", "");
+        }
+        this.setAttribute("aria-label", "Expand image" + (this.getAttribute("alt") ? ": " + this.getAttribute("alt") : ""));
+        this.classList.add("aura-image--expandable");
+      } else {
+        this.removeAttribute("role");
+        this.classList.remove("aura-image--expandable");
+        /* Drop the now-meaningless tab stop we added (#654) so a no-longer-
+           expandable image isn't a dead, role-less keyboard focus target. An
+           author-supplied tabindex (no auto marker) is preserved. */
+        if (this.hasAttribute("data-aura-tabindex-auto")) {
+          this.removeAttribute("tabindex");
+          this.removeAttribute("data-aura-tabindex-auto");
+        }
+      }
+    }
+  });
+})();

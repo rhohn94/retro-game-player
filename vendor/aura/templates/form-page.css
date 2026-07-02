@@ -1,0 +1,221 @@
+/* ==========================================================================
+   Aura blueprint — Form Page  (templates/form-page.css)
+
+   A centred, card-contained form layout for authentication, settings, and
+   single-task data-entry screens. The card auto-sizes to content up to
+   --aura-form-page-card-size, then stays centered with comfortable vertical
+   breathing room. Field grouping, inline error messaging, and a sticky action
+   bar are all handled within the blueprint hierarchy.
+
+   CASCADE LAYER: form-page  (declared in css/aura.css)
+   Sits above core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply.
+
+   ── CANONICAL BEM SELECTORS (Phase-2 contract) ────────────────────────────
+   Phase 2 fills the rule bodies for every selector listed here. Do NOT add
+   new selectors in Phase 2 without updating this header.
+
+   .aura-form-page          Block  — outer page wrapper; typically <main> or a
+                                     <div> inside <aura-region>. Centers the
+                                     card both horizontally and vertically,
+                                     and provides the outer vertical padding.
+
+   .aura-form-page__card    Element — the visible card surface that contains
+                                     the form. Max inline-size is controlled
+                                     by --aura-form-page-card-size. Uses
+                                     aura-card elevation tokens for the glass
+                                     / surface treatment.
+
+   .aura-form-page__head    Element — heading area at the top of the card:
+                                     logo, title, and optional subtitle/eyebrow.
+                                     Not a <header>; semantics are up to the
+                                     author.
+
+   .aura-form-page__error   Element — inline error banner rendered between
+                                     __head and the field list. Visible only
+                                     when a [data-error] or [aria-live] state
+                                     is active. Uses the danger token palette.
+
+   .aura-form-page__actions Element — action row at the bottom of the card
+                                     (primary CTA, secondary link, forgotten-
+                                     password etc.). Rendered as a flex row
+                                     with justify-content: space-between by
+                                     default so secondary actions push to the
+                                     trailing edge.
+
+   ── TUNABLE CUSTOM PROPERTIES ─────────────────────────────────────────────
+   Override on any scope that wraps a .aura-form-page to customise the
+   blueprint without touching Aura internals. Defaults are set on :where(:root)
+   so they carry zero specificity and are trivially overridden.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Maximum inline size of the centred form card. */
+  --aura-form-page-card-size: 26rem;
+  /* Below a 30rem CONTAINER width the card fills the width and the action row
+     stacks. Keyed off the page's layout container (host aura-region/shell, both
+     container-type: inline-size), not the viewport — a half-snapped window
+     reflows like a phone. The breakpoint is the literal in the @container rule
+     below: a container-query feature value cannot read a custom property, so
+     this is NOT a runtime dial — retune it at the @container literal itself. */
+}
+
+/* ── Block: outer page wrapper ───────────────────────────────────────────── */
+
+/* Centers the card both axes with comfortable vertical breathing room.
+   min-block-size fills the entire region so the card lands in the
+   visual middle even when there is little content. Safe padding keeps the
+   card from touching the viewport edge on narrow screens. */
+.aura-form-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 100%;
+  padding: var(--aura-space-7) var(--aura-space-4);
+}
+
+/* ── Element: visible card surface ──────────────────────────────────────── */
+
+/* Glass surface at elevation 3: backdrop blur + tinted wash + bevel shadow.
+   Replicates the .aura-surface recipe scoped to the form-page context so the
+   blueprint is self-contained without inheriting stray .aura-surface rules. */
+.aura-form-page__card {
+  /* Elevation 3 dials (matches [elevation="3"] in elevation.css). */
+  --aura-e-blur:        var(--aura-blur-3);
+  --aura-e-tint:        var(--aura-surface-3);
+  --aura-e-shadow:      var(--aura-shadow-3);
+  --aura-e-edge:        color-mix(in srgb, var(--aura-edge-light) 75%, transparent);
+
+  inline-size: 100%;
+  max-inline-size: var(--aura-form-page-card-size);
+
+  /* Glass surface */
+  background:
+    linear-gradient(0deg, var(--aura-glass-tint-wash), var(--aura-glass-tint-wash)),
+    var(--aura-e-tint);
+  -webkit-backdrop-filter: blur(var(--aura-e-blur)) saturate(var(--aura-glass-saturate));
+          backdrop-filter: blur(var(--aura-e-blur)) saturate(var(--aura-glass-saturate));
+  border: var(--aura-border-width) solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-xl);
+  box-shadow:
+    var(--aura-e-shadow),
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+  color: var(--aura-text-on-glass);
+
+  /* Internal spacing: generous but not wasteful. */
+  padding: var(--aura-space-7) var(--aura-space-6);
+
+  /* Stack children vertically with consistent rhythm. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-5);
+}
+
+/* Opaque fallback for engines without backdrop-filter. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-form-page__card { background: var(--aura-surface-solid); }
+}
+
+/* ── Element: heading area ───────────────────────────────────────────────── */
+
+/* Logo, title, and optional subtitle at the top of the card.
+   Tight internal gap so the heading cluster reads as a single unit. */
+.aura-form-page__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+}
+
+/* Remove default heading margin so the flex gap owns spacing. */
+.aura-form-page__head :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 0;
+}
+
+/* Supporting text (subtitle / eyebrow) inherits muted colour without forcing
+   a specific element type on the author. */
+.aura-form-page__head :where(p) {
+  margin-block: 0;
+  color: var(--aura-text-muted);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+}
+
+/* ── Element: inline error banner ────────────────────────────────────────── */
+
+/* Danger-tinted banner that sits between __head and the field stack.
+   Uses role="alert" or aria-live in markup; display is toggled by JS / server
+   render via the hidden attribute — the CSS only styles the visible state. */
+.aura-form-page__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-3) var(--aura-space-4);
+  border-radius: var(--aura-radius-md);
+  border: var(--aura-border-width) solid var(--aura-danger-a25);
+  background: var(--aura-danger-a15);
+  color: var(--aura-danger);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+}
+
+/* When the element carries [hidden] the browser display:none wins; when
+   revealed, the flex layout above takes over automatically. */
+
+/* ── Element: action row ─────────────────────────────────────────────────── */
+
+/* Bottom action row: primary CTA aligned to the trailing edge, secondary
+   actions (forgot-password link, cancel) at the leading edge.
+   Wraps on very narrow viewports so both sides stack without overflow. */
+.aura-form-page__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--aura-space-3);
+  padding-block-start: var(--aura-space-2);
+  border-block-start: var(--aura-divider);
+}
+
+/* ── Narrow CONTAINER reflow ─────────────────────────────────────────────── */
+
+/* On CONTAINERS narrower than the card-size threshold, let the card fill the
+   available width with comfortable edge gutters. Unnamed query → keys off the
+   nearest container ancestor (host aura-region/shell, container-type:
+   inline-size), so a half-snapped window reflows the card like a phone with no
+   viewport rule. */
+@container (max-width: 30rem) {
+  .aura-form-page {
+    align-items: flex-start;
+    padding: var(--aura-space-5) var(--aura-space-3);
+  }
+
+  .aura-form-page__card {
+    padding: var(--aura-space-5) var(--aura-space-4);
+    border-radius: var(--aura-radius-lg);
+  }
+
+  /* On the smallest screens let actions stack column so each control is
+     full-width and tap-friendly. */
+  .aura-form-page__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ── Motion preferences ──────────────────────────────────────────────────── */
+
+/* No transitions are defined in this blueprint, but if a consumer adds
+   reveal animations to __error or __card, the prefers-reduced-motion guard
+   below keeps the mechanism in place for future extension. */
+@media (prefers-reduced-motion: reduce) {
+  .aura-form-page,
+  .aura-form-page__card,
+  .aura-form-page__head,
+  .aura-form-page__error,
+  .aura-form-page__actions {
+    transition: none;
+    animation: none;
+  }
+}

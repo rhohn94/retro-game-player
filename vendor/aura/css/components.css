@@ -1,0 +1,1385 @@
+/* ==========================================================================
+   Aura — components & declarative elements.
+
+   Almost everything here is keyed on aura-* TAG NAMES and attributes, so the
+   declarative markup is fully styled even before/without JS and after an HTMX
+   swap (no upgrade step required to look right). JS only adds behavior/ARIA.
+   See docs/design/declarative-markup-design.md.
+   ========================================================================== */
+
+/* ---- Shared gap mapping for layout primitives ------------------------- */
+:where(aura-stack, aura-row, aura-grid, aura-toolbar) { --aura-gap: var(--aura-space-4); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="0"] { --aura-gap: var(--aura-space-0); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="1"] { --aura-gap: var(--aura-space-1); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="2"] { --aura-gap: var(--aura-space-2); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="3"] { --aura-gap: var(--aura-space-3); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="4"] { --aura-gap: var(--aura-space-4); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="5"] { --aura-gap: var(--aura-space-5); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="6"] { --aura-gap: var(--aura-space-6); }
+:where(aura-stack, aura-row, aura-grid, aura-toolbar)[gap="7"] { --aura-gap: var(--aura-space-7); }
+
+/* ---- Layout primitives ------------------------------------------------ */
+aura-stack { display: flex; flex-direction: column; gap: var(--aura-gap); }
+aura-row   { display: flex; flex-direction: row; align-items: center; gap: var(--aura-gap); }
+aura-row[wrap] { flex-wrap: wrap; }
+aura-grid {
+  display: grid;
+  gap: var(--aura-gap);
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--aura-grid-min, 16rem), 100%), 1fr));
+}
+aura-spacer { flex: 1 1 auto; }
+
+:where(aura-stack, aura-row)[align="start"]   { align-items: flex-start; }
+:where(aura-stack, aura-row)[align="center"]  { align-items: center; }
+:where(aura-stack, aura-row)[align="end"]     { align-items: flex-end; }
+:where(aura-stack, aura-row)[align="stretch"] { align-items: stretch; }
+:where(aura-stack, aura-row)[justify="start"]   { justify-content: flex-start; }
+:where(aura-stack, aura-row)[justify="center"]  { justify-content: center; }
+:where(aura-stack, aura-row)[justify="end"]     { justify-content: flex-end; }
+:where(aura-stack, aura-row)[justify="between"] { justify-content: space-between; }
+
+/* ---- Surfaces: card / panel / toolbar --------------------------------- */
+/* Display / layout only — box-model dials live in the per-component override
+   block below (after the shared surface rule, so the override chains win). */
+aura-card  { display: block; }
+aura-panel { display: block; }
+aura-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-gap, var(--aura-space-2));
+}
+
+/* Give the glass treatment to surface elements. Default elevation when the
+   author didn't specify one comes from elevation.css fallbacks.
+
+   NOTE: this recipe intentionally mirrors `.aura-surface` in elevation.css. The
+   class version styles anything tagged `.aura-surface`; this element-selector
+   version styles the bare `aura-card`/`aura-panel`/`aura-toolbar` tags so they
+   read as glass with no class. The two are kept in sync by hand — change both,
+   or the per-component override block below will diverge from the surface base. */
+aura-card, aura-panel, aura-toolbar {
+  position: relative;
+  /* Surface pattern (default none) + frame face (default transparent) + tint
+     wash (no-op at strength 0), all layered over the elevation tint. The two
+     new layers are inert by default so the rendered surface is unchanged. */
+  background:
+    var(--aura-surface-pattern),
+    linear-gradient(0deg, var(--aura-frame-face), var(--aura-frame-face)),
+    var(--aura-glass-tint-layer),
+    var(--aura-e-tint, var(--aura-surface-2));
+  -webkit-backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-2))) saturate(var(--aura-glass-saturate));
+  backdrop-filter: blur(var(--aura-e-blur, var(--aura-blur-2))) saturate(var(--aura-glass-saturate));
+  /* border-style is a token (default solid) so a classic theme can pick a 3-D
+     frame style globally without editing components. */
+  border: var(--aura-border-width) var(--aura-border-style, solid) var(--aura-surface-stroke);
+  color: var(--aura-text-on-glass);
+  /* Bevelled glass edge — mirror of .aura-surface in elevation.css. frame-inset
+     (default inert) carries a theme-supplied 3-D bevel via box-shadow. */
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-e-shadow, var(--aura-shadow-2)),
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+}
+
+/* ---- Per-component box-model overrides (v1.5) ------------------------------
+   The override-cascade convention (theming-and-configuration-design.md §4):
+   each property reads var(--aura-<component>-<prop>, <global default>). The
+   override key is UNSET by default, so the global wins; set it on :root (or any
+   scope) to retune ONE family without moving the global token under the others.
+   This block sits AFTER the shared surface rule so the chains win the cascade;
+   no :where() — these must keep normal specificity so an override actually lands.
+
+   Keys: --aura-card-pad/-radius/-border, --aura-panel-pad/-radius/-border,
+         --aura-toolbar-pad-x/-pad-y/-radius/-border.                          */
+aura-card {
+  padding:       var(--aura-card-pad,    var(--aura-space-5));
+  border-radius: var(--aura-card-radius, var(--aura-radius-lg));
+  border-width:  var(--aura-card-border, var(--aura-border-width));
+}
+aura-panel {
+  padding:       var(--aura-panel-pad,    var(--aura-space-4));
+  border-radius: var(--aura-panel-radius, var(--aura-radius-md));
+  border-width:  var(--aura-panel-border, var(--aura-border-width));
+}
+aura-toolbar {
+  padding:       var(--aura-toolbar-pad-y, var(--aura-space-2))
+                 var(--aura-toolbar-pad-x, var(--aura-space-3));
+  border-radius: var(--aura-toolbar-radius, var(--aura-radius-lg));
+  border-width:  var(--aura-toolbar-border, var(--aura-border-width));
+  position: sticky; top: var(--aura-space-3); z-index: var(--aura-z-sticky);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  aura-card, aura-panel, aura-toolbar { background: var(--aura-surface-solid); }
+}
+
+/* ---- Buttons ---------------------------------------------------------- */
+/* Native-control reset: strip browser chrome from a <button> or <a> nested
+   directly inside an <aura-button> so the wrapper's Aura styling is the sole
+   visual source of truth. Every visual property — background, border, spacing,
+   colour, typography — is inherited from or set on the <aura-button> host. */
+aura-button > button,
+aura-button > a {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  /* A REAL box, not display:contents (#390): Chromium cannot focus a box-less
+     element, so an anchor-in-button was keyboard-unreachable (Tab skipped it,
+     .focus() no-opped) — and pointer hits on the host's padding band struck
+     the host, not the control. The inner control now mirrors the host's flex
+     centring and stretches over the host's padding box (align-self: stretch +
+     negative inline margins with the inline padding restored), so the pointer
+     target is the full button face AND the element can take focus. The
+     standard :focus-visible ring (css/mobile.css) lands on this box, which
+     spans the button face. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  align-self: stretch;
+  margin: 0 calc(-1 * var(--aura-btn-pad-x, var(--aura-space-4)));
+  padding: 0 var(--aura-btn-pad-x, var(--aura-space-4));
+}
+
+.aura-btn, aura-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aura-space-2);
+  /* Per-component override keys: --aura-btn-pad-x/-border/-radius. */
+  padding: 0 var(--aura-btn-pad-x, var(--aura-space-4));
+  block-size: var(--aura-control-height-md);
+  /* border-style is a token (default solid) so a classic theme can switch to
+     outset/inset/ridge/groove for a 3-D frame without any component edit. */
+  border: var(--aura-btn-border, var(--aura-border-width)) var(--aura-border-style, solid) var(--aura-surface-stroke);
+  border-radius: var(--aura-btn-radius, var(--aura-radius-md));
+  /* v3.91 glass-depth: the convex face gradient (lit-from-above) sits just below
+     --aura-surface-pattern so a textured theme (e.g. retro-pc, whose tint is
+     OPAQUE and would otherwise be occluded by the face) keeps its pattern grid on
+     top of the button; on the default theme surface-pattern is `none`, so the
+     face is the effective top layer and the dome reads unchanged. The gradient's
+     amplitude is --aura-btn-face-amount,
+     which is calc(* --aura-depth) capped by min() — at depth 0 (flat-primary) it
+     collapses to a flat --aura-btn-tint fill; at higher depth it domes harder.
+     A variant retints by swapping --aura-btn-tint ONLY — the recipe is never
+     re-authored. (frame-face folds in for transparent-theme hooks.) */
+  background:
+    var(--aura-surface-pattern),
+    var(--aura-btn-glass-face),
+    linear-gradient(0deg, var(--aura-frame-face), var(--aura-frame-face)),
+    var(--aura-btn-tint);
+  color: var(--aura-text);
+  font-weight: var(--aura-weight-medium);
+  font-size: var(--aura-text-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  /* #499: NO backdrop-filter on the default path. Depth is gradients + layered
+     box-shadow ONLY — four layers, every magnitude routed through --aura-depth so
+     they flatten with the theme and deepen with it: frame-inset is the inert
+     classic-bevel hook; --aura-btn-depth-shadow = ambient+contact drop from the
+     --aura-shadow-* tiers + the coloured --aura-btn-glow ring; --aura-btn-rim =
+     specular top edge with depth-scaled alpha; --aura-btn-inner-shade = apparent
+     glass thickness, depth-scaled. */
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-btn-depth-shadow),
+    var(--aura-btn-rim),
+    var(--aura-btn-inner-shade);
+  transition:
+    transform var(--aura-dur-fast) var(--aura-ease-out),
+    background-color var(--aura-dur-base) var(--aura-ease-standard),
+    border-color var(--aura-dur-base) var(--aura-ease-standard),
+    box-shadow var(--aura-dur-base) var(--aura-ease-out);
+}
+.aura-btn:hover, aura-button:hover {
+  /* Universal lift (same --aura-hover-lift dial as every widget); variants
+     override colour only, never this transform. Lighten the tint one surface
+     step (depth-aware via the shared face recipe) AND swap the resting drop for
+     the raised drop: the ambient+contact tier is INLINED here as
+     var(--aura-e-shadow-raise, var(--aura-shadow-3)) so it resolves at the
+     button and tracks its elevation (#578 — must NOT live in a :root token),
+     while --aura-btn-depth-shadow-raise carries only the bloomed coloured glow. */
+  --aura-btn-tint: var(--aura-surface-3);
+  transform: translateY(calc(-1 * var(--aura-hover-lift)));
+  box-shadow:
+    var(--aura-frame-inset),
+    var(--aura-e-shadow-raise, var(--aura-shadow-3)),
+    var(--aura-btn-depth-shadow-raise),
+    var(--aura-btn-rim),
+    var(--aura-btn-inner-shade);
+}
+.aura-btn:active, aura-button:active {
+  /* Press-in: scale + invert the rim into an inner-top shadow via the existing
+     --aura-frame-inset-active seam (classic/retro themes flip it for a real
+     sunken bevel; default falls back to the inert frame-inset); drop to the tight
+     tier-1 contact shadow. No new geometry. */
+  transform: translateY(0) scale(0.97);
+  box-shadow:
+    var(--aura-frame-inset-active, var(--aura-frame-inset)),
+    var(--aura-shadow-1),
+    var(--aura-btn-inner-shade);
+}
+
+/* Focus ring on buttons (#120). On a filled / primary button the bare ring
+   (--aura-ring, a tinted primary glow) blends into the fill and reads as
+   barely-there. Layer --aura-ring-offset (a bg-coloured 2px gap) UNDER the
+   ring so a clean separator sits between the fill and the ring — the ring then
+   reads against the page on EVERY variant, coloured or not. The transparent
+   outline from base.css still rides along for overflow-clip / forced-colors. */
+.aura-btn:focus-visible, aura-button:focus-visible {
+  box-shadow: var(--aura-ring-offset), var(--aura-ring);
+}
+
+/* primary / secondary / ghost / danger.
+   NB: deliberately NOT wrapped in :where() — these must out-specify the base
+   `aura-button` type selector, and :where() would zero their specificity. */
+/* Each variant swaps --aura-btn-tint (+ optional rim/glow/face-amount) ONLY:
+   NO box-shadow geometry, NO transform, NO face gradient — the shared recipe
+   domes/lifts them all. The four hand-rolled per-variant box-shadow stacks that
+   used to live here are GONE (that is the v3.91 DRY net line reduction). */
+.aura-btn--primary, aura-button[variant="primary"] {
+  /* Hero: brand-tinted glass. --aura-btn-tint feeds the convex face gradient.
+     CONTRAST: white-on-primary is the gated path, so primary OVERRIDES
+     --aura-btn-face-amount to a 3% cap — white on color-mix(in oklch, #7654f5,
+     white 3%) ~= 4.56:1, clearing WCAG AA for normal text at EVERY depth (the
+     min() cap holds it there even at extra-depth; 4% would be 4.45 = fail). The
+     coloured ambient glow folds into the SHARED drop via --aura-btn-glow. */
+  --aura-btn-tint: var(--aura-primary);
+  --aura-btn-face-amount: min(3%, calc(3% * var(--aura-depth)));
+  --aura-btn-glow: var(--aura-primary-a40);
+  border-color: var(--aura-primary-600);
+  color: var(--aura-on-primary);
+  --aura-btn-spinner-color: var(--aura-on-primary);
+}
+.aura-btn--primary:hover, aura-button[variant="primary"]:hover {
+  /* Re-assert the brand tint on hover. The universal .aura-btn:hover sets
+     --aura-btn-tint to the neutral --aura-surface-3 to lighten the DEFAULT
+     button; without this rule that neutral wins over primary's resting tint
+     (equal/lower specificity), which (a) greys primary out and (b) in a LIGHT
+     theme paints white-on-near-white text — a WCAG failure no gate inspects.
+     Primary keeps its purple; hover feedback is the lift + glow bloom + rim, NOT
+     a face lighten (any lighten past the 3% cap drops white-on-primary below AA). */
+  --aura-btn-tint: var(--aura-primary);
+}
+/* Emphasis ladder (#70), strongest → lightest, each tier visually distinct:
+   PRIMARY   brand-tinted convex glass + coloured glow (the call-to-action),
+   SECONDARY saturated teal glass tint (a filled-but-accent alternative),
+   DEFAULT   neutral surface glass + border, no accent (the everyday action),
+   GHOST     transparent + faint border, depth suppressed (lowest-emphasis),
+   DANGER    a destructive variant, weighted like default but danger-tinted. */
+.aura-btn--secondary, aura-button[variant="secondary"] {
+  /* Same composite, accent tint, coloured text. Faint teal glow.
+     CONTRAST (#839): the text routes through --aura-btn-secondary-text, which
+     DEFAULTS to the pale --aura-secondary-100 — correct on the dark default (and
+     dark named themes), where pale-on-dark-tint clears AA with headroom. On the
+     LIGHT named themes (frutiger-aero, retro-pc) that pale text would sit on a
+     light --aura-secondary-a40 tint over a near-white/silver surface and fail
+     WCAG AA (≈1.2:1); those themes override --aura-btn-secondary-text to a DEEPER
+     on-brand secondary tone (token swap only — no component CSS override). The
+     8% neutral face cap is unaffected: secondary is never white-on-fill. */
+  --aura-btn-tint: var(--aura-secondary-a40);
+  --aura-btn-glow: var(--aura-secondary-a40);
+  border-color: var(--aura-secondary-a60);
+  color: var(--aura-btn-secondary-text, var(--aura-secondary-100));
+  --aura-btn-spinner-color: var(--aura-btn-secondary-text, var(--aura-secondary-100));
+}
+.aura-btn--secondary:hover, aura-button[variant="secondary"]:hover {
+  /* Re-assert the RESTING a40 accent tint on hover — do NOT deepen a40->a60
+     (#840). On a dark theme the denser a60 tint LIGHTENS the composited face
+     and erodes the pale --aura-btn-secondary-text below AA (a60 dome-top
+     ≈3.09:1; even pure white tops out at 3.69:1, so no text colour can rescue
+     it — the fix has to be structural, not a hover text token). Same move as
+     primary:hover above: re-assert the resting tint so the universal
+     .aura-btn:hover neutral --aura-surface-3 lighten cannot win the cascade and
+     grey the teal out (and, on a light theme, paint pale-on-near-white). (danger
+     deepens a15->a25 on hover — fine there: its text is the saturated
+     --aura-danger, not a pale tint.) Hover feedback is the shared lift + glow
+     bloom + full-rim .aura-glow flood; on the deliberately flat themes
+     (flat-primary, retro-pc) those seams are dialled down with the depth system,
+     so secondary's hover is as quiet as every other variant's there. To give
+     secondary a hover cue that SURVIVES the flat themes, step the edge to a
+     solid, DEPTH-INDEPENDENT accent border (#841): the resting translucent
+     --aura-secondary-a60 rim deepens to the opaque --aura-secondary-400, a cue
+     that is not gated by --aura-depth and so paints identically at depth 0
+     (flat-primary, retro-pc) as it does on the glassy themes. This touches the
+     EDGE only, never the text-bearing face, so it cannot erode
+     --aura-btn-secondary-text below AA the way the rejected a40->a60 face deepen
+     did. (Mirrors the ghost:hover border-color step pattern below.) */
+  --aura-btn-tint: var(--aura-secondary-a40);
+  border-color: var(--aura-secondary-400);
+}
+.aura-btn--ghost, aura-button[variant="ghost"] {
+  /* Lowest emphasis: suppress the entire depth stack at rest so it reads as
+     tertiary. Override the WHOLE box-shadow to a single inert layer — do NOT
+     null individual mid-list seams (a bare `none` as a comma item is invalid-
+     at-computed-value-time and would silently drop the frame-inset bevel hook).
+     The dome returns on hover via --aura-btn-tint alone (the base hover rule
+     re-asserts the glass stack once the tint resolves to a real surface). */
+  --aura-btn-tint: transparent;
+  border-color: var(--aura-surface-stroke);
+  color: var(--aura-text-muted);
+  box-shadow: var(--aura-frame-inset);
+}
+.aura-btn--ghost:hover, aura-button[variant="ghost"]:hover {
+  --aura-btn-tint: var(--aura-surface-2);
+  border-color: var(--aura-surface-stroke-strong);
+  color: var(--aura-text);
+}
+.aura-btn--danger, aura-button[variant="danger"] {
+  /* Danger text colour (--aura-danger) on a translucent tint — not white-on-fill,
+     so the 8% neutral face cap is safe. Faint danger glow. */
+  --aura-btn-tint: var(--aura-danger-a15);
+  --aura-btn-glow: var(--aura-danger-a25);
+  border-color: var(--aura-danger-a25);
+  color: var(--aura-danger);
+  --aura-btn-spinner-color: var(--aura-danger);
+}
+.aura-btn--danger:hover, aura-button[variant="danger"]:hover {
+  --aura-btn-tint: var(--aura-danger-a25);
+}
+
+/* Opt-in frosted modifier — the ONLY place a button may set backdrop-filter
+   (#499 keeps it OFF the default path). For buttons over media/wallpaper. Ships
+   the full opaque fallback chain: @supports-not + lite + reduced-transparency +
+   prefers-contrast, ALL de-frosting to the IDENTICAL opaque surface set so the
+   check-css-glass parity sub-check (#672/#648) holds. The depth stack
+   (face/rim/inner-shade/drop) is inherited unchanged from the base rule. */
+.aura-btn--glass {
+  -webkit-backdrop-filter: blur(var(--aura-btn-glass-blur)) saturate(var(--aura-btn-glass-saturate));
+  backdrop-filter: blur(var(--aura-btn-glass-blur)) saturate(var(--aura-btn-glass-saturate));
+  /* Wash the theme tint behind the frost so warm-dusk et al. reach the glass,
+     and let the translucent tint sample the wallpaper through the blur. */
+  background:
+    var(--aura-btn-glass-face),
+    var(--aura-glass-tint-layer),
+    var(--aura-btn-tint);
+}
+/* 1. @supports-not: no backdrop-filter → raise to the opaque surface. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-btn--glass {
+    background:
+      var(--aura-btn-glass-face),
+      var(--aura-glass-tint-layer),
+      var(--aura-btn-glass-surface-solid);
+  }
+}
+/* 2. Lite effects mode (#672): shed the compositing layer for an opaque button. */
+[data-aura-effects="lite"] .aura-btn--glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background:
+    var(--aura-btn-glass-face),
+    var(--aura-glass-tint-layer),
+    var(--aura-btn-glass-surface-solid);
+}
+/* 3. Reduced transparency (#148) — de-frost to the IDENTICAL opaque surface. */
+@media (prefers-reduced-transparency: reduce) {
+  .aura-btn--glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background:
+      var(--aura-btn-glass-face),
+      var(--aura-glass-tint-layer),
+      var(--aura-btn-glass-surface-solid);
+  }
+}
+/* 4. Increased contrast (#164) — IDENTICAL de-frosted surface (parity). */
+@media (prefers-contrast: more) {
+  .aura-btn--glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background:
+      var(--aura-btn-glass-face),
+      var(--aura-glass-tint-layer),
+      var(--aura-btn-glass-surface-solid);
+  }
+}
+
+/* sizes */
+.aura-btn--sm, aura-button[size="sm"] { block-size: var(--aura-control-height-sm); padding: 0 var(--aura-space-3); font-size: var(--aura-text-xs); }
+.aura-btn--lg, aura-button[size="lg"] { block-size: var(--aura-control-height-lg); padding: 0 var(--aura-space-5); font-size: var(--aura-text-md); }
+.aura-btn--icon, aura-button[size="icon"] { inline-size: var(--aura-control-height-md); padding: 0; }
+
+/* disabled / loading */
+:where(.aura-btn, aura-button)[disabled],
+:where(.aura-btn, aura-button)[aria-disabled="true"] {
+  opacity: var(--aura-disabled-opacity); pointer-events: none; transform: none;
+  /* Standardise the disabled cursor (#121), complementing the opacity dial.
+     pointer-events:none suppresses the cursor on the host itself, but the cue
+     still reads on the disabled control's own box edge and via the native
+     [disabled] state, so we set it for consistency across all disabled
+     controls (buttons + inputs below). */
+  cursor: not-allowed;
+}
+:where(.aura-btn, aura-button)[loading] { color: transparent !important; pointer-events: none; position: relative; }
+:where(.aura-btn, aura-button)[loading]::after {
+  content: ""; position: absolute; inline-size: 1.1em; block-size: 1.1em;
+  border-radius: 50%;
+  /* Spinner colour is a per-variant dial so it stays visible on every fill
+     (#138): the button's own `color` is forced transparent to hide the label,
+     so the spinner can't inherit it — each filled variant sets its on-fill
+     colour below; default/ghost fall back to the body text colour. */
+  color: var(--aura-btn-spinner-color, var(--aura-text));
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  /* One rotation per --aura-btn-spinner-dur (derived from --aura-dur-ambient,
+     the shared looping/infinite-animation base token — see tokens.css) —
+     snappy enough to read as "working" without being frantic. Override the
+     dial to re-skin. DELIBERATELY plain `linear`, not an --aura-ease-* token
+     (#841-class): tried var(--aura-ease-standard, linear) and verified it
+     against its actual cubic-bezier(0.2, 0, 0, 1) curve — by 53% of elapsed
+     time the rotation is already ~90% complete and by 86% it is ~99% complete,
+     so the spinner visibly crawls to a near-stop just before snapping back to
+     0% each cycle, a stutter that reads as broken rather than "working". Ease
+     curves are authored for finite start/stop transitions, not a single
+     repeating keyframe pair with no alternate direction; constant angular
+     velocity (linear) is the visually-correct choice for a continuous
+     rotation. Kept as a literal value, not a fallback behind an ease token —
+     there is no token to prefer here once evaluated, unlike the
+     missing-token-fallback case in tokens-and-theming-design.md. */
+  animation: aura-spin var(--aura-btn-spinner-dur) linear infinite;
+}
+@keyframes aura-spin { to { transform: rotate(1turn); } }
+/* Reduced motion: stop the rotation but keep the ring visible (don't hide the
+   loading affordance, just stop the motion) — mirrors the indeterminate
+   progress bar's own reduced-motion block below. The base.css central safety
+   net (#498) already collapses animation-duration globally as a backstop, but
+   per that file's documented per-component philosophy this is the explicit,
+   intent-carrying rule for this animation. */
+@media (prefers-reduced-motion: reduce) {
+  :where(.aura-btn, aura-button)[loading]::after { animation: none; }
+}
+
+/* Icon convention (#71): ONE optical size dial (--aura-icon-size, em-relative so
+   icons scale with their text), ONE stroke weight (--aura-icon-stroke-width), and
+   a baseline rule. In flex contexts (buttons, menu rows) icons are centred by the
+   container's align-items; the negative vertical-align below aligns them to the
+   text baseline when they sit INLINE in running text, fixing the prior drift. */
+.aura-icon {
+  inline-size: var(--aura-icon-size, 1.15em);
+  block-size: var(--aura-icon-size, 1.15em);
+  flex: none;
+  vertical-align: -0.18em;
+  fill: none; stroke: currentColor; stroke-width: var(--aura-icon-stroke-width, 1.8);
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* ---- Fields & inputs -------------------------------------------------- */
+aura-field { display: block; }
+aura-field + aura-field { margin-top: var(--aura-space-4); }
+
+.aura-field__label, aura-field > label:first-child {
+  display: block;
+  margin-bottom: var(--aura-space-2);
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text);
+}
+
+.aura-input,
+aura-field :where(input, select, textarea) {
+  inline-size: 100%;
+  /* Per-component override keys: --aura-input-pad-x/-border/-radius. */
+  padding: 0 var(--aura-input-pad-x, var(--aura-space-3));
+  block-size: var(--aura-input-height);
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+  border: var(--aura-input-border, var(--aura-border-width)) var(--aura-border-style, solid) var(--aura-surface-stroke);
+  border-radius: var(--aura-input-radius, var(--aura-radius-md));
+  /* #499: no backdrop-filter — a tier-1 (0px) blur is a visual no-op that still
+     forced a compositing layer, so it was pure waste regardless of fill opacity.
+     Dropped across every input. (Note: --aura-surface-1 is TRANSLUCENT in the
+     dark default and opaque only in light mode / flat-primary, so the field does
+     show the wallpaper through in dark — fine by design; the blur removal does
+     not depend on the fill being opaque.) */
+  transition:
+    border-color var(--aura-dur-base) var(--aura-ease-standard),
+    background-color var(--aura-dur-base) var(--aura-ease-standard);
+}
+aura-field textarea, textarea.aura-input { block-size: auto; padding: var(--aura-space-3); min-height: 5rem; resize: vertical; }
+/* Auto-grow (#152): opt in with [autogrow] on aura-field (or [data-autogrow] on
+   a bare textarea). Modern browsers grow the box natively via field-sizing; the
+   js/autogrow.js fallback drives the same behaviour where it's unsupported. The
+   growing textarea drops the manual resize grip (it sizes itself) but honours an
+   optional --aura-textarea-max cap so it never runs away. */
+aura-field[autogrow] textarea, textarea.aura-input[data-autogrow] {
+  field-sizing: content;
+  resize: none;
+  max-block-size: var(--aura-textarea-max, 18rem);
+  overflow-y: auto;
+}
+
+/* Control wrapper: hugs just the input so the edge glow rides the control's
+   own rounded box — labels and hints never react to the cursor. Radius matches
+   the control so the rim (border-radius: inherit) aligns to its corners.      */
+.aura-field__control { display: block; border-radius: var(--aura-radius-md); }
+.aura-field__control > :where(input, select, textarea) { display: block; }
+.aura-input::placeholder,
+aura-field :where(input, textarea)::placeholder { color: var(--aura-text-subtle); }
+
+.aura-input:hover,
+aura-field :where(input, select, textarea):hover { border-color: var(--aura-surface-stroke-strong); }
+.aura-input:focus,
+aura-field :where(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  background: var(--aura-surface-2);
+  box-shadow: var(--aura-ring);
+}
+
+.aura-field__hint, aura-field [data-aura-hint] {
+  display: block; margin-top: var(--aura-space-2);
+  font-size: var(--aura-text-xs); color: var(--aura-text-subtle);
+}
+.aura-field__error, aura-field [data-aura-error] {
+  display: block; margin-top: var(--aura-space-2);
+  font-size: var(--aura-text-xs); color: var(--aura-danger);
+}
+aura-field[invalid] :where(input, select, textarea),
+aura-field :where(input, select, textarea)[aria-invalid="true"] {
+  border-color: var(--aura-danger-a25);
+}
+aura-field[invalid] :where(input, select, textarea):focus { box-shadow: 0 0 0 3px var(--aura-danger-a25); }
+
+/* Disabled inputs: muted + the standard not-allowed cursor (#121), matching
+   disabled buttons. Inputs keep pointer-events, so the cursor cue is visible. */
+.aura-input:disabled,
+.aura-input[aria-disabled="true"],
+aura-field :where(input, select, textarea):disabled,
+aura-field :where(input, select, textarea)[aria-disabled="true"] {
+  opacity: var(--aura-disabled-opacity, 0.5);
+  cursor: not-allowed;
+}
+
+/* ---- Switch ----------------------------------------------------------- */
+/* Restructured from pseudo-only layout (ITEM-10): real children give the
+   proximity glow an addressable target (the thumb). Both pseudos are now
+   free — ::after on the thumb is used by glow.css for the rim light.    */
+aura-switch {
+  display: inline-flex; align-items: center; gap: var(--aura-space-2);
+  position: relative;
+  cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+  /* Glow integration: suppress lift + magnet on the whole pill so only
+     the thumb receives the radiant rim via .aura-glow__target.          */
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+.aura-switch__track {
+  /* Flex container: vertically centres the thumb without absolute
+     positioning. This avoids conflict with glow.css's
+     .aura-glow__target { position: relative } rule, which lives in the
+     `glow` cascade layer (higher priority than `components`). */
+  position: relative; flex: none;
+  display: flex; align-items: center;
+  inline-size: var(--aura-switch-track-w, 2.5rem);
+  block-size: var(--aura-switch-track-h, 1.4rem);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-surface-3);
+  border: 1px solid var(--aura-surface-stroke);
+  box-shadow: inset 0 1px 3px hsl(var(--aura-shadow-color) / 0.4);
+  transition: background-color var(--aura-dur-base) var(--aura-ease-standard);
+}
+.aura-switch__thumb {
+  /* position: relative is enforced by glow.css (.aura-glow__target), which
+     wins the cascade-layer race. Flex alignment on the track centres it
+     vertically; margin-inline-start places it at rest. */
+  flex: none;
+  margin-inline-start: var(--aura-switch-thumb-inset, 0.2rem);
+  inline-size: var(--aura-switch-thumb-size, 1.05rem);
+  block-size: var(--aura-switch-thumb-size, 1.05rem);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-switch-thumb-bg, var(--aura-text));
+  box-shadow: var(--aura-shadow-1);
+  transition: transform var(--aura-dur-base) var(--aura-ease-spring);
+  /* Widen the glow rim for this compact ~1rem target (matches radio dot): the
+     shared --aura-edge-shine-width-compact token (1.5px), one source of truth
+     for radio/checkbox/switch (#663). */
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+}
+aura-switch[checked] .aura-switch__track {
+  background: var(--aura-primary); border-color: var(--aura-primary-600);
+}
+aura-switch[checked] .aura-switch__thumb {
+  transform: translateX(var(--aura-switch-thumb-travel, 1.1rem));
+}
+/* RTL: the thumb rests on the right (margin-inline-start flips), so the checked
+   travel must go the other way (toward the logical end = left) or it would push
+   the thumb off the track. */
+[dir="rtl"] aura-switch[checked] .aura-switch__thumb {
+  transform: translateX(calc(-1 * var(--aura-switch-thumb-travel, 1.1rem)));
+}
+aura-switch[disabled] { opacity: var(--aura-disabled-opacity); pointer-events: none; }
+/* Forced-colors (Windows High Contrast): on/off is carried by the track
+   background (dropped) and a thumb that is itself a pure background (dropped) —
+   so on and off become identical. Give the thumb a system-colour fill+border so
+   its position reads, and flip the checked track to Highlight so state is clear. */
+@media (forced-colors: active) {
+  .aura-switch__thumb {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border: 1px solid CanvasText;
+  }
+  aura-switch[checked] .aura-switch__track {
+    /* State reads from the track flipping Canvas (unchecked, no override) →
+       Highlight (checked), not from thumb/track contrast; the CanvasText thumb
+       (smaller than the track) always shows Highlight around it. No text sits on
+       the track, so there is no Highlight-on-Highlight legibility risk. */
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-switch__track { transition: none; }
+  .aura-switch__thumb { transition: none; }
+}
+
+/* ---- Chips & badges --------------------------------------------------- */
+aura-chip, .aura-chip {
+  display: inline-flex; align-items: center; gap: var(--aura-space-2);
+  padding: 0.2rem var(--aura-space-3);
+  font-size: var(--aura-text-xs); font-weight: var(--aura-weight-medium);
+  color: var(--aura-text-muted);
+  background: var(--aura-surface-2);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-full);
+}
+aura-badge, .aura-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-inline-size: 1.25rem; padding: 0 0.4rem;
+  font-size: var(--aura-text-xs); font-weight: var(--aura-weight-semibold);
+  color: var(--aura-on-primary);
+  background: var(--aura-primary);
+  border-radius: var(--aura-radius-full);
+}
+/* Status taxonomy (#91): one tinted-fill mapping shared by chips and badges so
+   a status pill means the same thing everywhere. Use:
+     success — a completed / healthy / positive terminal state ("Paid", "Active")
+     warning — needs attention but not failing ("Pending", "Low stock")
+     danger  — a failed / blocked / destructive state ("Overdue", "Error")
+     info    — a neutral informational marker, not good or bad ("Beta", "New")
+     neutral — the default: an inert label with no status charge ("Draft").
+   `neutral` is the bare aura-chip/badge with no variant; it's named here so the
+   set reads as a complete five-tier taxonomy. Each fill pairs a 15%-alpha tint
+   with the full-strength colour as text, which clears AA on Aura's surfaces. */
+:where(aura-chip, aura-badge)[variant="success"] { color: var(--aura-success); background: var(--aura-success-a15); border-color: transparent; }
+:where(aura-chip, aura-badge)[variant="warning"] { color: var(--aura-warning); background: var(--aura-warning-a15); border-color: transparent; }
+:where(aura-chip, aura-badge)[variant="danger"]  { color: var(--aura-danger);  background: var(--aura-danger-a15);  border-color: transparent; }
+:where(aura-chip, aura-badge)[variant="info"]    { color: var(--aura-info);    background: var(--aura-info-a15);    border-color: transparent; }
+:where(aura-chip, aura-badge)[variant="neutral"] { color: var(--aura-text-muted); background: var(--aura-surface-2); border-color: var(--aura-surface-stroke); }
+
+/* ---- kbd shortcut chip (also used by menus) --------------------------- */
+.aura-kbd, kbd {
+  display: inline-flex; align-items: center; gap: 1px;
+  padding: 0.1rem 0.4rem; min-inline-size: 1.4rem; justify-content: center;
+  font-family: var(--aura-font-sans); font-size: var(--aura-text-xs);
+  color: var(--aura-text-subtle);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-sm);
+  box-shadow: 0 1px 0 var(--aura-surface-stroke);
+}
+
+/* ---- Shortcut-hint slot (#160) ----------------------------------------- *
+   A trailing keyboard-shortcut hint inside a button or menu item: place an
+   .aura-kbd (or <kbd>) as the last child and it floats to the trailing edge,
+   slightly muted, without stretching the control.                          */
+:where(.aura-btn, aura-button, .aura-menu-item, aura-menu-item) .aura-kbd,
+:where(.aura-btn, aura-button, .aura-menu-item, aura-menu-item) kbd {
+  margin-inline-start: auto;
+  /* lighter than its standalone form so it reads as a hint, not an input */
+  background: transparent;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--aura-surface-stroke), transparent 40%);
+  color: var(--aura-text-subtle);
+}
+
+/* ---- Card header: title + optional trailing action slot (#118) --------- *
+   <div class="aura-card-header"><h3 class="aura-card-header__title">…</h3>
+     <aura-button …>…</aura-button></div>
+   Title takes the row; any following element is the trailing action slot.   */
+.aura-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+  margin-block-end: var(--aura-space-4);
+}
+.aura-card-header__title {
+  margin: 0;
+  font-size: var(--aura-text-lg);
+  font-weight: var(--aura-weight-semibold);
+  line-height: var(--aura-leading-tight);
+}
+.aura-card-header > :not(.aura-card-header__title) { flex: none; } /* action slot */
+
+/* ---- Notification badge-count overlay (#133) --------------------------- *
+   Add .aura-has-badge to an icon button / nav item and set data-badge to a
+   count (data-badge="3") for a number, or data-badge="" for a bare dot. The
+   host MUST carry an aria-label that includes the count for screen readers —
+   the visual badge is decorative (aria-hidden via ::after).                 */
+.aura-has-badge { position: relative; }
+.aura-has-badge[data-badge]::after {
+  content: attr(data-badge);
+  position: absolute;
+  inset-block-start: -0.25rem;
+  inset-inline-end: -0.25rem;
+  min-inline-size: 1.05rem;
+  block-size: 1.05rem;
+  padding-inline: 0.25rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.65rem;
+  font-weight: var(--aura-weight-bold);
+  line-height: 1;
+  color: var(--aura-on-primary);
+  background: var(--aura-danger);
+  border: 2px solid var(--aura-bg);
+  border-radius: var(--aura-radius-full);
+  pointer-events: none;
+}
+/* Bare dot: empty data-badge collapses to a small indicator with no number. */
+.aura-has-badge[data-badge=""]::after {
+  min-inline-size: 0.6rem; block-size: 0.6rem; padding-inline: 0;
+  inset-block-start: -0.1rem; inset-inline-end: -0.1rem;
+}
+
+/* ---- Tooltip (CSS-only, hover/focus) ---------------------------------- */
+aura-tooltip { position: relative; display: inline-flex; }
+aura-tooltip::after {
+  content: attr(text);
+  position: absolute; bottom: calc(100% + var(--aura-space-2)); left: 50%;
+  transform: translateX(-50%) translateY(var(--aura-tooltip-offset));
+  padding: var(--aura-space-1) var(--aura-space-3);
+  font-size: var(--aura-text-xs); white-space: nowrap;
+  color: var(--aura-tooltip-fg);
+  /* Read the tooltip-scoped glass dial so retuning tooltip glass doesn't move
+     every level-4 surface (the JS tooltip uses the same dial in tooltip.css). */
+  background: var(--aura-tooltip-surface);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-sm);
+  box-shadow: var(--aura-shadow-3);
+  -webkit-backdrop-filter: blur(var(--aura-tooltip-blur)) saturate(var(--aura-tooltip-saturate));
+  backdrop-filter: blur(var(--aura-tooltip-blur)) saturate(var(--aura-tooltip-saturate));
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--aura-dur-fast) var(--aura-ease-out),
+    transform var(--aura-dur-fast) var(--aura-ease-out);
+  z-index: var(--aura-z-overlay);
+}
+aura-tooltip:hover::after, aura-tooltip:focus-within::after {
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+
+/* #692: lite-effects de-frost for the CSS-only tooltip bubble. The class-based
+   JS tooltip (.aura-tooltip) drops its blur + raises to the opaque seam under
+   lite (css/tooltip.css); the element bubble's ::after carries the same real
+   backdrop-filter, so it must shed the per-hover compositing layer too. Matches
+   the descendant case (lite on an ancestor) AND the self/compound case (the
+   <aura-tooltip> element itself carries the attr), mirroring the two-selector
+   pattern used for the base surfaces in preferences.css. */
+[data-aura-effects="lite"] aura-tooltip::after,
+aura-tooltip[data-aura-effects="lite"]::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-tooltip-surface-solid);
+}
+
+/* ---- Density knob (opt-in, #93; three-step vocabulary, #564) ------------ *
+   Add data-aura-density to any scope (a table wrapper, a form, or the whole
+   page) and the data-dense surfaces re-tune — control height + cell padding —
+   with no bespoke per-component CSS. It only re-points the shared height/padding
+   dials those components already read, so it composes with theme and is
+   inherited by the subtree.
+
+   #564: the knob is now TWO-WAY and uses the SAME three-step vocabulary as the
+   glow-radius density presets (compact / cozy / comfortable, css/glow.css), so
+   the system has one density scale instead of two mismatched ones:
+     - compact      tightens (the original #93 behaviour),
+     - cozy         an intermediate tier,
+     - comfortable  RESTORES the tokens.css defaults — the explicit reset that
+                    lets a nested subtree opt back out of a compact ancestor
+                    (previously impossible, since unsetting the attribute could
+                    not override an inherited value).
+   The defaults below mirror tokens.css (control-height-sm 2rem, control-height-md
+   2.5rem, control-height-lg 3rem, input-height 2.75rem, table-cell-pad
+   space-3/space-4) so "comfortable" is a faithful reset, not a second source of
+   truth. #657: control-height-lg is re-tuned in ALL three tiers (compact 2.75rem,
+   cozy 2.875rem, comfortable 3rem) so the whole sm/md/lg control-height family
+   moves together — a large primary button no longer stays 3rem inside a compact
+   scope while the controls around it shrink.
+
+   #601: each tier ALSO sets --aura-glow-radius to the matching glow-radius
+   preset (var(--aura-glow-radius-{compact|cozy|comfortable}), css/glow.css), so
+   the proximity-glow detection reach genuinely follows the one density knob —
+   making the unification claim above true rather than aspirational. #653:
+   glow-radius-comfortable now equals the 130px default (was 170px), so the
+   comfortable tier truly RESETS glow reach to the page default rather than
+   reaching farther than it. glow.js
+   reads --aura-glow-radius off each host at runtime, so this is CSS-only with
+   no script change. The standalone .aura-glow--{compact|cozy|comfortable}
+   classes remain as a control-level opt-in for tuning glow reach independently
+   of the scope's control sizing.                                              */
+[data-aura-density="compact"] {
+  --aura-input-height: 2.25rem;
+  --aura-control-height-sm: 1.75rem;
+  --aura-control-height-md: 2.25rem;
+  /* #657: re-tune the lg step too, so a large primary button inside a compact
+     scope shrinks with the sm/md controls around it instead of staying 3rem. */
+  --aura-control-height-lg: 2.75rem;
+  --aura-table-cell-pad: var(--aura-space-2) var(--aura-space-3);
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+}
+[data-aura-density="cozy"] {
+  --aura-input-height: 2.5rem;
+  --aura-control-height-sm: 1.875rem;
+  --aura-control-height-md: 2.375rem;
+  --aura-control-height-lg: 2.875rem;
+  --aura-table-cell-pad: var(--aura-space-2) var(--aura-space-4);
+  --aura-glow-radius: var(--aura-glow-radius-cozy);
+}
+[data-aura-density="comfortable"] {
+  --aura-input-height: 2.75rem;
+  --aura-control-height-sm: 2rem;
+  --aura-control-height-md: 2.5rem;
+  /* #657: 3rem mirrors the tokens.css default so comfortable stays a faithful
+     reset of the full control-height family (sm/md/lg). */
+  --aura-control-height-lg: 3rem;
+  --aura-table-cell-pad: var(--aura-space-3) var(--aura-space-4);
+  /* #653: comfortable restores the 130px default glow reach (glow-radius-
+     comfortable now mirrors the default), so the reset no longer reaches FARTHER
+     than the page default — a true faithful reset, not a roomier tier. */
+  --aura-glow-radius: var(--aura-glow-radius-comfortable);
+}
+/* Inputs keep their box-driven height across all three tiers — the field's
+   base padding-block is already 0 (height comes from --aura-input-height /
+   block-size), so a density tier needs no input padding override. */
+[data-aura-density="compact"] :where(.aura-input, aura-field) :where(input, select) {
+  padding-block: 0;
+}
+
+/* ---- Avatar (#88) ------------------------------------------------------ *
+   <span class="aura-avatar">AR</span>                       initials fallback
+   <span class="aura-avatar"><img src="…" alt="…"></span>    image (covers box)
+   Add --sm / --lg for size; data-status="online|busy|away|offline" adds a
+   presence ring dot. One diameter token drives the box AND — via em — the
+   initials and the ring, so every avatar scales from a single number.        */
+.aura-avatar {
+  --_size: var(--aura-avatar-md);
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--_size);
+  block-size: var(--_size);
+  /* initials track the diameter: ~40% of the box reads well at every size */
+  font-size: calc(var(--_size) * 0.4);
+  font-weight: var(--aura-weight-semibold);
+  line-height: 1;
+  /* Full-strength text, not --aura-text-muted: the muted token on the faint
+     --aura-surface-2 fill fails WCAG AA contrast (#581); the initials are
+     identifying content and must stay legible. */
+  color: var(--aura-text);
+  /* Opaque fill (the translucent --aura-surface-2 composited over a glass
+     ancestor yields an indeterminate, contrast-failing backdrop): compositing
+     it over the solid surface gives a deterministic backdrop the initials pass
+     against in both modes (#581). */
+  background: color-mix(in srgb, var(--aura-surface-2), var(--aura-surface-solid));
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-full);
+  overflow: hidden;
+  user-select: none;
+}
+.aura-avatar--sm { --_size: var(--aura-avatar-sm); }
+.aura-avatar--lg { --_size: var(--aura-avatar-lg); }
+.aura-avatar > img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+/* Presence ring: a small dot on the trailing-bottom edge, framed by the page
+   background so it reads as separate from the avatar. Decorative — the host
+   should expose presence in text for assistive tech. */
+.aura-avatar[data-status]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  inline-size: calc(var(--_size) * 0.28);
+  block-size: calc(var(--_size) * 0.28);
+  border-radius: var(--aura-radius-full);
+  border: 2px solid var(--aura-bg);
+  background: var(--aura-text-subtle);
+}
+.aura-avatar[data-status="online"]::after { background: var(--aura-success); }
+.aura-avatar[data-status="busy"]::after   { background: var(--aura-danger); }
+.aura-avatar[data-status="away"]::after    { background: var(--aura-warning); }
+.aura-avatar[data-status="offline"]::after { background: var(--aura-text-subtle); }
+
+/* ---- Breadcrumb (#89) -------------------------------------------------- *
+   <nav class="aura-breadcrumb" aria-label="Breadcrumb">
+     <ol>
+       <li><a href="…">Home</a></li>
+       <li><a aria-current="page">Current</a></li>
+     </ol>
+   </nav>
+   Single-line: the trail stays on one row and the current (last) crumb
+   truncates with an ellipsis rather than wrapping. Separators are generated
+   between items and hidden from assistive tech.                              */
+.aura-breadcrumb ol {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--aura-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-muted);
+}
+.aura-breadcrumb li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  min-inline-size: 0; /* allow the truncating crumb to shrink */
+}
+.aura-breadcrumb li + li::before {
+  content: "/";
+  color: var(--aura-text-subtle);
+  /* the separator is presentational; screen readers announce list structure */
+  speak: never;
+}
+.aura-breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--aura-radius-sm);
+}
+.aura-breadcrumb a:not([aria-current]):hover { color: var(--aura-text); text-decoration: underline; }
+.aura-breadcrumb [aria-current="page"] {
+  color: var(--aura-text);
+  font-weight: var(--aura-weight-medium);
+  /* the current crumb is the one that truncates if the trail overflows */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Pagination (#90) -------------------------------------------------- *
+   <nav class="aura-pagination" aria-label="Pagination">
+     <a class="aura-pagination__item" aria-disabled="true">‹ Prev</a>
+     <a class="aura-pagination__item" aria-current="page">1</a> …
+   </nav>
+   Page items + prev/next reuse the control height + surface language; an edge
+   button sets aria-disabled="true" (link) or disabled (button). The load-more
+   variant is just a centred .aura-btn — no extra recipe needed.              */
+.aura-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-1);
+}
+.aura-pagination__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--aura-control-height-sm);
+  block-size: var(--aura-control-height-sm);
+  padding-inline: var(--aura-space-2);
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--aura-radius-sm);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--aura-dur-fast) var(--aura-ease-out),
+    color var(--aura-dur-fast) var(--aura-ease-out);
+}
+.aura-pagination__item:hover:not([aria-current]):not([aria-disabled="true"]):not(:disabled) {
+  color: var(--aura-text);
+  background: var(--aura-surface-2);
+}
+.aura-pagination__item[aria-current="page"] {
+  color: var(--aura-on-primary);
+  background: var(--aura-primary);
+  font-weight: var(--aura-weight-semibold);
+}
+.aura-pagination__item[aria-disabled="true"],
+.aura-pagination__item:disabled {
+  opacity: var(--aura-disabled-opacity);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* ---- Progress / meter (#109) ------------------------------------------- *
+   <div class="aura-progress" role="progressbar" aria-valuenow="60"
+        aria-valuemin="0" aria-valuemax="100" style="--aura-progress-value:60%">
+     <div class="aura-progress__fill"></div>
+   </div>
+   Determinate: set --aura-progress-value to a percentage. Indeterminate: add
+   .aura-progress--indeterminate and omit aria-valuenow. role+aria live on the
+   host so assistive tech reads the value; the bar is purely visual.          */
+.aura-progress {
+  --aura-progress-value: 0%;
+  display: block;
+  inline-size: 100%;
+  block-size: var(--aura-progress-track-height);
+  background: var(--aura-surface-2);
+  border-radius: var(--aura-radius-full);
+  overflow: hidden;
+}
+.aura-progress__fill {
+  block-size: 100%;
+  inline-size: var(--aura-progress-value);
+  background: var(--aura-primary);
+  border-radius: inherit;
+  transition: inline-size var(--aura-dur-base) var(--aura-ease-out);
+}
+/* Forced-colors (Windows High Contrast): both the track and the fill are pure
+   backgrounds (dropped in HCM), so the whole bar — and the value it encodes —
+   disappears visually. Give the track a border and force the fill to paint in a
+   system colour so the proportion stays readable. */
+@media (forced-colors: active) {
+  .aura-progress { border: 1px solid CanvasText; }
+  .aura-progress__fill { forced-color-adjust: none; background: Highlight; }
+}
+/* Semantic fills mirror the status taxonomy for at-a-glance meaning. */
+.aura-progress[data-variant="success"] .aura-progress__fill { background: var(--aura-success); }
+.aura-progress[data-variant="warning"] .aura-progress__fill { background: var(--aura-warning); }
+.aura-progress[data-variant="danger"]  .aura-progress__fill { background: var(--aura-danger); }
+.aura-progress--indeterminate .aura-progress__fill {
+  inline-size: 40%;
+  border-radius: var(--aura-radius-full);
+  /* Duration is --aura-progress-slide-dur (derived from --aura-dur-ambient,
+     the shared looping/infinite-animation base token — see tokens.css),
+     replacing a bare 1.1s literal (#841-class). The slide visibly traverses
+     the whole track on each pass rather than snapping at a single point, so
+     unlike the spinner the existing eased timing function reads fine on a
+     loop and is left untouched. */
+  animation: aura-progress-slide var(--aura-progress-slide-dur) var(--aura-ease-standard) infinite;
+}
+@keyframes aura-progress-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-progress__fill { transition: none; }
+  /* drop the sliding loop; show a static centred segment instead */
+  .aura-progress--indeterminate .aura-progress__fill {
+    animation: none;
+    margin-inline: auto;
+  }
+}
+
+/* ---- Divider with centred label (#119) -------------------------------- *
+   <div class="aura-divider-labeled"><span>OR</span></div>
+   A horizontal rule whose label sits centred in a gap in the line — e.g. an
+   "OR" between auth options. The lines are drawn with the shared divider
+   colour; the plain (label-less) rule remains the styled <hr> in base.css.   */
+.aura-divider-labeled {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  color: var(--aura-text-subtle);
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.aura-divider-labeled::before,
+.aura-divider-labeled::after {
+  content: "";
+  flex: 1 1 0;
+  block-size: 0;
+  border-block-start: var(--aura-divider);
+}
+
+/* ---- Step indicator / wizard (#134) ------------------------------------ *
+   <ol class="aura-steps">
+     <li class="aura-steps__step" data-state="complete">
+       <span class="aura-steps__marker">1</span>
+       <span class="aura-steps__label">Account</span></li>
+     <li class="aura-steps__step" data-state="current" aria-current="step">…</li>
+     <li class="aura-steps__step" data-state="upcoming">…</li>
+   </ol>
+   An accessible step indicator: data-state ∈ complete | current | upcoming sets
+   the marker treatment; the current step also carries aria-current="step". Pair
+   with per-step panels + Back/Next buttons (author-wired); this recipe owns the
+   indicator only. Connectors are drawn between adjacent markers.               */
+.aura-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--aura-space-2);
+  margin: 0; padding: 0;
+  list-style: none;
+  counter-reset: aura-step;
+}
+.aura-steps__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--aura-space-2);
+  flex: 1 1 0;
+  min-inline-size: 0;
+  text-align: center;
+  position: relative;
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text-muted);
+}
+/* Connector line between adjacent markers, behind them. */
+.aura-steps__step:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(var(--aura-control-height-sm) / 2);
+  inset-inline-end: 50%;
+  inline-size: 100%;
+  block-size: var(--aura-border-width);
+  background: var(--aura-surface-stroke);
+}
+.aura-steps__step[data-state="complete"]::before,
+.aura-steps__step[data-state="current"]::before { background: var(--aura-primary); }
+.aura-steps__marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  inline-size: var(--aura-control-height-sm);
+  block-size: var(--aura-control-height-sm);
+  border-radius: var(--aura-radius-full);
+  font-weight: var(--aura-weight-semibold);
+  color: var(--aura-text-muted);
+  background: var(--aura-surface-2);
+  border: 1px solid var(--aura-surface-stroke);
+}
+.aura-steps__step[data-state="complete"] .aura-steps__marker {
+  color: var(--aura-on-primary); background: var(--aura-primary); border-color: transparent;
+}
+.aura-steps__step[data-state="current"] .aura-steps__marker {
+  color: var(--aura-primary); background: var(--aura-surface-1);
+  border-color: var(--aura-primary);
+  box-shadow: 0 0 0 3px var(--aura-primary-a25, color-mix(in srgb, var(--aura-primary) 25%, transparent));
+}
+.aura-steps__step[data-state="current"] { color: var(--aura-text); font-weight: var(--aura-weight-medium); }
+.aura-steps__label { max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Copy-to-clipboard button (#132) ----------------------------------- *
+   The button js/copy.js wires (or injects into <aura-code copyable>). Generic
+   here; code.css positions it in the corner of a code block.                  */
+.aura-copy {
+  display: inline-flex; align-items: center; gap: var(--aura-space-1);
+  padding: 0.2rem var(--aura-space-2);
+  font-size: var(--aura-text-xs); font-weight: var(--aura-weight-medium);
+  color: var(--aura-text-muted);
+  background: var(--aura-surface-2);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-sm);
+  cursor: pointer;
+  transition: color var(--aura-dur-fast) var(--aura-ease-standard),
+    background var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-copy:hover { color: var(--aura-text); background: var(--aura-surface-3); }
+.aura-copy[data-copied] { color: var(--aura-success); border-color: transparent; background: var(--aura-success-a15); }
+
+/* ─── Alert / Banner ──────────────────────────────────────────────────────
+   CSS-class component: .aura-alert[data-variant?]
+   Markup: <div class="aura-alert" role="alert">…</div>
+   Variants mirror the chip/badge taxonomy:
+     success · warning · danger · info · neutral
+   Default (no data-variant) renders as the info style.
+   Pure CSS — no JS enhancement; no custom element; no catalog entry required. */
+.aura-alert {
+  display: block;
+  padding: var(--aura-space-3, 0.75rem) var(--aura-space-4, 1rem);
+  border-radius: var(--aura-radius, 0.5rem);
+  border: 1px solid transparent;
+  font-size: var(--aura-text-sm, 0.875rem);
+  line-height: 1.6;
+  color: var(--aura-info);
+  background: var(--aura-info-a15);
+}
+.aura-alert[data-variant="success"] { color: var(--aura-success); background: var(--aura-success-a15); }
+.aura-alert[data-variant="warning"] { color: var(--aura-warning); background: var(--aura-warning-a15); }
+.aura-alert[data-variant="danger"]  { color: var(--aura-danger);  background: var(--aura-danger-a15);  }
+.aura-alert[data-variant="info"]    { color: var(--aura-info);    background: var(--aura-info-a15);    }
+.aura-alert[data-variant="neutral"] { color: var(--aura-text-muted); background: var(--aura-surface-2); border-color: var(--aura-surface-stroke); }
+
+/* ==========================================================================
+   Forced-colors (Windows High Contrast) — #130
+
+   Buttons, inputs, and chips rely on tinted backgrounds + box-shadow framing
+   that the UA strips in forced-colors mode. Re-establish a system-colour
+   border so each control keeps a visible box, map button text to the button
+   palette, and give the focus state a real outline (box-shadow rings are
+   ignored here). Surfaces + the base focus outline are handled in base.css.
+   ========================================================================== */
+@media (forced-colors: active) {
+  .aura-btn, aura-button {
+    border: 1px solid ButtonBorder;
+    color: ButtonText;
+  }
+  /* Active/checked-emphasis variants map to the Highlight pair so the primary
+     action still reads as the emphasised one. */
+  .aura-btn--primary, aura-button[variant="primary"] {
+    border-color: Highlight;
+  }
+  :where(.aura-btn, aura-button):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--aura-focus-ring-offset, 2px);
+  }
+  /* Disabled controls: GrayText is the system disabled colour; keep it legible. */
+  :where(.aura-btn, aura-button)[disabled],
+  :where(.aura-btn, aura-button)[aria-disabled="true"] {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  .aura-input,
+  aura-field :where(input, select, textarea) {
+    border: 1px solid CanvasText;
+    color: CanvasText;
+    background: Canvas;
+  }
+  .aura-input:focus,
+  aura-field :where(input, select, textarea):focus {
+    outline: 2px solid Highlight;
+    outline-offset: var(--aura-focus-ring-offset, 2px);
+  }
+
+  aura-chip, .aura-chip, aura-badge, .aura-badge {
+    border: 1px solid CanvasText;
+  }
+
+  /* v2.22 nav/status recipes: re-establish a system border where tinted fills
+     and the progress track are stripped, and frame the avatar presence dot. */
+  .aura-avatar { border: 1px solid CanvasText; }
+  .aura-avatar[data-status]::after { border-color: Canvas; }
+  .aura-pagination__item[aria-current="page"] {
+    border-color: Highlight;
+    color: HighlightText;
+    background: Highlight;
+  }
+  .aura-progress { border: 1px solid CanvasText; }
+  .aura-progress__fill { background: Highlight; }
+  .aura-progress[data-variant="success"] .aura-progress__fill,
+  .aura-progress[data-variant="warning"] .aura-progress__fill,
+  .aura-progress[data-variant="danger"]  .aura-progress__fill { background: Highlight; }
+}
+
+/* ---- aura-icon (v3.14) ------------------------------------------------ */
+/* Declarative tokenized icon/glyph wrapper. CSS-first: the element provides
+   display normalisation and the size/variant dials; callers add their own
+   layout classes for positioning (e.g. hub-card__icon). */
+aura-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: var(--aura-icon-color, currentColor);
+  font-size: var(--aura-icon-size, 1em);
+}
+aura-icon[data-size="sm"] { --aura-icon-size: var(--aura-text-sm); }
+aura-icon[data-size="md"] { --aura-icon-size: var(--aura-text-md); }
+aura-icon[data-size="lg"] { --aura-icon-size: var(--aura-text-xl); }
+aura-icon[data-size="xl"] { --aura-icon-size: var(--aura-text-2xl); }
+aura-icon[data-variant="muted"]    { --aura-icon-color: var(--aura-text-muted); }
+aura-icon[data-variant="subtle"]   { --aura-icon-color: var(--aura-text-subtle); }
+aura-icon[data-variant="primary"]  { --aura-icon-color: var(--aura-primary); }
+aura-icon[data-variant="secondary"] { --aura-icon-color: var(--aura-secondary); }
+
+/* ---- aura-code inline (v3.14) ------------------------------------------ */
+/* Inline code chip: mode-aware color (secondary palette, dark/light axis).
+   Block form inherits .aura-code from css/code.css via the JS element.
+   The element tag selector keeps specificity low so consuming contexts can
+   override with a single class rule. */
+aura-code {
+  font-family: var(--aura-font-mono);
+  font-size: 0.875em;
+  /* Inline chip surface matching base.css code chip. */
+  background: color-mix(in srgb, var(--aura-secondary) 12%, var(--aura-surface-solid));
+  border: 1px solid color-mix(in srgb, var(--aura-secondary) 20%, var(--aura-surface-stroke));
+  border-radius: var(--aura-radius-sm);
+  padding: 0.1em 0.35em;
+  color: var(--aura-secondary-300);
+  line-height: 1.4;
+  vertical-align: 0.05em;
+}
+/* Light mode: darker secondary tone for AA contrast. */
+[data-aura-theme="light"] aura-code { color: var(--aura-secondary-700); }
+@media (prefers-color-scheme: light) {
+  [data-aura-theme="auto"] aura-code { color: var(--aura-secondary-700); }
+}
+/* Block form: shed the inline chip treatment; .aura-code (from code.css) takes over. */
+aura-code[block] {
+  display: block;
+  background: unset;
+  border: unset;
+  border-radius: unset;
+  padding: unset;
+  color: unset;
+  vertical-align: unset;
+  font-size: unset;
+}
+
+/* ---- aura-link (v3.14) ------------------------------------------------- */
+/* Declarative token-driven inline link with proximity glow. The host is the
+   glow container; the contained <a> is the interactive anchor.
+   JS adds .aura-glow to the host on _build. */
+aura-link {
+  display: inline;
+  color: var(--aura-primary-300);
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.15em;
+  text-decoration-color: var(--aura-primary-a60);
+  cursor: pointer;
+}
+aura-link a,
+aura-link .aura-link__anchor {
+  color: inherit;
+  text-decoration: inherit;
+  text-decoration-color: inherit;
+  text-underline-offset: inherit;
+}
+aura-link:hover,
+aura-link:hover a,
+aura-link:hover .aura-link__anchor {
+  text-decoration-color: currentColor;
+}
+/* Light mode: use a darker primary for AA contrast on light backgrounds. */
+[data-aura-theme="light"] aura-link { color: var(--aura-primary-600); }
+@media (prefers-color-scheme: light) {
+  [data-aura-theme="auto"] aura-link { color: var(--aura-primary-600); }
+}
+/* Ghost variant: muted, no underline (footer nav links, quiet inline cues). */
+aura-link[data-variant="ghost"] {
+  color: var(--aura-text-subtle);
+  text-decoration: none;
+}
+aura-link[data-variant="ghost"]:hover,
+aura-link[data-variant="ghost"]:hover a,
+aura-link[data-variant="ghost"]:hover .aura-link__anchor {
+  color: var(--aura-text);
+  text-decoration: underline;
+}
+/* Primary variant: accent-colored, underline on hover only. */
+aura-link[data-variant="primary"] {
+  color: var(--aura-primary);
+  text-decoration: none;
+}
+aura-link[data-variant="primary"]:hover,
+aura-link[data-variant="primary"]:hover a,
+aura-link[data-variant="primary"]:hover .aura-link__anchor {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+/* Focus visible: standard Aura focus ring on the host. */
+aura-link:focus-within {
+  outline: 2px solid var(--aura-primary);
+  outline-offset: 2px;
+  border-radius: var(--aura-radius-xs, 0.25rem);
+}

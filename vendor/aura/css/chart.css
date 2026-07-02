@@ -1,0 +1,243 @@
+/* ==========================================================================
+   Aura — data visualization (aura-chart / sparkline).   Registered in
+   css/aura.css under layer(chart).
+
+   Aura ships NO JavaScript charting library and will not add one. Instead it
+   skins SVG that the CONSUMER authors (plus a couple of CSS-only bar/sparkline
+   variants). The author supplies the geometry — `points`, `d`, `cx/cy`, axis
+   tick lines — and tags each node with a chart class; this file paints them.
+   Everything resolves from tokens, so a chart re-skins for free under
+   dark/light and every named theme (retro-pc, extra-depth, …) — those swap
+   tokens, not rules.
+
+   ── Accessibility ────────────────────────────────────────────────────────
+   An SVG chart is not self-describing to assistive tech. The author MUST make
+   the figure a labelled image:
+
+       <figure class="aura-chart" role="img"
+               aria-label="Revenue over time: rising from $28k to $48k …">
+         <svg aria-hidden="true" …> … </svg>
+       </figure>
+
+   The decorative <svg> is marked aria-hidden so screen readers announce only
+   the summary. A visible <figcaption> (or an .aura-sr-only one) may supplement.
+
+   ── Expected SVG structure (aura-chart) ──────────────────────────────────
+       <figure class="aura-chart" role="img" aria-label="…">
+         <figcaption class="aura-chart__caption">Title</figcaption>
+         <svg class="aura-chart__plot" viewBox="0 0 W H"
+              preserveAspectRatio="none" aria-hidden="true">
+           <!-- gridlines + axis ticks: <line>/<path> tagged below -->
+           <g class="aura-chart__grid">
+             <line x1="0" y1="…" x2="W" y2="…" /> …
+           </g>
+           <!-- area fill: a closed path down to the baseline -->
+           <path class="aura-chart__area" d="M0,… L… L W,H L 0,H Z" />
+           <!-- the line itself: an open path along the data points -->
+           <path class="aura-chart__series" d="M0,… L…" />
+           <!-- optional point markers -->
+           <circle class="aura-chart__point" cx="…" cy="…" r="3" /> …
+         </svg>
+       </figure>
+
+   A second series opts into the secondary colour with the `--alt` modifier on
+   the matching `__series` / `__area` / `__point` nodes.
+
+   Hover values reuse the tooltip recipe (css/tooltip.css): an author wires
+   data-aura-tooltip onto a `__point` exactly as for any other trigger; no
+   chart-specific tooltip rules are needed here.
+   ========================================================================== */
+
+/* ── Chart frame ──────────────────────────────────────────────────────────
+   A <figure> wrapper. Carries the plot's geometry-independent chrome (caption,
+   spacing) and defines the two series colours as local custom properties so a
+   single chart can be retinted by overriding --aura-chart-series on the figure.
+*/
+.aura-chart {
+  --aura-chart-series:     var(--aura-primary);
+  --aura-chart-series-alt: var(--aura-secondary);
+  /* Area fill = the series colour mixed toward transparent. */
+  --aura-chart-area:       color-mix(in srgb, var(--aura-chart-series)     22%, transparent);
+  --aura-chart-area-alt:   color-mix(in srgb, var(--aura-chart-series-alt) 22%, transparent);
+  --aura-chart-grid:       var(--aura-surface-stroke);
+  --aura-chart-axis:       var(--aura-surface-stroke-strong);
+  --aura-chart-label:      var(--aura-text-muted);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+  margin: 0;
+  inline-size: 100%;
+}
+
+.aura-chart__caption {
+  color: var(--aura-text-subtle);
+  font-size: var(--aura-text-sm);
+  order: -1;          /* caption above the plot regardless of DOM order */
+}
+
+/* The SVG plot surface. preserveAspectRatio="none" lets the author use a
+   convenient data-space viewBox (e.g. 0 0 100 40) and have it stretch to the
+   tile; non-scaling strokes below keep lines crisp despite that stretch. */
+.aura-chart__plot {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  /* Default drawing height when the author doesn't constrain it otherwise. */
+  aspect-ratio: var(--aura-chart-ratio, var(--aura-ratio-video));
+  overflow: visible;
+}
+
+/* ── Gridlines + axes ─────────────────────────────────────────────────────
+   Author tags background structure with __grid (faint) and __axis (stronger,
+   for the baseline / value axis). vector-effect keeps hairlines 1px after the
+   non-uniform viewBox scale. */
+.aura-chart__grid,
+.aura-chart__grid line,
+.aura-chart__grid path {
+  stroke: var(--aura-chart-grid);
+  stroke-width: 1;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.aura-chart__axis,
+.aura-chart__axis line,
+.aura-chart__axis path {
+  stroke: var(--aura-chart-axis);
+  stroke-width: 1;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Axis tick labels (author places <text class="aura-chart__tick">). */
+.aura-chart__tick {
+  fill: var(--aura-chart-label);
+  font-size: var(--aura-text-xs);
+  font-family: var(--aura-font-sans, inherit);
+}
+
+/* ── Series line ──────────────────────────────────────────────────────────
+   An open <path>/<polyline>. Stroked from the series token, never filled. */
+.aura-chart__series {
+  fill: none;
+  stroke: var(--aura-chart-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.aura-chart__series--alt { stroke: var(--aura-chart-series-alt); }
+
+/* ── Area fill ────────────────────────────────────────────────────────────
+   A closed <path> running along the data then down to the baseline. The fill
+   is the translucent series mix; no stroke (the __series path draws the edge).
+*/
+.aura-chart__area {
+  fill: var(--aura-chart-area);
+  stroke: none;
+}
+.aura-chart__area--alt { fill: var(--aura-chart-area-alt); }
+
+/* ── Point markers ────────────────────────────────────────────────────────
+   <circle class="aura-chart__point">. Filled with the surface so the series
+   line reads behind them; ringed in the series colour. */
+.aura-chart__point {
+  fill: var(--aura-surface-solid);
+  stroke: var(--aura-chart-series);
+  stroke-width: 2;
+}
+.aura-chart__point--alt { stroke: var(--aura-chart-series-alt); }
+
+/* A point flagged as the current/hovered value: filled solid in the series
+   colour. Authors toggle this (e.g. on a tooltip trigger). */
+.aura-chart__point.is-active,
+.aura-chart__point:hover,
+.aura-chart__point:focus-visible {
+  fill: var(--aura-chart-series);
+}
+.aura-chart__point--alt.is-active,
+.aura-chart__point--alt:hover,
+.aura-chart__point--alt:focus-visible {
+  fill: var(--aura-chart-series-alt);
+}
+
+/* ── Sparkline ────────────────────────────────────────────────────────────
+   A tiny, axis-less inline line/area chart — for KPI cards, table cells, etc.
+   Same SVG shape as aura-chart but no frame, grid, caption, or markers.
+
+       <span class="aura-sparkline" role="img" aria-label="7-day trend: up">
+         <svg class="aura-sparkline__plot" viewBox="0 0 100 32"
+              preserveAspectRatio="none" aria-hidden="true">
+           <path class="aura-sparkline__area"   d="…Z" />
+           <path class="aura-sparkline__series" d="…" />
+         </svg>
+       </span>
+
+   Size with width/height on the host or via --aura-sparkline-w/-h.
+*/
+.aura-sparkline {
+  --aura-sparkline-series: var(--aura-primary);
+  --aura-sparkline-area:
+    color-mix(in srgb, var(--aura-sparkline-series) 20%, transparent);
+  display: inline-block;
+  inline-size: var(--aura-sparkline-w, 5rem);
+  block-size:  var(--aura-sparkline-h, 1.5rem);
+  vertical-align: middle;
+}
+/* Trend tints: a sparkline can opt into the success/danger semantics. */
+.aura-sparkline--up   { --aura-sparkline-series: var(--aura-success, var(--aura-primary)); }
+.aura-sparkline--down { --aura-sparkline-series: var(--aura-danger,  var(--aura-secondary)); }
+
+.aura-sparkline__plot {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+.aura-sparkline__series {
+  fill: none;
+  stroke: var(--aura-sparkline-series);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.aura-sparkline__area {
+  fill: var(--aura-sparkline-area);
+  stroke: none;
+}
+
+/* ── CSS-only bar variant ─────────────────────────────────────────────────
+   No SVG required. The author writes a list of bars and sets each bar's height
+   as a percentage via the --bar custom property (data, not styling):
+
+       <div class="aura-chart-bars" role="img" aria-label="…">
+         <span class="aura-chart-bars__bar" style="--bar: 60%"></span>
+         <span class="aura-chart-bars__bar aura-chart-bars__bar--alt"
+               style="--bar: 85%"></span>
+         …
+       </div>
+*/
+.aura-chart-bars {
+  --aura-chart-series:     var(--aura-primary);
+  --aura-chart-series-alt: var(--aura-secondary);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--aura-space-1);
+  block-size: var(--aura-chart-bars-h, 6rem);
+  inline-size: 100%;
+}
+.aura-chart-bars__bar {
+  flex: 1 1 0;
+  block-size: var(--bar, 0%);
+  min-block-size: 2px;
+  border-radius: var(--aura-radius-xs) var(--aura-radius-xs) 0 0;
+  background: var(--aura-chart-series);
+  transition: block-size var(--aura-dur-fast, 120ms) var(--aura-ease-out, ease);
+}
+.aura-chart-bars__bar--alt { background: var(--aura-chart-series-alt); }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-chart-bars__bar { transition: none; }
+}

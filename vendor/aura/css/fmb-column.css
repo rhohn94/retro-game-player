@@ -1,0 +1,266 @@
+/* Aura — FMB column (v3.503)
+   A fixed top-bar that houses the three Floating Menu Buttons (nav, sidebar,
+   footer) arranged horizontally left-to-right when all three chrome elements
+   are stashed. Replaces the former vertical left-rail layout (#949).
+
+   The column element (<aura-fmb-column>) is a fixed-position overlay bar.
+   It is always `display: flex` but starts translated off-screen (translate+opacity
+   transition). JS activates it by setting data-fmb-column-active, which slides
+   it in from the top with a translate+opacity transition.
+   When active, it occupies a 96px-tall strip at the top edge of the viewport,
+   full viewport width, containing three 96×96px FMB slots in a row left-to-right.
+
+   The individual FMB elements (nav header, sidebar, footer) continue to render
+   via their own CSS/JS — the column provides the backdrop rail and exposes the
+   --aura-fmb-column-size token (canonical since v3.541, #1019; the historical
+   --aura-fmb-column-width remains a supported alias whose overrides flow
+   through the -size definition in css/tokens.css) for page content to
+   respect (padding-block-start on the scroll root or shell). */
+
+@layer aura.fmb-column {
+  aura-fmb-column {
+    display: flex;
+    position: fixed;
+    inset-block-start: 0;
+    inset-inline: 0;
+    inline-size: 100%;
+    block-size: var(--aura-fmb-column-size, 96px);
+    z-index: var(--aura-z-overlay, 1000);
+    /* Flex row: nav slot at start, sidebar in middle, footer at end. */
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    /* Semi-transparent surface backdrop for the bar. */
+    background: color-mix(in srgb, var(--aura-surface, transparent) 80%, transparent);
+    /* Glass wash: blur paired with the theme saturate token (#493). */
+    backdrop-filter: blur(var(--aura-blur-3)) saturate(var(--aura-glass-saturate));
+    -webkit-backdrop-filter: blur(var(--aura-blur-3)) saturate(var(--aura-glass-saturate));
+    border-block-end: 1px solid var(--aura-surface-stroke);
+    pointer-events: none;
+    /* Slide-in entrance: off-screen to the top. Direction-agnostic. */
+    translate: 0 -100%;
+    opacity: 0;
+    transition:
+      translate var(--aura-fmb-column-duration, var(--aura-nav-header-duration, 280ms))
+                var(--aura-fmb-column-easing,   var(--aura-nav-header-easing,   ease)),
+      opacity   var(--aura-fmb-column-duration, var(--aura-nav-header-duration, 280ms))
+                var(--aura-fmb-column-easing,   var(--aura-nav-header-easing,   ease));
+  }
+
+  /* Opaque fallback where backdrop-filter is unsupported (v3.465).
+     Pattern: css/nav-header.css — glass-tint-layer over surface-solid preserves
+     the theme tint in the opaque fallback, same as the lite-effects and
+     prefers-reduced-transparency paths. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    aura-fmb-column {
+      background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+    }
+  }
+
+  aura-fmb-column[data-fmb-column-active] {
+    translate: 0 0;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Lite-effects dial (v3.463): when [data-aura-effects="lite"] is set on any
+     ancestor, drop glass compositing — matching the pattern from nav-header.css,
+     sidebar.css, and footer.css. Any ancestor can carry the dial (descendant
+     selector, not :root-scoped). */
+  [data-aura-effects="lite"] aura-fmb-column {
+    background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+    -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+  }
+
+  /* Each FMB slot: a 96×96px cell that centres its FMB. position:relative is
+     required for the ::after separator pseudo-element. */
+  aura-fmb-column [data-fmb-slot] {
+    pointer-events: none; /* FMBs are above the column; slots don't need to intercept */
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--aura-fmb-column-size, 96px);
+    block-size: var(--aura-fmb-column-size, 96px);
+    flex-shrink: 0;
+    transition: background var(--aura-fmb-column-duration, 280ms) var(--aura-fmb-column-easing, ease);
+  }
+
+  /* Slot hover highlight driven by JS data-slot-hover attribute (v3.461).
+     The CSS :hover no longer fires on slots (pointer-events: none set above);
+     JS listens to pointerover/pointerout on document and sets data-slot-hover
+     on the column element when the pointer enters a stashed FMB circle. */
+  aura-fmb-column[data-slot-hover='nav']     [data-fmb-slot='nav'],
+  aura-fmb-column[data-slot-hover='sidebar'] [data-fmb-slot='sidebar'],
+  aura-fmb-column[data-slot-hover='footer']  [data-fmb-slot='footer'] {
+    background: color-mix(in srgb, var(--aura-primary) 8%, transparent);
+  }
+
+  /* Inset separator lines between nav/sidebar and sidebar/footer slots (#949).
+     Horizontal bar: separators are vertical inline-end lines inset 16px from
+     block edges. No separator after the footer slot. */
+  aura-fmb-column [data-fmb-slot="nav"]::after,
+  aura-fmb-column [data-fmb-slot="sidebar"]::after {
+    content: "";
+    display: block;
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block: 16px;
+    inline-size: 1px;
+    block-size: auto;
+    background: var(--aura-surface-stroke);
+  }
+
+  /* Suppress trailing separator on the last visible slot (v3.463).
+     JS sets data-fmb-slot-last on the rightmost visible slot so the ::after
+     line doesn't appear at the bar's trailing edge with nothing beside it.
+     Safe even when all three slots are visible: footer is last but has no
+     ::after rule, so this is a no-op in the three-element case. */
+  aura-fmb-column [data-fmb-slot][data-fmb-slot-last]::after {
+    display: none;
+  }
+
+  /* Reduced motion: skip spatial translate, keep opacity cross-fade only. */
+  @media (prefers-reduced-motion: reduce) {
+    aura-fmb-column {
+      transition: opacity var(--aura-fmb-column-duration, var(--aura-nav-header-duration, 280ms))
+                          var(--aura-fmb-column-easing,   var(--aura-nav-header-easing,   ease));
+      translate: 0 0; /* avoid layout shift */
+    }
+    /* Suppress content-area block-start offset animation (#949).
+       layout.css adds padding-block-start transitions on aura-region and aura-split;
+       under reduced-motion the layout shift must be instant for both scroll owners.
+       transition-duration: 0s zeros the duration without clobbering the
+       property list from other layers. */
+    aura-region, .aura-region,
+    aura-split, .aura-split {
+      transition-duration: 0s;
+    }
+    /* Suppress slot-cell background fade — hover highlight must appear/disappear
+       instantly under reduced-motion (#889). */
+    aura-fmb-column [data-fmb-slot] {
+      transition: none;
+    }
+  }
+
+  /* Forced colors (Windows High Contrast Mode) — v3.462.
+     The glass surface (color-mix + backdrop-filter) is erased under WCM.
+     forced-color-adjust:none lets us paint system-colour equivalents.
+     Pattern consistent with the forced-colors blocks in sibling component files. */
+  @media (forced-colors: active) {
+    aura-fmb-column {
+      forced-color-adjust: none;
+      background: Canvas;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-block-end: 2px solid ButtonBorder;
+    }
+    aura-fmb-column [data-fmb-slot='nav']::after,
+    aura-fmb-column [data-fmb-slot='sidebar']::after {
+      background: ButtonBorder;
+    }
+    aura-fmb-column[data-slot-hover='nav']    [data-fmb-slot='nav'],
+    aura-fmb-column[data-slot-hover='sidebar'] [data-fmb-slot='sidebar'],
+    aura-fmb-column[data-slot-hover='footer'] [data-fmb-slot='footer'] {
+      background: Highlight;
+    }
+  }
+
+  /* Reduced transparency — v3.462/v3.465.
+     Drop backdrop-filter and use an opaque surface with the glass-tint-layer to
+     preserve the active theme's tint colour. Using surface-solid alone strips
+     theme tinting (e.g. warm-dusk shows plain white/dark without the tint).
+     Matches the prefers-reduced-transparency pattern on other glass surfaces. */
+  @media (prefers-reduced-transparency: reduce) {
+    aura-fmb-column {
+      background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* High contrast preference (v3.465): opacify the bar surface and strengthen
+     the edge boundary. Matches the footer precedent from css/preferences.css #811.
+     --aura-surface-stroke is globally overridden to var(--aura-text) under this
+     query by preferences.css, so the strengthened border is automatically
+     full-contrast text colour. */
+  @media (prefers-contrast: more) {
+    aura-fmb-column {
+      background: var(--aura-glass-tint-layer), var(--aura-surface-solid);
+      -webkit-backdrop-filter: none;
+              backdrop-filter: none;
+      border-block-end: 2px solid var(--aura-surface-stroke);
+    }
+    /* 8% primary over glass is imperceptible over the opaque surface-solid
+       background used in this media context; 25% over surface-solid is opaque
+       and clearly visible (#890). */
+    aura-fmb-column[data-slot-hover='nav']     [data-fmb-slot='nav'],
+    aura-fmb-column[data-slot-hover='sidebar'] [data-fmb-slot='sidebar'],
+    aura-fmb-column[data-slot-hover='footer']  [data-fmb-slot='footer'] {
+      background: color-mix(in srgb, var(--aura-primary) 25%, var(--aura-surface-solid));
+    }
+  }
+
+  /* ── Size coordination (v3.460) ─────────────────────────────────────────────
+     When the column is active, all three FMB size tokens are overridden to fill
+     the 96px slot cells. Each FMB element already transitions its geometry
+     channels (inline-size, block-size), so the 48px → 96px growth animates
+     smoothly without any extra JS. Deactivating the column removes the :has()
+     match, restoring the original token values and reversing the animation. */
+  :root:has(aura-fmb-column[data-fmb-column-active]) {
+    --aura-nav-header-fmb-size: var(--aura-fmb-column-size, 96px);
+    --aura-sidebar-fmb-size:    var(--aura-fmb-column-size, 96px);
+    --aura-footer-fmb-size:     var(--aura-fmb-column-size, 96px);
+  }
+
+  /* Pointer-events fix (v3.461): raise all three FMB host elements above the
+     column so clicks and CSS :hover reach them. Column stays at z-overlay (1000);
+     stashed FMBs go to z-overlay+1 (1001). The :has() scope means this only
+     applies while the column is active — inactive state reverts to original
+     z-index values. */
+  :root:has(aura-fmb-column[data-fmb-column-active]) aura-nav-header[data-stashed],
+  :root:has(aura-fmb-column[data-fmb-column-active]) .aura-nav-header[data-stashed] {
+    z-index: calc(var(--aura-z-overlay, 1000) + 1);
+  }
+  :root:has(aura-fmb-column[data-fmb-column-active]) [data-aura-sidebar='reveal']:not([data-fmb-pinned]) {
+    z-index: calc(var(--aura-z-overlay, 1000) + 1);
+  }
+  :root:has(aura-fmb-column[data-fmb-column-active]) aura-footer[data-aura-footer='reveal']:not([data-aura-revealed]),
+  :root:has(aura-fmb-column[data-fmb-column-active]) [data-aura-footer='reveal']:not([data-aura-revealed]) {
+    z-index: calc(var(--aura-z-overlay, 1000) + 1);
+  }
+
+  /* Mobile guard (v3.461): column never renders on narrow viewports.
+     Belt-and-suspenders alongside the JS _sync() guard. */
+  @media (max-width: 639px) {
+    aura-fmb-column {
+      display: none !important;
+    }
+    /* Ensure FMBs do not retain the 96px size on mobile. */
+    :root:has(aura-fmb-column[data-fmb-column-active]) {
+      --aura-nav-header-fmb-size: initial;
+      --aura-sidebar-fmb-size:    initial;
+      --aura-footer-fmb-size:     initial;
+    }
+  }
+
+  /* Print adaptation (v3.503): the FMB column is interactive chrome with no
+     meaning on paper. Hide it and zero the JS-set offset tokens so aura-region
+     retains no phantom indentation on the printed page.
+     !important on custom properties overrides the inline styles written by
+     js/fmb-column.js (_activate sets these on document.documentElement).
+     Rule lives here (not in css/print.css) to avoid the catalog element-selector
+     coverage check triggered by aura-* element selectors in print.css. */
+  @media print {
+    aura-fmb-column {
+      display: none !important;
+    }
+    :root {
+      /* JS-set tokens (written by _activate to document.documentElement.style)
+         must be zeroed so consumers using them for layout get no phantom indent on paper. */
+      --aura-fmb-column-active-offset-block-start: 0px !important;
+      --aura-fmb-column-active-width:              0px !important;
+    }
+  }
+}

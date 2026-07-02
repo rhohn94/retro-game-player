@@ -1,0 +1,185 @@
+/* ==========================================================================
+   Aura — shared form-association layer (ElementInternals).
+
+   FormAssociated is the ONE DRY implementation of custom-element form
+   participation (the W3C form-associated-custom-element protocol) shared by all
+   eleven Aura form controls — aura-switch, aura-checkbox, aura-radio,
+   aura-select, aura-range, aura-stepper, aura-datepicker, aura-timepicker,
+   aura-color-picker, aura-editor, aura-tag-input. Before this, every catalog
+   entry CLAIMED `provides: form-submission` but NO element was actually
+   `formAssociated` (no ElementInternals / attachInternals / setFormValue), so
+   native <form> submit / reset / :disabled did not work (#538).
+
+   Rather than copy-paste the same boilerplate eleven times, this module exposes
+   a small set of methods + a one-call installer that a control mixes onto its
+   prototype. Because the controls do NOT share a single base class (most extend
+   Aura.BaseElement, checkbox/radio extend Aura.FormControlBase, editor extends
+   HTMLElement directly), the layer is delivered as a prototype-mixin rather than
+   an inheritance link — keeping it consistent across every base.
+
+   ── How a control opts in ────────────────────────────────────────────────
+     1. `static formAssociated = true;`                  // platform opt-in
+     2. `Aura.FormAssociated.install(MyControl, {        // mix in the layer
+            value: function () { return this.value; },   // current FormData value
+            reset: function () { … restore default … }   // formResetCallback body
+         });`
+     3. call `this._initFormInternals()` once in the connect path (idempotent),
+        and `this._syncFormValue()` whenever the submitted value changes.
+
+   The shared layer owns:
+     • attachInternals() + the ElementInternals handle (this.__internals),
+     • setFormValue() with name/value reflection (a null value omits the field),
+     • formResetCallback   → captures the as-authored default on first connect,
+                             then delegates to the control's `reset` hook,
+     • formDisabledCallback → reflects the owning <fieldset>/disabled state by
+                             toggling the host [disabled] attribute, which every
+                             control already mirrors onto its inner widget.
+
+   The per-control code supplies only `value` (its current submitted value) and
+   `reset` (restore to the as-authored default) — never the platform plumbing.
+
+   Coordination with the #439 lifecycle + the v3.24/v3.26 React controlled
+   bridge: _initFormInternals() is idempotent and attaches internals exactly
+   once per element instance (guarded by __formInternals), so a disconnect/
+   reconnect (HTMX swap, React StrictMode double-mount) never re-attaches or
+   double-submits. attachInternals() throws if called twice — the guard prevents
+   that. The form value is (re)published on every connect via _syncFormValue().
+
+   Load order: core.js → element-base.js → form-associated-base.js → controls.
+   See docs/design/form-association-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura) return;
+
+  /* Whether the host platform supports form-associated custom elements at all
+     (ElementInternals.setFormValue). Older engines lack it; on those the layer
+     degrades to a no-op and the controls keep working as plain widgets. */
+  var SUPPORTED =
+    typeof window.ElementInternals !== "undefined" &&
+    typeof window.ElementInternals.prototype.setFormValue === "function";
+
+  /* The methods mixed onto each control's prototype. Authored as a plain object
+     so install() can copy them without an inheritance edge (the controls have
+     three different base classes). */
+  var methods = {
+    /* Attach the ElementInternals handle exactly once per element instance.
+       Idempotent: a re-entrant call (reconnect, double connect) is a no-op, so
+       it is safe to call unconditionally from the connect path. attachInternals
+       throws if called twice — the __formInternals guard prevents that. */
+    _initFormInternals: function () {
+      if (this.__formInternals) return;          // already attached this instance
+      if (!SUPPORTED || typeof this.attachInternals !== "function") {
+        this.__formInternals = true;             // mark so we never retry
+        return;
+      }
+      try {
+        this.__internals = this.attachInternals();
+      } catch (e) {
+        /* attachInternals can throw if the element is not actually
+           formAssociated (static omitted) or already attached — fail soft. */
+        this.__internals = null;
+      }
+      this.__formInternals = true;
+    },
+
+    /* The control's EFFECTIVE disabled state: its own [disabled] content
+       attribute OR a fieldset/form-driven disable recorded by
+       formDisabledCallback. Controls call this instead of reading
+       hasAttribute("disabled") directly so a <fieldset disabled> disables them
+       (and re-enables) without the content-attribute pinning problem. */
+    _isDisabled: function () {
+      return this.hasAttribute("disabled") || this.__formDisabled === true;
+    },
+
+    /* Publish the control's current value to the owning form via setFormValue.
+       Reads the per-control `_formValue()` hook (installed from the `value`
+       config); a null/undefined result omits the field from FormData (the
+       native "unchecked checkbox / empty optional" convention). Safe to call
+       before internals exist (no-op) and on every value mutation / connect. */
+    _syncFormValue: function () {
+      var i = this.__internals;
+      if (!i) return;
+      var v = this._formValue == null ? null : this._formValue();
+      i.setFormValue(v == null ? null : String(v));
+    },
+
+    /* Platform reset callback: native <form>.reset() and the reset button route
+       here. Restores the control to its as-authored default (captured once on
+       first connect by _captureFormDefault), then republishes the form value.
+       Delegates the actual restore to the control's `_resetFormValue()` hook. */
+    formResetCallback: function () {
+      if (this._resetFormValue) this._resetFormValue();
+      this._syncFormValue();
+    },
+
+    /* Platform disabled callback: fires when the control's disabled state
+       changes because an ancestor <fieldset disabled> (or the form) toggled.
+       Record it on a private __formDisabled flag and re-sync so the control
+       reflects the effective state via _isDisabled() (host [disabled] OR the
+       fieldset flag). We deliberately do NOT set the host [disabled] *content
+       attribute* here: a form-associated custom element with a disabled content
+       attribute is itself "actually disabled", which pins the state and
+       suppresses the platform's re-ENABLE callback — so reflecting onto the
+       attribute would make a <fieldset disabled> impossible to undo. The flag
+       channel keeps re-enable working. */
+    formDisabledCallback: function (disabled) {
+      this.__formDisabled = !!disabled;
+      /* Reflect aria-disabled directly (controls also do this in _sync, but run
+         it here so a control without a _sync still surfaces the state). */
+      this.setAttribute("aria-disabled", disabled ? "true" : "false");
+      /* Re-sync the control's inner widget — but ONLY once it is built. The
+         platform fires this callback when the `disabled` content attribute is
+         set even on a not-yet-connected element (before _build ran), so guard on
+         the __init build flag to avoid touching not-yet-created internal DOM.
+         _build()→_sync() on the next connect picks up __formDisabled regardless. */
+      if (this._sync && this.__init) this._sync();
+    }
+  };
+
+  /* Capture the control's as-authored default value the first time it connects,
+     so formResetCallback can restore it. Stored on the instance. Controls whose
+     `reset` hook reads __formDefault get this for free; a control with bespoke
+     default logic may ignore it. */
+  function captureDefault(el) {
+    if (el.__formDefaultCaptured) return;
+    el.__formDefaultCaptured = true;
+    el.__formDefault = el._formValue == null ? null : el._formValue();
+  }
+
+  /* Summary: install the form-association layer onto a control class.
+       Ctor    the control constructor (its prototype receives the methods)
+       config  { value: fn -> current submitted value (string|null),
+                 reset: fn  -> restore the as-authored default (optional;
+                              defaults to re-applying __formDefault via `value`
+                              is not possible generically, so controls pass it) }
+     Copies the shared methods (without clobbering a control that already defines
+     formResetCallback/formDisabledCallback for bespoke needs — explicit wins),
+     and wires the `value`/`reset` hooks to the private _formValue/_resetFormValue
+     names the shared layer calls. Idempotent per class. */
+  function install(Ctor, config) {
+    if (!Ctor || !Ctor.prototype) return;
+    var proto = Ctor.prototype;
+    for (var k in methods) {
+      if (methods.hasOwnProperty(k) && !proto.hasOwnProperty(k)) {
+        proto[k] = methods[k];
+      }
+    }
+    if (config && config.value) proto._formValue = config.value;
+    if (config && config.reset) proto._resetFormValue = config.reset;
+    /* Expose default-capture so a control can snapshot its authored default at
+       the right moment (after its value is first readable). */
+    proto._captureFormDefault = function () { captureDefault(this); };
+  }
+
+  /* Summary: the form-association namespace. install() mixes the layer onto a
+     control class; supported() lets callers/tests detect platform capability. */
+  Aura.FormAssociated = {
+    install: install,
+    supported: function () { return SUPPORTED; }
+  };
+})();

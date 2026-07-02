@@ -1,0 +1,200 @@
+/* ==========================================================================
+   Aura — tooltip primitive (Aura.tooltip, v1.8).
+
+   A single, reused tooltip bubble shown on hover/focus of any element carrying
+   `data-aura-tooltip` (explicit text) or, for an icon-only control, falling back
+   to its `aria-label`. Built on the shared anchored-overlay geometry
+   (Aura.overlay.placeAtAnchor) so placement flips/clamps like every other
+   popup, but with its own lightweight, NON-exclusive lifecycle — tooltips are
+   transient hints, not the single active click-overlay.
+
+   Accessibility:
+     • the bubble is role="tooltip" with a stable id;
+     • while shown, the trigger gets aria-describedby pointing at it;
+     • Escape and blur/leave dismiss it;
+     • keyboard focus shows it just like hover.
+
+   HTMX-safe: one delegated set of listeners on the document; swapped-in
+   triggers work with no re-init. Coarse-pointer devices get focus/long-press
+   semantics for free (focus still shows it; hover never fires).
+
+   Load order: core.js → overlay.js → tooltip.js.
+   See docs/design/tooltips-and-affordances-design.md §1.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura) return;
+
+  var TRIGGER_SEL = "[data-aura-tooltip], [data-aura-tooltip-from-label]";
+  var bubble = null;       // the single reused tooltip element
+  var current = null;      // the trigger currently described, or null
+  var showTimer = null, hideTimer = null;
+
+  function ensureBubble() {
+    if (bubble) return bubble;
+    bubble = document.createElement("div");
+    bubble.className = "aura-tooltip";
+    bubble.setAttribute("role", "tooltip");
+    bubble.id = Aura.nextId("aura-tooltip-");
+    bubble.setAttribute("aria-hidden", "true");
+    /* Separate label + arrow children so setting the text never clobbers the
+       arrow (a bare textContent assignment would). The arrow is decorative. */
+    var label = document.createElement("span");
+    label.className = "aura-tooltip__label";
+    var arrow = document.createElement("span");
+    arrow.className = "aura-tooltip__arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    bubble.append(label, arrow);
+    bubble.__label = label;
+    bubble.__arrow = arrow;
+    document.body.appendChild(bubble);
+    return bubble;
+  }
+
+  /* Point the arrow at the anchor's centre after the bubble has been placed and
+     horizontally clamped (#139). The arrow x is the anchor centre relative to
+     the bubble's left edge, kept within the bubble's rounded corners; the side
+     (above/below) is read from the transform-origin the placer recorded. */
+  function positionArrow(b, triggerRect) {
+    var panel = b.getBoundingClientRect();
+    var originY = (b.style.getPropertyValue("--aura-tooltip-origin") || "top").trim();
+    var below = originY.indexOf("bottom") !== 0; // "top left" → bubble is BELOW
+    b.classList.toggle("aura-tooltip--above", !below);
+    b.classList.toggle("aura-tooltip--below", below);
+    var anchorCenter = triggerRect.left + triggerRect.width / 2;
+    var x = anchorCenter - panel.left;
+    var INSET = 12; // keep the arrow off the rounded corners
+    x = Math.min(Math.max(INSET, x), Math.max(INSET, panel.width - INSET));
+    b.style.setProperty("--aura-tooltip-arrow-x", x + "px");
+  }
+
+  /* Resolve the tooltip text for a trigger: explicit data attribute wins,
+     else the aria-label (icon-only controls), else null (nothing to show). */
+  function textFor(el) {
+    var t = el.getAttribute("data-aura-tooltip");
+    if (t != null && t !== "") return t;
+    if (el.hasAttribute("data-aura-tooltip-from-label") || el.getAttribute("data-aura-tooltip") === "") {
+      return el.getAttribute("aria-label") || null;
+    }
+    return null;
+  }
+
+  /* Timing-token → ms resolution lives in the shared Aura.readDelay (#324). */
+  var readDelay = Aura.readDelay;
+
+  /* Dwell fallbacks (ms) for when the CSS timing tokens are absent/invalid.
+     These mirror the token defaults (--aura-tooltip-delay / -delay-out in
+     css/tokens.css) — named once so the value isn't re-typed per call (#358). */
+  var DEFAULT_SHOW_DELAY = 400;   // == --aura-tooltip-delay default
+  var DEFAULT_HIDE_DELAY = 80;    // == --aura-tooltip-delay-out default
+
+  function show(trigger) {
+    /* Bail if the trigger was removed from the DOM before this ran — e.g. the
+       scheduleShow dwell timer fired after an HTMX swap / SPA unmount removed it
+       (#691). Showing a detached node would anchor the bubble at a zeroed
+       getBoundingClientRect; clear any pending state and abort so no phantom
+       bubble lingers (same disconnect-while-open class as #455/#502/#673). */
+    if (!trigger || !trigger.isConnected) { clearTimeout(showTimer); hide(); return; }
+    var text = textFor(trigger);
+    if (!text) return;
+    clearTimeout(hideTimer);
+    var b = ensureBubble();
+    b.__label.textContent = text;
+    b.classList.add("aura-tooltip--open");
+    b.setAttribute("aria-hidden", "false");
+    /* focusin/pointerover can call show() for a new trigger without an
+       intervening hide(), so release aria-describedby from the previously
+       described trigger before reassigning it — the shared bubble now
+       describes the new trigger, not the old one (#458). */
+    if (current && current !== trigger) current.removeAttribute("aria-describedby");
+    current = trigger;
+    trigger.setAttribute("aria-describedby", b.id);
+    /* Reuse the overlay placer: anchor below, flip above when it would overflow. */
+    if (Aura.overlay && Aura.overlay.placeAtAnchor) {
+      b.style.position = "fixed";
+      var triggerRect = trigger.getBoundingClientRect();
+      Aura.overlay.placeAtAnchor(b, triggerRect, "--aura-tooltip-origin");
+      positionArrow(b, triggerRect);
+    }
+  }
+
+  function hide() {
+    clearTimeout(showTimer);
+    if (!bubble) return;
+    bubble.classList.remove("aura-tooltip--open");
+    bubble.setAttribute("aria-hidden", "true");
+    if (current) { current.removeAttribute("aria-describedby"); current = null; }
+  }
+
+  function scheduleShow(trigger) {
+    clearTimeout(showTimer);
+    showTimer = setTimeout(function () { show(trigger); }, readDelay("--aura-tooltip-delay", DEFAULT_SHOW_DELAY));
+  }
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, readDelay("--aura-tooltip-delay-out", DEFAULT_HIDE_DELAY));
+  }
+
+  /* ---- Delegated wiring (registered once) ------------------------------ */
+  var wired = false;
+  Aura.onMount(function () {
+    if (wired) return;
+    wired = true;
+
+    document.addEventListener("pointerover", function (e) {
+      var t = e.target.closest && e.target.closest(TRIGGER_SEL);
+      if (t) scheduleShow(t);
+    });
+    document.addEventListener("pointerout", function (e) {
+      var t = e.target.closest && e.target.closest(TRIGGER_SEL);
+      // pointerout also fires when moving onto a CHILD of the same trigger (the
+      // event model fires out/over pairs across descendant boundaries). Only hide
+      // when the pointer actually LEAVES the trigger subtree — the standard
+      // relatedTarget containment guard — to avoid show/hide churn + flicker on
+      // multi-child triggers (#508).
+      var to = e.relatedTarget;
+      if (t && !(to && t.contains(to))) scheduleHide();
+    });
+    // Keyboard focus shows the tooltip; blur hides it.
+    document.addEventListener("focusin", function (e) {
+      var t = e.target.closest && e.target.closest(TRIGGER_SEL);
+      if (t) show(t);                      // no dwell delay for keyboard users
+    });
+    document.addEventListener("focusout", function (e) {
+      var t = e.target.closest && e.target.closest(TRIGGER_SEL);
+      if (t) hide();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && current) hide();
+    });
+    // A scroll or resize invalidates placement — just dismiss. The connected
+    // check also catches a `current` that was detached without a scroll/resize.
+    window.addEventListener("scroll", function () { if (current) hide(); }, true);
+    window.addEventListener("resize", function () { if (current) hide(); });
+
+    /* Disconnect teardown (#691): none of the dismiss triggers (pointerout/
+       focusout/Escape/scroll/resize) fire when the described trigger is simply
+       removed from the DOM (HTMX swap, SPA/React unmount) while the tooltip is
+       open — leaving the singleton bubble stuck open at a stale anchor and
+       `current` pinning the detached node alive. Observe document mutations and,
+       when the current trigger goes disconnected, hide() to close the bubble and
+       clear `current` (same orphan class the codebase fixed in #455/#502/#673). */
+    if (typeof MutationObserver !== "undefined") {
+      var observer = new MutationObserver(function () {
+        if (current && !current.isConnected) hide();
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  });
+
+  Aura.tooltip = {
+    show: show,
+    hide: hide,
+    /* Imperatively attach tooltip text to an element (sets the data attribute). */
+    attach: function (el, text) { if (el) el.setAttribute("data-aura-tooltip", text); return Aura.tooltip; }
+  };
+})();

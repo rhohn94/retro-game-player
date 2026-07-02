@@ -1,0 +1,225 @@
+/* ==========================================================================
+   Aura — sidebar FMB (v3.88)
+
+   A fixed-position Floating Menu Button anchored just below the nav-header
+   FMB on the left side. Collapses to a compact circle at rest; expands on
+   hover, focus, JS proximity (js/sidebar.js), or click-pin (data-fmb-pinned).
+   Mirrors the nav-header FMB geometry and ghostly rest appearance.
+
+   FMB collapse mechanism:
+     inline-size: fmb-size  — circle width
+     block-size: fmb-size   — circle height → border-radius:50% circle
+     border-radius: 50%     — round form
+     overflow: hidden       — clips content zone
+     opacity: 0.35          — ghostly
+     filter: grayscale(1)   — monochrome
+
+   Expand restores natural sizing, border-radius, opacity, filter.
+   ========================================================================== */
+@layer sidebar {
+  .aura-sidebar[data-aura-sidebar] {
+    /* Anchored to the same left edge as the nav-header FMB, just below it. */
+    position: fixed;
+    /* space-5 (24px) = nav-header fmb-size margin-block-start (space-2=8px) + desired 16px gap */
+    inset-block-start: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+    inset-inline-start: var(--aura-nav-header-pad-inline);
+    /* One layer below the nav-header so the header always wins on overlap. */
+    z-index: calc(var(--aura-z-sticky) - 1);
+
+    /* Glass surface: same tier as nav-header chrome-over-content. */
+    background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface);
+    -webkit-backdrop-filter: blur(var(--aura-sidebar-blur)) saturate(var(--aura-sidebar-saturate));
+    backdrop-filter: blur(var(--aura-sidebar-blur)) saturate(var(--aura-sidebar-saturate));
+    border: 1px solid var(--aura-surface-stroke);
+    color: var(--aura-text);
+
+    /* FMB resting state: compact circle. Structural flex centering ensures the
+       mark zone icon is centred by container properties, not manual offsets.
+       The mark zone carries its own explicit block-size so align-items:center
+       (not stretch) is safe here — the zone fills the circle via block-size. */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    inline-size: var(--aura-sidebar-fmb-size);
+    block-size: var(--aura-sidebar-fmb-size);
+    border-radius: 50%;
+    overflow: hidden;
+
+    /* Ghostly monochrome at rest; restores on expand (mirrors nav-header FMB). */
+    opacity: 0.35;
+    filter: grayscale(1);
+
+    /* Bidirectional FMB ↔ panel transition channels. */
+    transition:
+      inline-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      block-size    var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      border-radius var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      padding       var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      opacity       var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      filter        var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* Glow-vs-ghost conflict (v3.532 #A): the host's own `opacity:0.35` +
+     `filter:grayscale(1)` composite through the .aura-glow rim too (CSS
+     filter/opacity apply to the whole rendered subtree, pseudo-elements
+     included) — so as the cursor approaches within the 130px glow radius but
+     before it crosses the FMB's own tight ~14px expand-px ring, the vivid
+     --aura-edge-color rim would render fully desaturated and at ~0.27
+     effective opacity: a barely-visible smudge rather than the intended
+     "you're getting close" cue. Verified via preview (computed styles +
+     scaled screenshot). Rather than let that illegible state show, suppress
+     the rim while still collapsed; it un-suppresses the instant the FMB
+     itself expands (the block above already sets opacity:1/filter:none at
+     that point, so the rim renders vivid and undimmed from then on). The
+     host stays a fully-fledged .aura-glow member throughout — magnetic lean
+     and :focus-visible intensity pinning are unaffected — only the rim
+     pseudo-element's visibility window is scoped to skip the conflicting
+     ghost state. This `:not()` chain (one term per expand state) is the
+     REFERENCE selector shape for the unified FMB glow-suppression contract:
+     docs/design/proximity-glow-design.md §Ghosted FMB rim suppression
+     (v3.541, #1021). */
+  .aura-sidebar[data-aura-sidebar]:not(:hover):not(:focus-within):not([data-sidebar-expanded]):not([data-fmb-pinned])::after {
+    opacity: 0;
+  }
+
+  /* Opaque fallback — engines without backdrop-filter support (#491). */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .aura-sidebar[data-aura-sidebar] {
+      background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
+    }
+  }
+
+  /* Opaque swap — [data-aura-effects="lite"] page-wide reduce-effects hatch (#491/#401). */
+  [data-aura-effects="lite"] .aura-sidebar[data-aura-sidebar] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
+  }
+
+  /* ---- Mark zone: icon shown in FMB circle state. ---- */
+  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
+    flex-shrink: 0;
+    block-size: var(--aura-sidebar-fmb-size);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--aura-text);
+    transition:
+      opacity        var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      max-block-size var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* ---- Content zone: hidden in FMB state (overflow hidden clips it). ---- */
+  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
+    max-block-size: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      max-block-size var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      opacity        var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* ---- FMB → panel: hover / focus / JS proximity / click-pin ------------ */
+  .aura-sidebar[data-aura-sidebar]:hover,
+  .aura-sidebar[data-aura-sidebar]:focus-within,
+  .aura-sidebar[data-aura-sidebar][data-sidebar-expanded],
+  .aura-sidebar[data-aura-sidebar][data-fmb-pinned] {
+    inline-size: var(--aura-sidebar-width);
+    block-size: auto;
+    border-radius: var(--aura-radius-lg);
+    overflow: visible;
+    padding: var(--aura-sidebar-pad-block) var(--aura-sidebar-pad-inline);
+    opacity: 1;
+    filter: none;
+  }
+
+  /* Mark zone: collapse when expanded (content takes over). */
+  .aura-sidebar[data-aura-sidebar]:hover [data-sidebar-zone="mark"],
+  .aura-sidebar[data-aura-sidebar]:focus-within [data-sidebar-zone="mark"],
+  .aura-sidebar[data-aura-sidebar][data-sidebar-expanded] [data-sidebar-zone="mark"],
+  .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="mark"] {
+    max-block-size: 0;
+    overflow: hidden;
+    opacity: 0;
+  }
+
+  /* Content zone: reveal when expanded. */
+  .aura-sidebar[data-aura-sidebar]:hover [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar]:focus-within [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-sidebar-expanded] [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="content"] {
+    max-block-size: 60dvh;
+    opacity: 1;
+    pointer-events: auto;
+    overflow-y: auto;
+  }
+
+  /* ---- Sidebar navigation links. ---- */
+  .aura-sidebar-link {
+    display: block;
+    padding: var(--aura-space-1) var(--aura-space-2);
+    border-radius: var(--aura-radius-sm);
+    color: var(--aura-text-muted);
+    text-decoration: none;
+    font-size: var(--aura-text-sm);
+    white-space: nowrap;
+    transition:
+      color            var(--aura-dur-fast) var(--aura-ease-out),
+      background-color var(--aura-dur-fast) var(--aura-ease-out);
+  }
+
+  .aura-sidebar-link:hover,
+  .aura-sidebar-link:focus-visible {
+    color: var(--aura-text);
+    background-color: var(--aura-surface-2);
+    outline: none;
+  }
+
+  .aura-sidebar-link[aria-current="page"] {
+    color: var(--aura-accent);
+  }
+
+  /* Forced-colors (Windows High Contrast): current-page is conveyed ONLY by an
+     accent text colour, which HCM remaps to the system palette — making it
+     identical to its siblings. Add a non-colour system marker. */
+  @media (forced-colors: active) {
+    .aura-sidebar-link[aria-current="page"] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+  }
+
+  /* ---- Reduced motion (#1020) -------------------------------------------- */
+  /* The FMB ↔ panel state change still HAPPENS — it just snaps, with no
+     animated resize/fade (space-economy + animation contract; mirrors the
+     footer's reveal treatment in css/footer.css). Covers the host's six
+     transition channels plus every transitioning descendant: the mark zone,
+     the content zone, and the nav links. NOTE: keep this the file's SINGLE
+     `prefers-reduced-motion` block — the coverage gate's block scanner only
+     sees the FIRST matching @media block per file (see css/nav-header.css,
+     the #700 consolidation note), so a second block here would silently
+     escape the coverage check. */
+  @media (prefers-reduced-motion: reduce) {
+    .aura-sidebar[data-aura-sidebar],
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"],
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"],
+    .aura-sidebar-link {
+      transition: none;
+    }
+  }
+
+  /* ---- FMB column co-existence: panel opens below the top bar (#949) ---- */
+  /* When the FMB top-bar is active, the sidebar panel opens below the bar.
+     inset-block-start positions the panel below the bar's height; inset-inline-start
+     anchors it to the left edge. Direction-agnostic — no RTL mirror needed.
+     --aura-fmb-column-active-offset-block-start is set by js/fmb-column.js on :root
+     whenever [data-fmb-column-active] is present. */
+  :root:has(aura-fmb-column[data-fmb-column-active]) .aura-sidebar[data-aura-sidebar] {
+    inset-block-start: var(--aura-fmb-column-active-offset-block-start, 0);
+    inset-inline-start: 0;
+  }
+}

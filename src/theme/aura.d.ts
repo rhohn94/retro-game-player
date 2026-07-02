@@ -1,7 +1,8 @@
-// Ambient declarations for the Aura design language consumed from the vendored
-// submodule (vendor/aura, pinned v3.20). Aura ships framework-free custom
-// elements + a JS-only React adapter and NO TypeScript declarations
-// (design-language#858), so W2 supplies the typing locally. This file covers:
+// Ambient declarations for the Aura design language consumed from the
+// channel-vendored tree (vendor/aura, pinned v3.541.0 via vendor.toml).
+// Aura ships framework-free custom elements + a React adapter; this local
+// typing dates from when upstream shipped no declarations (the
+// design-language#858 era) and remains authoritative here. This file covers:
 //   1. the `@aura/runtime` side-effect import (registers the custom elements),
 //   2. the `@aura/css/*` CSS-barrel import,
 //   3. the JSX ambient declaration so raw `<aura-*>` tags type-check in TSX.

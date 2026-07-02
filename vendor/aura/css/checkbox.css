@@ -1,0 +1,145 @@
+/* ==========================================================================
+   Aura — aura-checkbox styling.
+
+   Token-driven styled checkbox. Every colour/size/radius/motion resolves from a
+   token, or a component dial that DEFAULTS to a token via
+   var(--dial, var(--token)) — change a handful of :root values and it re-skins
+   with zero JS edits. Visual state follows the native input via sibling
+   combinators (.aura-checkbox__input:checked ~ .aura-checkbox__box-visual), so
+   it is correct regardless of the host's [checked] mirror.
+
+   The .aura-checkbox__box-visual is a real, addressable element; its check/dash
+   mark uses ::before so ::after stays FREE for the sub-part proximity glow.
+   See docs/design/control-widgets-design.md.
+   ========================================================================== */
+
+aura-checkbox {
+  display: inline-flex;
+  /* Glow integration: the host carries .aura-glow for proximity detection.
+     Disable the generic hover-lift and magnetic-lean that glow.css applies to
+     all .aura-glow elements — the whole label row should not translate. The
+     box-visual gets the rim treatment via .aura-glow__target. */
+  --aura-hover-lift: 0;
+  --aura-magnet-shift: 0;
+}
+aura-checkbox[disabled] { opacity: var(--aura-disabled-opacity); }
+
+.aura-checkbox__box {
+  position: relative;            /* contains the sr-only input */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+aura-checkbox[disabled] .aura-checkbox__box { cursor: default; pointer-events: none; }
+
+/* Visually-hidden but FOCUSABLE native checkbox — the form/a11y/keyboard engine.
+   Not display:none (that would drop it from the tab order and the form). The
+   wrapping <label> routes clicks to it, so it needs no pointer hit area. */
+.aura-checkbox__input {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- Box: ADDRESSABLE sub-part (glow target; ::after reserved) ---------- */
+.aura-checkbox__box-visual {
+  position: relative;
+  flex: none;
+  inline-size: var(--aura-checkbox-size, var(--aura-space-5));
+  block-size: var(--aura-checkbox-size, var(--aura-space-5));
+  border-radius: var(--aura-checkbox-radius, var(--aura-radius-sm));
+  background: var(--aura-checkbox-bg, var(--aura-surface-1));
+  /* Blend the resting border toward the text colour so an unchecked box is
+     clearly perceivable on dark surfaces, not a near-invisible hairline (#126). */
+  border: 1px solid var(--aura-checkbox-border, color-mix(in srgb, var(--aura-surface-stroke-strong), var(--aura-text) 22%));
+  transition:
+    background-color var(--aura-dur-base) var(--aura-ease-standard),
+    border-color     var(--aura-dur-base) var(--aura-ease-standard);
+  /* Widen the glow rim for this compact target: the default 1px is too thin to
+     read on a ~24px box. Use the shared --aura-edge-shine-width-compact token
+     (1.5px) so radio, checkbox and switch share one source of truth and a theme
+     retuning the compact width moves them together (#663). Token-overridable per
+     the v1.2 constraint. */
+  --aura-edge-shine-width: var(--aura-edge-shine-width-compact);
+}
+
+/* ---- Check mark + indeterminate dash via ::before ---------------------- */
+/* Shared base for both mark styles */
+.aura-checkbox__box-visual::before {
+  content: "";
+  position: absolute;
+  /* Checkmark: right + bottom border, rotated 45 deg — standard tick ✓ shape.
+     Dimensions are expressed as percentages of the box-visual so the mark
+     scales naturally with --aura-checkbox-size. */
+  inline-size: var(--aura-checkbox-mark-w, 30%);
+  block-size: var(--aura-checkbox-mark-h, 54%);
+  border-inline-end:  var(--aura-checkbox-mark-stroke, 2px) solid
+    var(--aura-checkbox-check-color, var(--aura-on-primary));
+  border-block-end:   var(--aura-checkbox-mark-stroke, 2px) solid
+    var(--aura-checkbox-check-color, var(--aura-on-primary));
+  /* Position: nudge the foot of the check toward the center of the box */
+  inset-block-start:  14%;
+  inset-inline-start: 28%;
+  transform: rotate(45deg);
+  transform-origin: 60% 70%;
+  scale: 0;
+  transition: scale var(--aura-dur-base) var(--aura-ease-spring);
+}
+
+/* ---- State: checked ----------------------------------------------------- */
+.aura-checkbox__input:checked ~ .aura-checkbox__box-visual {
+  background: var(--aura-checkbox-selected, var(--aura-primary));
+  border-color: var(--aura-checkbox-selected, var(--aura-primary));
+}
+/* Only show the checkmark when checked and NOT indeterminate */
+.aura-checkbox__input:checked:not(:indeterminate) ~ .aura-checkbox__box-visual::before {
+  scale: 1;
+}
+
+/* ---- State: indeterminate (horizontal dash) ----------------------------- */
+.aura-checkbox__input:indeterminate ~ .aura-checkbox__box-visual {
+  background: var(--aura-checkbox-selected, var(--aura-primary));
+  border-color: var(--aura-checkbox-selected, var(--aura-primary));
+}
+.aura-checkbox__input:indeterminate ~ .aura-checkbox__box-visual::before {
+  /* Override checkmark geometry with a horizontal dash */
+  inline-size: 56%;
+  block-size: 0;
+  border-block-end:  var(--aura-checkbox-mark-stroke, 2px) solid
+    var(--aura-checkbox-check-color, var(--aura-on-primary));
+  border-inline-end: none;
+  inset-block-start: 50%;
+  inset-inline-start: 22%;
+  transform: translateY(-50%);
+  transform-origin: 50% 50%;
+  scale: 1;
+}
+
+/* ---- Label text --------------------------------------------------------- */
+.aura-checkbox__label {
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+  color: var(--aura-text);
+}
+
+/* ---- State: hover / focus (follow the native input) --------------------- */
+aura-checkbox:not([disabled]) .aura-checkbox__box:hover .aura-checkbox__box-visual {
+  border-color: var(--aura-primary-a60);
+}
+
+.aura-checkbox__input:focus-visible ~ .aura-checkbox__box-visual {
+  box-shadow: var(--aura-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-checkbox__box-visual,
+  .aura-checkbox__box-visual::before { transition: none; }
+}

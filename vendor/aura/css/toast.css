@@ -1,0 +1,226 @@
+/* ==========================================================================
+   Aura — toast notifications.
+
+   Fixed-position toast stack with entrance/exit animations, variant colours,
+   and full configurable-aesthetics compliance. All visual values resolve from
+   tokens or component-scoped --aura-toast-* vars (no magic numbers).
+   See docs/design/toast-design.md.
+   ========================================================================== */
+
+/* ---- Component-scoped dials (all default to global tokens) -------------- */
+:root {
+  --aura-toast-min-width:      16rem;
+  --aura-toast-max-width:      24rem;
+  --aura-toast-padding-x:      var(--aura-space-4);
+  --aura-toast-padding-y:      var(--aura-space-3);
+  --aura-toast-gap:            var(--aura-space-3);
+  --aura-toast-radius:         var(--aura-radius-lg);
+  --aura-toast-stack-inset-b:  var(--aura-space-5);
+  --aura-toast-stack-inset-r:  var(--aura-space-5);
+  --aura-toast-duration:       var(--aura-dur-base);
+
+  /* Variant icon tints — each defaults to a semantic token. */
+  --aura-toast-icon-color-info:         var(--aura-info);
+  --aura-toast-icon-color-success:      var(--aura-success);
+  --aura-toast-icon-color-warning:      var(--aura-warning);
+  --aura-toast-icon-color-danger:       var(--aura-danger);
+  --aura-toast-icon-color-notification: var(--aura-secondary);
+}
+
+/* ---- Stack container ---------------------------------------------------- */
+[data-aura-toast-stack] {
+  position: fixed;
+  inset-block-end:  var(--aura-toast-stack-inset-b);
+  inset-inline-end: var(--aura-toast-stack-inset-r);
+  z-index: var(--aura-z-toast);
+
+  /* Column layout; newest toast appended last → newest at bottom of visual
+     stack by default. Use flex-direction: column-reverse on the stack to
+     show newest on top. */
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--aura-toast-gap);
+  align-items: flex-end;
+
+  /* Pointer events only on the toasts themselves, not the gap between them. */
+  pointer-events: none;
+}
+
+/* ---- Placement variants (#114) ----------------------------------------- *
+   Default is bottom inline-end. Set data-placement on the stack container (or
+   pass placement to Aura.toast) to move it. Each variant just re-points the
+   inset edges + alignment; the slide-in direction follows from align-items.
+   Logical insets keep placement mirrored under dir="rtl".                    */
+[data-aura-toast-stack][data-placement$="start"]  { inset-inline-end: auto; inset-inline-start: var(--aura-toast-stack-inset-r); align-items: flex-start; }
+[data-aura-toast-stack][data-placement^="top"]    { inset-block-end: auto; inset-block-start: var(--aura-toast-stack-inset-b); flex-direction: column; }
+[data-aura-toast-stack][data-placement="top-center"],
+[data-aura-toast-stack][data-placement="bottom-center"] {
+  inset-inline: 0;
+  align-items: center;
+}
+[data-aura-toast-stack][data-placement="top-center"]    { inset-block-end: auto; inset-block-start: var(--aura-toast-stack-inset-b); flex-direction: column; }
+[data-aura-toast-stack][data-placement="bottom-center"] { inset-block-start: auto; inset-block-end: var(--aura-toast-stack-inset-b); }
+
+/* ---- Individual toast --------------------------------------------------- */
+.aura-toast {
+  pointer-events: auto;
+  min-width: var(--aura-toast-min-width);
+  max-width: var(--aura-toast-max-width);
+  padding: var(--aura-toast-padding-y) var(--aura-toast-padding-x);
+  border-radius: var(--aura-toast-radius);
+
+  /* Frosted glass via the toast-scoped dials (each defaults to the global glass
+     token, so a consumer retunes toasts alone — mirroring menu.css). Every
+     other popup is glass; opaque is the SCOPED exception applied only under lite
+     mode and the no-backdrop-filter fallback below. See elevation-design.md. */
+  color: var(--aura-text);
+  /* #594: tint-wash layer so a theme tint reaches the toast glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-toast-surface);
+  -webkit-backdrop-filter: blur(var(--aura-toast-blur)) saturate(var(--aura-toast-saturate));
+  backdrop-filter: blur(var(--aura-toast-blur)) saturate(var(--aura-toast-saturate));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-shadow-3), inset 0 1px 0 var(--aura-edge-light);
+
+  /* Layout: icon | message | close */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--aura-space-3);
+
+  /* Entrance initial state: off-screen on the inline-end side (right in LTR),
+     invisible. The custom property lets RTL and start-placement variants flip
+     the direction without repeating the full transform value. */
+  --_aura-toast-enter-x: calc(100% + var(--aura-toast-stack-inset-r));
+  --_aura-toast-exit-x: var(--aura-space-4);
+  opacity: 0;
+  transform: translateX(var(--_aura-toast-enter-x));
+
+  /* Transition covers entrance AND exit (class toggle drives direction). */
+  transition:
+    opacity   var(--aura-toast-duration) var(--aura-ease-out),
+    transform var(--aura-toast-duration) var(--aura-ease-out);
+
+  will-change: transform, opacity;
+}
+
+/* Visible state (added by JS after first paint to trigger entrance). */
+.aura-toast--visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Opaque fallback where backdrop-filter is unsupported (mirrors menu.css). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-toast { background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid); }
+}
+/* Lite effects mode drops the blur for an opaque toast — the deliberate escape
+   hatch for busy backgrounds / low-power devices / print. */
+[data-aura-effects="lite"] .aura-toast {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid);
+}
+
+/* Exit state — slide slightly toward the inline-end edge and fade. */
+.aura-toast--exit {
+  opacity: 0;
+  transform: translateX(var(--_aura-toast-exit-x));
+  transition:
+    opacity   var(--aura-dur-fast) var(--aura-ease-standard),
+    transform var(--aura-dur-fast) var(--aura-ease-standard);
+}
+
+/* ---- RTL / start-placement direction flip --------------------------------
+   Default placement: stack at inline-END (right in LTR, LEFT in RTL).
+   Start placement:   stack at inline-START (left in LTR, RIGHT in RTL).
+   The slide-in/out must come from the edge nearest the stack.            */
+
+/* RTL + default (end) placement → stack is now on the LEFT; slide from left */
+[dir="rtl"] .aura-toast {
+  --_aura-toast-enter-x: calc(-100% - var(--aura-toast-stack-inset-r));
+  --_aura-toast-exit-x:  calc(-1 * var(--aura-space-4));
+}
+
+/* LTR + start placement → stack on the LEFT; slide from left */
+[data-aura-toast-stack][data-placement$="start"] .aura-toast {
+  --_aura-toast-enter-x: calc(-100% - var(--aura-toast-stack-inset-r));
+  --_aura-toast-exit-x:  calc(-1 * var(--aura-space-4));
+}
+
+/* RTL + start placement → stack on the RIGHT (same as LTR default); reset */
+[dir="rtl"] [data-aura-toast-stack][data-placement$="start"] .aura-toast {
+  --_aura-toast-enter-x: calc(100% + var(--aura-toast-stack-inset-r));
+  --_aura-toast-exit-x:  var(--aura-space-4);
+}
+
+/* ---- Reduced-motion: opacity-only transitions -------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .aura-toast,
+  .aura-toast--visible,
+  .aura-toast--exit {
+    transform: none;
+    transition-property: opacity;
+  }
+}
+
+/* ---- Icon column -------------------------------------------------------- */
+.aura-toast__icon {
+  flex-shrink: 0;
+  /* Variant tints via data attribute → CSS custom property lookup. */
+  color: var(--aura-toast-icon-color);
+}
+
+/* Map the data-variant attribute on the icon to the correct tint token. */
+.aura-toast__icon[data-variant="info"]         { --aura-toast-icon-color: var(--aura-toast-icon-color-info);         }
+.aura-toast__icon[data-variant="success"]      { --aura-toast-icon-color: var(--aura-toast-icon-color-success);      }
+.aura-toast__icon[data-variant="warning"]      { --aura-toast-icon-color: var(--aura-toast-icon-color-warning);      }
+.aura-toast__icon[data-variant="danger"]       { --aura-toast-icon-color: var(--aura-toast-icon-color-danger);       }
+.aura-toast__icon[data-variant="notification"] { --aura-toast-icon-color: var(--aura-toast-icon-color-notification); }
+
+/* ---- Message ------------------------------------------------------------ */
+.aura-toast__message {
+  font-size: var(--aura-text-sm);
+  font-weight: var(--aura-weight-medium);
+  color: var(--aura-text);
+  line-height: var(--aura-leading-normal);
+}
+
+/* ---- Close button ------------------------------------------------------- */
+.aura-toast__close {
+  /* Reset button chrome. */
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--aura-space-1);
+  margin: 0;
+  cursor: pointer;
+  border-radius: var(--aura-radius-sm);
+
+  /* Icon colour: muted by default, full text on hover/focus. */
+  color: var(--aura-text-subtle);
+  transition:
+    color            var(--aura-dur-fast) var(--aura-ease-standard),
+    background-color var(--aura-dur-fast) var(--aura-ease-standard);
+
+  /* Align the ×-icon precisely. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.aura-toast__close:hover {
+  color: var(--aura-text);
+  background-color: var(--aura-surface-stroke);
+}
+
+.aura-toast__close:focus-visible {
+  outline: none;
+  box-shadow: var(--aura-ring), var(--aura-ring-offset);
+  color: var(--aura-text);
+}
+
+/* Slightly smaller icon inside close button. */
+.aura-toast__close .aura-icon {
+  --aura-icon-size: 0.9em;
+}

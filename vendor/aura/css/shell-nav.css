@@ -1,0 +1,219 @@
+/* ==========================================================================
+   Aura — collapsed-sidebar hover flyout (Aura.shell, v2.6).
+
+   When the app-shell sidebar is collapsed into its drawer state (the
+   [data-aura-shell-toggle] is visible — see css/mobile.css §3c), hovering or
+   focusing the toggle reveals a transient flyout listing the sidebar's nav
+   links, so a user can reach navigation without first opening the full drawer.
+   The toggle's click still opens/closes the drawer (js/shell-nav.js).
+
+   The flyout element (.aura-shell-flyout) is built and positioned by
+   js/shell-nav.js; this layer owns only its appearance. All sizing, colour,
+   blur, motion, and z-index read from tokens — no magic numbers. The reveal is
+   reduced-motion aware and the affordance is suppressed on coarse pointers
+   (there is no hover on touch — the toggle's click-to-expand is the fallback).
+
+   CASCADE LAYER: shell-nav (declared in css/aura.css), placed after `menu` so
+   the flyout's surface treatment composes with the menu visual language while
+   staying overridable by later layers (mobile, utilities).
+   ========================================================================== */
+
+/* ---- Per-component tunables (zero-specificity defaults) ------------------ */
+:where(:root) {
+  /* Inline size of the flyout panel. Wide enough for nav labels, capped so it
+     never spans the viewport on a narrow screen. */
+  --aura-shell-flyout-size: 14rem;
+  /* Gap between the toggle's edge and the flyout panel. */
+  --aura-shell-flyout-offset: var(--aura-space-2);
+  /* Edge length of the disclosure caret that flags the flyout on the collapsed
+     toggle (v3.4 space-economy — no nav reachable only by hover). */
+  --aura-shell-flyout-caret-size: var(--aura-space-2);
+  /* Grace delay before the flyout closes once the pointer leaves the toggle, so
+     the cursor can travel toggle → panel without dismissing it. Tracks the fast
+     motion dial (js/shell-nav.js reads it via Aura.readDelay — #332). */
+  --aura-shell-flyout-close-delay: var(--aura-dur-fast);
+  /* Delay before the closed flyout is hidden from the a11y tree — the wait for
+     the opacity/scale exit transition (dur-fast) to finish, with a small margin
+     so it never clips. Read via Aura.readDelay (#332). */
+  --aura-shell-flyout-exit-delay: 140ms;
+}
+
+/* ---- Sidebar panel paint (distribution-owned — #408) --------------------- *
+   Baseline paint for the [data-aura-sidebar] panel this engine drives: a quiet
+   surface with a hairline trailing edge, a stacked nav, and tap-sized link
+   rows with a hover wash. This lives in the DISTRIBUTION (not the demo
+   scaffolding) so a dist-only consumer gets exactly the drawer the demos show
+   — the demo-parity gate forbids demo CSS from painting Aura-owned
+   [data-aura-*] surfaces. In drawer mode css/mobile.css §3c (a LATER layer)
+   overrides the block-axis padding with the safe-area insets; that layered
+   order is load-bearing — keep this rule in the shell-nav layer. Consumer CSS
+   authored without @layer overrides all of it, as everywhere in Aura.        */
+[data-aura-sidebar] {
+  border-inline-end: 1px solid var(--aura-surface-stroke);
+  background: var(--aura-surface-1);
+  padding: var(--aura-space-4);
+}
+[data-aura-sidebar] nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+}
+[data-aura-sidebar] a {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-3);
+  border-radius: var(--aura-radius-md);
+  color: var(--aura-text);
+  text-decoration: none;
+  min-block-size: var(--aura-tap-min);
+  box-sizing: border-box;
+}
+[data-aura-sidebar] a:hover { background: var(--aura-surface-2); }
+
+/* ---- Flyout disclosure affordance (v3.4) -------------------------------- *
+   Space-economy / responsiveness require that no navigation is reachable ONLY
+   by hover and that the flyout is discoverable. The collapsed toggle therefore
+   carries a small caret indicating it discloses a navigation flyout (and that
+   a click opens the full drawer), so pointer, touch, and keyboard users all see
+   that more navigation lives here. The caret is drawn with a bordered square
+   rotated 45° (a downward chevron), token-sized, and is purely decorative — the
+   toggle keeps its own accessible name. It is suppressed when the toggle is
+   hidden (the sidebar is expanded), so it only appears in the collapsed state. */
+[data-aura-shell-toggle] {
+  position: relative;
+}
+[data-aura-shell-toggle]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: var(--aura-space-1);
+  inset-inline-end: var(--aura-space-1);
+  inline-size: var(--aura-shell-flyout-caret-size);
+  block-size: var(--aura-shell-flyout-caret-size);
+  border-inline-end: 1px solid currentColor;
+  border-block-end: 1px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+  pointer-events: none;
+}
+/* On a fine pointer the caret nudges as the flyout opens (toggle hover/focus),
+   reinforcing the cause→effect; reduced-motion users get the static cue only. */
+@media (hover: hover) and (pointer: fine) {
+  [data-aura-shell-toggle]::after {
+    transition: opacity var(--aura-dur-fast) var(--aura-ease-standard),
+                transform var(--aura-dur-fast) var(--aura-ease-standard);
+  }
+  [data-aura-shell-toggle]:hover::after,
+  [data-aura-shell-toggle]:focus-visible::after {
+    opacity: 1;
+    transform: rotate(45deg) translate(1px, 1px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-aura-shell-toggle]::after { transition: none; }
+  [data-aura-shell-toggle]:hover::after,
+  [data-aura-shell-toggle]:focus-visible::after { transform: rotate(45deg); }
+}
+
+/* ---- Flyout panel -------------------------------------------------------- *
+   Positioned `fixed` by js/shell-nav.js (it writes inset-block-start /
+   inset-inline-start from the toggle's box). Mirrors the menu surface (glass
+   tint, stroke, shadow) so it reads as part of the same overlay family without
+   depending on js/menu.js. */
+.aura-shell-flyout {
+  position: fixed;
+  z-index: var(--aura-z-menu);
+  inline-size: var(--aura-shell-flyout-size);
+  /* Viewport-relative cap is correct here: this is a position: fixed overlay
+     that js/shell-nav.js positions in VIEWPORT coordinates (inset-block-start /
+     inset-inline-start written from the toggle's getBoundingClientRect). The cap
+     keeps the panel clear of the viewport edges, matching that positioning — a
+     genuine viewport overlay, so it stays vw (not cqi). */
+  max-inline-size: calc(100vw - 2 * var(--aura-space-4));
+  max-block-size: var(--aura-menu-max-block);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--aura-space-1);
+  color: var(--aura-text);
+  background: var(--aura-surface-4);
+  -webkit-backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+          backdrop-filter: blur(var(--aura-blur-4)) saturate(var(--aura-glass-saturate));
+  border: 1px var(--aura-border-style, solid) var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-radius-md);
+  box-shadow: var(--aura-frame-inset), var(--aura-shadow-4), inset 0 1px 0 var(--aura-edge-light);
+  /* Hidden until JS adds --open; opacity/scale transition is the reveal. */
+  opacity: 0;
+  transform: scale(0.96) translateY(calc(-1 * var(--aura-space-1)));
+  transform-origin: top left;
+  transition:
+    opacity var(--aura-dur-fast) var(--aura-ease-out),
+    transform var(--aura-dur-fast) var(--aura-ease-out);
+}
+.aura-shell-flyout--open {
+  opacity: 1;
+  transform: none;
+}
+/* Solid fallback where backdrop-filter is unsupported (matches menu.css). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-shell-flyout { background: var(--aura-surface-solid); }
+}
+
+/* Lite effects mode (#401): opaque flyout, no blur — matches the toast/menu
+   [data-aura-effects="lite"] pattern. */
+[data-aura-effects="lite"] .aura-shell-flyout {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-surface-solid);
+}
+
+/* ---- Flyout links -------------------------------------------------------- *
+   Each link is a row that mirrors the menu-item hover treatment so the flyout
+   feels native. The links are clones of the sidebar's own anchors, so their
+   hrefs and labels stay in lockstep with the sidebar. */
+.aura-shell-flyout__link {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-2) var(--aura-space-3);
+  border-radius: var(--aura-radius-sm);
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--aura-dur-fast) var(--aura-ease-standard),
+    color var(--aura-dur-fast) var(--aura-ease-standard);
+}
+.aura-shell-flyout__link:hover,
+.aura-shell-flyout__link:focus-visible {
+  background: var(--aura-primary-a15);
+  outline: none;
+}
+/* Carry the active-link signal forward from the sidebar. */
+.aura-shell-flyout__link[aria-current] {
+  color: var(--aura-primary);
+}
+.aura-shell-flyout__link .aura-icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  flex: none;
+}
+
+/* ---- Reduced motion ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .aura-shell-flyout {
+    transition: opacity var(--aura-dur-fast) linear;
+    transform: none;
+  }
+  .aura-shell-flyout--open { transform: none; }
+  .aura-shell-flyout__link { transition: background-color var(--aura-dur-fast) linear; }
+}
+
+/* ---- Coarse pointer: no hover flyout ------------------------------------- *
+   On touch there is no hover; the toggle's click-to-expand drawer is the
+   navigation path. js/shell-nav.js already gates the hover/focus open on a
+   fine-pointer match, but we also hard-suppress the panel here as a defensive
+   fallback so a stray flyout can never linger over a touch surface. */
+@media (pointer: coarse) {
+  .aura-shell-flyout { display: none; }
+}

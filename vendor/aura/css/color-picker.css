@@ -1,0 +1,510 @@
+/* ==========================================================================
+   Aura — aura-color-picker styling.
+
+   Token-driven glass colour picker. CSS owns all appearance; js/color-picker.js
+   adds behaviour, ARIA, and the runtime-computed custom properties only
+   (--aura-cp-* : current hue, channel positions, and the live colour — these
+   are computed values the JS must write, not authored inline styling).
+
+   Every colour/size/radius/shadow/motion resolves from a global token or a
+   component dial that DEFAULTS to a token via var(--dial, var(--token)) — so a
+   handful of :root (or ancestor) overrides re-skin the control with zero JS
+   edits (the §1 binding constraint).
+
+   Component dials (defaults shown):
+     --aura-color-picker-trigger-size    var(--aura-space-7)
+     --aura-color-picker-radius          var(--aura-radius-md)
+     --aura-color-picker-panel-bg        var(--aura-surface-2)
+     --aura-color-picker-panel-stroke    var(--aura-surface-stroke)
+     --aura-color-picker-panel-w         15rem   (panel content inline-size)
+     --aura-color-picker-area-size       var(--aura-space-9)
+     --aura-color-picker-track-thickness var(--aura-space-3)
+     --aura-color-picker-thumb-size      var(--aura-space-4)
+     --aura-color-picker-chip-size       var(--aura-space-5)   (preset/recent swatch)
+     --aura-color-picker-checker         var(--aura-surface-3)
+     --aura-color-picker-dur             var(--aura-dur-base)
+     --aura-color-picker-ease            var(--aura-ease-standard)
+
+   The area/slider thumbs are real, addressable child elements (mirroring
+   aura-range/aura-switch) so the sub-part proximity glow CAN later target them;
+   v1.3 ships the picker PLAIN (no .aura-glow). See color-picker-design.md.
+   ========================================================================== */
+
+aura-color-picker {
+  display: inline-block;
+  position: relative; /* anchor for measurement; popup panel goes to body */
+}
+
+aura-color-picker[disabled] {
+  opacity: var(--aura-disabled-opacity);
+  pointer-events: none; /* hidden input still submits its name/value */
+}
+
+/* The hidden form input never participates in layout. */
+.aura-color-picker__input { display: none; }
+
+/* ---- Trigger swatch (popup mode) --------------------------------------- */
+aura-color-picker[inline] .aura-color-picker__trigger { display: none; }
+
+.aura-color-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  block-size: var(--aura-color-picker-trigger-size, var(--aura-space-7));
+  padding-inline: var(--aura-space-2);
+  font-family: inherit;
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-color-picker-panel-stroke, var(--aura-surface-stroke));
+  border-radius: var(--aura-color-picker-radius, var(--aura-radius-md));
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard)),
+    box-shadow   var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard));
+}
+.aura-color-picker__trigger:hover {
+  border-color: var(--aura-surface-stroke-strong);
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+}
+.aura-color-picker__trigger:focus-visible {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  box-shadow: var(--aura-ring);
+}
+
+.aura-color-picker__swatch {
+  /* Square chip filling the trigger height minus its vertical padding. */
+  block-size: calc(var(--aura-color-picker-trigger-size, var(--aura-space-7)) - var(--aura-space-4));
+  inline-size: calc(var(--aura-color-picker-trigger-size, var(--aura-space-7)) - var(--aura-space-4));
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-surface-stroke-strong);
+}
+
+.aura-color-picker__value {
+  font-family: var(--aura-font-mono);
+  font-size: var(--aura-text-xs);
+  letter-spacing: var(--aura-tracking-tight);
+}
+
+/* ---- Panel: shared content layout (inline card + open popup overlay) ---- */
+/* Display is gated so the closed popup (aura-menu display:none) stays hidden
+   even though the color-picker layer sits after the menu layer. */
+.aura-color-picker__panel--inline,
+aura-menu.aura-color-picker__panel.aura-menu--open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+  inline-size: var(--aura-color-picker-panel-w, 15rem);
+  padding: var(--aura-space-3);
+  box-sizing: border-box;
+}
+
+/* Inline panel paints its own glass surface (popup mode inherits menu glass).
+   Blur pairs with saturate so the tint tracks the theme (#493); the
+   --aura-color-picker-panel-solid seam is the opaque fallback used both where
+   backdrop-filter is unsupported and under [data-aura-effects="lite"] (#491),
+   mirroring the menu/tooltip pattern. */
+.aura-color-picker__panel--inline {
+  /* #594: tint-wash layer so a theme tint reaches the color-picker glass too. */
+  background: var(--aura-glass-tint-layer), var(--aura-color-picker-panel-bg, var(--aura-surface-2));
+  border: 1px solid var(--aura-color-picker-panel-stroke, var(--aura-surface-stroke));
+  border-radius: var(--aura-color-picker-radius, var(--aura-radius-md));
+  box-shadow: var(--aura-shadow-2);
+  -webkit-backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+          backdrop-filter: blur(var(--aura-blur-2)) saturate(var(--aura-glass-saturate));
+}
+
+/* Opaque fallback where backdrop-filter is unsupported (progressive). */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aura-color-picker__panel--inline {
+    background: var(--aura-glass-tint-layer), var(--aura-color-picker-panel-solid, var(--aura-surface-solid));
+  }
+}
+
+/* Lite effects mode (#401/#491): drop the blur for an opaque solid. */
+[data-aura-effects="lite"] .aura-color-picker__panel--inline {
+  -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-color-picker-panel-solid, var(--aura-surface-solid));
+}
+
+/* Proximity glow (v3.2): the area + hue/alpha tracks are .aura-glow hosts so
+   each lights its rim on approach (js/color-picker.js). They are draggable
+   surfaces, though, so the magnetic LEAN is disabled (shift 0) — only the rim
+   shine engages; the surface never drifts under the cursor mid-drag. */
+.aura-color-picker__area,
+.aura-color-picker__hue,
+.aura-color-picker__alpha { --aura-magnet-shift: 0px; }
+
+/* ---- 2-D saturation / lightness area ----------------------------------- */
+.aura-color-picker__area {
+  position: relative;
+  inline-size: 100%;
+  block-size: var(--aura-color-picker-area-size, var(--aura-space-9));
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-surface-stroke);
+  cursor: crosshair;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Saturation (gray → full hue at L 50%) under a lightness overlay
+     (white at top → transparent at mid → black at bottom). The endpoint hues
+     are intrinsic to painting an HSL plane; --aura-cp-hue is written by JS. */
+  background:
+    linear-gradient(to bottom,
+      var(--aura-cp-area-light, #fff),
+      transparent 50%,
+      transparent 50%,
+      var(--aura-cp-area-dark, #000)),
+    linear-gradient(to right,
+      hsl(var(--aura-cp-hue, 0) 0% 50%),
+      hsl(var(--aura-cp-hue, 0) 100% 50%));
+}
+/* Keyboard focus must always be visible on every interactive sub-part (#54).
+   The area/track keep their thumb glow, but also carry the ring on the control
+   itself so focus reads even before the thumb is noticed. */
+.aura-color-picker__area:focus-visible { outline: none; box-shadow: var(--aura-ring); }
+
+.aura-color-picker__area-thumb {
+  position: absolute;
+  inset-block-start: var(--aura-cp-sy, 0%);
+  inset-inline-start: var(--aura-cp-sx, 0%);
+  inline-size: var(--aura-color-picker-thumb-size, var(--aura-space-4));
+  block-size: var(--aura-color-picker-thumb-size, var(--aura-space-4));
+  transform: translate(-50%, -50%);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-cp-solid, transparent);
+  /* Contrast-aware ring (survives a pale swatch), tokenized width like every
+     other picker border — was `2px solid var(--aura-on-primary,#fff)` (#2). */
+  border: var(--aura-cp-thumb-ring-width, var(--aura-border-width, 1px)) solid
+          var(--aura-cp-thumb-ring, color-mix(in srgb, #fff 90%, var(--aura-text) 10%));
+  box-shadow: var(--aura-shadow-2);
+  pointer-events: none;
+}
+.aura-color-picker__area:focus-visible .aura-color-picker__area-thumb {
+  box-shadow: var(--aura-shadow-2), var(--aura-ring);
+}
+
+/* ---- Hue + alpha tracks (aura-range mechanics) ------------------------- */
+.aura-color-picker__sliders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-3);
+}
+
+.aura-color-picker__hue,
+.aura-color-picker__alpha {
+  position: relative;
+  inline-size: 100%;
+  block-size: var(--aura-color-picker-track-thickness, var(--aura-space-3));
+  border-radius: var(--aura-radius-full);
+  border: 1px solid var(--aura-surface-stroke);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.aura-color-picker__hue:focus-visible { outline: none; box-shadow: var(--aura-ring); }
+/* The alpha track paints an ARBITRARY user-chosen colour over the checkerboard, so
+   a single-tone focus ring can't guarantee the WCAG 2.2 SC 1.4.11 3:1 floor against
+   it (the old translucent --aura-primary-a60 outline vanished over a matching colour).
+   Use a TWO-TONE dual-ring instead: an inner --aura-text band + an outer
+   --aura-surface-solid band. The two bands contrast each other strongly (the theme's
+   own body-text legibility), so the indicator is always perceivable regardless of the
+   fill, and the extreme-luminance inner band contrasts most fills directly.
+   (#144 used an outline believing overflow:hidden would clip a box-shadow ring — it
+   does not: overflow clips the ::before fill, never the element's OWN outset shadow,
+   verified in-browser, so the ring paints fully.) */
+.aura-color-picker__alpha:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--aura-text),
+    0 0 0 4px var(--aura-surface-solid);
+}
+
+/* Hue spectrum (intrinsic colour-wheel endpoints, not tunable values). */
+.aura-color-picker__hue {
+  background: linear-gradient(to right,
+    hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%),
+    hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
+}
+
+/* Hidden when the picker is opaque (no `alpha` attribute). */
+aura-color-picker:not([alpha]) .aura-color-picker__alpha { display: none; }
+
+.aura-color-picker__hue-thumb,
+.aura-color-picker__alpha-thumb {
+  position: absolute;
+  inset-block-start: 50%;
+  inline-size: var(--aura-color-picker-thumb-size, var(--aura-space-4));
+  block-size: var(--aura-color-picker-thumb-size, var(--aura-space-4));
+  transform: translate(-50%, -50%);
+  border-radius: var(--aura-radius-full);
+  background: var(--aura-text);
+  /* Same contrast-aware ring as the area thumb (#2). */
+  border: var(--aura-cp-thumb-ring-width, var(--aura-border-width, 1px)) solid
+          var(--aura-cp-thumb-ring, color-mix(in srgb, #fff 90%, var(--aura-text) 10%));
+  box-shadow: var(--aura-shadow-2);
+  pointer-events: none;
+}
+.aura-color-picker__hue-thumb { inset-inline-start: var(--aura-cp-hue-pct, 0%); }
+.aura-color-picker__alpha-thumb { inset-inline-start: var(--aura-cp-alpha-pct, 100%); }
+.aura-color-picker__hue:focus-visible .aura-color-picker__hue-thumb,
+.aura-color-picker__alpha:focus-visible .aura-color-picker__alpha-thumb {
+  box-shadow: var(--aura-shadow-2), var(--aura-ring);
+}
+
+/* ---- Transparency checkerboard (swatch, preview, alpha track) ---------- */
+.aura-color-picker__swatch,
+.aura-color-picker__preview,
+.aura-color-picker__alpha {
+  --aura-cp-checker: var(--aura-color-picker-checker, var(--aura-surface-3));
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, var(--aura-cp-checker) 25%, transparent 25%, transparent 75%, var(--aura-cp-checker) 75%)
+      0 0 / var(--aura-space-2) var(--aura-space-2),
+    linear-gradient(45deg, var(--aura-cp-checker) 25%, transparent 25%, transparent 75%, var(--aura-cp-checker) 75%)
+      var(--aura-space-1) var(--aura-space-1) / var(--aura-space-2) var(--aura-space-2);
+}
+/* Live colour painted ON TOP of the checker (translucency reveals the check).
+   ::before keeps the layer below real children (the alpha track's thumb). */
+.aura-color-picker__swatch::before,
+.aura-color-picker__preview::before,
+.aura-color-picker__alpha::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.aura-color-picker__swatch::before,
+.aura-color-picker__preview::before { background: var(--aura-cp-fill, transparent); }
+.aura-color-picker__alpha::before {
+  background: linear-gradient(to right, transparent, var(--aura-cp-solid, transparent));
+}
+
+/* ---- Preview + numeric channels ---------------------------------------- */
+.aura-color-picker__readout {
+  display: flex;
+  gap: var(--aura-space-3);
+  align-items: stretch;
+}
+.aura-color-picker__preview {
+  position: relative;
+  flex: none;
+  inline-size: var(--aura-space-7);
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid var(--aura-surface-stroke-strong);
+}
+.aura-color-picker__channels {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--aura-space-2);
+  min-inline-size: 0;
+}
+.aura-color-picker__channel {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+  min-inline-size: 0;
+}
+.aura-color-picker__channel[hidden] { display: none; }
+.aura-color-picker__channel-label {
+  font-size: 0.68rem;
+  font-weight: var(--aura-weight-semibold);
+  letter-spacing: var(--aura-tracking-wide);
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}
+.aura-color-picker__channel-input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: var(--aura-space-1);
+  font-family: var(--aura-font-mono);
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-xs);
+  text-align: center;
+}
+.aura-color-picker__channel-input:focus-visible {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Read-only oklch() readout (always visible) ------------------------ */
+.aura-color-picker__oklch {
+  font-family: var(--aura-font-mono);
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+  word-break: break-all;
+}
+
+/* ---- Footer: format toggle + copy -------------------------------------- */
+.aura-color-picker__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+}
+.aura-color-picker__format {
+  display: inline-flex;
+  flex: 1;
+  padding: var(--aura-space-1);
+  gap: var(--aura-space-1);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-sm);
+}
+.aura-color-picker__format-seg {
+  flex: 1;
+  padding: var(--aura-space-1);
+  font-family: inherit;
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--aura-radius-xs);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: var(--aura-tracking-tight);
+  transition: background var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard));
+}
+.aura-color-picker__format-seg[aria-checked="true"] {
+  color: var(--aura-on-primary);
+  background: var(--aura-primary);
+}
+.aura-color-picker__format-seg:focus-visible {
+  outline: none;
+  box-shadow: var(--aura-ring);
+}
+
+/* Copy + eyedropper share identical chrome. The eyedropper is created by JS
+   only where 'EyeDropper' in window — graceful absence elsewhere, so there is
+   nothing to hide for unsupported browsers. */
+.aura-color-picker__copy,
+.aura-color-picker__eyedropper {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--aura-space-6);
+  block-size: var(--aura-space-6);
+  color: var(--aura-text-muted);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-sm);
+  cursor: pointer;
+  transition:
+    color      var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard)),
+    border-color var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard));
+}
+.aura-color-picker__copy:hover,
+.aura-color-picker__eyedropper:hover {
+  color: var(--aura-text);
+  border-color: var(--aura-surface-stroke-strong);
+}
+.aura-color-picker__copy:focus-visible,
+.aura-color-picker__eyedropper:focus-visible {
+  outline: none;
+  border-color: var(--aura-primary-a60);
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Preset + recent swatch rows --------------------------------------- */
+/* Token-driven chip sizing via a dedicated dial defaulting to a global token. */
+.aura-color-picker__presets,
+.aura-color-picker__recents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--aura-space-1);
+}
+.aura-color-picker__presets[hidden],
+.aura-color-picker__recents[hidden] { display: none; }
+
+.aura-color-picker__swatch-chip {
+  inline-size: var(--aura-color-picker-chip-size, var(--aura-space-5));
+  block-size: var(--aura-color-picker-chip-size, var(--aura-space-5));
+  padding: 0;
+  border-radius: var(--aura-radius-xs);
+  border: 1px solid var(--aura-surface-stroke-strong);
+  background: var(--aura-cp-chip, transparent);
+  cursor: pointer;
+  transition:
+    transform   var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard)),
+    box-shadow  var(--aura-color-picker-dur, var(--aura-dur-base)) var(--aura-color-picker-ease, var(--aura-ease-standard));
+}
+.aura-color-picker__swatch-chip:hover {
+  transform: scale(1.12);
+  box-shadow: var(--aura-e-shadow-raise, var(--aura-shadow-3));
+}
+.aura-color-picker__swatch-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--aura-ring);
+}
+
+/* ---- Reduced motion ---------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .aura-color-picker__trigger,
+  .aura-color-picker__format-seg,
+  .aura-color-picker__copy,
+  .aura-color-picker__eyedropper,
+  .aura-color-picker__swatch-chip { transition: none; }
+  /* Removing only the transition still let the chip jump to scale(1.12)
+     instantly on hover; neutralise the transform too so size stays steady (#53). */
+  .aura-color-picker__swatch-chip:hover { transform: none; }
+}
+
+/* ==========================================================================
+   Forced-colors (Windows High Contrast) — #130
+
+   The picker is almost entirely colour: the area/hue/alpha gradients ARE the
+   control, so we must opt them out of forced-color-adjust (otherwise the UA
+   flattens the spectra and the control becomes meaningless). Everything else
+   gets system-colour borders + a Highlight focus outline (box-shadow rings are
+   ignored in forced-colors).
+   ========================================================================== */
+@media (forced-colors: active) {
+  /* The gradient surfaces are information — preserve their authored colours. */
+  .aura-color-picker__area,
+  .aura-color-picker__hue,
+  .aura-color-picker__alpha,
+  .aura-color-picker__swatch,
+  .aura-color-picker__preview,
+  .aura-color-picker__swatch-chip {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+  }
+
+  .aura-color-picker__trigger,
+  .aura-color-picker__panel--inline,
+  .aura-color-picker__channel-input,
+  .aura-color-picker__format,
+  .aura-color-picker__copy,
+  .aura-color-picker__eyedropper {
+    border: 1px solid CanvasText;
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  /* Selected format segment keeps the emphasised system pair. */
+  .aura-color-picker__format-seg[aria-checked="true"] {
+    color: HighlightText;
+    background: Highlight;
+  }
+
+  /* Every interactive sub-part gets a real, unclipped Highlight focus outline. */
+  .aura-color-picker__area:focus-visible,
+  .aura-color-picker__hue:focus-visible,
+  .aura-color-picker__alpha:focus-visible,
+  .aura-color-picker__swatch-chip:focus-visible,
+  .aura-color-picker__channel-input:focus-visible,
+  .aura-color-picker__format-seg:focus-visible,
+  .aura-color-picker__copy:focus-visible,
+  .aura-color-picker__eyedropper:focus-visible,
+  .aura-color-picker__trigger:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--aura-focus-ring-offset, 2px);
+  }
+}

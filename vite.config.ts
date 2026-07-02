@@ -45,10 +45,11 @@ export default defineConfig({
   // Tauri serves the app over a fixed port in dev; clearScreen off keeps
   // Rust compiler output visible.
   clearScreen: false,
-  // Aura is vendored as a git submodule (vendor/aura) pinned to the v3.20
-  // channel — the release ASSET omits bindings/react (design-language#858), so
-  // the source tree is the only way to get the typed React adapter. These
-  // aliases let app code import Aura from the submodule tree by stable names.
+  // Aura is vendored via the Dependency Channel (vendor.toml [deps.aura],
+  // v3.541.0 asset bundle). design-language#858 (asset omitted bindings/react)
+  // is fixed, which unblocked the migration off the former git submodule; the
+  // committed vendor/aura tree sits at the same path, so these aliases let app
+  // code import Aura by stable names, unchanged.
   // See docs/design/ux/design-language.md §2.3.
   resolve: {
     alias: {

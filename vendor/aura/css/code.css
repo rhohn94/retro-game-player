@@ -1,0 +1,75 @@
+/* ==========================================================================
+   Aura — code block (aura-code).   Registered in css/aura.css under layer(code).
+
+   A <pre>-based block that scrolls horizontally instead of clipping long lines,
+   carries the standard surface treatment, and can show an optional language
+   label via `data-lang`. Inline <code> chips (base.css) are a separate concern;
+   inside an .aura-code block they shed their chip background so code reads flat.
+   ========================================================================== */
+
+.aura-code {
+  display: block;
+  position: relative;
+  font-family: var(--aura-font-mono);
+  font-size: var(--aura-text-sm);
+  line-height: var(--aura-leading-normal);
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+  border: 1px solid var(--aura-surface-stroke);
+  border-radius: var(--aura-radius-md);
+  padding: var(--aura-space-4);
+  margin: 0;
+  /* Scroll long lines rather than clipping them (the editor "Live HTML output"
+     bug, #105). */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  tab-size: 2;
+}
+
+/* Copy button (#132): pinned to the top inline-end corner; js/copy.js injects
+   it into <aura-code copyable> and handles the copy + "Copied" feedback. The
+   block reserves a little inline-end padding so long lines don't slide under it. */
+aura-code[copyable], .aura-code[data-copyable] { padding-inline-end: var(--aura-space-6); }
+.aura-code > .aura-copy {
+  position: absolute;
+  inset-block-start: var(--aura-space-2);
+  inset-inline-end: var(--aura-space-2);
+  z-index: 1;
+}
+
+/* Block-form <aura-code block> wraps its content in a <pre> (js/aura-code.js,
+   #639) so authored newlines/whitespace survive. The wrapper is flush — the
+   .aura-code host already paints the surface and padding — but keeps the UA
+   white-space:pre that makes the wrapping worthwhile, plus inherited type. */
+.aura-code > .aura-code__pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  white-space: pre;
+  tab-size: inherit;
+}
+
+/* Code inside a block shouldn't get the inline-chip surface from base.css. */
+.aura-code code,
+.aura-code :where(code) {
+  background: none;
+  padding: 0;
+  border: 0;
+  line-height: inherit;
+}
+
+/* Optional language tag in the top-right corner (opt-in via data-lang). */
+.aura-code[data-lang] { padding-block-start: var(--aura-space-5); }
+.aura-code[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  inset-block-start: var(--aura-space-2);
+  inset-inline-end: var(--aura-space-3);
+  font-size: var(--aura-text-xs);
+  letter-spacing: var(--aura-tracking-wide);
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}

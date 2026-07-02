@@ -1,0 +1,127 @@
+/* ==========================================================================
+   Aura — aura-video player chrome (v2.2).
+
+   The frame + fill reuse the content-first media utilities (css/media.css). This
+   file styles the floating glass control bar, the show/hide (idle) behaviour,
+   captions placement, and fullscreen. See js/aura-video.js and
+   docs/design/content-first-display-design.md.
+
+   Layer: video (after image).
+   ========================================================================== */
+
+aura-video {
+  display: block;
+  position: relative;
+  /* Letterbox bars behind a cover/contain frame; token so a re-skin moves it. */
+  background: var(--aura-video-letterbox, var(--aura-bg));
+  isolation: isolate;
+}
+aura-video .aura-video__media {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  display: block;
+  background: var(--aura-video-letterbox, var(--aura-bg));
+}
+aura-video:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+
+/* ---- Floating glass control bar -------------------------------------- */
+.aura-video__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-2) var(--aura-space-3);
+  padding-block-end: calc(var(--aura-space-2) + var(--aura-safe-bottom, 0px));
+  /* inset-inline:0 / inset-block-end:0 come from .aura-chrome--bar */
+  transition: opacity var(--aura-dur-base, 220ms) ease,
+              transform var(--aura-dur-base, 220ms) ease;
+}
+
+/* Idle (auto-hidden while playing): fade + slide the bar away, hide cursor. */
+.aura-video--idle .aura-video__bar {
+  opacity: 0;
+  transform: translateY(120%);
+  pointer-events: none;
+}
+.aura-video--idle { cursor: none; }
+@media (prefers-reduced-motion: reduce) {
+  .aura-video__bar { transition: opacity var(--aura-dur-fast, 120ms) ease; }
+  .aura-video--idle .aura-video__bar { transform: none; }
+}
+
+.aura-video__btn {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--aura-tap-min, 44px);
+  block-size: var(--aura-tap-min, 44px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--aura-radius-full);
+  background: transparent;
+  color: var(--aura-text-on-glass);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.aura-video__btn:hover { background: color-mix(in srgb, var(--aura-text-on-glass) 14%, transparent); }
+.aura-video__btn:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: calc(-1 * var(--aura-focus-ring-offset, 2px));
+}
+.aura-video__btn--on { color: var(--aura-primary); }
+.aura-video__btn[hidden] { display: none; }
+
+.aura-video__time {
+  flex: 0 0 auto;
+  font-size: var(--aura-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--aura-text-on-glass);
+  white-space: nowrap;
+}
+
+/* Scrubber grows; volume is compact and only fully expands on hover/focus. */
+.aura-video__scrub { flex: 1 1 auto; min-inline-size: 4rem; }
+.aura-video__vol {
+  flex: 0 0 auto;
+  inline-size: 5rem;
+  max-inline-size: 5rem;
+}
+
+/* Narrow CONTAINERS: drop the inline volume slider (mute button stays) so the
+   control bar never overflows; tighten spacing for the remaining controls.
+   Container-relative (#403): the host is its own inline-size query container,
+   so an aura-video embedded in a split pane or card collapses by ITS width,
+   not the viewport's (the aura-image pattern, css/image.css). */
+aura-video, .aura-video { container-type: inline-size; }
+/* #561: snapped from a stray off-scale 30rem to --aura-bp-narrow (22.5rem) so
+   every responsive seam draws from the ONE documented breakpoint scale. Literal
+   with a token comment because @container preludes cannot read var() (the
+   css/resizable.css #377 pattern). */
+@container (max-width: 22.5rem) { /* --aura-bp-narrow */
+  .aura-video__vol { display: none; }
+  .aura-video__bar { gap: var(--aura-space-1); }
+}
+
+/* Native captions sit above the bar, not behind it. */
+aura-video .aura-video__media::cue {
+  background: var(--aura-video-caption-scrim, color-mix(in srgb, #000 60%, transparent));
+  color: var(--aura-video-caption-text, var(--aura-text-on-glass));
+}
+aura-video .aura-video__media::-webkit-media-text-track-container {
+  inset-block-end: calc(var(--aura-tap-min, 44px) + var(--aura-space-3));
+}
+
+/* ---- Fullscreen ------------------------------------------------------ */
+aura-video:fullscreen,
+aura-video.aura-video--fullscreen {
+  inline-size: 100vw;
+  block-size: 100dvh;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+aura-video:fullscreen .aura-video__media,
+aura-video.aura-video--fullscreen .aura-video__media {
+  object-fit: contain;
+}

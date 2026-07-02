@@ -1,0 +1,69 @@
+/* ==========================================================================
+   Aura — elevation modes (v1.7): lite effects + directional shadows.
+
+   Two opt-in refinements layered on top of the elevation system. Both are
+   token-driven and load after `elevation`, so they win without !important.
+   See docs/design/motion-depth-light-design.md §3.
+   ========================================================================== */
+
+/* ---- Lite effects mode -------------------------------------------------- *
+   [data-aura-effects="lite"] drops the expensive backdrop-filter blur and the
+   translucent glass for an opaque solid surface. As of #672 the lite-mode
+   opaque-glass treatment (and the self/compound case from elevation.css) lives
+   in ONE place alongside the prefers-reduced-transparency / prefers-contrast
+   accommodations — css/preferences.css (the LAST layer, so it wins without
+   !important). The three opaque-glass paths share a single surface inventory
+   there; do not re-add a divergent lite rule here. See preferences.css §THE
+   OPAQUE-GLASS INVARIANT.                                                     */
+
+/* ---- Directional shadows ------------------------------------------------ *
+   [data-aura-light="<dir>"] sets the light vector (--aura-light-x/-y); the
+   surface drop-shadow then offsets ALONG that vector and scales with the
+   element's elevation level (--aura-e). #622: only the CAST shadow is
+   directional — the inset bevel light-catch is intentionally kept on the TOP
+   edge (and the bevel shadow on the bottom edge) regardless of light
+   direction, so the glass still reads consistently chamfered. The bevel does
+   NOT track the lit edge; driving the chamfer highlight off --aura-light-x/-y
+   is a deliberate non-goal here.                                             */
+[data-aura-light="top-left"]     { --aura-light-x: -1; --aura-light-y:  1; }
+[data-aura-light="top"]          { --aura-light-x:  0; --aura-light-y:  1; }
+[data-aura-light="top-right"]    { --aura-light-x:  1; --aura-light-y:  1; }
+[data-aura-light="left"]         { --aura-light-x: -1; --aura-light-y:  0; }
+[data-aura-light="right"]        { --aura-light-x:  1; --aura-light-y:  0; }
+[data-aura-light="bottom-left"]  { --aura-light-x: -1; --aura-light-y: -1; }
+[data-aura-light="bottom"]       { --aura-light-x:  0; --aura-light-y: -1; }
+[data-aura-light="bottom-right"] { --aura-light-x:  1; --aura-light-y: -1; }
+
+[data-aura-light] :where(.aura-surface, aura-card, aura-panel, aura-toolbar) {
+  --aura-dir-depth: var(--aura-e, 2);
+  box-shadow:
+    /* #659: theme-supplied 3-D bevel — first term, exactly as the base recipe
+       (elevation.css). Default inert (transparent inset), but retro-pc /
+       extra-depth carry their entire hard 3-D bezel here; omitting it stripped
+       the silver Win95 bevel off every surface under directional lighting. */
+    var(--aura-frame-inset),
+    /* Directional cast: offset along the light vector; the offset, blur and
+       alpha steps are named tokens (#492, no magic numbers) and every term
+       scales by --aura-depth so a flatten theme (modern-flat depth 0.7) flattens
+       the directional cast in step with the rest of the shadow language. */
+    calc(var(--aura-light-x) * var(--aura-dir-depth) * var(--aura-depth, 1) * var(--aura-dir-shadow-offset-step))
+    calc(var(--aura-light-y) * var(--aura-dir-depth) * var(--aura-depth, 1) * var(--aura-dir-shadow-offset-step))
+    calc(var(--aura-dir-depth) * var(--aura-depth, 1) * var(--aura-dir-shadow-blur-step))
+    hsl(var(--aura-shadow-color) /
+      calc(var(--aura-dir-shadow-alpha) * var(--aura-dir-depth) * var(--aura-shadow-strength))),
+    /* preserved bevel light-catch (top) + base shadow */
+    inset 0 var(--aura-bevel-size) 0 0 var(--aura-bevel-light),
+    inset 0 calc(-1 * var(--aura-bevel-size)) 0 0 var(--aura-bevel-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* directional shadows are static; nothing to disable */
+}
+
+/* ---- prefers-contrast: more — opaque glass chrome --------------------------
+   MOVED (#672). The increased-contrast opaque-glass accommodation now lives in
+   css/preferences.css alongside the prefers-reduced-transparency and lite-mode
+   paths, which all share ONE surface inventory. Because preferences is the LAST
+   cascade layer it wins over every component layer WITHOUT the !important /
+   layer-order trick this block used to need. See preferences.css §THE
+   OPAQUE-GLASS INVARIANT.                                                      */

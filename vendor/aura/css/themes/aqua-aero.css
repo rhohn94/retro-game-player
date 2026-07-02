@@ -1,0 +1,82 @@
+/* ==========================================================================
+   Aura theme — "aqua-aero" (Aqua Aero).
+
+   A named token set authored in the Aura theme editor. It is a TOKEN SET
+   ONLY — no component rules; every value is an existing --aura-* dial, so
+   the look is achieved by re-skinning, not rewriting. Derived tokens keep
+   their var() relationship and perceptual tokens stay in oklch(), so the
+   export preserves fidelity rather than flattening to static hex.
+
+   Activate: Aura.theme.setTheme("aqua-aero") (or pin()), which flips
+   [data-aura-theme-name] on a scope. Register it for switchers with
+   Aura.theme.registerTheme("aqua-aero", { label: "Aqua Aero" }).
+   ========================================================================== */
+
+[data-aura-theme-name="aqua-aero"] {
+  --aura-primary: oklch(0.62 0.11 219.3);
+  --aura-secondary: oklch(0.615 0.182 254.3);
+  --aura-on-primary: oklch(0.972 0.007 286.3);
+  --aura-bg: oklch(0 0 0);
+  --aura-bg-2: #0e1019;
+  --aura-surface-solid: #14161f;
+  --aura-surface-stroke: color-mix(in srgb, white 12%, transparent);
+  --aura-surface-stroke-strong: color-mix(in srgb, white 22%, transparent);
+  --aura-text: #f2f5fc;
+  --aura-text-muted: #b2b7c5;
+  --aura-text-subtle: #818693;
+  /* FOCUS RING: the default --aura-ring (translucent --aura-primary-a40, cyan)
+     over this near-black surface reads ≈1.8:1 — below the WCAG 2.2 SC 1.4.11 3:1
+     floor for focus indicators. Override to an OPAQUE high-contrast neutral ring
+     (near-white --aura-text), mirroring retro-pc and flat-primary. */
+  --aura-ring: 0 0 0 3px var(--aura-text);
+  --aura-focus-ring: 2px solid var(--aura-text);
+  --aura-success: #34d399;
+  --aura-warning: #fbbf24;
+  --aura-danger: #fb7185;
+  --aura-info: var(--aura-secondary);
+  --aura-depth: 1.5;
+  --aura-shadow-boost: 1;
+  --aura-radius-sm: 0rem;
+  --aura-radius-md: 0rem;
+  --aura-radius-lg: 0rem;
+  --aura-radius-xl: 0rem;
+  --aura-border-width: 0.5px;
+  --aura-hover-lift: 1px;
+  --aura-glass-saturate: 1.5;
+  --aura-glass-tint: oklch(0 0 0);
+  --aura-glass-tint-strength: 0;
+  --aura-blur-2: 2px;
+  --aura-dur-fast: 120ms;
+  --aura-dur-base: 200ms;
+  --aura-dur-slow: 360ms;
+  --aura-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --aura-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --aura-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --aura-entrance-rise: 16px;
+  --aura-glow-color: var(--aura-primary);
+  --aura-glow-radius: 65px;
+  --aura-edge-color: var(--aura-glow-color);
+  --aura-edge-shine-max: 0.95;
+  --aura-edge-rim-max: 0.5;
+  --aura-light-x: 0;
+  --aura-light-y: 1;
+  --aura-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --aura-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --aura-text-md: 1rem;
+  --aura-text-lg: 0rem;
+  --aura-text-xl: 0rem;
+  --aura-weight-regular: 400;
+  --aura-weight-semibold: 600;
+  --aura-weight-bold: 700;
+  --aura-leading-normal: 1.5;
+  --aura-tracking-wide: 0.04em;
+  --aura-border-style: solid;
+  --aura-frame-face: #000000;
+  --aura-frame-highlight: #000000;
+  --aura-frame-shadow: #000000;
+  --aura-frame-inset: inset 0 0 0 0 transparent;
+  --aura-surface-pattern: none;
+  --aura-bevel-light: color-mix(in srgb, white calc(26% * 1), transparent);
+  --aura-bevel-shadow: hsl(230 40% 3% / calc(0.45 * 1));
+  --aura-bevel-base: 1px;
+}

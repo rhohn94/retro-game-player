@@ -1,0 +1,137 @@
+/* ==========================================================================
+   Aura — print stylesheet (#113).
+
+   The screen language is dark, blurred, and chrome-heavy — wasteful and often
+   illegible on paper. When printing (e.g. the detail/invoice page's Print
+   button) this layer flips to an ink-friendly light document: white background,
+   black text, no shadows/blur/glow, hidden navigation and action chrome, and
+   plain borders on cards and tables. It sits near the end of the cascade-layer
+   order so its print-time rules win over the screen styles they replace.
+
+   Authoring hooks: add `.aura-print-hide` to anything that should drop when
+   printing, or `.aura-print-only` for content that should appear only on paper
+   (hidden on screen by utilities.css).
+   ========================================================================== */
+@layer print {
+  @media print {
+    /* Ink-friendly canvas — draws from the print-ink token group (#500) so the
+       documented single-retune-point claim holds: overriding --aura-print-paper
+       / --aura-print-body-ink moves the page fill and body ink (literal #fff /
+       #000 stay only as degrade-gracefully var() fallbacks). */
+    :root { color-scheme: light; }
+    html, body {
+      background: var(--aura-print-paper, #fff) !important;
+      color: var(--aura-print-body-ink, #000) !important;
+      /* Honour the white paper canvas instead of dropping it (the browser's
+         default is to strip backgrounds when printing). */
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* #554: the wallpaper is NOT on html/body — it is on two fixed
+       position:fixed; inset:0 pseudo-elements of aura-app (and .aura-wallpaper):
+       ::before paints the aurora/image/gradient, ::after the contrast scrim.
+       Because they are fixed they would otherwise repaint the full-bleed
+       coloured gradient behind EVERY printed page. Neutralise both layers (the
+       generic *::before/*::after reset below only clears shadow/filter, not
+       background) so paper stays ink-friendly white. */
+    aura-app::before, aura-app::after,
+    .aura-wallpaper::before, .aura-wallpaper::after {
+      content: none !important;
+      background: none !important;
+    }
+
+    /* Strip depth, blur, and glow — they cost ink and don't render usefully. */
+    *, *::before, *::after {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      filter: none !important;
+    }
+
+    /* Hide interactive chrome that has no meaning on paper. The nav bar itself
+       is hidden by its own @media print rule in nav-header.css (#494: a dead
+       shell-nav wrapper selector, defined nowhere in the shipped CSS/JS/demos,
+       was removed from this list — it never hid anything). */
+    .demo-bar,
+    .aura-skip-link,
+    .demo-theme-switcher,
+    .aura-detail-page__actions,
+    .aura-toast-region,
+    /* The sidebar / floating-menu-button is navigation chrome (sidebar.css /
+       shell-nav.css) — like the nav bar it has no meaning on paper. In its FMB
+       form it is position:fixed and would print floating over the document on
+       every page; in its in-flow app-shell form it is still just nav. Hide it
+       either way (matches the nav-header @media print rule). */
+    .aura-sidebar,
+    [data-aura-sidebar],
+    [data-print-hide],
+    .aura-print-hide {
+      display: none !important;
+    }
+
+    /* Reveal print-only content (screen-hidden in utilities.css). */
+    .aura-print-only { display: revert !important; }
+
+    /* #598: the reveal footer (data-aura-footer="reveal") rests translated a
+       full footer-height off its own box (translate: 0 100%) and only slides
+       in when js/footer.js sets data-aura-revealed on scroll-to-end. At print
+       time data-aura-revealed is usually absent (Ctrl+P from anywhere but the
+       bottom),
+       so the role="contentinfo" landmark — copyright/legal/attribution — would
+       print off its box or off the page entirely. Reset the translate to its
+       in-flow position (and kill the slide transition) so the footer always
+       prints where the document expects it, regardless of scroll state. */
+    aura-footer[data-aura-footer="reveal"],
+    .aura-footer[data-aura-footer="reveal"] {
+      translate: none !important;
+      transition: none !important;
+    }
+
+    /* Surfaces → paper with a plain ink border so structure survives. Fill,
+       ink and the hairline border all draw from the v3.23/#500 print-ink token
+       group, so retuning --aura-print-paper / --aura-print-body-ink /
+       --aura-print-hairline moves these rules AND the nav print breadcrumb in
+       lockstep. Body/card ink defaults to pure black for maximum legibility.
+       The selector covers the FULL surface family (#675) — not just aura-card —
+       so bare .aura-surface / aura-panel / aura-toolbar / aura-dialog print on
+       paper white too, instead of keeping their dark screen --aura-surface-N
+       fills (the generic reset above clears shadow/filter but not background). */
+    aura-card, .aura-card,
+    .aura-surface, aura-panel, aura-toolbar, aura-dialog,
+    .aura-detail-page__section,
+    table, th, td {
+      background: var(--aura-print-paper, #fff) !important;
+      color: var(--aura-print-body-ink, #000) !important;
+      border: 1px solid var(--aura-print-hairline, #bbb) !important;
+      /* These surfaces DO need their paper fill + hairline to print (#554). */
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* Underline links and print the target where useful is left to the author. */
+    a { color: var(--aura-print-body-ink, #000) !important; text-decoration: underline; }
+
+    /* Keep logical blocks from splitting across page breaks. */
+    aura-card, .aura-card,
+    .aura-detail-page__section,
+    tr {
+      break-inside: avoid;
+    }
+
+    /* Print typography: keep media/code/quote blocks whole, and never strand a
+       heading at the foot of a page away from the content it introduces. */
+    figure, img, pre, blockquote {
+      break-inside: avoid;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      break-inside: avoid;
+      break-after: avoid;
+    }
+    p, li {
+      orphans: 2;
+      widows: 2;
+    }
+  }
+}

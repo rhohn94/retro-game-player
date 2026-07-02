@@ -1,0 +1,269 @@
+/* ==========================================================================
+   Aura blueprint — List Page  (templates/list-page.css)
+
+   A data-listing page: page header with actions, a filterable / sortable
+   table or card grid, an empty-state slot, and a pagination bar. Also
+   defines two reusable sub-components — .aura-data-table and .aura-stat-grid
+   — that can be dropped into any page, not just .aura-list-page.
+
+   CASCADE LAYER: list-page  (declared in css/aura.css)
+   Sits above core Aura layers so blueprint styles win over primitives, but
+   below `mobile` and `utilities` so responsive overrides still apply.
+
+   ── CANONICAL BEM SELECTORS (Phase-2 contract) ────────────────────────────
+   Phase 2 fills the rule bodies for every selector listed here. Do NOT add
+   new selectors in Phase 2 without updating this header.
+
+   .aura-list-page          Block  — outer page wrapper; typically <main> or a
+                                     <div> inside <aura-region>. Sets max-width,
+                                     outer padding, and the vertical rhythm
+                                     between __head, __grid, __empty, __pager.
+
+   .aura-list-page__head    Element — page title row: heading on the left,
+                                     action buttons (New, Filter, Export …)
+                                     on the trailing edge. Uses aura-row
+                                     internally.
+
+   .aura-list-page__grid    Element — responsive card grid that contains the
+                                     list items. Column min-width is controlled
+                                     by --aura-list-page-min-col; auto-fill
+                                     fills available space.
+
+   .aura-list-page__empty   Element — zero-state slot shown when the data set
+                                     is empty. Centered vertically/horizontally
+                                     within __grid. Authors replace the slot
+                                     content with an illustration + copy.
+
+   .aura-list-page__pager   Element — pagination / load-more bar anchored to
+                                     the bottom of the list content area.
+                                     Flex row: prev / page indicators / next.
+
+   .aura-data-table         Block  — full-width semantic table with Aura token
+                                     styling: sticky header row, striped body
+                                     rows, hover highlight, and responsive
+                                     horizontal scroll wrapper. Can be used
+                                     inside .aura-list-page__grid or
+                                     standalone.
+
+   .aura-stat-grid          Block  — KPI / summary metric grid: n equal-width
+                                     cards, each showing a label + large
+                                     number + optional trend indicator. Uses
+                                     the same --aura-list-page-min-col
+                                     tunable as __grid for consistent column
+                                     sizing. Standalone or composable with
+                                     .aura-list-page__head.
+
+   ── TUNABLE CUSTOM PROPERTIES ─────────────────────────────────────────────
+   Override on any scope that wraps a .aura-list-page (or the sub-components)
+   to customise the blueprint without touching Aura internals. Defaults are
+   set on :where(:root) so they carry zero specificity and are trivially
+   overridden.
+   ========================================================================== */
+
+/* ---- Per-blueprint tunables (zero-specificity defaults) ------------------- */
+:where(:root) {
+  /* Minimum column width for .aura-list-page__grid and .aura-stat-grid.
+     Browsers auto-fill as many columns as fit; narrower values → more columns. */
+  --aura-list-page-min-col: 16rem;
+}
+
+/* ── .aura-list-page — outer page wrapper ───────────────────────────────── */
+/* Typically applied to <main> or a <div> inside <aura-region>. Provides
+   token page padding and a vertical rhythm stack between its children. */
+.aura-list-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-6);
+  padding: var(--aura-space-6) var(--aura-space-5);
+  max-inline-size: var(--aura-size-2xl);
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+/* ── .aura-list-page__head — title row with trailing actions ─────────────── */
+/* Heading flush-start, action buttons on the trailing edge. Wraps on narrow
+   viewports so actions stack below the title rather than overflowing. */
+.aura-list-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+}
+
+/* Heading inside __head inherits its size from the page typescale. Remove the
+   default margin so the flex gap controls rhythm exclusively. */
+.aura-list-page__head > :is(h1, h2, h3, h4) {
+  margin: 0;
+}
+
+/* ── .aura-list-page__grid — responsive card grid ───────────────────────── */
+/* Auto-fills columns down to --aura-list-page-min-col; each row expands to
+   fill available space evenly. The grid contains list-item cards and the
+   __empty zero-state slot. */
+.aura-list-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--aura-list-page-min-col), 1fr));
+  gap: var(--aura-space-4);
+}
+
+/* ── .aura-list-page__empty — zero-state slot ───────────────────────────── */
+/* Centered within the grid span, visually muted. Shown via [hidden] removal
+   by the consuming app when the data set is empty; hidden otherwise. */
+.aura-list-page__empty {
+  /* Span all grid columns so the centered content fills the row. */
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--aura-space-8) var(--aura-space-5);
+  color: var(--aura-text-muted);
+  gap: var(--aura-space-3);
+}
+
+/* ── .aura-list-page__pager — pagination / load-more bar ────────────────── */
+/* Flex row: prev control, page indicators in the center, next control on the
+   trailing edge. Wraps cleanly on very narrow viewports. */
+.aura-list-page__pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aura-space-2);
+  padding-block: var(--aura-space-3);
+  border-block-start: var(--aura-divider);
+  color: var(--aura-text-muted);
+}
+
+/* ── .aura-data-table — full-width semantic table ───────────────────────── */
+/* Horizontally scrollable wrapper ensures the table never overflows the page
+   on narrow viewports. The <table> itself fills its wrapper. */
+.aura-data-table {
+  /* Act as the overflow scroll container, not the <table> itself, so the
+     table can grow to its natural width and the scroll track is visible. */
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--aura-radius-md);
+  border: 1px solid var(--aura-surface-stroke);
+  /* Inner table is a separate formatting context — we target it via
+     descendant selectors so authors write a bare <table class="aura-data-table">. */
+}
+
+/* The <table> inside fills the scroll container and applies base spacing. */
+.aura-data-table > table,
+table.aura-data-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  color: var(--aura-text);
+  background: var(--aura-surface-1);
+}
+
+/* Sticky header row: glass tint so content scrolling under it stays legible. */
+.aura-data-table thead th,
+.aura-data-table > table thead th,
+table.aura-data-table thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: var(--aura-z-raised);
+  padding: var(--aura-space-3) var(--aura-space-4);
+  background: var(--aura-surface-3);
+  -webkit-backdrop-filter: blur(var(--aura-blur-2));
+  backdrop-filter: blur(var(--aura-blur-2));
+  color: var(--aura-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: start;
+  border-block-end: 1px solid var(--aura-surface-stroke);
+  white-space: nowrap;
+}
+
+/* Numeric column alignment — add [data-numeric] to a <th> or <td>. */
+.aura-data-table [data-numeric],
+.aura-data-table > table [data-numeric],
+table.aura-data-table [data-numeric] {
+  text-align: end;
+}
+
+/* Body cells: comfortable padding, row hairlines. */
+.aura-data-table tbody td,
+.aura-data-table > table tbody td,
+table.aura-data-table tbody td {
+  padding: var(--aura-space-3) var(--aura-space-4);
+  border-block-end: 1px solid var(--aura-surface-stroke);
+  vertical-align: middle;
+}
+
+/* Last row: remove the trailing hairline so it doesn't double with the
+   container border. */
+.aura-data-table tbody tr:last-child td,
+.aura-data-table > table tbody tr:last-child td,
+table.aura-data-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+/* Row hover tint — token surface lift, respects reduced-motion by having no
+   transition by default; transition added below only when motion is OK. */
+.aura-data-table tbody tr,
+.aura-data-table > table tbody tr,
+table.aura-data-table tbody tr {
+  background: transparent;
+}
+
+.aura-data-table tbody tr:hover,
+.aura-data-table > table tbody tr:hover,
+table.aura-data-table tbody tr:hover {
+  background: var(--aura-surface-2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .aura-data-table tbody tr,
+  .aura-data-table > table tbody tr,
+  table.aura-data-table tbody tr {
+    transition: background var(--aura-dur-fast) var(--aura-ease-out);
+  }
+}
+
+/* ── .aura-stat-grid — KPI / summary metric grid ────────────────────────── */
+/* Equal-width auto-fill cells using the same --aura-list-page-min-col tunable
+   as __grid. Each cell is an elevated token surface; typically wraps an
+   <aura-card> with a label + large number inside. */
+.aura-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--aura-list-page-min-col), 1fr));
+  gap: var(--aura-space-4);
+}
+
+/* Each stat cell (typically an <aura-card>) gets a consistent inner layout
+   so label + value stack vertically with comfortable breathing room. */
+.aura-stat-grid > * {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-5);
+}
+
+/* Large metric value inside a stat cell. */
+.aura-stat-grid strong,
+.aura-stat-grid [data-metric] {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--aura-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Muted label above or below the metric. */
+.aura-stat-grid .aura-muted,
+.aura-stat-grid [data-label] {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--aura-text-muted);
+}

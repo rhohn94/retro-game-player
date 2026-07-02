@@ -12,48 +12,27 @@
 schema_version = 1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Aura (rhohn94/design-language) — vendored as a GIT SUBMODULE, not a release
-# asset. This is the documented W19 reconciliation; see
-# docs/design/dependency-channel-conformance.md.
+# Aura (rhohn94/design-language) — vendored from the stable release channel.
 #
-# WHY NOT an active [deps.aura] block: the sync-deps engine's release-channel
-# model (VALID_KINDS = asset-bundle | vendored-crate | app-binary, with a
-# REQUIRED `artifact` archive name) cannot express a submodule. More to the
-# point, Aura's v3.20 release ASSET bundle omits `bindings/react` entirely
-# (upstream gap design-language#858) — the very tree Harmony needs — so there
-# is no asset to vendor. Harmony therefore consumes Aura from the submodule
-# SOURCE tree, pinned by SHA. The block below is the vendor-migrate "loud
-# fallback" form: fully commented, parses to ZERO active deps, nothing pinned
-# to a moving ref. The truthful pin lives in [submodules.aura] + .gitmodules +
-# the index gitlink.
-#
-# [deps.aura]
-# repo = "rhohn94/design-language"   # GitHub owner/repo of the producer
-# channel = "stable"                 # stable | beta (the producer's release channel)
-# version = "v3.20"                  # stable release channel (bare vX.Y.Z tags carry no assets)
-# dest = "vendor/aura"               # repo-relative vendored destination
-# kind = "asset-bundle"             # NOT VALID HERE — real mechanism is git-submodule (see [submodules.aura])
-# # artifact = <none>               # design-language#858: v3.20 asset omits bindings/react — no asset to pin
-# # resolved commit (content pin, not a moving ref): 83c50b3fa0014433abd0ce783ae5911b8a29f1d4
+# History: Aura was previously consumed as a git submodule at vendor/aura
+# (pinned to 83c50b3f, the v3.20-era source tree) because the v3.20 release
+# ASSET omitted `bindings/react` (upstream gap design-language#858) — the very
+# tree Harmony imports via @aura/react. dl#858 is now CLOSED: the v3.541.0
+# asset bundle ships bindings/react, so the planned channel migration (the
+# documented W19 reconciliation; see
+# docs/design/dependency-channel-conformance.md) is complete. The submodule +
+# .gitmodules entry were removed; vendor/aura is now channel-vendored bytes at
+# the SAME path, so the @aura/react / @aura/css / @aura/runtime aliases in
+# vite.config.ts resolve unchanged.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Submodule-sourced dependencies (Dependency-Channel-adjacent; NOT read by the
-# sync-deps engine, which only consumes [deps.*]). Informational + offline-
-# verifiable: the pinned `sha` MUST equal the index gitlink for `path`
-# (`git ls-tree HEAD vendor/aura`) and the `.gitmodules` url MUST match `repo`.
-# A submodule `vendor-check` is `git submodule status <path>` carrying this sha
-# (see the conformance doc for the offline check procedure).
-
-[submodules.aura]
-repo = "rhohn94/design-language"
-url = "https://github.com/rhohn94/design-language"
-channel = "stable"                 # v3.20 release channel
-pin = "v3.20"                      # human-readable channel pin (W2)
-sha = "83c50b3fa0014433abd0ce783ae5911b8a29f1d4"  # pinned gitlink (index mode 160000)
-path = "vendor/aura"
-consumes = "bindings/react"        # the React adapter Harmony imports via @aura/react
-kind = "git-submodule"
-reason = "design-language#858 — v3.20 release asset omits bindings/react; consumed from the source tree"
+[deps.aura]
+repo = "rhohn94/design-language"   # GitHub owner/repo of the producer
+channel = "stable"                 # stable | beta (the producer's release channel)
+version = "3.541.0"                # exact pin; sync fetches release tag v3.541.0
+artifact = "aura-v3.541.0.tar.gz"  # primary release asset basename
+dest = "vendor/aura"               # repo-relative vendored destination
+kind = "asset-bundle"              # asset-bundle | vendored-crate | app-binary
+strip_components = 1               # tarball prefixes an aura-v3.541.0/ component
 
 # Example release-vendored dependency (commented out — copy, uncomment, edit):
 #

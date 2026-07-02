@@ -1,0 +1,111 @@
+/* ==========================================================================
+   Aura — aura-link: declarative token-driven link with proximity glow (v3.14).
+
+   Plain underlined <a> links in the footer and card descriptions are not
+   proximity-glow hosts and use a hardcoded color. This element wraps a link
+   with Aura's glow + token-driven color, mirroring how aura-button wraps
+   button surfaces.
+
+   Instead of:
+     <a href="home.html">Hub</a>
+   write:
+     <aura-link href="home.html">Hub</aura-link>
+
+   The element renders a contained <a> (reflecting the href + target attributes)
+   OR, when a child <a> is already present, leaves the inner anchor in place and
+   only adds the glow/sheen affordances to itself as the proximity host.
+
+   Variant system:
+     (none / default)  — a subtle, token-colored inline link
+     variant="ghost"   — no underline; color: --aura-text-muted; used in footers
+     variant="primary" — primary-colored; underline on hover
+
+   API:
+     href=""      — forwarded to the contained anchor (if no child <a>)
+     target=""    — forwarded to the contained anchor
+     variant="ghost|primary" — visual treatment (CSS data-variant)
+
+   Load order: core.js → element-base.js → aura-link.js (self-registers).
+   See docs/design/declarative-markup-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* Summary: declarative link; wires glow/sheen affordances on the host;
+     renders a contained <a> from href/target attributes when no child <a>
+     is present; reflects variant → data-variant for CSS. */
+  Aura.define("aura-link", class extends Aura.BaseElement {
+    static get observedAttributes() { return ["href", "target", "variant", "rel"]; }
+
+    _build() {
+      /* Wire the proximity glow on the host (the host is the glow target;
+         the inner <a> is what receives focus/hover from glow.css). */
+      this.classList.add("aura-glow");
+    }
+
+    _sync() { this._reflect(); }
+    _onAttr() { this._reflect(); }
+
+    _reflect() {
+      /* Reflect variant → data-variant for CSS targeting. */
+      var variant = this.getAttribute("variant");
+      if (variant) this.setAttribute("data-variant", variant);
+      else this.removeAttribute("data-variant");
+
+      /* If there is already an AUTHOR child <a> (one we did not generate), trust
+         it and don't inject one. In this author-anchor branch `rel` (including
+         the noopener/noreferrer hardening for target="_blank") is the author's
+         responsibility — we only manage rel on the anchor WE generate (#551).
+         Exclude our own .aura-link__anchor so a runtime href/target change still
+         re-reflects onto the generated anchor below. */
+      var authorAnchor = this.querySelector(":scope > a:not(.aura-link__anchor)");
+      if (authorAnchor) return;
+
+      var href = this.getAttribute("href");
+      if (!href) return;
+
+      var a = this.querySelector(":scope > .aura-link__anchor");
+      if (!a) {
+        a = document.createElement("a");
+        a.className = "aura-link__anchor";
+        /* Move text content into the <a>. */
+        while (this.firstChild) a.appendChild(this.firstChild);
+        this.appendChild(a);
+      }
+      a.setAttribute("href", href);
+      var target = this.getAttribute("target");
+      if (target) a.setAttribute("target", target);
+      else a.removeAttribute("target");
+      this._reflectRel(a, target);
+    }
+
+    /* Harden a target="_blank" anchor against reverse tabnabbing: ensure the
+       generated anchor carries rel="noopener noreferrer". Modern Chromium and
+       Firefox imply noopener for _blank, but Safari and older engines do not, so
+       a design system that generates the anchor must not rely on UA defaults for
+       a security property (#551). Any author rel is preserved and merged, never
+       clobbered. When target is not _blank we leave a previously-added
+       security rel in place if the author authored it, but strip the tokens WE
+       added once they are no longer warranted. */
+    _reflectRel(a, target) {
+      var SECURITY = ["noopener", "noreferrer"];
+      var author = (this.getAttribute("rel") || "").split(/\s+/)
+        .filter(function (t) { return t !== ""; });
+      var tokens = author.slice();
+
+      function has(t) { return tokens.indexOf(t) !== -1; }
+
+      if (target === "_blank") {
+        SECURITY.forEach(function (t) { if (!has(t)) tokens.push(t); });
+      }
+
+      if (tokens.length) a.setAttribute("rel", tokens.join(" "));
+      else a.removeAttribute("rel");
+    }
+  });
+})();

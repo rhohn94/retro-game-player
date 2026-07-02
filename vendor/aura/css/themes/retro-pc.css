@@ -1,0 +1,232 @@
+/* ==========================================================================
+   Aura theme — "retro-pc".
+
+   Windows 95/98 desktop chrome crossed with vaporwave. Square corners, classic
+   grey control "faces", hard 3-D bevels (raised buttons, pressed-in :active),
+   and a system-ish font — all over a neon magenta→cyan sunset wallpaper with a
+   faint scan-grid. The depth comes from HARD bevels (the v2.10 frame tokens),
+   not soft drop-shadows, so --aura-depth is dialed almost to zero.
+
+   It is a TOKEN SET ONLY — a single [data-aura-theme-name] rule overriding
+   --aura-* dials, no component CSS. The classic-chrome look is reachable purely
+   through the frame/bevel token group landed in v2.10 (THEME-TOKENS); see
+   docs/design/theming-and-configuration-design.md §10.
+
+   This theme is a deliberate LIGHT, opaque re-skin: it pins the desktop greys
+   and a near-black ink so the Win95 face is authentic and every text pair
+   clears WCAG AA — white-on-magenta on-primary ≈6:1, ink-on-grey body ≈10:1,
+   and the status badges (success/warning/danger as `color` over their a15
+   tile) clear AA at ≈5:1 thanks to the deepened #593 seeds below.
+
+   Activate: Aura.theme.pin("retro-pc") (single fixed look) or
+   Aura.theme.setTheme("retro-pc") on a scope; register for switchers with
+   Aura.theme.registerTheme("retro-pc", { label: "Retro PC" }).
+   See docs/design/theming-and-configuration-design.md §8.
+   ========================================================================== */
+
+[data-aura-theme-name="retro-pc"] {
+  /* #558: retro-pc is the one named theme that paints LIGHT (Win95 silver)
+     surfaces, but the base :root declares color-scheme: dark — leaving native UA
+     widgets (the <select> option popup, date/time pickers, spin buttons, autofill
+     fill, default scrollbars) rendered dark on a light desktop, which can also
+     drop autofilled-text contrast. Match color-scheme to the theme's luminance so
+     the native chrome the token-only re-skin cannot otherwise restyle goes light. */
+  color-scheme: light;
+  /* ---- Vaporwave brand --------------------------------------------------
+     Neon magenta primary over a cyan secondary. on-primary is white (AA on
+     the magenta). #611: --aura-on-secondary was removed in v3.38 (no component
+     ever placed text on a secondary fill, so the token was dead); re-add it
+     here only if a secondary-fill control is introduced and wired to read it. */
+  --aura-primary: #b3149e;                 /* neon magenta — white text ≈6:1 */
+  --aura-secondary: #18b8d4;               /* neon cyan                       */
+  --aura-on-primary: #ffffff;
+  /* #646: do NOT track the neon cyan for info — as `color` over its own
+     info-a15 tile on the #c0c0c0 silver face that measures 1.23:1 (WCAG AA
+     needs 4.5:1). The deepened teal seed is set in the #593 remediation block
+     below alongside the other three status hues; --aura-secondary itself stays
+     the bright neon cyan for FILLS. */
+
+  /* ---- #593: LIGHT-named-theme status + focus-ring remediation -----------
+     retro-pc paints LIGHT, opaque Win95 surfaces but is selected on the
+     NAMED-theme axis ([data-aura-theme-name]), which does NOT trigger the
+     mode-axis [data-aura-theme="light"] block in theme.css — so the #442
+     light status-colour overrides and the #552 light focus-ring overrides
+     never cascade onto it. Re-apply them here (an opaque-LIGHT named theme
+     MUST repeat the light-mode treatment — see theming-and-configuration
+     design §7).
+
+     The chip/badge recipe (components.css:488-490) paints status `color` over
+     a 15%-alpha tint of the same hue (--aura-*-a15), so the binding contrast
+     is TEXT-over-its-own-a15-tile composited on the #c0c0c0 silver face. The
+     dark-default success (#34d399 mint) / warning (#fbbf24 amber) land ~1.5:1
+     there; even the #442 LIGHT seeds (tuned for #fff) only reach ~3.3:1 on
+     silver. These deeper seeds clear AA (≥4.5:1) over their a15 tile on silver:
+     success #053d2e ≈5.3:1, warning #4a2f00 ≈5.3:1, danger #6e0010 ≈5.2:1
+     (also the DOS-red identity, just deepened from #9e0000 so it clears AA as
+     badge text, not only on bare grey). #646: info joins them — deepened from
+     the neon cyan #18b8d4 (1.23:1) to a dark teal #0a3d4d that clears AA
+     (~5.1:1) as `color` over its info-a15 tile on silver, while --aura-secondary
+     stays the bright cyan for fills. The focus rings default to a
+     translucent / pale primary that falls to ~1.76:1 on silver; re-derive both
+     to the opaque near-black ink (--aura-text #14141e) which clears 3:1 against
+     BOTH the #c0c0c0 face (≈10:1) and the #0c7878 teal desktop (≈3.5:1), so
+     keyboard focus stays visible everywhere (WCAG 2.2 SC 1.4.11 / 2.4.7).
+
+     #697: the switch thumb fills with var(--aura-switch-thumb-bg, --aura-text);
+     the mode-axis light block (theme.css) pins --aura-switch-thumb-bg to
+     --aura-surface-solid precisely so the thumb doesn't go near-black on the
+     light "on" track (the #78 inverted-thumb fix). On the named-theme axis that
+     override never cascades, so without re-stating it here the thumb falls back
+     to --aura-text (#14141e near-black) on the neon-magenta (--aura-primary
+     #b3149e) checked track — low contrast and the exact inverted look #78 fixed.
+     Re-state it to the light Win95 face so the thumb reads as a raised control. */
+  --aura-success: #053d2e;                 /* dark teal-green — AA on silver  */
+  --aura-warning: #4a2f00;                 /* dark amber — AA on silver       */
+  --aura-danger:  #6e0010;                 /* deep DOS-red — AA as badge text */
+  --aura-info:    #0a3d4d;                 /* dark teal — AA on silver (#646) */
+  /* #839: secondary-button text — the default pale --aura-secondary-100 (neon
+     cyan + white) fails AA on the secondary-a40 tint over the #c0c0c0 silver
+     face (≈1.6:1). The cyan hue is high-luminance even when deepened, so only
+     the -900 ramp tone (deep teal) clears AA here — 6.99:1. Token swap only. */
+  --aura-btn-secondary-text: var(--aura-secondary-900);
+  /* Same light-surface defect for the timepicker selected cell: the default pale
+     --aura-primary-100 text on the --aura-primary-a15 tile reads ≈1.2:1 on silver.
+     Deepen to the -800 primary ramp tone (token swap only; no component CSS). */
+  --aura-timepicker-cell-active-text: var(--aura-primary-800);
+  --aura-ring: 0 0 0 3px var(--aura-text);
+  --aura-focus-ring: 2px solid var(--aura-text);
+  --aura-switch-thumb-bg: var(--aura-surface-solid);   /* #697: light thumb on the magenta on-track (the #78 fix on the named-theme axis) */
+
+  /* ---- Desktop greys (light, OPAQUE) ------------------------------------
+     The classic Win95 "Silver" desktop. Surfaces are solid grey, not the
+     default translucent glass, so the bevels read as physical plastic and the
+     ink stays crisp. Tiers step slightly lighter so elevation still reads. */
+  --aura-bg: #0c7878;                      /* teal desktop (deepened from #0f8a8a so white text on the bare desktop clears WCAG AA — #436) */
+  --aura-surface-1: #c0c0c0;
+  --aura-surface-2: #c4c4c4;
+  --aura-surface-3: #c8c8c8;
+  --aura-surface-4: #cccccc;
+  --aura-surface-5: #d0d0d0;
+  --aura-surface-solid: #c0c0c0;
+  --aura-surface-stroke: #87888f;          /* mid-grey hairline               */
+  --aura-surface-stroke-strong: #5a5a60;
+
+  /* Near-black ink on the grey faces — authentic + very high contrast. */
+  --aura-text: #14141e;
+  --aura-text-muted: #404058;              /* ≈6:1 on the grey faces          */
+  --aura-text-subtle: #4c4c5c;
+  --aura-text-on-glass: var(--aura-text);
+  /* Classic pale-yellow tooltip. The live dials css/tooltip.css actually reads
+     are --aura-tooltip-surface (the frosted face) and --aura-tooltip-surface-
+     solid (the lite / no-backdrop fallback); set both opaque so the yellow
+     renders in every path (the dead --aura-tooltip-bg alias is gone, #447). */
+  --aura-tooltip-surface: #ffffe1;
+  --aura-tooltip-surface-solid: #ffffe1;
+  --aura-tooltip-fg: #14141e;
+
+  /* ---- Win95/98 chrome — square corners --------------------------------- */
+  --aura-radius-xs:  0;
+  --aura-radius-sm:  0;
+  --aura-radius-md:  0;
+  --aura-radius-lg:  2px;
+  --aura-radius-xl:  2px;
+  --aura-radius-2xl: 2px;
+  --aura-radius-full: 2px;                 /* even "pills" go boxy            */
+
+  /* ---- Hard 3-D bevels (the v2.10 frame tokens) -------------------------
+     Depth comes from the bezel, not soft shadow. The face is the classic grey;
+     the highlight is a near-white top-left edge, the shadow a dark bottom-right
+     edge — the Win95 raised-button recipe. NOTE: keep --aura-frame-inset a real
+     inset expression (never `none`) so the component box-shadow chain stays
+     valid; here it carries the whole bezel. */
+  --aura-border-style: outset;
+  --aura-frame-border-width: 2px;
+  /* frame-face is consumed as a COLOR stop inside the component surface
+     recipe — `linear-gradient(0deg, var(--aura-frame-face), …)`. It must be a
+     plain colour, never a gradient: a gradient here is not a valid colour stop,
+     which invalidates the whole `background` shorthand and drops the opaque
+     grey face (leaving prose on the bare wallpaper). Classic silver, solid. */
+  --aura-frame-face: #c4c4c4;
+  --aura-frame-highlight: #ffffff;
+  --aura-frame-shadow: #6f6f78;
+  --aura-frame-inset:
+    inset  1px  1px 0 0 var(--aura-frame-highlight),
+    inset -1px -1px 0 0 var(--aura-frame-shadow),
+    inset  2px  2px 0 0 #dfdfe4,
+    inset -2px -2px 0 0 #3a3a42;
+
+  /* Inverted bezel for the pressed-in :active state (light/dark swapped). */
+  --aura-frame-inset-active:
+    inset  1px  1px 0 0 #3a3a42,
+    inset -1px -1px 0 0 #ffffff,
+    inset  2px  2px 0 0 #6f6f78,
+    inset -2px -2px 0 0 #dfdfe4;
+
+  /* Flatten the soft-shadow language — the hard bezel carries the depth. */
+  --aura-depth: 0.12;
+  --aura-shadow-boost: 1;
+  --aura-hover-lift: 0;                     /* desktop chrome doesn't float    */
+
+  /* ---- Minimal glass: a CRT desktop is opaque, not frosted --------------- */
+  --aura-blur-2: 0px;
+  --aura-blur-3: 0px;
+  --aura-blur-4: 0px;
+  --aura-blur-5: 0px;
+  /* The shrunk nav pill + global-search modal frost at the top blur tier via
+     the --aura-nav-{shrunk,search}-blur semantic seams (#490); flatten them so
+     the opaque CRT-desktop identity holds for the on-scroll nav chrome too. */
+  --aura-nav-shrunk-blur: 0px;
+  --aura-nav-search-blur: 0px;
+  --aura-glass-saturate: 1;
+
+  /* ---- Quiet the cursor-reactive lighting (no neon sheen on plastic) ----- */
+  --aura-edge-shine-max: 0;
+  --aura-edge-rim-max: 0;
+  --aura-glow-intensity: 0;
+
+  /* ---- System-ish font stack -------------------------------------------- */
+  --aura-font-sans: "MS Sans Serif", "Pixelated MS Sans Serif", Tahoma, Geneva, Verdana, sans-serif;
+  --aura-font-mono: "MS Gothic", "Fixedsys", "Courier New", ui-monospace, monospace;
+
+  /* ---- Vaporwave wallpaper + faint scan-grid -----------------------------
+     A magenta→cyan sunset behind a subtle grid. Pair the demo <aura-app> with
+     wallpaper="custom" so this --aura-wallpaper is painted (the default
+     "aurora" path would ignore it). The scrim is lightened so the neon stays
+     vivid behind the opaque chrome.
+
+     The neon sunset is unchanged; legibility for the one piece of text that
+     sits on the bare wallpaper (the page heading — everything else rides an
+     opaque grey face) is handled by the scrim below, not by recolouring the
+     gradient. */
+  --aura-wallpaper:
+    repeating-linear-gradient(0deg,   color-mix(in srgb, #18b8d4 22%, transparent) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg,  color-mix(in srgb, #b3149e 22%, transparent) 0 1px, transparent 1px 40px),
+    linear-gradient(160deg, #2a0a4a 0%, #7a1b6e 38%, #c01a8f 60%, #1d8fb0 100%);
+  /* The contrast scrim does double duty. A bright, near-opaque CREAM band across
+     the very top (uniform left-to-right, so the full width of the page heading
+     gets the same backing) lifts the dark heading text to WCAG AA-large; it
+     fades out by ~150px so the neon sunset is untouched everywhere below. The
+     original faint magenta-ink darkening still rides the lower stops to keep
+     the desktop chrome reading with depth. The scrim is position:fixed/inset:0,
+     so the band tracks the viewport top — exactly where the page heading sits. */
+  --aura-wallpaper-scrim: linear-gradient(
+    180deg,
+    color-mix(in srgb, #ece6f2 92%, transparent) 0,
+    color-mix(in srgb, #ece6f2 86%, transparent) 64px,
+    color-mix(in srgb, #ece6f2 30%, transparent) 110px,
+    color-mix(in srgb, #0f0a2a 10%, transparent) 150px,
+    color-mix(in srgb, #0f0a2a 24%, transparent)
+  );
+
+  /* A whisper of grid texture inside surfaces, keyed off the brand so it tints
+     with the palette. surface-pattern layers FIRST under the opaque frame-face,
+     so it only catches the panel edges and never sits under body text. */
+  --aura-surface-pattern:
+    repeating-linear-gradient(0deg,  color-mix(in srgb, var(--aura-primary) 6%, transparent) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--aura-secondary) 6%, transparent) 0 1px, transparent 1px 6px);
+}
+
+/* nav-header glass tint intensity for retro-pc (moved from nav-header.css, #438) */
+[data-aura-theme-name="retro-pc"] {
+  --aura-nav-header-tint-intensity: 0.15;
+}

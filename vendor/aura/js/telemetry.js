@@ -1,0 +1,77 @@
+/* ==========================================================================
+   Aura — telemetry / error-sink layer (#330).
+
+   Fires a startup breadcrumb on load and installs window.onerror /
+   unhandledrejection handlers that route Aura-attributed errors to
+   console.error with an [aura] prefix — giving consumers a single place
+   to see design-system errors without noise from app scripts.
+
+   The sink is passive by default: it logs but does not suppress the browser's
+   default error handling (returns undefined / false from onerror). Consumers
+   can replace Aura.telemetry.onError to send errors to their own backend.
+
+   SSR-safe (#416): the module is a no-op when window/document are absent so
+   SSR/RSC frameworks can evaluate the dist bundle in plain Node.
+   ========================================================================== */
+(function () {
+  "use strict";
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura) return;
+
+  /* Prefix applied to every console message from this module. */
+  var PREFIX = "[aura]";
+
+  /* Is the given filename one of Aura's own scripts? Matches any path
+     that contains "/js/" followed by a known Aura JS filename, or a
+     bundled dist/aura*.js artifact. Intentionally broad so instrumented
+     consumers with CDN paths are still attributed. */
+  function isAuraScript(filename) {
+    if (!filename) return false;
+    return /\/js\/[a-z][-a-z0-9]*\.js/.test(filename) ||
+           /\/dist\/aura[-.a-z0-9]*\.js/.test(filename);
+  }
+
+  /* Default error handler — logs to console.error with the [aura] prefix.
+     Consumers may replace Aura.telemetry.onError with their own function
+     (e.g. to forward to a backend) without losing the prefix behaviour. */
+  function defaultOnError(msg, url, line, col, err) {
+    var detail = err ? (err.stack || err.message || String(err)) : String(msg);
+    console.error(PREFIX + " uncaught error at " + (url || "?") + ":" + (line || 0),
+                  "\n" + detail);
+  }
+
+  /* Public API surface — replace .onError to customise the sink. */
+  Aura.telemetry = {
+    onError: defaultOnError,
+  };
+
+  /* window.onerror — fires for uncaught synchronous errors. We only handle
+     errors attributed to an Aura script; app-code errors are left to the
+     app's own error handling and NOT flagged as Aura issues. */
+  var _prevOnError = window.onerror;
+  window.onerror = function (msg, url, line, col, err) {
+    if (isAuraScript(url)) {
+      Aura.telemetry.onError(msg, url, line, col, err);
+    }
+    return typeof _prevOnError === "function"
+      ? _prevOnError(msg, url, line, col, err)
+      : undefined;
+  };
+
+  /* window.unhandledrejection — fires for unhandled Promise rejections.
+     Same Aura-attribution filter applied via the rejection's stack trace. */
+  window.addEventListener("unhandledrejection", function (evt) {
+    var reason = evt.reason;
+    var stack = reason && (reason.stack || "");
+    if (stack && isAuraScript(stack)) {
+      var msg = reason.message || String(reason);
+      Aura.telemetry.onError(msg, "", 0, 0, reason);
+    }
+  });
+
+  /* Startup breadcrumb — confirms Aura loaded and the telemetry layer is live.
+     Logged at debug level so it is silent in production DevTools unless the
+     consumer enables verbose/debug logging. */
+  console.debug(PREFIX + " telemetry active (v" + (Aura.version || "?") + ")");
+})();

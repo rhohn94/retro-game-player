@@ -1,0 +1,254 @@
+/* ==========================================================================
+   Aura — layout primitives (fluid sizing, container-aware shell/region).
+
+   Surfaces size relative to their container, not the viewport. All sizing
+   values are token dials from tokens.css; no magic numbers in this file.
+   ========================================================================== */
+
+/* ---- Shell: full-viewport app frame; page never scrolls ----------------- *
+   Default is a single-column header / body / footer stack — the common case,
+   which works with bare child auto-placement (first child → header row, last
+   → footer row, the 1fr middle row takes the body and scrolls). No grid-area
+   wiring is needed for the typical app.
+
+   For a sidebar or multi-column app, do NOT rely on a baked-in template:
+   either nest an `aura-split` / CSS grid inside the body region (preferred —
+   keeps the shell simple and the split resizable), or override
+   `grid-template` on the shell yourself. Imposing a sidebar column by default
+   silently mis-places children of the common header/body/footer app, so the
+   default stays minimal.                                                     */
+aura-shell,
+.aura-shell {
+  display: grid;
+  /* minmax(0, 1fr) — NOT bare 1fr — for the body row: `1fr` means
+     minmax(auto, 1fr), so a body child that is not an <aura-region> (e.g. a
+     consumer's plain <main> with no min-block-size: 0) feeds its intrinsic
+     min-content height into the track and inflates the row past the
+     fixed-height shell, pushing the footer row off-viewport. Zeroing the track
+     minimum keeps every row inside the shell for ANY composition — the body
+     child clips or scrolls instead of expanding (the row-axis twin of the
+     column rule below). */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* Containing block for the out-of-flow reveal footer (below), so its
+     inset-block-end pins to the shell's bottom edge, not the viewport. */
+  position: relative;
+  /* Pin the single column to the container width. Without an explicit column,
+     the implicit grid column is `auto` (max-content) and grows to the widest
+     child's intrinsic width — overflowing narrow viewports and clipping the
+     header/region on mobile. minmax(0, 1fr) makes the column fill the shell and
+     lets children reflow instead of expand. */
+  grid-template-columns: minmax(0, 1fr);
+  block-size: 100dvh;
+  overflow: clip;
+  container-type: inline-size;
+}
+
+/* ---- Region: scroll-owning container that shrinks inside grid/flex ----- */
+aura-region,
+.aura-region {
+  display: block;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  container-type: inline-size;
+}
+
+/* FMB column auto-offset (#949, v3.503): when the FMB top-bar is active, the
+   scroll root gains block-start padding so content shifts DOWN below the fixed bar.
+   The token is set/removed by <aura-fmb-column> JS on :root.
+   aura-split (#886, v3.470): the shell contract lists <aura-split> alongside
+   <aura-region> as an equally valid scroll owner — both receive the auto-offset. */
+aura-region,
+.aura-region,
+aura-split,
+.aura-split {
+  padding-block-start: var(--aura-fmb-column-active-offset-block-start, 0px);
+  transition:
+    padding-block-start var(--aura-fmb-column-duration, var(--aura-nav-header-duration, 280ms))
+                        var(--aura-fmb-column-easing,   var(--aura-nav-header-easing,   ease));
+}
+
+/* ---- Fail OPEN without a scroll owner ----------------------------------- *
+   The shell contract expects a scroll-owning <aura-region> (or <aura-split>)
+   child — the shell itself stays overflow: clip so chrome never grows a second
+   scroll layer. A composition that ships NO region — a consumer's plain
+   <main>, a bespoke body grid — would otherwise silently CLIP everything past
+   100dvh (#382: three demo shells did exactly that). Degrade open instead:
+   with no direct region/split child the shell becomes its own scroll owner,
+   so overflowing content scrolls into reach rather than vanishing.
+   Aura.scrollRootFor (js/core.js) resolves the shell in this state, so the
+   reveal footer and scroll-linked chrome follow the same owner. Shells whose
+   inner scroll owner is a custom element (the mobile drawer grid) match too,
+   harmlessly: their content fits the shell, so overflow: auto never engages. */
+aura-shell:not(:has(> :is(aura-region, .aura-region, aura-split, .aura-split))),
+.aura-shell:not(:has(> :is(aura-region, .aura-region, aura-split, .aura-split))) {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* ---- Overlay header: content scrolls UNDER the glass nav-header --------- *
+   Opt-in via data-shell-header="overlay" on <aura-shell> (the master template
+   sets it on the default header/body/footer shell; bespoke shells whose body
+   row is a plain <div> or a custom grid — the mobile drawer, the config and
+   theme-authoring panes — leave it off so their layout is untouched).
+
+   Default shells stack header / body / footer in three grid rows, so the body
+   sits BELOW the bar and nothing ever passes behind the glass. Here the header
+   and the body share ONE row (the header pinned to the top with align-self:
+   start, the scroll region filling the row behind it), so scrolling content
+   slides up under the translucent, backdrop-blurred bar — the depth cue the
+   glass treatment is for. The footer keeps its own row at the foot.
+
+   Only an <aura-region> / <aura-split> body is placed behind the header (the
+   scroll-owning bodies); a non-region body never matches, so an opted-in shell
+   with an unexpected body shape degrades to the normal stack instead of a
+   broken overlap. Scroll regions gain a top inset of one header-height so their
+   first content rests just below the bar (matching the old stacked start) yet
+   scrolls up behind it; scroll-padding keeps anchor jumps and focus scrolling
+   clear of the bar. The inset intentionally tracks the FULL header height (the
+   top-of-page state, where the full bar IS present); it deliberately does not
+   follow the shrunk pill or the stashed/hidden states — once scrolled, content
+   simply passes further under the glass, which is the desired effect. */
+aura-shell[data-shell-header="overlay"],
+.aura-shell[data-shell-header="overlay"] {
+  /* minmax(0, 1fr): the same intrinsic-minimum guard as the default template
+     above — bare 1fr would let a non-region body inflate the row. */
+  grid-template-rows: minmax(0, 1fr) auto;  /* body (behind header) · footer */
+}
+aura-shell[data-shell-header="overlay"] > :is(aura-nav-header, .aura-nav-header),
+.aura-shell[data-shell-header="overlay"] > :is(aura-nav-header, .aura-nav-header) {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;                   /* pin to the top, don't fill the row */
+  z-index: var(--aura-z-sticky);
+}
+aura-shell[data-shell-header="overlay"] > :is(aura-region, .aura-region, aura-split, .aura-split),
+.aura-shell[data-shell-header="overlay"] > :is(aura-region, .aura-region, aura-split, .aura-split) {
+  grid-row: 1;                         /* share the header's row, behind it */
+  grid-column: 1;
+}
+/* aura-footer is the custom-element equivalent of <footer> in the overlay-shell
+   grid — both must receive the same grid placement (#814). Without this rule an
+   <aura-footer> direct child of an overlay shell falls through auto-placement and
+   does not land in the dedicated footer row. */
+aura-shell[data-shell-header="overlay"] > footer,
+aura-shell[data-shell-header="overlay"] > aura-footer,
+.aura-shell[data-shell-header="overlay"] > footer,
+.aura-shell[data-shell-header="overlay"] > aura-footer {
+  grid-row: 2;
+  grid-column: 1;
+}
+aura-shell[data-shell-header="overlay"] :is(aura-region, .aura-region),
+.aura-shell[data-shell-header="overlay"] :is(aura-region, .aura-region) {
+  /* --aura-nav-header-height-current is the header's PUBLISHED resting
+     block-size (#385): js/nav-header.js writes it from a ResizeObserver so the
+     inset tracks the real rendered bar — at 601–840px (and ≤600px, #381) the
+     header wraps to two rows and is TALLER than the fixed token, which left
+     the first ~36px of every overlay page's content under the glass at rest.
+     Falls back to the token when JS is absent. The published value is the
+     RESTING height only — the shrunk pill / stashed states still
+     intentionally let content pass under the glass. */
+  padding-block-start: var(--aura-nav-header-height-current, var(--aura-nav-header-height));
+  scroll-padding-block-start: var(--aura-nav-header-height-current, var(--aura-nav-header-height));
+}
+
+/* ---- Reveal footer: summoned chrome, holds no row ---------------------- *
+   A footer in reveal mode (space-economy — see css/footer.css) is summoned
+   chrome: it must NOT reserve a grid row while it is concealed, or its space is
+   not actually reclaimed. So it is taken OUT OF FLOW entirely — absolutely
+   pinned to the shell's bottom edge, spanning the inline axis — and rests
+   translated off that edge (css/footer.css). The body therefore fills the whole
+   height the footer would otherwise have taken; the footer only covers content
+   at the very end, exactly when it is revealed.
+
+   Out-of-flow, not a grid placement, deliberately (#375): a grid-row: 1 / -1
+   span occupies every explicit-row cell of the single column, so in the DEFAULT
+   header/body/footer stack auto-placement could no longer put the header/body
+   into rows 1–2 and shunted them into implicit rows below the footer's span —
+   a dead band above the header. An absolutely-positioned footer occupies no
+   cell, so bare-child auto-placement works in BOTH the default stack and the
+   overlay shell. A direct child of the shell (the master's default footer);
+   bespoke footers in custom body grids opt out by not carrying
+   data-aura-footer="reveal". */
+aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"],
+.aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"] {
+  position: absolute;        /* out of flow: holds no row, occupies no cell */
+  inset-block-end: 0;        /* pin to the shell's bottom edge */
+  inset-inline: 0;           /* span the shell's inline axis */
+  z-index: var(--aura-z-sticky);
+}
+
+/* ---- Reveal footer padding reserve ------------------------------------- *
+   The reveal footer is absolutely pinned to the shell's bottom edge and
+   overlaps the scroll region's visible bottom by its own height. Without a
+   bottom padding reserve on the region, the footer slides over the last row
+   of content cards at max scroll (and immediately on short-content pages
+   where the footer is permanently revealed).
+
+   A static reserve — sized to the tallest expected single-row footer
+   (2 × --aura-footer-pad-block + one control-height-md row) — ensures the
+   footer only overlays the padding band, not card content. The JS-dynamic
+   scroll-padding-block-end (set by js/footer.js on reveal to the real px
+   height) handles anchor-jump clearance; this rule handles the visual layout.
+
+   The padding is always present (not conditional on reveal state) because
+   dynamically adding it on reveal would change scrollHeight, which can
+   cause the IntersectionObserver sentinel to thrash in/out of view. */
+aura-shell:has(> :is(aura-footer, footer)[data-aura-footer="reveal"]) > :is(aura-region, .aura-region),
+.aura-shell:has(> :is(aura-footer, footer)[data-aura-footer="reveal"]) > :is(aura-region, .aura-region) {
+  padding-block-end: calc(var(--aura-footer-pad-block, 0.75rem) * 2 + var(--aura-control-height-md, 2.5rem));
+}
+
+/* ---- Default content well fills its region (#540) ---------------------- *
+   The default page's <main> content well grows to fill its scroll region, so a
+   page whose content is SHORTER than the viewport still reaches the region's
+   bottom edge — no dead band of wasted whitespace between the content and the
+   reveal footer (the classic sticky-footer gap, #540: a natural-height <main> sat
+   at the top of the region while the footer rested pinned to the shell's foot,
+   leaving a tall empty band between them).
+
+   The reveal footer is summoned chrome pinned OUT OF FLOW to the shell's bottom
+   edge (see the reveal-footer rule above), so the filled <main> simply occupies
+   the height the footer floats over, and a full-height inner blueprint — e.g.
+   .aura-error-page (min-block-size:100%) — now resolves its height against a
+   filled <main> and centres in the viewport.
+
+   The region stays display:block (unchanged inline reflow — a flex/grid region
+   reintroduced horizontal overflow on the wide gallery/editor pages), and the
+   default <main> is grown with min-block-size:100%. A percentage block-size
+   resolves against the region's CONTENT box (clientHeight minus the overlay
+   header-inset padding), so the <main> — laid out just below that padding — fills
+   exactly to the region's bottom edge on a SHORT page with no dead band, and a
+   TALL <main> grows past 100% to its content height so the region scrolls (footer
+   reachable at scroll-end, v3.0 scroll ownership intact). min-block-size (not
+   block-size) is the key: it is a floor, never a cap. Scoped via :has to a region
+   whose FIRST child is a <main> — the default body block; bespoke bodies
+   (aura-split layouts, the dashboard grid, the mobile drawer, the region-as-main
+   settings page) have no direct <main> child, never match, and are unchanged. */
+aura-region:has(> main:first-child) > main,
+.aura-region:has(> main:first-child) > main {
+  min-block-size: 100%;
+}
+
+/* ---- Fluid sizing: inline-size clamped to region dials ----------------- */
+/* Override --aura-region-min / -pref / -max on any ancestor; never write
+   a raw clamp() in a component.                                             */
+.aura-fluid {
+  inline-size: clamp(
+    var(--aura-region-min),
+    var(--aura-region-pref),
+    var(--aura-region-max)
+  );
+}
+
+/* ---- Readable-text measure cap ----------------------------------------- */
+.aura-measure {
+  max-inline-size: var(--aura-measure);
+}
+
+/* ---- Portable aspect-ratio utility ------------------------------------- */
+/* Set --aura-ratio to any --aura-ratio-* token on the element or ancestor. */
+.aura-ratio {
+  aspect-ratio: var(--aura-ratio, var(--aura-ratio-video));
+}

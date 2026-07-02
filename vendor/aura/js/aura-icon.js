@@ -1,0 +1,112 @@
+/* ==========================================================================
+   Aura — aura-icon: declarative tokenized icon/glyph wrapper (v3.14).
+
+   Instead of bare emoji/glyph text:
+     <span class="hub-card__icon" aria-hidden="true">🎨</span>
+   the author writes:
+     <aura-icon aria-hidden="true">🎨</aura-icon>
+
+   The element is intentionally minimal: a tokenized, accessible glyph/icon
+   wrapper that respects the icon system's color and sizing conventions via
+   CSS on the host tag selector. The JS layer adds role="img" when the element
+   is NOT already aria-hidden (so a decorative use stays silent), and derives an
+   accessible name: an explicit `label` (or author-set aria-label/labelledby)
+   wins, otherwise the element's trimmed content text is mirrored to aria-label
+   so role="img" never ships with an empty name (#627). With role="img" the
+   accessible-name computation ignores descendant text, so the content text must
+   be copied into aria-label for it to count — that mirroring is what this does.
+
+   API:
+     label=""     — accessible name (sets aria-label; default: content text)
+     size="sm|md|lg|xl" — maps to CSS data-size attribute (CSS drives sizing)
+     variant="muted|subtle|primary|secondary"  — maps to data-variant
+
+   Load order: core.js → element-base.js → aura-icon.js (self-registers).
+   See docs/design/declarative-markup-design.md.
+   ========================================================================== */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura || !Aura.BaseElement) return;
+
+  /* Summary: declarative icon/glyph wrapper; adds semantics and reflects the
+     size + variant attributes as data-* so CSS can style without JS knowledge. */
+  Aura.define("aura-icon", class extends Aura.BaseElement {
+    static get observedAttributes() { return ["label", "size", "variant", "aria-hidden"]; }
+
+    /* One-time: stamp img semantics if appropriate at connect. The per-attribute
+       re-evaluation lives in _reflectRole so a RUNTIME aria-hidden toggle keeps
+       the role + accessible name in step (#645) — aria-hidden is now observed. */
+    _build() { this._reflectRole(); }
+
+    _sync() { this._reflect(); }
+    _onAttr() { this._reflect(); }
+
+    /* Add/remove the AUTO role="img" to track aria-hidden (#645). A no-longer-
+       hidden icon (now meaningful) gains role="img" so AT exposes it; a now-
+       hidden (decorative) icon drops the role we auto-applied. An author-set role
+       always wins — we only strip a role we ourselves added, tracked via the
+       data-aura-role-auto marker so a later un-hide can re-add it. */
+    _reflectRole() {
+      var hidden = this.getAttribute("aria-hidden") === "true";
+      if (!hidden) {
+        if (!this.hasAttribute("role")) {
+          this.setAttribute("role", "img");
+          this.setAttribute("data-aura-role-auto", "");
+        }
+      } else if (this.hasAttribute("data-aura-role-auto")) {
+        this.removeAttribute("role");
+        this.removeAttribute("data-aura-role-auto");
+      }
+    }
+
+    _reflect() {
+      this._reflectRole();
+      /* Accessible name. An explicit `label` attribute wins. Otherwise — and
+         only when the author has set neither aria-label nor aria-labelledby —
+         fall back to the trimmed content text so a non-hidden role="img" never
+         resolves to an empty accessible name (axe role-img-alt, #627). A
+         decorative aria-hidden="true" icon has no role="img" and needs no name,
+         so we leave its aria-label alone. */
+      /* Only ever manage an Aura-derived aria-label — never clobber one the
+         author set directly (#676). The auto-managed label carries a
+         data-aura-label-auto marker (mirroring data-aura-role-auto above) so a
+         later re-reflect can update or remove it, while an author-set
+         aria-label (no marker) is left untouched. */
+      var label = this.getAttribute("label");
+      var authorLabel =
+        this.hasAttribute("aria-label") && !this.hasAttribute("data-aura-label-auto");
+      var setAuto = function (self, value) {
+        self.setAttribute("aria-label", value);
+        self.setAttribute("data-aura-label-auto", "");
+      };
+      var clearAuto = function (self) {
+        if (self.hasAttribute("data-aura-label-auto")) {
+          self.removeAttribute("aria-label");
+          self.removeAttribute("data-aura-label-auto");
+        }
+      };
+      if (label) {
+        if (!authorLabel) setAuto(this, label);
+      } else if (this.getAttribute("aria-hidden") === "true") {
+        clearAuto(this);
+      } else if (!authorLabel && !this.hasAttribute("aria-labelledby")) {
+        var text = (this.textContent || "").replace(/\s+/g, " ").trim();
+        if (text) setAuto(this, text);
+        else clearAuto(this);
+      }
+
+      /* Reflect size + variant as data-* for CSS to target. */
+      var size = this.getAttribute("size");
+      if (size) this.setAttribute("data-size", size);
+      else this.removeAttribute("data-size");
+
+      var variant = this.getAttribute("variant");
+      if (variant) this.setAttribute("data-variant", variant);
+      else this.removeAttribute("data-variant");
+    }
+  });
+})();

@@ -1,0 +1,66 @@
+/* ==========================================================================
+   Aura — design language entry point.
+
+   Link this single file:  <link rel="stylesheet" href="aura/css/aura.css">
+
+   It declares the cascade-layer order once and imports each source file into
+   its layer. Native @layer makes precedence independent of import order, and
+   any consumer CSS authored WITHOUT @layer automatically overrides Aura — so
+   adopting Aura never fights an app's own styles.
+   ========================================================================== */
+
+@layer tokens, theme, base, elevation, components, elevation-modes, layout, media, glow, overlay, menu, shell-nav, nav-header, footer, sidebar, dialog, toast, tabs, select, datepicker, timepicker, range, radio, checkbox, form, stepper, tag-input, color-picker, resizable, editor, image, video, tooltip, entrance, table, states, code, chart, disclosure, catalog, app-shell, form-page, list-page, content-page, detail-page, settings-page, dashboard-page, error-page, mobile, utilities, print, fmb-column, preferences;
+
+@import "tokens.css"     layer(tokens);
+@import "theme.css"      layer(theme);
+@import "base.css"       layer(base);
+@import "elevation.css"  layer(elevation);
+@import "components.css" layer(components);
+@import "elevation-modes.css" layer(elevation-modes);
+@import "layout.css"     layer(layout);
+@import "media.css"      layer(media);
+@import "glow.css"       layer(glow);
+@import "overlay.css"    layer(overlay);
+@import "menu.css"       layer(menu);
+@import "shell-nav.css"  layer(shell-nav);
+@import "nav-header.css" layer(nav-header);
+@import "footer.css"     layer(footer);
+@import "sidebar.css"    layer(sidebar);
+@import "dialog.css"     layer(dialog);
+@import "toast.css"      layer(toast);
+@import "tabs.css"       layer(tabs);
+@import "select.css"     layer(select);
+@import "datepicker.css" layer(datepicker);
+@import "timepicker.css" layer(timepicker);
+@import "range.css"      layer(range);
+@import "radio.css"      layer(radio);
+@import "checkbox.css"   layer(checkbox);
+@import "form.css"       layer(form);
+@import "stepper.css"    layer(stepper);
+@import "tag-input.css"  layer(tag-input);
+@import "color-picker.css" layer(color-picker);
+@import "resizable.css"  layer(resizable);
+@import "editor.css"     layer(editor);
+@import "image.css"      layer(image);
+@import "video.css"      layer(video);
+@import "tooltip.css"    layer(tooltip);
+@import "entrance.css"   layer(entrance);
+@import "table.css"      layer(table);
+@import "states.css"     layer(states);
+@import "code.css"       layer(code);
+@import "chart.css"      layer(chart);
+@import "disclosure.css" layer(disclosure);
+@import "image-catalog.css" layer(catalog);
+@import "../templates/app-shell.css" layer(app-shell);
+@import "../templates/form-page.css" layer(form-page);
+@import "../templates/list-page.css" layer(list-page);
+@import "../templates/content-page.css" layer(content-page);
+@import "../templates/detail-page.css" layer(detail-page);
+@import "../templates/settings-page.css" layer(settings-page);
+@import "../templates/dashboard-page.css" layer(dashboard-page);
+@import "../templates/error-page.css" layer(error-page);
+@import "mobile.css"     layer(mobile);
+@import "utilities.css"  layer(utilities);
+@import "print.css"      layer(print);
+@import "preferences.css" layer(preferences);
+@import "fmb-column.css" layer(fmb-column);

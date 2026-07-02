@@ -2,12 +2,13 @@
 
 > **Up:** [↑ Design docs](README.md)
 
-> **Status:** W19 deliverable. Records how Harmony's single vendored
-> dependency — **Aura** (`rhohn94/design-language`) — is reconciled with the
-> Grimoire **Dependency Channel** (`vendor.toml` / `vendor.lock` +
-> `grm-sync-deps` / `grm-vendor-migrate`). The mechanism is a **git submodule**, not a
-> release-asset bundle; this doc explains why the Dependency Channel manifests
-> express that truthfully rather than forcing a false asset entry.
+> **Status:** W19 deliverable — **superseded by the §5 upgrade path, executed
+> 2026-07-02.** design-language#858 is CLOSED: the v3.541.0 release asset ships
+> `bindings/react`, so Aura is now a **true Dependency-Channel dep** (active
+> `[deps.aura]` in `vendor.toml`, locked in `vendor.lock`; submodule +
+> `.gitmodules` + gitlink removed; `vendor/aura` is committed release-asset
+> bytes at the same path). §§1–4 below are retained as the historical record of
+> the submodule-era reconciliation; §6 records the completed migration.
 
 ## Motivation
 
@@ -153,7 +154,7 @@ documented manual verification that substitutes for an engine `--check` of a
 release-asset dep. Both are recorded here so a future reader (or a CI gate)
 knows the conformance surface in full.
 
-## 5. Upgrade path
+## 5. Upgrade path (historical — executed, see §6)
 
 If upstream closes [#858](https://github.com/rhohn94/design-language/issues/858)
 by shipping `bindings/react` inside a `v3.x` release asset bundle, the submodule
@@ -169,6 +170,35 @@ can be migrated to a true Dependency-Channel dep:
 
 Until then, the submodule remains the source of truth and this reconciliation
 holds.
+
+## 6. Migration executed (2026-07-02)
+
+Upstream closed [#858](https://github.com/rhohn94/design-language/issues/858):
+the **v3.541.0** stable release asset bundle (`aura-v3.541.0.tar.gz`) ships
+`bindings/react` (verified). The §5 path was executed as part of the fleet-wide
+Aura adoption wave (design-language#1033), with one deviation: `vendor-migrate`
+content-matches the *present* bytes (the v3.20-era source tree), which no
+release asset equals, so the active `[deps.aura]` block was authored directly
+and reconciled through the real `grm-sync-deps` engine instead.
+
+Current truth:
+
+| Field | Value |
+|---|---|
+| repo | `rhohn94/design-language` |
+| channel | `stable` |
+| version (pin) | `3.541.0` (release tag `v3.541.0`) |
+| artifact | `aura-v3.541.0.tar.gz` (`strip_components = 1`) |
+| dest | `vendor/aura` (same path — `@aura/*` aliases unchanged) |
+| kind | `asset-bundle` |
+| release git_sha | `d389da5cbabb1a4ee08834f2066b4631c867663b` |
+
+The `[submodules.aura]` table, the `vendor.lock` `submodules` block,
+`.gitmodules`, and the index gitlink were all removed. Verification is now the
+standard engine gate alone: `sync-deps --check` / `--offline` exit 0 against
+the active dep (the §4.2 gitlink check no longer applies).
+[ux/design-language.md](ux/design-language.md) front-matter now records
+`source: release-asset`, pin `v3.541.0`.
 
 ## References
 

@@ -1,0 +1,218 @@
+/* ==========================================================================
+   Aura — context menus (rich, metadata-capable).
+
+   Authored declaratively as hidden <aura-menu> blocks; js/menu.js decorates
+   each item's inner structure (icon | body | meta) once and positions the menu
+   on open. CSS owns all appearance. See docs/design/context-menu-design.md.
+   ========================================================================== */
+
+/* Component-scoped motion dials (token-defaulting; override on aura-menu). */
+aura-menu {
+  display: none;
+  --aura-menu-dur-out:  var(--aura-dur-fast);
+  --aura-menu-ease-out: var(--aura-ease-standard);
+}
+
+aura-menu.aura-menu--open {
+  display: block;
+  position: fixed;
+  z-index: var(--aura-z-menu);
+  min-inline-size: 13rem;
+  max-inline-size: 24rem;
+  /* Tall menus scroll internally rather than overflowing the viewport (v1.8).
+     The cap is a token; the overlay placer already clamps the box to the
+     padded viewport, so a capped, scrollable menu stays fully on-screen. */
+  max-block-size: var(--aura-menu-max-block);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--aura-space-1);
+  color: var(--aura-text);
+  /* Frosted glass via the menu-scoped dials (each defaults to the global glass
+     token, so a consumer retunes menus alone — see context-menu-design.md
+     §Frosted glass). The translucent tint needs content/wallpaper painted
+     BEHIND the menu for the blur to read; on a flat opaque page it looks merely
+     translucent, which is the usual adoption pitfall. */
+  /* #594: layer the theme tint-wash over the menu fill so a tinted theme
+     (warm-dusk) reaches the menu glass, mirroring .aura-surface. Inert at
+     strength 0. */
+  background: var(--aura-glass-tint-layer), var(--aura-menu-surface);
+  -webkit-backdrop-filter: blur(var(--aura-menu-blur)) saturate(var(--aura-menu-saturate));
+  backdrop-filter: blur(var(--aura-menu-blur)) saturate(var(--aura-menu-saturate));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-radius-md);
+  box-shadow: var(--aura-shadow-4), inset 0 1px 0 var(--aura-edge-light);
+  transform-origin: var(--aura-menu-origin, top left);
+  animation: aura-menu-in var(--aura-dur-fast) var(--aura-ease-out);
+}
+/* Opaque fallback where backdrop-filter is unsupported. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  aura-menu.aura-menu--open { background: var(--aura-glass-tint-layer), var(--aura-menu-surface-solid); }
+}
+/* Lite effects mode drops the blur for an opaque menu — the deliberate escape
+   hatch for busy backgrounds / low-power devices / print, matching the
+   .aura-surface lite rule in elevation-modes.css (which does not reach the
+   menu's own background). */
+[data-aura-effects="lite"] aura-menu.aura-menu--open {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--aura-glass-tint-layer), var(--aura-menu-surface-solid);
+}
+@keyframes aura-menu-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- Exit animation ------------------------------------------------------ */
+/* JS adds .aura-menu--closing (keeping .aura-menu--open for display:block).
+   The combined selector has higher specificity than .aura-menu--open alone,
+   so the exit animation overrides the entry animation during the close phase. */
+aura-menu.aura-menu--open.aura-menu--closing {
+  animation: aura-menu-out var(--aura-menu-dur-out) var(--aura-menu-ease-out) both;
+}
+
+@keyframes aura-menu-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(0.96) translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  aura-menu.aura-menu--open          { animation: none; }
+  aura-menu.aura-menu--open.aura-menu--closing { animation: none; }
+}
+
+/* ---- Items ------------------------------------------------------------ */
+aura-menu-item {
+  /* Proximity glow (v3.2): js/menu.js adds .aura-glow to each item so it lights
+     + leans on approach like every other clickable widget. A compact detection
+     radius keeps a densely-packed list from lighting several rows at once; the
+     subtle global magnet-shift (1px) is inherited. */
+  --aura-glow-radius: var(--aura-glow-radius-compact);
+  display: grid;
+  grid-template-columns: var(--aura-menu-icon-col) 1fr auto;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-2) var(--aura-space-3);
+  border-radius: var(--aura-radius-sm);
+  font-size: var(--aura-text-sm);
+  color: var(--aura-text);
+  cursor: pointer;
+  user-select: none;
+  scroll-margin: var(--aura-space-2);
+  transition:
+    background-color var(--aura-dur-fast) var(--aura-ease-standard),
+    box-shadow       var(--aura-dur-fast) var(--aura-ease-out),
+    transform        var(--aura-dur-fast) var(--aura-ease-out);
+}
+aura-menu-item:hover,
+aura-menu-item[data-aura-active] {
+  /* Raise one elevation layer on hover / keyboard-active — mirrors the button
+     and select-trigger hover pattern (components.css). The shadow uses a
+     component-scoped dial that defaults to --aura-shadow-1 (compact enough to
+     stay within the menu panel's 4 px padding, no clipping). Override
+     --aura-menu-item-hover-shadow on any ancestor to change the hover depth.
+     The 1 px lift is driven by --aura-hover-lift (tokens.css).
+     position:relative + z-index:1 ensures the shadow renders above adjacent
+     rows in source order with no layout shift. */
+  position: relative;
+  z-index: 1;
+  background: var(--aura-primary-a15);
+  box-shadow: var(--aura-menu-item-hover-shadow, var(--aura-shadow-1));
+  transform: translateY(calc(-1 * var(--aura-hover-lift)));
+  outline: none;
+}
+/* Forced-colors (Windows High Contrast): the keyboard-highlighted row is marked
+   only by background + box-shadow + a 1px lift (the menu uses
+   aria-activedescendant, so the active row does NOT take DOM focus and misses the
+   central :focus-visible outline). All three cues drop/are imperceptible in HCM,
+   so there is no visible "current item". Mark it with a system-colour outline. */
+@media (forced-colors: active) {
+  aura-menu-item[data-aura-active] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  aura-menu-item { transition: background-color var(--aura-dur-fast) var(--aura-ease-standard); }
+  aura-menu-item:hover,
+  aura-menu-item[data-aura-active] { transform: none; }
+}
+/* Keyboard focus ring (a11y): a visible :focus-visible outline using the
+   global focus-ring token, matching the item's rounded box. Composes with the
+   hover/active highlight above for items reached by direct focus. */
+aura-menu-item:focus-visible {
+  outline: var(--aura-focus-ring);
+  outline-offset: var(--aura-focus-ring-offset);
+}
+
+aura-menu-item[variant="danger"] { color: var(--aura-danger); }
+aura-menu-item[variant="danger"]:hover,
+aura-menu-item[variant="danger"][data-aura-active] { background: var(--aura-danger-a15); }
+aura-menu-item[disabled],
+aura-menu-item[aria-disabled="true"] { opacity: var(--aura-disabled-opacity); pointer-events: none; }
+
+.aura-menu-item__icon { grid-column: 1; color: var(--aura-text-muted); }
+aura-menu-item[variant="danger"] .aura-menu-item__icon { color: var(--aura-danger); }
+
+.aura-menu-item__body { grid-column: 2; min-inline-size: 0; display: flex; flex-direction: column; gap: 1px; }
+.aura-menu-item__label { line-height: 1.25; }
+.aura-menu-item__desc {
+  font-size: var(--aura-text-xs);
+  color: var(--aura-text-subtle);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.aura-menu-item__meta {
+  grid-column: 3;
+  display: inline-flex; align-items: center; gap: var(--aura-space-2);
+  color: var(--aura-text-subtle);
+}
+.aura-menu-item__meta .aura-icon { inline-size: 1rem; block-size: 1rem; }
+
+/* checkbox / radio state indicator (left column) */
+.aura-menu-item__check {
+  grid-column: 1;
+  inline-size: 1.05rem; block-size: 1.05rem;
+  display: inline-grid; place-items: center;
+  border: 1.5px solid var(--aura-surface-stroke-strong);
+  color: var(--aura-on-primary);
+}
+aura-menu-item[type="checkbox"] .aura-menu-item__check { border-radius: var(--aura-radius-xs); }
+aura-menu-item[type="radio"] .aura-menu-item__check { border-radius: 50%; }
+aura-menu-item[checked] .aura-menu-item__check {
+  /* See-through-glass (v3.2): a translucent primary mix rather than a solid fill
+     so the frosted-glass menu's wallpaper still reads through the checked
+     indicator (matching the --aura-primary-a15 hover tint a few rules above).
+     The check glyph keeps --aura-on-primary; on the translucent fill it stays
+     legible against the bright primary hue. */
+  background: var(--aura-primary-a60); border-color: var(--aura-primary-600);
+}
+.aura-menu-item__check .aura-icon { inline-size: 0.8rem; block-size: 0.8rem; opacity: 0; stroke-width: 2.6; }
+aura-menu-item[checked] .aura-menu-item__check .aura-icon { opacity: 1; }
+
+/* submenu parent arrow */
+aura-menu-item[aria-haspopup="menu"] .aura-menu-item__caret { color: var(--aura-text-subtle); }
+/* RTL: submenus open leftward, so the parent caret (a right-pointing chevron)
+   must mirror to point left toward its panel. */
+[dir="rtl"] aura-menu-item[aria-haspopup="menu"] .aura-menu-item__caret { transform: scaleX(-1); }
+
+/* ---- Groups & separators --------------------------------------------- */
+aura-menu-group { display: block; }
+aura-menu-group[label]::before {
+  content: attr(label);
+  display: block;
+  padding: var(--aura-space-2) var(--aura-space-3) var(--aura-space-1);
+  font-size: 0.68rem;
+  font-weight: var(--aura-weight-semibold);
+  letter-spacing: var(--aura-tracking-wide);
+  text-transform: uppercase;
+  color: var(--aura-text-subtle);
+}
+aura-menu-separator {
+  display: block;
+  block-size: 1px;
+  margin: var(--aura-space-1) var(--aura-space-2);
+  background: var(--aura-surface-stroke);
+}
+
+/* Submenus nest as their own floating menus; hidden until opened. */
+aura-menu aura-menu { position: fixed; }
