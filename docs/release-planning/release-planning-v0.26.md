@@ -192,7 +192,7 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w269-rename-rgp` (W269) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w269-rename-rgp` (W269) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -230,4 +230,14 @@ zero results), so no framework-required scope is trimmed here.
 
 ### Follow-ups discovered during implementation
 
-(populated as branches land)
+- **W269 internal identifiers deliberately kept** (rename is user-facing +
+  bundle-identifier only): Keychain `KEYCHAIN_SERVICE` (`com.harmony.app`,
+  `keychain.rs`) — renaming would orphan an existing user's stored Familiar
+  Bearer key without a fallback-read migration; Fleet `INSTANCE_ID_PREFIX`
+  (`harmony`) — persisted ids load verbatim; Familiar `CONSUMER_ID_VALUE`
+  (`harmony`) — external service contract; `DEPLOYED_APP_DIR` + `harmony.db`
+  filename — moved wholesale by the app-data migration, contents untouched.
+  A background-task chip (task_98f4ebf3) was filed to decide their long-term
+  fate; safe to leave indefinitely.
+- **W269 repo links:** README clone URL + issue links still say
+  `rhohn94/harmony` until the GitHub repo rename at the push stage.
