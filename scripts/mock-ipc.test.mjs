@@ -49,6 +49,16 @@ describe("mock-ipc fixtures", () => {
     expect(() => JSON.stringify(MOCK_FIXTURES)).not.toThrow();
   });
 
+  it("shapes set_binding like the ControllerBinding DTO (W267)", () => {
+    expect(Object.keys(MOCK_FIXTURES.set_binding).sort()).toEqual(
+      ["id", "deviceFamily", "action", "button"].sort(),
+    );
+  });
+
+  it("reset_bindings returns void, like the Rust command (W267)", () => {
+    expect(MOCK_FIXTURES.reset_bindings).toBeNull();
+  });
+
   it("builds an init script that installs the Tauri internals shim", () => {
     const script = buildMockIpcInitScript();
     expect(script).toContain("__TAURI_INTERNALS__");

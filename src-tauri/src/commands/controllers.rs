@@ -7,6 +7,8 @@
 //!   overrides, optionally filtered to one family. The frontend folds these over
 //!   its per-family compiled-in defaults; an empty list means "use defaults".
 //! - `set_binding` — upsert one override and return the persisted row.
+//! - `reset_bindings` — clear every override for one device family, restoring
+//!   the compiled-in defaults (W267, controller-input-design.md §Remapping UI).
 //!
 //! Mirrors the typed TS surface in `src/ipc/controllers.ts`.
 
@@ -65,6 +67,14 @@ pub fn set_binding(
     repo.get(id).map(ControllerBindingDto::from)
 }
 
+/// Clear every override for `device_family`, restoring compiled-in defaults
+/// ("Reset to defaults" — W267, controller-input-design.md §Remapping UI).
+#[tauri::command]
+pub fn reset_bindings(device_family: String, db: State<'_, Db>) -> AppResult<()> {
+    let repo = ControllerBindingsRepo::new(db.inner());
+    repo.delete_family(&device_family)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,4 +94,5 @@ mod tests {
         assert_eq!(v["action"], "confirm");
         assert_eq!(v["button"], "cross");
     }
+
 }

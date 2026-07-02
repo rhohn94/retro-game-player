@@ -9,7 +9,8 @@
 // Sections: Folders | Cores | Controllers | Providers | Familiar | Playback |
 // Appearance | RetroArch — each implemented in ./panes/, this file is the
 // two-column shell + SectionPane switch.
-// (Controllers surface is a stub placeholder — the binding editor is W14.)
+// (Controllers hosts the full press-to-rebind editor — W267,
+// controller-input-design.md §Remapping UI.)
 
 import { useState } from "react";
 

@@ -4,6 +4,10 @@
 // focus spatially, `confirm` activates the focused element, and `back`/`menu`
 // dispatch to the active screen's registered handlers. Screens consume this via
 // the `useFocusable` and `useController` hooks (see hooks.ts).
+//
+// `refreshBindings` (W267, controller-input-design.md §Remapping UI) re-fetches
+// the persisted overrides on demand, so the Settings → Controllers binding
+// editor can apply a rebind/reset live in nav without a restart.
 
 import {
   createContext,
@@ -49,6 +53,13 @@ export interface ControllerContextValue {
    * game, and the menu/overlay, not the page behind it.
    */
   setExclusiveHandler: (handler: ((action: SemanticAction) => void) | null) => void;
+  /**
+   * Re-fetch persisted binding overrides from the DB and apply them live. Call
+   * after a rebind/reset (W267) so nav picks up the change immediately, with no
+   * restart required. Best-effort: a failed re-fetch leaves the previous
+   * overrides in place rather than throwing.
+   */
+  refreshBindings: () => Promise<void>;
 }
 
 export const ControllerContext = createContext<ControllerContextValue | null>(null);
@@ -111,6 +122,17 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Re-fetch on demand (W267): the binding editor calls this after a
+  // rebind/reset so the effective bindings update live, with no restart.
+  const refreshBindings = useCallback(async () => {
+    try {
+      const rows = await listBindings();
+      setOverrides(rows);
+    } catch {
+      /* Keep the previous overrides; defaults still apply. */
+    }
+  }, []);
+
   const handleAction = useCallback((action: SemanticAction) => {
     // An exclusive owner (modal/immersive surface) swallows every action.
     if (exclusiveRef.current) {
@@ -135,8 +157,16 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   useGamepadPoll({ onAction: handleAction, overrides, onFamilyChange: setFamily });
 
   const value = useMemo<ControllerContextValue>(
-    () => ({ focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler }),
-    [focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler],
+    () => ({
+      focusedId,
+      setFocus,
+      register,
+      family,
+      setActionHandlers,
+      setExclusiveHandler,
+      refreshBindings,
+    }),
+    [focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler, refreshBindings],
   );
 
   return <ControllerContext.Provider value={value}>{children}</ControllerContext.Provider>;

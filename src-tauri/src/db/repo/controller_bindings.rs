@@ -115,6 +115,20 @@ impl ControllerBindingsRepo<'_> {
             require_affected(n)
         })
     }
+
+    /// Delete every override for a device family (used by "Reset to defaults" —
+    /// W267, controller-input-design.md §Remapping UI). Unlike `delete`, an empty
+    /// family (nothing to reset) is not an error — it's a no-op success.
+    pub fn delete_family(&self, device_family: &str) -> AppResult<()> {
+        self.db.with_conn(|c| {
+            c.execute(
+                "DELETE FROM controller_bindings WHERE device_family = ?1",
+                params![device_family],
+            )
+            .map_err(map_sqlite)?;
+            Ok(())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -137,5 +151,26 @@ mod tests {
         assert_eq!(repo.list(None).unwrap().len(), 2);
         repo.delete(id).unwrap();
         assert!(matches!(repo.get(id), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn delete_family_clears_only_that_family() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = ControllerBindingsRepo::new(&db);
+        repo.set_button("xbox", "confirm", "a").unwrap();
+        repo.set_button("xbox", "back", "b").unwrap();
+        repo.set_button("playstation", "confirm", "cross").unwrap();
+
+        repo.delete_family("xbox").unwrap();
+
+        assert_eq!(repo.list(Some("xbox")).unwrap().len(), 0);
+        assert_eq!(repo.list(Some("playstation")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_family_on_empty_family_is_a_no_op_success() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = ControllerBindingsRepo::new(&db);
+        assert!(repo.delete_family("xbox").is_ok());
     }
 }

@@ -105,12 +105,15 @@ renders an ordered list of `{ action, label }` hints plus an optional combined
 
 ## 5. Persistence (`commands/controllers.rs`, `ipc/controllers.ts`)
 
-Bindings persist in SQLite via the W3 `controller_bindings` repo. Two minimal
+Bindings persist in SQLite via the W3 `controller_bindings` repo. Three minimal
 append-friendly commands back the frontend:
 - `list_bindings(deviceFamily?)` → `ControllerBinding[]` — overrides folded over
   compiled-in family defaults (empty list = pure defaults).
 - `set_binding(deviceFamily, action, button)` → `ControllerBinding` — upserts one
   override.
+- `reset_bindings(deviceFamily)` → `void` (W267) — deletes every override row for
+  one family (`ControllerBindingsRepo::delete_family`), restoring its compiled-in
+  defaults. An empty family is a no-op success, not an error.
 
 `resolveBindings(family, overrides)` applies overrides over `defaultBindings`,
 ignoring unknown actions/buttons so a stale row can never crash input.
@@ -119,6 +122,51 @@ ignoring unknown actions/buttons so a stale row can never crash input.
 
 - `harmony-ux-design.md` §0 — controller model, focus ring, per-screen hints.
 - `architecture-design.md` §2.10, §3 — `controller_bindings` surface + table.
+
+## Remapping UI (W267)
+
+Settings → Controllers replaces the stub with a full press-to-rebind editor
+(`ControllersPane.tsx`), one section per `DEVICE_FAMILIES` entry, each a table
+of the eight `SemanticAction`s showing the currently bound button (family
+glyph via `glyphFor` + a human label).
+
+**Capture mode.** Clicking/activating a row (mouse or controller `confirm` via
+`useFocusable`) opens a "press a button…" overlay and starts polling
+`navigator.getGamepads()` directly for the next rising-edge button press on any
+connected pad whose `detectFamily(id)` matches the row's family — deliberately
+bypassing the shared `ControllerProvider`/spatial-nav loop so ordinary nav
+input doesn't leak into the capture. `Escape` or an 8-second timeout
+(`CAPTURE_TIMEOUT_MS`) cancels back to the table with no change.
+
+**Conflict handling.** A captured button already bound to a different action
+in the same family surfaces a Swap/Clear choice rather than silently
+clobbering it:
+- **Swap** — the two actions exchange buttons; both stay bound.
+- **Clear** — the rebound action takes the button; the other action becomes
+  `UNBOUND` (a sentinel index of `-1`, distinct from every real Gamepad API
+  button index, so it can never accidentally fire).
+
+This merge is pure logic in the new `src/features/settings/remap.ts` module
+(`findConflict`, `applyRebind`, `diffBindings`) — fully unit-tested
+(`remap.test.ts`) without any DOM or hardware dependency, mirroring the
+existing `actions.ts`/`spatial.ts` pure-core convention. `diffBindings` computes
+only the rows that actually changed, so a rebind/swap persists the minimal set
+of `set_binding` calls rather than rewriting the whole family.
+
+**Live apply.** After persisting, the pane calls the controller context's new
+`refreshBindings()` (`ControllerProvider.tsx`) — a small additive export that
+re-fetches `listBindings()` and updates the overrides `ControllerProvider`
+already threads into `useGamepadPoll`. No event bus, no restart: the next
+gamepad poll tick immediately resolves bindings against the refreshed
+overrides. **Reset to defaults** per family calls the new `reset_bindings` IPC
+(§5) then the same `refreshBindings()` path.
+
+**Pane navigability.** Every rebind row registers with `useFocusable` like any
+other controller-operable control, so the pane itself is fully drivable from a
+gamepad; capture mode's window-level `Escape` listener plus the direct
+Gamepad-API poll give it exclusive input while open (nav/confirm from the
+underlying pane do not interfere, since the shared poll loop is untouched by a
+capture in progress).
 
 ## Open questions
 
