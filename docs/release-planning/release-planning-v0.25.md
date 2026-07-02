@@ -116,7 +116,7 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.25 |
 |---|---|---|---|---|
-| `feat/w252-release-ritual` (W252) | n/a | ☐ | ☐ | ☐ |
+| `feat/w252-release-ritual` (W252) | n/a | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
