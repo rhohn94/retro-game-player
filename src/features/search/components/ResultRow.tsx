@@ -1,11 +1,13 @@
 /** A single previewed result: a select checkbox + a focusable open-link button
  *  with title-parsed badges. */
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { openUrl } from "../../../ipc/opener";
 import { listItem } from "../../../lib/motion";
 import { parseBadges } from "../resultBadges";
 import type { MatchStrength } from "../resultRanking";
 import type { SearchResultItem, LinkState } from "../../../ipc/search";
+import { FocusRing, useFocusable } from "../../controller";
 import { MatchBadge, BadgeChip, LivenessDot } from "./ResultBadges";
 import { DownloadAction } from "./DownloadAction";
 
@@ -31,6 +33,15 @@ export function ResultRow({
   }
 
   const badges = parseBadges(result.title);
+  // Registers the row's primary "open" action with the spatial-nav registry
+  // (W268) so D-pad nav can reach every result row, not just pointer/Tab.
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(
+    `search:result:${result.url}`,
+    handleOpen,
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
 
   return (
     <motion.li
@@ -51,7 +62,9 @@ export function ResultRow({
         aria-label={`Select ${result.title}`}
         style={{ marginLeft: 14, flexShrink: 0, cursor: "pointer" }}
       />
+      <FocusRing focused={isFocused}>
       <button
+        ref={ref}
         onClick={handleOpen}
         style={{
           display: "flex",
@@ -110,6 +123,7 @@ export function ResultRow({
           ↗ open
         </span>
       </button>
+      </FocusRing>
       {downloadProviderId !== undefined && (
         <span style={{ flexShrink: 0, paddingRight: 10 }}>
           <DownloadAction providerId={downloadProviderId} url={result.url} />
