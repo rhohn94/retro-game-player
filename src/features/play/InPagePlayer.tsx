@@ -30,6 +30,7 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { usePlayerPrefs } from "./playerPrefs";
+import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
@@ -63,6 +64,12 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
   const navigate = useNavigate();
   const { setExclusiveHandler } = useController();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Library-life play-session tracking (v0.26 W264): the session brackets
+  // this player's whole mounted lifetime, not just the time the iframe has
+  // successfully loaded — matching the design doc's "in-page (mount/unmount)"
+  // hook point.
+  usePlaySession(gameId);
 
   // null = resolving the play origin; "" = server unavailable; else the origin.
   const [origin, setOrigin] = useState<string | null>(null);

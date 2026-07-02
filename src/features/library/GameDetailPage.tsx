@@ -14,7 +14,7 @@ import { motion } from "framer-motion";
 import { SPRING } from "../../lib/motion";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { enrichGameMetadata, fetchBoxart, getGame, launchGame } from "../../ipc/commands";
+import { enrichGameMetadata, fetchBoxart, getGame, launchGame, setFavorite } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { LoadingState } from "../../components/LoadingState";
@@ -88,6 +88,20 @@ export function GameDetailPage() {
     setLaunchError(null);
     void launchGame(game.id).catch((err: unknown) => {
       setLaunchError(err instanceof Error ? err.message : String(err));
+    });
+  }, [game]);
+
+  // Favorite toggle (v0.26 "library life", W264): optimistic — flips the
+  // local flag immediately, then persists; a failed persist reverts so the
+  // displayed state never drifts from the database's.
+  const onToggleFavorite = useCallback(() => {
+    if (!game) return;
+    const next = !game.favorite;
+    setGame({ ...game, favorite: next });
+    void setFavorite(game.id, next).catch(() => {
+      setGame((current) =>
+        current && current.id === game.id ? { ...current, favorite: !next } : current,
+      );
     });
   }, [game]);
 
@@ -165,7 +179,18 @@ export function GameDetailPage() {
           </AuraCard>
 
           <div className="rgp-detail__info">
-            <h1 className="rgp-detail__title">{game.cleanName}</h1>
+            <div className="rgp-detail__title-row">
+              <h1 className="rgp-detail__title">{game.cleanName}</h1>
+              <button
+                type="button"
+                className="rgp-detail__favorite"
+                onClick={onToggleFavorite}
+                aria-pressed={game.favorite}
+                aria-label={game.favorite ? "Remove from favorites" : "Add to favorites"}
+              >
+                {game.favorite ? "♥" : "♡"}
+              </button>
+            </div>
             <p className="rgp-detail__subtitle">
               {game.system}
               {game.datMatched ? " · DAT-matched ✓" : ""} · {formatSize(game.sizeBytes)}

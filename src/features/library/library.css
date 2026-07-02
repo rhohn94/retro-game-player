@@ -25,7 +25,8 @@
   /* Visible focus ring for every focusable library control (W13; W14 drives it). */
   .rgp-tile:focus-visible,
   .rgp-tab:focus-visible,
-  .rgp-detail__row:focus-visible {
+  .rgp-detail__row:focus-visible,
+  .rgp-detail__favorite:focus-visible {
     outline: var(--rgp-focus-ring);
     outline-offset: var(--rgp-focus-ring-offset);
   }
@@ -286,6 +287,24 @@
   .rgp-detail__title {
     margin: 0;
     font-size: var(--rgp-font-detail-title);
+  }
+  /* Title + favorite toggle (v0.26 "library life" W264). */
+  .rgp-detail__title-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--aura-space-2);
+  }
+  .rgp-detail__favorite {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+    font-size: var(--rgp-font-detail-title);
+    line-height: 1;
+    color: var(--aura-on-surface-muted);
+  }
+  .rgp-detail__favorite[aria-pressed="true"] {
+    color: var(--aura-secondary);
   }
   .rgp-detail__subtitle,
   .rgp-detail__core {

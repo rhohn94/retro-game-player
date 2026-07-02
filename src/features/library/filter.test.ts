@@ -28,6 +28,10 @@ function game(over: Partial<Game>): Game {
     aliases: [],
     description: null,
     wikipediaUrl: null,
+    favorite: false,
+    lastPlayedAt: null,
+    playCount: 0,
+    totalPlayTimeMs: 0,
     ...over,
   };
 }

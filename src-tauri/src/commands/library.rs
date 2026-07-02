@@ -60,6 +60,16 @@ pub struct GameDto {
     pub description: Option<String>,
     /// Canonical Wikipedia article URL, if known (v0.12 enrichment).
     pub wikipedia_url: Option<String>,
+    /// User-toggled favorite flag (v0.26 "library life", W264).
+    pub favorite: bool,
+    /// Unix epoch seconds of the most recent play session's end, if ever
+    /// played (v0.26 "library life", W264).
+    pub last_played_at: Option<i64>,
+    /// Number of completed play sessions (v0.26 "library life", W264).
+    pub play_count: i64,
+    /// Cumulative server-measured play time, in milliseconds (v0.26 "library
+    /// life", W264).
+    pub total_play_time_ms: i64,
 }
 
 impl From<Game> for GameDto {
@@ -89,6 +99,10 @@ impl From<Game> for GameDto {
             aliases,
             description: g.description,
             wikipedia_url: g.wikipedia_url,
+            favorite: g.favorite,
+            last_played_at: g.last_played_at,
+            play_count: g.play_count,
+            total_play_time_ms: g.total_play_time_ms,
         }
     }
 }
@@ -371,6 +385,63 @@ pub async fn import_games(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::repo::library::Game;
+
+    fn sample_game() -> Game {
+        Game {
+            id: 1,
+            folder_id: 1,
+            path: "/roms/a.nes".to_string(),
+            system: "nes".to_string(),
+            crc32: None,
+            md5: None,
+            clean_name: "A".to_string(),
+            dat_matched: false,
+            core_hint: None,
+            art_path: None,
+            size_bytes: 1,
+            added_at: 0,
+            year: None,
+            developer: None,
+            publisher: None,
+            aliases: None,
+            description: None,
+            wikipedia_url: None,
+            favorite: true,
+            last_played_at: Some(1_700_000_000),
+            play_count: 3,
+            total_play_time_ms: 42_000,
+        }
+    }
+
+    /// The Game DTO round-trips the v0.26 "library life" fields (W264
+    /// acceptance): a favorited, played game's aggregates survive the
+    /// repo-row -> wire-DTO conversion unchanged.
+    #[test]
+    fn game_dto_round_trips_library_life_fields() {
+        let dto: GameDto = sample_game().into();
+        assert!(dto.favorite);
+        assert_eq!(dto.last_played_at, Some(1_700_000_000));
+        assert_eq!(dto.play_count, 3);
+        assert_eq!(dto.total_play_time_ms, 42_000);
+    }
+
+    /// A never-played, non-favorited game defaults to the "library life"
+    /// zero-values rather than nulls (except `last_played_at`, which is
+    /// genuinely absent).
+    #[test]
+    fn game_dto_defaults_for_a_never_played_game() {
+        let mut g = sample_game();
+        g.favorite = false;
+        g.last_played_at = None;
+        g.play_count = 0;
+        g.total_play_time_ms = 0;
+        let dto: GameDto = g.into();
+        assert!(!dto.favorite);
+        assert_eq!(dto.last_played_at, None);
+        assert_eq!(dto.play_count, 0);
+        assert_eq!(dto.total_play_time_ms, 0);
+    }
 
     fn temp_target(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("harmony-games-{tag}-{}", std::process::id()))

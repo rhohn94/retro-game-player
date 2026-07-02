@@ -23,13 +23,13 @@ export const MOCK_FIXTURES = {
 
   // --- Library (src/ipc/library.ts) ---
   list_games: [
-    { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"] },
-    { id: 2, path: "/roms/snes/The Legend of Zelda - A Link to the Past.sfc", system: "snes", crc32: "777aac2f", md5: null, cleanName: "The Legend of Zelda: A Link to the Past", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 1048576, addedAt: NOW, year: 1991, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["ALttP", "Zelda 3"] },
-    { id: 3, path: "/roms/snes/Super Metroid.sfc", system: "snes", crc32: "d63ed5f8", md5: null, cleanName: "Super Metroid", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 3145728, addedAt: NOW, year: 1994, developer: "Nintendo R&D1", publisher: "Nintendo", aliases: ["Metroid 3"] },
-    { id: 4, path: "/roms/n64/Super Mario 64.z64", system: "n64", crc32: "635a2bff", md5: null, cleanName: "Super Mario 64", datMatched: true, coreHint: "mupen64plus_next", artPath: null, sizeBytes: 8388608, addedAt: NOW, year: 1996, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["SM64"] },
-    { id: 5, path: "/roms/nes/Metroid.nes", system: "nes", crc32: null, md5: null, cleanName: "Metroid.nes", datMatched: false, coreHint: "fceumm", artPath: null, sizeBytes: 131072, addedAt: NOW, year: null, developer: null, publisher: null, aliases: [] },
+    { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
+    { id: 2, path: "/roms/snes/The Legend of Zelda - A Link to the Past.sfc", system: "snes", crc32: "777aac2f", md5: null, cleanName: "The Legend of Zelda: A Link to the Past", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 1048576, addedAt: NOW, year: 1991, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["ALttP", "Zelda 3"], favorite: false, lastPlayedAt: null, playCount: 0, totalPlayTimeMs: 0 },
+    { id: 3, path: "/roms/snes/Super Metroid.sfc", system: "snes", crc32: "d63ed5f8", md5: null, cleanName: "Super Metroid", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 3145728, addedAt: NOW, year: 1994, developer: "Nintendo R&D1", publisher: "Nintendo", aliases: ["Metroid 3"], favorite: false, lastPlayedAt: null, playCount: 0, totalPlayTimeMs: 0 },
+    { id: 4, path: "/roms/n64/Super Mario 64.z64", system: "n64", crc32: "635a2bff", md5: null, cleanName: "Super Mario 64", datMatched: true, coreHint: "mupen64plus_next", artPath: null, sizeBytes: 8388608, addedAt: NOW, year: 1996, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["SM64"], favorite: false, lastPlayedAt: null, playCount: 0, totalPlayTimeMs: 0 },
+    { id: 5, path: "/roms/nes/Metroid.nes", system: "nes", crc32: null, md5: null, cleanName: "Metroid.nes", datMatched: false, coreHint: "fceumm", artPath: null, sizeBytes: 131072, addedAt: NOW, year: null, developer: null, publisher: null, aliases: [], favorite: false, lastPlayedAt: null, playCount: 0, totalPlayTimeMs: 0 },
   ],
-  get_game: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "Super Mario Bros. 3 is a 1988 platform game developed and published by Nintendo for the Famicom and NES.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3" },
+  get_game: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "Super Mario Bros. 3 is a 1988 platform game developed and published by Nintendo for the Famicom and NES.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   list_content_folders: [
     { id: 1, path: "/Users/you/ROMs", enabled: true, addedAt: NOW },
   ],
@@ -189,7 +189,7 @@ export const MOCK_FIXTURES = {
   probe_familiar: { available: false },
   get_cached_art: null,
   fetch_boxart: null,
-  enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3" },
+  enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   import_games: [],
   // v0.15 in-page play — empty origin means "play server unavailable", so the
   // headless/mocked detail route renders the native Play button (no iframe to a
@@ -216,6 +216,12 @@ export const MOCK_FIXTURES = {
   discard_staged_download: null,
   // v0.25 W250 provider API auto-discovery.
   discover_provider: [],
+  // v0.26 W264 "library life" — favorites, recently-played, play-time.
+  set_favorite: null,
+  record_play_start: 1,
+  record_play_end: null,
+  list_recently_played: [],
+  list_favorites: [],
 };
 
 /** Build the page-init script string that installs the mock IPC global before
