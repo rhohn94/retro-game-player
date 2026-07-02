@@ -54,6 +54,8 @@ Plan: [`release-planning-v0.23.md`](release-planning/release-planning-v0.23.md).
 
 ## v0.24 — Everywhere (planned)
 
+Plan: [`release-planning-v0.24.md`](release-planning/release-planning-v0.24.md).
+
 **Theme:** Every game plays *inside* Harmony, and it starts fast. Today only
 NES boots in-page; the other ~19 catalogued systems shell out to an external
 RetroArch the user must install.
