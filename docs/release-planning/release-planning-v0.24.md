@@ -147,8 +147,8 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.24 |
 |---|---|---|---|---|
-| `feat/w240-native-default-on` (W240) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w242-boot-latency-spike` (W242) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w240-native-default-on` (W240) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w242-boot-latency-spike` (W242) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 2
 
@@ -176,4 +176,11 @@ returned zero).
 
 ### Follow-ups discovered during implementation
 
-- (populated as branches land)
+- **W242 verdicts:** technique A (warm emulator + ROM swap) = no-go — no swap
+  API in EmulatorJS 4.2.3, cross-game state leakage, and hidden-iframe boots
+  are silent (WKWebView trusted-gesture gate) which violates
+  auto-boot-with-sound. Technique B (decompressed-core caching) = go, filed
+  as [#31](https://github.com/rhohn94/harmony/issues/31) for v0.25+ so the
+  serve-pre-extracted variant can be weighed against W241's disk cache.
+- **W242 drive-by:** docs/design/README.md was missing index rows for the
+  v0.23 design docs (save-persistence, direct-download) — added.
