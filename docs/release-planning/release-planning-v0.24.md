@@ -154,7 +154,7 @@ returned zero).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.24 |
 |---|---|---|---|---|
-| `feat/w241-inpage-cores` (W241) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w241-inpage-cores` (W241) | ☑ | ☑ | ☑ | ☑ |
 
 ### Phase 3
 
