@@ -198,11 +198,11 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w264-library-life` (W264) | ☑ | ☐ | ☐ | ☐ |
-| `feat/w267-remap-ui` (W267) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w268-controller-compat` (W268) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w263-hires-art` (W263) | ☐ | ☐ | ☐ | ☐ |
-| `feat/w269b-identifier-decisions` (W269B) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w264-library-life` (W264) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w267-remap-ui` (W267) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w268-controller-compat` (W268) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w263-hires-art` (W263) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w269b-identifier-decisions` (W269B) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -240,5 +240,14 @@ zero results), so no framework-required scope is trimmed here.
   filename — moved wholesale by the app-data migration, contents untouched.
   A background-task chip (task_98f4ebf3) was filed to decide their long-term
   fate; safe to leave indefinitely.
+- **Pass 2 follow-ups:** game-detail route missing from visual-inspect route
+  list (pre-existing; W26A adds TV routes and should add it); `now_epoch_secs()`
+  duplicated across 6 modules (pre-existing dedup candidate); orphaned
+  play-sessions on crash dropped silently (by design, no telemetry); live
+  gamepad hardware verification of remap capture + DualShock4/DualSense
+  product-id sniff still needs a real pad (standing design-doc caveat);
+  Consoles/Cores/Settings routes are keyboard-reachable but not yet in the
+  spatial-nav registry (dedicated follow-up item); repo-wide `cargo fmt` drift
+  pre-exists.
 - **W269 repo links:** README clone URL + issue links still say
   `rhohn94/harmony` until the GitHub repo rename at the push stage.
