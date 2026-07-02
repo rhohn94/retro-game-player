@@ -214,6 +214,8 @@ export const MOCK_FIXTURES = {
   start_download: 1,
   cancel_download: null,
   discard_staged_download: null,
+  // v0.25 W250 provider API auto-discovery.
+  discover_provider: [],
 };
 
 /** Build the page-init script string that installs the mock IPC global before

@@ -78,7 +78,25 @@ manager for direct download.
 
 ---
 
-## v0.25 — Keepsake (planned)
+## v0.25 — Scout (released — see version-history.md)
+
+Plan: [`release-planning-v0.25.md`](release-planning/release-planning-v0.25.md).
+
+**Theme:** User-requested — point Harmony at a site's base URL and its search
+capability is discovered programmatically (OpenSearch / MediaWiki / WordPress /
+HTML forms), plus a broader vetted provider catalog. Verified end-to-end
+against a real OpenSearch provider (Wikipedia).
+
+- **Provider API auto-discovery** from a base URL, wired into the Add-provider
+  dialog beside Detect-from-URL.
+- **Provider catalog expansion** with live-verified legitimate sources
+  (Lexaloffle BBS, OpenGameArt, TheGamesDB, Hardcore Gaming 101).
+
+**Non-goals:** a JSON result pipeline; open-web provider crawling.
+
+---
+
+## v0.26 — Keepsake (planned)
 
 **Theme:** The library becomes *yours* — and your controller obeys you. Also
 lays the data foundation the TV home shelves need.
@@ -91,7 +109,7 @@ lays the data foundation the TV home shelves need.
 
 ---
 
-## v0.26 — Theater (planned)
+## v0.27 — Theater (planned)
 
 **Theme:** The couch experience, part 1 of the 10-foot TV epic
 ([#8](https://github.com/rhohn94/harmony/issues/8)) — structure first.
@@ -103,13 +121,13 @@ lays the data foundation the TV home shelves need.
 
 ---
 
-## v0.27 — Marquee (planned)
+## v0.28 — Marquee (planned)
 
 **Theme:** The couch experience, part 2 — content & art forward. Closes epic
 [#8](https://github.com/rhohn94/harmony/issues/8).
 
 - **Home/library as large cover-art shelves** with a key-art hero (Continue
-  playing / Favorites / Recently added — data from v0.25)
+  playing / Favorites / Recently added — data from v0.26)
   ([#10](https://github.com/rhohn94/harmony/issues/10)).
 - **Full-bleed game art** on detail and hero screens
   ([#12](https://github.com/rhohn94/harmony/issues/12)).
@@ -118,7 +136,7 @@ lays the data foundation the TV home shelves need.
 
 ---
 
-## v0.28 — Craft (planned)
+## v0.29 — Craft (planned)
 
 **Theme:** Authentic retro presentation and engineering depth.
 
@@ -131,7 +149,7 @@ lays the data foundation the TV home shelves need.
 
 ---
 
-## v0.29 — Passport (planned)
+## v0.30 — Passport (planned)
 
 **Theme:** Ready for hands that aren't the developer's.
 
