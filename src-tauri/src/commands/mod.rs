@@ -63,6 +63,9 @@ macro_rules! register_commands {
             $crate::commands::metadata::fetch_boxart,
             $crate::commands::metadata::get_cached_art,
             $crate::commands::metadata::enrich_game_metadata,
+            // metadata — per-tier hi-res pipeline (W263)
+            $crate::commands::metadata::fetch_game_art,
+            $crate::commands::metadata::get_cached_art_tiers,
             // search (W9)
             $crate::commands::search::list_providers,
             $crate::commands::search::add_provider,

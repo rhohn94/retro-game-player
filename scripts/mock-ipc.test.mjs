@@ -24,6 +24,17 @@ describe("mock-ipc fixtures", () => {
     }
   });
 
+  it("shapes the W263 per-tier art fixtures like their IPC DTOs", () => {
+    // get_cached_art_tiers returns CachedArtTier[] — a fresh install has none.
+    expect(Array.isArray(MOCK_FIXTURES.get_cached_art_tiers)).toBe(true);
+    for (const entry of MOCK_FIXTURES.get_cached_art_tiers) {
+      expect(Object.keys(entry).sort()).toEqual(["path", "tier"]);
+      expect(["boxart", "title", "snap"]).toContain(entry.tier);
+    }
+    // fetch_game_art mirrors fetch_boxart's string return (path or "" miss).
+    expect(typeof MOCK_FIXTURES.fetch_game_art).toBe("string");
+  });
+
   it("shapes every game like the Game DTO", () => {
     expect(MOCK_FIXTURES.list_games.length).toBeGreaterThan(0);
     for (const g of MOCK_FIXTURES.list_games) {

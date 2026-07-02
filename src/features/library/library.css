@@ -47,6 +47,27 @@
     opacity: 0.55;
   }
 
+  /* ---- full-bleed hero variant (W263 — native-resolution, UNBLURRED) ----
+     TV/leanback surfaces render the raw cached art directly (no pre-blur
+     round-trip, no oversize/dim treatment) and rely on the scrim below for
+     text legibility instead of a dimmed backdrop. */
+  .rgp-hero-backdrop__layer--full-bleed {
+    inset: 0;
+    opacity: 1;
+  }
+  .rgp-hero-backdrop__scrim {
+    position: absolute;
+    inset: 0;
+    /* Darkest theme surface token, faded via alpha rather than a literal
+       color, so the scrim tracks the active theme (design-language.md §7.5). */
+    background: linear-gradient(
+      to top,
+      color-mix(in oklch, var(--aura-bg) 85%, transparent) 0%,
+      color-mix(in oklch, var(--aura-bg) 35%, transparent) 45%,
+      transparent 75%
+    );
+  }
+
   /* ---- library page ---- */
   .rgp-library {
     position: relative;

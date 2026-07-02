@@ -49,6 +49,25 @@ impl<'a> ArtCacheService<'a> {
         Ok(None)
     }
 
+    /// Return every cached tier for `game_id` as `(tier_key, path)` pairs,
+    /// ordered by [`TIER_PRIORITY`] (boxart, title, snap) rather than the
+    /// repo's raw row order (W263 — `get_cached_art_tiers` IPC).
+    ///
+    /// A game with no cached art of any tier yields an empty vec (never an
+    /// error) — the frontend's fallback resolver treats that the same as a
+    /// game it hasn't queried yet.
+    pub fn cached_tiers(&self, game_id: i64) -> AppResult<Vec<(String, String)>> {
+        let repo = ArtCacheRepo::new(self.db);
+        let entries = repo.list_for_game(game_id)?;
+        let mut out = Vec::with_capacity(entries.len());
+        for tier_key in TIER_PRIORITY {
+            if let Some(e) = entries.iter().find(|e| e.tier == *tier_key) {
+                out.push((e.tier.clone(), e.path.clone()));
+            }
+        }
+        Ok(out)
+    }
+
     /// Persist a downloaded art image for `(game_id, tier_key)` under the
     /// `art-cache/<system>/<clean_name>.png` layout.
     ///
@@ -187,5 +206,51 @@ mod tests {
 
         let svc = ArtCacheService::new(&db, &paths);
         assert!(svc.best_cached_path(game_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn cached_tiers_orders_by_priority_not_insertion() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::with_root(tmp.path().join("harmony")).unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db);
+
+        let svc = ArtCacheService::new(&db, &paths);
+        // Insert snap first, then boxart, then title — priority order must win.
+        svc.store(game_id, "nes", "Game", "snap", b"snap").unwrap();
+        svc.store(game_id, "nes", "Game", "boxart", b"boxart")
+            .unwrap();
+        svc.store(game_id, "nes", "Game", "title", b"title").unwrap();
+
+        let tiers = svc.cached_tiers(game_id).unwrap();
+        let keys: Vec<&str> = tiers.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, vec!["boxart", "title", "snap"]);
+    }
+
+    #[test]
+    fn cached_tiers_is_empty_for_uncached_game() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::with_root(tmp.path().join("harmony")).unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db);
+
+        let svc = ArtCacheService::new(&db, &paths);
+        assert!(svc.cached_tiers(game_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cached_tiers_reflects_partial_cache_e_g_boxart_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::with_root(tmp.path().join("harmony")).unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db);
+
+        let svc = ArtCacheService::new(&db, &paths);
+        svc.store(game_id, "nes", "Game", "boxart", b"boxart")
+            .unwrap();
+
+        let tiers = svc.cached_tiers(game_id).unwrap();
+        assert_eq!(tiers.len(), 1);
+        assert_eq!(tiers[0].0, "boxart");
     }
 }
