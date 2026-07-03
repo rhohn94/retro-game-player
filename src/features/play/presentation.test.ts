@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   playerShellClass,
+  presentationAllowsImmersive,
   presentationIsSpectator,
   presentationOwnsController,
   presentationRecordsPlaySession,
@@ -42,6 +43,21 @@ describe("presentationRecordsPlaySession (W273 preview purity)", () => {
 
   it("never records a session for a preview — no play count / recency / play-time", () => {
     expect(presentationRecordsPlaySession("preview")).toBe(false);
+  });
+});
+
+describe("presentationAllowsImmersive (W275 takeover fullscreen audit)", () => {
+  it("offers the app-immersive Full screen affordance only on the desktop foreground player", () => {
+    expect(presentationAllowsImmersive("foreground")).toBe(true);
+  });
+
+  it("never offers it inside the TV takeover — the window is already fullscreen and TV mode owns that state", () => {
+    expect(presentationAllowsImmersive("takeover")).toBe(false);
+  });
+
+  it("never offers it on spectator surfaces (no chrome at all)", () => {
+    expect(presentationAllowsImmersive("background")).toBe(false);
+    expect(presentationAllowsImmersive("preview")).toBe(false);
   });
 });
 
