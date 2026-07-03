@@ -46,6 +46,18 @@ export function presentationRecordsPlaySession(presentation: PlayerPresentation)
 }
 
 /**
+ * Whether a presentation offers the app-immersive "Full screen" affordance
+ * (the in-page player's window-fullscreen + fill mode, W232). Only the desktop
+ * foreground player does: inside the TV takeover the window is ALREADY
+ * fullscreen and owned by TV mode (v0.27 W275 — offering the item there was
+ * redundant, and activating/exiting it yanked the window out of TV mode's
+ * fullscreen), and spectator surfaces render no chrome at all.
+ */
+export function presentationAllowsImmersive(presentation: PlayerPresentation): boolean {
+  return presentation === "foreground";
+}
+
+/**
  * The `.rgp-player` root class for a presentation, plus the in-page player's
  * immersive mode. One place computes the modifier set so the two players can
  * never drift apart on how a presentation is expressed in the DOM.

@@ -1,10 +1,12 @@
 // useExclusiveControllerScope — the shared "a mounted player owns the
 // controller" pattern (v0.27 W272, tv-mode-design.md §v0.27 → W272). While a
 // player is mounted in a foreground-class presentation it claims the
-// controller's single-owner exclusive slot (ControllerProvider.
-// setExclusiveHandler), so no semantic action can leak to the page underneath
-// — the defect that let PlayStation ✕ (confirm) reach the still-mounted TV
-// home mid-game and launch a different game.
+// controller's exclusive slot (ControllerProvider.claimExclusive, a layered
+// claim stack since W275) as a GAMEPLAY owner, so no semantic action can leak
+// to the page underneath — the defect that let PlayStation ✕ (confirm) reach
+// the still-mounted TV home mid-game and launch a different game. Releasing
+// the claim uncovers whatever surface sits beneath it (the TV takeover's
+// fallback, or the page) instead of emptying the slot.
 //
 // Routing contract (pure `routeScopedAction`, unit-tested without hardware):
 //   - overlay closed: `menu` summons the overlay; EVERY other semantic action
@@ -86,7 +88,7 @@ export interface ExclusiveControllerScope {
  * hook so input ownership can never diverge between the play paths again.
  */
 export function useExclusiveControllerScope(scope: ExclusiveControllerScope): void {
-  const { setExclusiveHandler } = useController();
+  const { claimExclusive } = useController();
 
   // Live mirror (the useOverlayMenu cfg pattern): the handler is installed
   // once per ownership span and reads current values at action time.
@@ -123,7 +125,10 @@ export function useExclusiveControllerScope(scope: ExclusiveControllerScope): vo
           break; // deliberately eaten — nothing may leak to the page beneath
       }
     };
-    setExclusiveHandler(handler);
-    return () => setExclusiveHandler(null);
-  }, [owns, setExclusiveHandler]);
+    // A GAMEPLAY claim: the gamepad belongs to the game (gates the `menu`
+    // long-press TV toggle via gameplayClaimActive). The returned release is
+    // idempotent and identity-based, so this cleanup can never pop another
+    // owner's claim.
+    return claimExclusive(handler, "gameplay");
+  }, [owns, claimExclusive]);
 }

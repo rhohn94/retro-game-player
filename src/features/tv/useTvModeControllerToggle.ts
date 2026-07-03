@@ -6,26 +6,33 @@
 // owns the *mechanism* (raw gamepad polling) — same separation as
 // `useAutoTvModeOnStartup` owning config-read policy over the raw IPC call.
 //
-// "Outside gameplay" is satisfied by construction today: this hook is mounted
-// once at the app-shell level (App.tsx), and the in-page/native player
-// surfaces install an EXCLUSIVE controller handler
-// (`ControllerProvider.setExclusiveHandler`) while a game is running, which
-// makes every other action source — including this long-press poll — a no-op
-// until the exclusive owner releases it (ControllerProvider.tsx
-// `handleAction`). No extra gameplay check is needed here.
+// "Outside gameplay" must be enforced HERE (v0.27 W275): `useLongPress` runs
+// its own raw-gamepad rAF poll, so the exclusive-handler slot — which only
+// gates SEMANTIC actions dispatched through ControllerProvider — cannot
+// silence it (the W260 comment claiming otherwise was wrong; holding `menu`
+// 600 ms mid-game toggled TV mode and tore the running session down). The
+// provider's `gameplayClaimActive` is the honest signal: true exactly while a
+// mounted player owns the gamepad (useExclusiveControllerScope claims with
+// kind "gameplay"), false on the TV home / desktop shell where the toggle
+// must keep working. The persisted binding overrides are threaded through too,
+// so a rebound `menu` moves the long-press with it (W267 parity).
 
-import { useLongPress } from "../controller";
+import { useController, useLongPress } from "../controller";
 import { useTvMode } from "./TvModeContext";
 
 /**
  * Mount once at the app shell. Holding `menu` for the long-press threshold
- * enters TV mode when inactive, or exits it when active.
+ * enters TV mode when inactive, or exits it when active — except during
+ * gameplay, where the pad belongs to the game.
  */
 export function useTvModeControllerToggle(): void {
   const { active, enter, exit } = useTvMode();
+  const { gameplayClaimActive, bindingOverrides } = useController();
 
   useLongPress({
     action: "menu",
     onLongPress: () => (active ? exit() : enter()),
+    overrides: bindingOverrides,
+    enabled: !gameplayClaimActive,
   });
 }

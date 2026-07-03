@@ -36,6 +36,7 @@ import type { Game } from "../../ipc/library";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { DUR, EASE_OUT } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { useWindowFocus } from "../../hooks/useWindowFocus";
 import { NativePlayer, isNativePathEligible } from "../play";
 import { navDirection, useController } from "../controller";
 import type { SemanticAction } from "../controller";
@@ -74,8 +75,7 @@ function gameForFocus(rails: readonly TvRailModel[], focusId: string | null): Ga
 export function TvHome({ onExit }: { onExit: () => void }) {
   const { rails, loading } = useTvLibrary();
   const tvMode = useTvMode();
-  const { focusedId, setFocus } = useController();
-  const { setExclusiveHandler } = useController();
+  const { focusedId, setFocus, focusElement, claimExclusive } = useController();
 
   // Per-rail focus memory lives in a ref (not state): the exclusive handler
   // reads + writes it every nav press and must see the latest value without a
@@ -122,6 +122,11 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   // pass null and the takeover falls back to a centred crossfade.
   const launch = useCallback(
     (game: Game) => {
+      // Launching supersedes any armed exit intent: without this, a `back`
+      // pressed just before confirm left the exit-confirm armed under the
+      // takeover, and a quick play-and-return inside its window let a SINGLE
+      // back press silently exit TV mode (W275).
+      exitConfirm.cancel();
       const active = document.activeElement as HTMLElement | null;
       const rect = active?.getBoundingClientRect();
       const originRect =
@@ -130,7 +135,7 @@ export function TvHome({ onExit }: { onExit: () => void }) {
           : null;
       tvMode.launch(game, originRect);
     },
-    [tvMode],
+    [tvMode, exitConfirm.cancel],
   );
 
   // Fold EVERY focus change (controller nav OR pointer hover) into the per-rail
@@ -233,27 +238,54 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     !failedPreviewIds.has(focusedTileGame.id)
       ? focusedTileGame
       : null;
+  // The dwell only counts — and a fired preview only lives — while the app
+  // window holds focus (W275): without this gate the timer kept running
+  // behind a Cmd+Tab and booted an audible preview while the app was
+  // backgrounded, which W243 pause-on-blur cannot catch (the blur predates
+  // the session's mount, so its blur listener never fires). Blurring tears a
+  // running preview down; refocusing re-dwells from zero.
+  const windowFocused = useWindowFocus();
   const previewGame = useAttractDwell({
     key: focusedId,
     game: dwellGame,
-    enabled: launched === null && !exitConfirm.confirming,
+    enabled: launched === null && !exitConfirm.confirming && windowFocused,
   });
 
-  // Install the home's exclusive handler only while NO game is taken over (W265).
-  // The exclusive slot is single-owner (ControllerProvider): while a game runs,
-  // its player (or the external surface) owns the slot, and the player's cleanup
-  // on exit clears it — so the home must re-assert ownership when the takeover
-  // ends. Gating this effect on `launched` does exactly that: it releases on
-  // launch and re-installs `handleAction` when the surface unmounts, without the
-  // home ever fighting the running game for the controller.
+  // Keyboard/DOM-focus parity across a takeover (W275). While a game is taken
+  // over the home is `inert` (below), which makes the browser drop DOM focus
+  // from the originating tile — otherwise a stray Enter/Space kept re-firing
+  // the tile's click under the running game, and Tab reached hidden home
+  // controls. On the way BACK, controller focus never moved (the overlay
+  // design's whole point) so the tiles' own focus-mirroring effects don't
+  // re-fire — re-assert native DOM focus on the focused tile explicitly so a
+  // keyboard user lands exactly where they launched from.
+  const wasLaunchedRef = useRef(launched !== null);
   useEffect(() => {
-    if (launched) return;
-    setExclusiveHandler(handleAction);
-    return () => setExclusiveHandler(null);
-  }, [launched, setExclusiveHandler, handleAction]);
+    const wasLaunched = wasLaunchedRef.current;
+    wasLaunchedRef.current = launched !== null;
+    if (wasLaunched && launched === null && focusedRef.current) {
+      focusElement(focusedRef.current);
+    }
+  }, [launched, focusElement]);
+
+  // Claim the home's exclusive handler for the LIFETIME of the mount. The
+  // exclusive slot is a layered claim stack (W275, ControllerProvider): while a
+  // game is taken over, the surface's fallback and then its player claim ABOVE
+  // this one, so the home receives nothing — and every release (player swap,
+  // surface unmount) uncovers the next claim down rather than emptying the
+  // slot. That closes the no-owner windows the old launched-gated install/
+  // release dance left open (actions leaking to the base spatial engine over
+  // the still-mounted home during takeover boot).
+  useEffect(() => claimExclusive(handleAction), [claimExclusive, handleAction]);
 
   return (
-    <div className="rgp-tv-home">
+    // `inert` while a game is taken over: the home stays mounted (per-rail
+    // focus memory + scroll live there, W265) but must be unreachable — no
+    // DOM focus (the origin tile would otherwise keep keyboard focus under
+    // the running game, where Enter re-fired its launch), no Tab stops, no
+    // pointer events. The takeover surface visually covers it anyway; inert
+    // makes the coverage real for input too (W275).
+    <div className="rgp-tv-home" inert={launched !== null || undefined}>
       {/* W273 live attract preview — a full-bleed spectator layer BETWEEN the
           hero backdrop and the rails (z-order: preview first in the DOM, hero/
           rails positioned after it, tv-home.css). Crossfades in/out via the

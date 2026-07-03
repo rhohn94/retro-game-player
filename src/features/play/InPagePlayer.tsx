@@ -30,7 +30,11 @@ import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
 import { PlayerOverlay } from "./PlayerOverlay";
-import { playerShellClass, type PlayerPresentation } from "./presentation";
+import {
+  playerShellClass,
+  presentationAllowsImmersive,
+  type PlayerPresentation,
+} from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
 import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
@@ -220,12 +224,21 @@ export function InPagePlayer({
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const exitGame = useCallback(() => {
-    void setWindowFullscreen(false);
+    // Only unwind the window-fullscreen THIS player entered (immersive mode).
+    // Unconditionally forcing it off yanked the window out of TV mode's own
+    // fullscreen when an in-page game exited inside the takeover — and out of
+    // a user's F11 fullscreen on the desktop (W275).
+    if (immersiveRef.current) void setWindowFullscreen(false);
     // TV takeover supplies its own exit (collapse to the tile); the desktop
     // detail route falls back to popping history back to the grid.
     if (onExitRef.current) onExitRef.current();
     else navigate(-1);
   }, [navigate]);
+
+  // The app-immersive "Full screen" affordance only exists on the desktop
+  // foreground player: inside the TV takeover the window is already
+  // fullscreen and TV mode owns that state (presentation.ts, W275).
+  const allowImmersive = presentationAllowsImmersive(presentation);
 
   // Overlay menu (index order drives controller selection): Resume / Save
   // state / Load state / Full screen / Exit, with the slot sub-views owned
@@ -262,15 +275,19 @@ export function InPagePlayer({
         label: prefs.volume === 0 ? "🔇 Unmute" : "🔇 Mute",
         run: () => prefs.toggleMute(),
       },
-      {
-        key: "immersive",
-        label: immersive ? "Exit full screen" : "Full screen",
-        run: () => {
-          if (immersiveRef.current) exitImmersive();
-          else enterImmersive();
-          closeOverlay();
-        },
-      },
+      ...(allowImmersive
+        ? [
+            {
+              key: "immersive",
+              label: immersive ? "Exit full screen" : "Full screen",
+              run: () => {
+                if (immersiveRef.current) exitImmersive();
+                else enterImmersive();
+                closeOverlay();
+              },
+            },
+          ]
+        : []),
     ],
     exit: { key: "exit", label: "Exit game", run: () => exitGame() },
     saveSlot: (slot) => requestSaveOp("save", slot),
@@ -327,6 +344,17 @@ export function InPagePlayer({
     };
   }, [origin, toggleOverlay]);
 
+  // Keyboard parity in the TV takeover (W275): EmulatorJS reads the keyboard
+  // inside its iframe, which only receives keys while the iframe holds DOM
+  // focus. On the desktop the user clicks the frame; the TV surface is
+  // controller-first with no pointer, so focus the iframe once it exists —
+  // a keyboard-only user can then play immediately (and Escape still reaches
+  // the overlay via the player.html bridge's forwarded toggle).
+  useEffect(() => {
+    if (presentation !== "takeover" || !origin) return;
+    iframeRef.current?.focus();
+  }, [presentation, origin]);
+
   // Pause-on-blur (W243): freeze the game when the window loses focus,
   // resume on refocus — unless the overlay already owns the pause.
   useEffect(() => {
@@ -351,8 +379,16 @@ export function InPagePlayer({
     };
   }, [origin]);
 
-  // Always leave fullscreen if the player unmounts (SPA navigation away).
-  useEffect(() => () => void setWindowFullscreen(false), []);
+  // Leave fullscreen if the player unmounts while ITS immersive mode holds it
+  // (SPA navigation away mid-immersive). Guarded on the live immersive state:
+  // an unconditional exit here dropped TV mode's own fullscreen every time an
+  // in-page game left the takeover (W275).
+  useEffect(
+    () => () => {
+      if (immersiveRef.current) void setWindowFullscreen(false);
+    },
+    [],
+  );
 
   if (origin === null) {
     return (

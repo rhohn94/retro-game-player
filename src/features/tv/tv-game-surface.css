@@ -24,11 +24,14 @@
   /* The live player (or external surface) sits underneath the cover, booting
      while the art expands. Hidden until uncovered so a mid-boot flash never
      peeks around the expanding art's edges; a token-driven fade carries the
-     reveal in lockstep with the cover's crossfade-out. */
+     reveal in lockstep with the cover's crossfade-out. A COLUMN so a
+     degradation banner (PlayNotice) stacks ABOVE the fallback player — the
+     old row layout sat them side-by-side at half width each (W275). */
   .rgp-tv-game-surface__player {
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     opacity: 0;
@@ -38,11 +41,51 @@
     opacity: 1;
   }
 
-  /* The player fills the surface — the in-page iframe / native canvas / external
-     panel each already center themselves; this just gives them the full frame. */
+  /* The player (or external panel / get-core panel) fills the surface; the
+     in-page iframe / native canvas each letterbox themselves inside it. */
   .rgp-tv-game-surface__player > * {
     width: 100%;
-    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  /* The degradation notice is a banner, not a fill surface — natural height,
+     inset to the title-safe zone, 10-foot type (W275: it rendered at desktop
+     scale inside the takeover). */
+  .rgp-tv-game-surface__player > .rgp-play-notice {
+    flex: 0 0 auto;
+    width: auto;
+    align-self: stretch;
+    margin: var(--rgp-tv-safe-area) var(--rgp-tv-safe-area) 0;
+  }
+  .rgp-tv-game-surface .rgp-play-notice__message,
+  .rgp-tv-game-surface .rgp-play-notice__hint,
+  .rgp-tv-game-surface .rgp-play-notice__dismiss {
+    font-size: var(--rgp-tv-font-body);
+  }
+
+  /* Get-core panel at the 10-foot scale (W275): centred on the surface's own
+     dark field (the desktop card chrome reads as a floating porthole here),
+     type stepped up the --rgp-tv-* ramp, copy capped to a readable measure.
+     Desktop rendering is untouched — every rule is scoped to this surface. */
+  .rgp-tv-game-surface .rgp-getcore {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: var(--aura-space-5);
+    padding: var(--rgp-tv-safe-area);
+    border-radius: 0;
+    background: transparent;
+  }
+  .rgp-tv-game-surface .rgp-getcore__message,
+  .rgp-tv-game-surface .rgp-getcore__hint,
+  .rgp-tv-game-surface .rgp-getcore__error {
+    font-size: var(--rgp-tv-font-body);
+    max-width: var(--rgp-tv-measure-max);
+  }
+  .rgp-tv-game-surface .rgp-getcore__button {
+    font-size: var(--rgp-tv-font-label);
+    padding: var(--aura-space-4) var(--aura-space-6);
+    border-radius: var(--rgp-tv-radius-tile);
   }
 
   /* ---- W272 takeover fill presentation ----
