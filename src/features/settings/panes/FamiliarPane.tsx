@@ -65,7 +65,7 @@ export function FamiliarPane() {
 
       {probe && (
         <div
-          className="harmony-panel"
+          className="rgp-panel"
           style={{ padding: "10px 14px", borderRadius: 8, fontSize: 13 }}
         >
           Status:{" "}

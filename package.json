@@ -1,10 +1,10 @@
 {
-  "name": "harmony",
-  "version": "0.25.1",
+  "name": "retro-game-player",
+  "version": "0.26.0",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
-  "description": "Harmony — a Mac-native (Apple Silicon) retro game player.",
+  "description": "Retro Game Player — a Mac-native (Apple Silicon) retro game player.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

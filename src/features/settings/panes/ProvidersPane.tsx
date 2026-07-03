@@ -86,7 +86,7 @@ export function ProvidersPane() {
       )}
 
       <div
-        className="harmony-panel"
+        className="rgp-panel"
         style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, borderRadius: 8 }}
       >
         <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>Add provider</p>
@@ -127,7 +127,7 @@ export function ProvidersPane() {
         {providers.map((p) => (
           <div
             key={p.id}
-            className="harmony-panel"
+            className="rgp-panel"
             style={{
               display: "flex",
               alignItems: "center",

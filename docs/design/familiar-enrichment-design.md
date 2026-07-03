@@ -74,11 +74,22 @@ classifies cleanly so the UI keys AI-affordance visibility off `authorized`.
 
 The Bearer key is a secret and is **never** written to disk — not to
 `app-config.json`, not to the `settings` table. It lives in the macOS Keychain
-(`keyring` crate) under service `com.harmony.app`, account `familiar-bearer-key`.
-The key store is abstracted behind the `KeyStore` trait; production uses
-`KeychainStore`, tests use `MemoryKeyStore`. `FamiliarClient` holds **no plaintext
-key field** — it fetches from the `KeyStore` on demand — so the key can never leak
+(`keyring` crate) under service `com.retro-game-player.app` (post-rename,
+W269B — see below), account `familiar-bearer-key`. The key store is
+abstracted behind the `KeyStore` trait; production uses `KeychainStore`,
+tests use `MemoryKeyStore`. `FamiliarClient` holds **no plaintext key
+field** — it fetches from the `KeyStore` on demand — so the key can never leak
 into a serialized config/DTO. A missing key is `Ok(None)`, not an error.
+
+**Post-rename Keychain migration (W269B, v0.26):** the Keychain service name
+migrated from `com.harmony.app` to `com.retro-game-player.app`. Reads try the
+new service name first; on a miss they fall back to the legacy
+`com.harmony.app` entry (kept as `LEGACY_KEYCHAIN_SERVICE`) and, on a legacy
+hit, forward-write the value under the new service name so subsequent reads
+no longer need the fallback. The legacy entry is never deleted (a stale
+legacy entry is harmless and preserves downgrade). Writes and deletes always
+target the new service name only. Full decision record + rationale:
+[app-infrastructure-design.md §Post-rename identifier decisions](app-infrastructure-design.md#post-rename-identifier-decisions-w269b-v026).
 
 ## Enrichment + cache
 
@@ -103,6 +114,19 @@ client/config struct.
 
 - [architecture-design.md §2.8](architecture-design.md#28-familiar-w12) — command surface + `FamiliarProbe` DTO (D1, authoritative).
 - [app-infrastructure-design.md](app-infrastructure-design.md) — `AppConfig` (base URL), Keychain note (W4).
+
+## Post-rename note (W269B, v0.26)
+
+`CONSUMER_ID_VALUE` (`src-tauri/src/core/familiar/mod.rs`, `"harmony"`, sent
+via the `X-Consumer-Id` header) stays **"harmony" permanently pending a
+coordinated change** — it is not an oversight. It is the wire value the
+external Familiar service may allowlist per consumer; renaming it
+unilaterally could silently break enrichment for already-configured users.
+Any change to this value must be coordinated with the Familiar service side
+first, not shipped as a unilateral rename. See
+[app-infrastructure-design.md §Post-rename identifier decisions](app-infrastructure-design.md#post-rename-identifier-decisions-w269b-v026)
+for the full decision record (including the Keychain service-name migration
+above).
 
 ## Open questions
 

@@ -3,5 +3,5 @@
 
 // Thin binary entry: all logic lives in the library crate.
 fn main() {
-    harmony_lib::run();
+    retro_game_player_lib::run();
 }

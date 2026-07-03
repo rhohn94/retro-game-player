@@ -131,8 +131,19 @@ describe("resultSort persistence", () => {
   });
 
   it("ignores a corrupted stored value", () => {
-    globalThis.localStorage.setItem("harmony.search.sort", "nonsense");
+    globalThis.localStorage.setItem("rgp.search.sort", "nonsense");
     expect(loadSortPref()).toBe("relevance");
+  });
+
+  it("falls back to the legacy pre-rename key when the current key is unset", () => {
+    globalThis.localStorage.setItem("harmony.search.sort", "title-asc");
+    expect(loadSortPref()).toBe("title-asc");
+  });
+
+  it("prefers the current key over the legacy one when both are set", () => {
+    globalThis.localStorage.setItem("harmony.search.sort", "title-asc");
+    globalThis.localStorage.setItem("rgp.search.sort", "title-desc");
+    expect(loadSortPref()).toBe("title-desc");
   });
 });
 

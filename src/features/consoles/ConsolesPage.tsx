@@ -32,24 +32,24 @@ function ConsoleCard({
     <motion.button
       variants={listItem}
       type="button"
-      className="harmony-console-tile"
+      className="rgp-console-tile"
       onClick={() => onOpen(c.key)}
       aria-label={`${c.name} (${c.manufacturer}, ${c.year})`}
     >
-      <AuraCard class="harmony-console-tile__card">
-        <div className="harmony-console-tile__art">
+      <AuraCard class="rgp-console-tile__card">
+        <div className="rgp-console-tile__art">
           {img ? (
-            <img src={img} alt="" loading="lazy" className="harmony-console-tile__img" />
+            <img src={img} alt="" loading="lazy" className="rgp-console-tile__img" />
           ) : (
-            <span className="harmony-console-tile__ph">{c.abbreviation}</span>
+            <span className="rgp-console-tile__ph">{c.abbreviation}</span>
           )}
         </div>
-        <div className="harmony-console-tile__meta">
-          <span className="harmony-console-tile__name">{c.name}</span>
-          <span className="harmony-console-tile__sub">
+        <div className="rgp-console-tile__meta">
+          <span className="rgp-console-tile__name">{c.name}</span>
+          <span className="rgp-console-tile__sub">
             {c.manufacturer} · {c.year}
           </span>
-          <span className="harmony-console-tile__counts">
+          <span className="rgp-console-tile__counts">
             {c.ownedCount > 0 ? `${c.ownedCount} owned · ` : ""}
             {c.catalogCount.toLocaleString()} titles
           </span>
@@ -116,17 +116,17 @@ export function ConsolesPage() {
   }, [visible]);
 
   return (
-    <section className="harmony-consoles" aria-label="Browse by console">
-      <header className="harmony-consoles__header">
-        <h1 className="harmony-consoles__title">Consoles</h1>
-        <p className="harmony-muted">
-          Browse every console Harmony covers — with its history and full game
-          catalog. Click a console to dive in.
+    <section className="rgp-consoles" aria-label="Browse by console">
+      <header className="rgp-consoles__header">
+        <h1 className="rgp-consoles__title">Consoles</h1>
+        <p className="rgp-muted">
+          Browse every console Retro Game Player covers — with its history and
+          full game catalog. Click a console to dive in.
         </p>
-        <AuraField class="harmony-consoles__search">
+        <AuraField class="rgp-consoles__search">
           <input
             type="search"
-            className="harmony-input"
+            className="rgp-input"
             placeholder="Search consoles…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -141,10 +141,10 @@ export function ConsolesPage() {
       )}
 
       {groups.map(([generation, list]) => (
-        <div key={generation} className="harmony-consoles__group">
-          <h2 className="harmony-consoles__gen">Generation {generation}</h2>
+        <div key={generation} className="rgp-consoles__group">
+          <h2 className="rgp-consoles__gen">Generation {generation}</h2>
           <motion.div
-            className="harmony-console-grid"
+            className="rgp-console-grid"
             variants={listContainer}
             initial="hidden"
             animate="visible"

@@ -21,3 +21,5 @@ export * from "./familiar"; // W12
 // export * from "./settings";    // W4/W15
 export * from "./controllers"; // W14
 export * from "./console"; // v0.12 — console catalog
+export * from "./play-stats"; // v0.26 W264 — favorites, recently-played, play-time
+export * from "./app-config"; // v0.26 W260 — auto_tv_mode

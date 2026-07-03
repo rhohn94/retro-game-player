@@ -98,7 +98,7 @@ export function CreateGamesFolderDialog({
 
   return (
     <AuraDialog
-      class="harmony-games-dialog"
+      class="rgp-games-dialog"
       open
       style={{ "--aura-dialog-width": "460px" } as React.CSSProperties}
     >
@@ -125,7 +125,7 @@ export function CreateGamesFolderDialog({
                 fontFamily: "monospace",
                 fontSize: 13,
                 background: "var(--aura-surface-raised)",
-                padding: "var(--aura-space-2) var(--harmony-space-2-5)",
+                padding: "var(--aura-space-2) var(--rgp-space-2-5)",
                 borderRadius: "var(--aura-radius-sm)",
                 wordBreak: "break-all",
                 color: "var(--aura-on-surface)",
@@ -147,8 +147,8 @@ export function CreateGamesFolderDialog({
           <>
             <h3 style={{ margin: 0, fontSize: 16 }}>Create a games folder</h3>
             <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-              Harmony will create this folder (if it doesn’t exist) and start
-              watching it for games. Existing files are never touched.
+              Retro Game Player will create this folder (if it doesn’t exist) and
+              start watching it for games. Existing files are never touched.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -162,7 +162,7 @@ export function CreateGamesFolderDialog({
                 <input
                   id="games-dir-path"
                   name="games-dir-path"
-                  className="harmony-input"
+                  className="rgp-input"
                   type="text"
                   value={path}
                   placeholder="~/Games"

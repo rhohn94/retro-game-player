@@ -1,4 +1,4 @@
-// SettingsPage — the Settings screen for Harmony (W15).
+// SettingsPage — the Settings screen for Retro Game Player (W15).
 //
 // Archetype: Sectioned-form (harmony-ux-design.md §3). Two-column layout:
 // left <aura-nav> section list, right pane renders the selected section.
@@ -9,7 +9,8 @@
 // Sections: Folders | Cores | Controllers | Providers | Familiar | Playback |
 // Appearance | RetroArch — each implemented in ./panes/, this file is the
 // two-column shell + SectionPane switch.
-// (Controllers surface is a stub placeholder — the binding editor is W14.)
+// (Controllers hosts the full press-to-rebind editor — W267,
+// controller-input-design.md §Remapping UI.)
 
 import { useState } from "react";
 
@@ -82,7 +83,7 @@ export function SettingsPage() {
 
   return (
     <section
-      className="harmony-panel"
+      className="rgp-panel"
       style={{
         display: "flex",
         flexDirection: "column",

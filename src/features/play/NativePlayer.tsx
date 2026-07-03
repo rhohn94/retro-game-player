@@ -1,4 +1,4 @@
-// NativePlayer — runs a game via Harmony's native libretro core host
+// NativePlayer — runs a game via the app's native libretro core host
 // (v0.21 "Bedrock") instead of EmulatorJS. The Rust backend owns the entire
 // emulation loop and the audio device (play::native::NativeRuntime); this
 // component starts/stops that session, paints whatever frame it last
@@ -30,6 +30,7 @@ import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { usePlayerPrefs } from "./playerPrefs";
+import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
 import { useOverlayMenu } from "./useOverlayMenu";
 
@@ -47,6 +48,10 @@ export interface NativePlayerProps {
    * runtime-switch component, W215) decides what to do (typically: fall
    * back to InPagePlayer rather than show an error state). */
   onStartFailed?: () => void;
+  /** How "Exit game" leaves (v0.26 W265). Default (desktop detail route):
+   * `navigate(-1)`. The TV takeover surface supplies its own callback so exit
+   * collapses the takeover back to the tile instead of popping router history. */
+  onExit?: () => void;
 }
 
 /** Mounts a native libretro core session for one game; auto-starts on load. */
@@ -55,11 +60,17 @@ export function NativePlayer({
   gameName,
   presentation = "foreground",
   onStartFailed,
+  onExit,
 }: NativePlayerProps) {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
+
+  // Library-life play-session tracking (v0.26 W264): brackets the native
+  // session's start/stop lifetime (the effect below re-subscribes per
+  // `gameId` only — matching this hook's own dependency).
+  usePlaySession(gameId);
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.
@@ -108,7 +119,15 @@ export function NativePlayer({
     void setNativePaused(false).catch(() => undefined);
   }, []);
 
-  const exitGame = useCallback(() => navigate(-1), [navigate]);
+  // Keep the latest onExit reachable from the stable overlay-menu callback.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+  const exitGame = useCallback(() => {
+    // TV takeover supplies its own exit (collapse to the tile); the desktop
+    // detail route falls back to popping history back to the grid.
+    if (onExitRef.current) onExitRef.current();
+    else navigate(-1);
+  }, [navigate]);
 
   // "Continue" (W232): if a state this path wrote exists (the exit auto-save
   // or a manual slot), offer to restore the newest one into the running,
@@ -294,20 +313,20 @@ export function NativePlayer({
   }, [gameId]); // intentionally re-subscribes per gameId only — open/close callbacks are stable
 
   return (
-    <div className={backgrounded ? "harmony-player harmony-player--attract" : "harmony-player"}>
-      <div className="harmony-player__frame">
-        <canvas ref={canvasRef} className="harmony-native-player__canvas" aria-label={`Play ${gameName}`} />
+    <div className={backgrounded ? "rgp-player rgp-player--attract" : "rgp-player"}>
+      <div className="rgp-player__frame">
+        <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
-      <div className="harmony-player__bar">
+      <div className="rgp-player__bar">
         {continueTarget && (
-          <button type="button" className="harmony-player__fs" onClick={onContinue}>
+          <button type="button" className="rgp-player__fs" onClick={onContinue}>
             ⟳ Continue
           </button>
         )}
-        <button type="button" className="harmony-player__fs" onClick={openOverlay}>
+        <button type="button" className="rgp-player__fs" onClick={openOverlay}>
           ☰ Menu
         </button>
-        <button type="button" className="harmony-player__fs" onClick={exitGame}>
+        <button type="button" className="rgp-player__fs" onClick={exitGame}>
           ✕ Exit
         </button>
       </div>

@@ -1,22 +1,22 @@
-# Harmony
+# Retro Game Player
 
 A polished, Mac-native (Apple Silicon) **retro game player** built on
 [Tauri 2](https://tauri.app/) + React + the [Aura](https://github.com/rhohn94/design-language)
-design language. Harmony manages a local game library across **20 classic
-consoles** (generations 1–6), fetches cover art and metadata, helps you
-*find* games (links and previews — see the contract below), and **plays
+design language. Retro Game Player manages a local game library across **20
+classic consoles** (generations 1–6), fetches cover art and metadata, helps
+you *find* games (links and previews — see the contract below), and **plays
 games in-page**: NES titles boot inside the app with sound, via an embedded
 EmulatorJS core or (opt-in) a natively-hosted libretro core, with an external
 RetroArch launch as the fallback for every other system.
 
-**Harmony ships no game content.** It scans folders you provide and imports
-files you choose.
+**Retro Game Player ships no game content.** It scans folders you provide and
+imports files you choose.
 
 ---
 
 ## Contents
 
-- [What Harmony is](#what-harmony-is)
+- [What Retro Game Player is](#what-retro-game-player-is)
 - [What it is not](#what-it-is-not)
 - [Quick start](#quick-start)
 - [Prerequisites](#prerequisites)
@@ -30,15 +30,16 @@ files you choose.
 
 ---
 
-## What Harmony is
+## What Retro Game Player is
 
-Harmony is a library-first frontend with three ways to play, tried in order:
+Retro Game Player is a library-first frontend with three ways to play, tried
+in order:
 
 ```
-Your ROM files → Harmony (library + UI)
+Your ROM files → Retro Game Player (library + UI)
                      ↓
         1. Native core host (opt-in) — fceumm NES hosted directly in
-           Harmony's Rust backend, CoreAudio output          [v0.21]
+           the app's Rust backend, CoreAudio output          [v0.21]
         2. In-page EmulatorJS — NES boots inside the detail
            screen, with sound, from a loopback origin        [v0.15]
         3. External RetroArch launch — every other system    [v0.1]
@@ -59,11 +60,11 @@ verified against the live arm64 buildbot.
 
 ## What it is not
 
-- **Not a game store.** Harmony never bundles or distributes game content.
+- **Not a game store.** Retro Game Player never bundles or distributes game content.
 - **Not a ROM downloader.** Search previews what your configured providers
-  list and opens your chosen link in **your browser** — Harmony itself
-  downloads no content files. (An optional, strictly per-provider, off-by-
-  default direct-download feature is planned — see the roadmap.)
+  list and opens your chosen link in **your browser** — Retro Game Player
+  itself downloads no content files. (An optional, strictly per-provider,
+  off-by-default direct-download feature is planned — see the roadmap.)
 - **Not only an emulator.** Emulation is performed by libretro cores —
   embedded (EmulatorJS/WASM), natively hosted (v0.21, NES), or via RetroArch.
 
@@ -84,8 +85,9 @@ pnpm tauri dev
 ```
 
 On first launch, add a content folder under **Settings → Folders** (or let
-Harmony create a games directory for you from the empty-library prompt), then
-drop ROM files in — or import them by drag-and-drop onto the window.
+Retro Game Player create a games directory for you from the empty-library
+prompt), then drop ROM files in — or import them by drag-and-drop onto the
+window.
 
 ---
 
@@ -94,7 +96,7 @@ drop ROM files in — or import them by drag-and-drop onto the window.
 | Requirement | Notes |
 |---|---|
 | **macOS (Apple Silicon)** | arm64 only; Intel is not supported |
-| **RetroArch** (optional) | Only needed for systems without an in-page core — [retroarch.com](https://www.retroarch.com/). Harmony locates it automatically or set the path in Settings. |
+| **RetroArch** (optional) | Only needed for systems without an in-page core — [retroarch.com](https://www.retroarch.com/). Retro Game Player locates it automatically or set the path in Settings. |
 | **Rust** (stable, via [rustup](https://rustup.rs/)) | Tauri's backend (building from source) |
 | **Node.js** >= 20 | Frontend toolchain (building from source) |
 | **pnpm** | `npm install -g pnpm` |
@@ -132,14 +134,14 @@ All verification commands must pass cleanly before any branch is merged.
 
 ### 1. Add your games
 
-**Settings → Folders** (or the empty-library prompt) points Harmony at your
-ROM folders — it can create a managed games directory for you. Harmony walks
-the folders, hashes each file (CRC32 / MD5), matches against
+**Settings → Folders** (or the empty-library prompt) points Retro Game Player
+at your ROM folders — it can create a managed games directory for you. Retro
+Game Player walks the folders, hashes each file (CRC32 / MD5), matches against
 [No-Intro](https://www.no-intro.org/) DAT files for clean titles and dedupe,
 and stores results in a local SQLite database. You can also **import** games
 by drag-and-drop or the file picker; imports are copied into the managed
 directory, hash-deduped, and enriched (cover art + Wikipedia description)
-automatically. Harmony never modifies your ROM files.
+automatically. Retro Game Player never modifies your ROM files.
 
 ### 2. Play
 
@@ -147,7 +149,7 @@ Open a game. NES titles **auto-boot in-page with sound** — that boot screen
 is part of the retro vibe. The overlay (Escape, the controller menu button)
 offers Resume / Full screen / Exit. Other systems launch through RetroArch;
 install it and the right cores under **Cores** if you want those systems.
-An opt-in **Settings → Playback** toggle hosts NES natively in Harmony's
+An opt-in **Settings → Playback** toggle hosts NES natively in the app's
 backend (cleaner audio, faster boot), falling back to the in-page core
 automatically if it can't start.
 
@@ -155,7 +157,7 @@ automatically if it can't start.
 
 **Cores** browses, searches, installs, and updates arm64 cores from the
 [libretro buildbot](https://buildbot.libretro.com/), stored under
-`~/Library/Application Support/com.harmony.app/cores/`.
+`~/Library/Application Support/com.retro-game-player.app/cores/`.
 
 ### 4. Browse by console
 
@@ -169,22 +171,22 @@ The **Search** screen queries your configured providers and **previews the
 candidate links in-app** (with relevance ranking, Match badges, per-provider
 grouping, filters, and optional link-liveness dots). Add providers from the
 curated **Browse providers** catalog or author your own URL template with
-Detect-from-URL and a live validator. Harmony opens your chosen result in
-your browser — it downloads nothing itself. Legality of any linked source is
-your responsibility.
+Detect-from-URL and a live validator. Retro Game Player opens your chosen
+result in your browser — it downloads nothing itself. Legality of any linked
+source is your responsibility.
 
 ### 6. Controller navigation
 
-Harmony is fully navigable by controller — focus states, button hints, grid
-navigation, and in-game input. Default bindings cover Xbox, PlayStation,
-8BitDo, and Switch Pro layouts. (A remapping UI is on the roadmap.)
+Retro Game Player is fully navigable by controller — focus states, button
+hints, grid navigation, and in-game input. Default bindings cover Xbox,
+PlayStation, 8BitDo, and Switch Pro layouts. (A remapping UI is on the roadmap.)
 
 ### 7. Familiar AI enrichment (optional)
 
 [Familiar](https://github.com/rhohn94/familiar) is an optional, locally-running
-AI companion Harmony probes for at startup; if absent, all AI affordances are
-hidden and everything else works normally. Deeper enrichment wiring is on the
-roadmap.
+AI companion Retro Game Player probes for at startup; if absent, all AI
+affordances are hidden and everything else works normally. Deeper enrichment
+wiring is on the roadmap.
 
 ---
 
@@ -208,8 +210,8 @@ roadmap.
 
 ## Distribution
 
-Harmony is distributed as a **Developer-ID DMG** for Apple Silicon Macs
-(notarization is on the roadmap). It is not on the Mac App Store — the
+Retro Game Player is distributed as a **Developer-ID DMG** for Apple Silicon
+Macs (notarization is on the roadmap). It is not on the Mac App Store — the
 `macOSPrivateApi: true` flag required for native vibrancy is incompatible
 with App Store sandboxing.
 
@@ -220,7 +222,7 @@ tags a version.
 
 ## License and attribution
 
-Harmony is licensed under **GPL-3.0** (see [LICENSE](LICENSE)) — the natural
+Retro Game Player is licensed under **GPL-3.0** (see [LICENSE](LICENSE)) — the natural
 choice for a distributable that bundles **EmulatorJS** (GPL-3.0) and the
 **fceumm** NES core (GPL-2.0-or-later). Bundled third-party software and
 licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the
@@ -230,7 +232,7 @@ full GPL-3.0 text is in [licenses/GPL-3.0.txt](licenses/GPL-3.0.txt).
 
 ## Developer workflow
 
-Harmony uses the [Grimoire](https://github.com/rhohn94/grimoire) agentic
+Retro Game Player uses the [Grimoire](https://github.com/rhohn94/grimoire) agentic
 workflow framework with the **Noir** (autonomous) work paradigm.
 
 ### Branch model

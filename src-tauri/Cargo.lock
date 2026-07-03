@@ -1723,38 +1723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harmony"
-version = "0.25.1"
-dependencies = [
- "base64 0.22.1",
- "cpal",
- "crc32fast",
- "dirs 5.0.1",
- "image",
- "include_dir",
- "keyring",
- "libloading 0.8.9",
- "md-5",
- "percent-encoding",
- "quick-xml 0.36.2",
- "reqwest 0.12.28",
- "rusqlite",
- "scraper",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tempfile",
- "thiserror 2.0.18",
- "tiny_http",
- "walkdir",
- "zip",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3638,6 +3606,38 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "retro-game-player"
+version = "0.26.0"
+dependencies = [
+ "base64 0.22.1",
+ "cpal",
+ "crc32fast",
+ "dirs 5.0.1",
+ "image",
+ "include_dir",
+ "keyring",
+ "libloading 0.8.9",
+ "md-5",
+ "percent-encoding",
+ "quick-xml 0.36.2",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tiny_http",
+ "walkdir",
+ "zip",
 ]
 
 [[package]]

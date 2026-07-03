@@ -43,7 +43,7 @@ export interface SearchProvider {
 
 /**
  * A single scraped preview link from a provider's results page. The user opens
- * `url` in the system browser; Harmony never downloads it.
+ * `url` in the system browser; the app never downloads it.
  */
 export interface SearchResultItem {
   /** The scraped anchor text. */

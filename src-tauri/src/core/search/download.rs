@@ -354,6 +354,13 @@ mod tests {
             let (mut sock, _) = listener.accept().unwrap();
             let huge = DOWNLOAD_CAP_BYTES + 1;
             let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Length: {huge}\r\n\r\n");
+            // Hold the connection open until the client closes it; dropping the
+            // socket right after the header write races the client's header
+            // parse, and a connection-reset error would mask the cap rejection
+            // under test (intermittent under a parallel test run).
+            let mut drain = [0u8; 64];
+            use std::io::Read;
+            while matches!(sock.read(&mut drain), Ok(n) if n > 0) {}
         });
         let tmp = tempfile::tempdir().unwrap();
         let part = part_path(tmp.path(), 3);

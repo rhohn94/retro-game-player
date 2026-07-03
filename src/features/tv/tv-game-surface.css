@@ -1,0 +1,64 @@
+/*
+ * TV game-takeover surface (v0.26 W265) — the fullscreen overlay that hosts the
+ * in-TV player and drives the tile→fullscreen expand / fullscreen→tile collapse.
+ * Consumes ONLY --rgp-* / --rgp-tv-* / Aura tokens (token-adoption guard); all
+ * motion is Framer-driven from the single motion source (src/lib/motion.ts) and
+ * honours reduced motion centrally via MotionConfig.
+ *
+ * Declared in the same rgp-theme cascade layer as every other app override.
+ */
+
+@layer rgp-theme {
+  /* The takeover overlay fills the whole TV surface, above the home. It is a
+     fixed layer so it covers the shell's safe-area frame edge-to-edge — the
+     game (and the expanding cover) should reach the true frame, not sit inside
+     the 5% inset the home content respects. */
+  .rgp-tv-game-surface {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: var(--aura-bg);
+    overflow: hidden;
+  }
+
+  /* The live player (or external surface) sits underneath the cover, booting
+     while the art expands. Hidden until uncovered so a mid-boot flash never
+     peeks around the expanding art's edges; a token-driven fade carries the
+     reveal in lockstep with the cover's crossfade-out. */
+  .rgp-tv-game-surface__player {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity var(--rgp-dur-base) var(--rgp-ease-out);
+  }
+  .rgp-tv-game-surface__player[data-uncovered="true"] {
+    opacity: 1;
+  }
+
+  /* The player fills the surface — the in-page iframe / native canvas / external
+     panel each already center themselves; this just gives them the full frame. */
+  .rgp-tv-game-surface__player > * {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* The expanding/collapsing cover-art layer. Positioned absolutely; its
+     top/left/width/height are animated by Framer between the tile rect and the
+     full viewport, so those are intentionally NOT set here. Background art is
+     cover-fit, matching the tile. `data-visible` is a hint for debugging /
+     future styling; the opacity crossfade itself is Framer-driven. */
+  .rgp-tv-game-surface__cover {
+    position: absolute;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: var(--rgp-tv-radius-tile);
+    /* Invisible cover (during `revealed`) must not eat controller/pointer input
+       meant for the running game underneath. */
+    pointer-events: none;
+    z-index: 1;
+  }
+}

@@ -18,9 +18,18 @@ import { pageTransition } from "./lib/motion";
 import { ControllerProvider, HintBar, useController, useFocusable } from "./features/controller";
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
+import {
+  TvGameSurface,
+  TvHome,
+  TvModeProvider,
+  TvShell,
+  useAutoTvModeOnStartup,
+  useTvMode,
+  useTvModeControllerToggle,
+} from "./features/tv";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
-// inset — D2 §5) lives as `--harmony-*` tokens in theme/aura-theme.css so the
+// inset — D2 §5) lives as `--rgp-*` tokens in theme/aura-theme.css so the
 // shell is token-driven like every other surface (v0.3 W32).
 
 /** IPC liveness chip — round-trips `ping` so the shell proves the seam works. */
@@ -41,10 +50,10 @@ function IpcStatus() {
 
   return (
     <div
-      className="harmony-panel"
+      className="rgp-panel"
       style={{
-        fontSize: "var(--harmony-font-chip)",
-        padding: "var(--harmony-chip-pad-sm)",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
         borderRadius: "var(--aura-radius-sm)",
         color: "var(--aura-on-surface-muted)",
       }}
@@ -74,7 +83,7 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
       to={route.path}
       end={route.index}
       style={({ isActive }) => ({
-        padding: "var(--aura-space-2) var(--harmony-space-2-5)",
+        padding: "var(--aura-space-2) var(--rgp-space-2-5)",
         borderRadius: "var(--aura-radius-sm)",
         textDecoration: "none",
         color: isActive ? "var(--aura-on-primary)" : "var(--aura-on-surface)",
@@ -82,7 +91,7 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
         outline: isFocused ? "2px solid var(--aura-focus)" : "none",
         outlineOffset: "2px",
         transition:
-          "background var(--harmony-dur-fast) var(--harmony-ease-out), color var(--harmony-dur-fast) var(--harmony-ease-out)",
+          "background var(--rgp-dur-fast) var(--rgp-ease-out), color var(--rgp-dur-fast) var(--rgp-ease-out)",
       })}
     >
       {route.navLabel}
@@ -104,14 +113,14 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
       ref={ref}
       type="button"
       onClick={fullscreen.toggle}
-      className="harmony-panel"
+      className="rgp-panel"
       title="Toggle fullscreen (F11)"
       style={{
         width: "100%",
         textAlign: "left",
         cursor: "pointer",
-        fontSize: "var(--harmony-font-chip)",
-        padding: "var(--harmony-chip-pad-sm)",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
         borderRadius: "var(--aura-radius-sm)",
         color: "var(--aura-on-surface)",
         border: "none",
@@ -124,13 +133,45 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   );
 }
 
+/** Focusable TV-mode entry button in the sidebar footer (also bound to Cmd+T). */
+function TvModeButton() {
+  const { enter } = useTvMode();
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>("shell:tv-mode", enter);
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={enter}
+      className="rgp-panel"
+      title="Enter TV mode (Cmd+T)"
+      style={{
+        width: "100%",
+        textAlign: "left",
+        cursor: "pointer",
+        fontSize: "var(--rgp-font-chip)",
+        padding: "var(--rgp-chip-pad-sm)",
+        borderRadius: "var(--aura-radius-sm)",
+        color: "var(--aura-on-surface)",
+        border: "none",
+        outline: isFocused ? "2px solid var(--aura-focus)" : "none",
+        outlineOffset: "2px",
+      }}
+    >
+      📺 TV mode
+    </button>
+  );
+}
+
 /** The translucent primary navigation, built from the route table's nav entries. */
 function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     <nav
-      className="harmony-sidebar"
+      className="rgp-sidebar"
       style={{
-        width: "var(--harmony-sidebar-width)",
+        width: "var(--rgp-sidebar-width)",
         padding: "var(--aura-space-4)",
         display: "flex",
         flexDirection: "column",
@@ -139,11 +180,11 @@ function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
     >
       <h1
         style={{
-          fontSize: "var(--harmony-font-title)",
+          fontSize: "var(--rgp-font-title)",
           margin: "var(--aura-space-1) var(--aura-space-2) var(--aura-space-4)",
         }}
       >
-        Harmony
+        Retro Game Player
       </h1>
       {HARMONY_ROUTES.filter((r) => r.navLabel).map((r) => (
         <FocusableNavItem key={r.path} route={r} />
@@ -156,6 +197,7 @@ function Sidebar({ fullscreen }: { fullscreen: UseFullscreenResult }) {
           gap: "var(--aura-space-2)",
         }}
       >
+        <TvModeButton />
         <FullscreenButton fullscreen={fullscreen} />
         <IpcStatus />
       </div>
@@ -215,30 +257,59 @@ function RoutedOutlet() {
   );
 }
 
+/** Cmd+T (or Ctrl+T off-macOS) toggles TV mode from anywhere in the desktop
+ * shell (tv-mode-design.md §Design "Mode model": sidebar button / Cmd+T /
+ * controller menu long-press are the three entry affordances). Registered
+ * once at the shell so it works regardless of which route/focus has the
+ * page — matches F11's existing app-wide binding in `useFullscreen`. */
+function useTvModeAccelerator() {
+  const { active, enter, exit } = useTvMode();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (active) exit();
+        else enter();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, enter, exit]);
+}
+
 /**
- * The app shell inside the controller provider. Owns the fullscreen toggle
- * (F11 + sidebar button) and the app-level controller bindings.
+ * The desktop app shell: sidebar + routed content. Owns the app-level
+ * controller bindings; the fullscreen toggle (F11 + sidebar button) is passed
+ * in rather than owned here because `TvModeProvider` needs the SAME
+ * fullscreen instance (entering TV mode calls `fullscreen.setFullscreen`,
+ * and exiting restores whatever state was captured) — see `App` below.
+ * Rendered while TV mode is inactive; TvShell takes over the full viewport
+ * instead while it's active (see `Root` below) — the desktop route tree
+ * unmounts rather than staying mounted-behind, so its own gamepad-focus
+ * registrations and IPC polls don't keep running invisibly under the TV
+ * surface (documented deviation from a "stays mounted behind" reading of the
+ * design doc; TV mode's own exit restores the exact prior route via
+ * `TvModeProvider`'s route snapshot, so nothing is lost by unmounting).
  */
-function Shell() {
-  const fullscreen = useFullscreen();
+function Shell({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     // AuraApp is the app-shell archetype root; it paints transparent so vibrancy
     // reads through (theme/aura-theme.css). The wrapper bridges React to the
     // custom element's events/class contract (design-language.md §7.2).
-    <AuraApp className="harmony-shell" style={{ display: "block", minHeight: "100vh" }}>
+    <AuraApp className="rgp-shell" style={{ display: "block", minHeight: "100vh" }}>
       <ShellControllerBindings />
       <div
         data-tauri-drag-region
         style={{
-          height: "var(--harmony-drag-strip-height)",
-          paddingLeft: "var(--harmony-traffic-light-inset)",
+          height: "var(--rgp-drag-strip-height)",
+          paddingLeft: "var(--rgp-traffic-light-inset)",
           width: "100%",
         }}
       />
       <div
         style={{
           display: "flex",
-          minHeight: "calc(100vh - var(--harmony-drag-strip-height))",
+          minHeight: "calc(100vh - var(--rgp-drag-strip-height))",
         }}
       >
         <Sidebar fullscreen={fullscreen} />
@@ -265,16 +336,60 @@ function Shell() {
   );
 }
 
+/**
+ * Switches between the desktop `Shell` and the full-viewport `TvShell` based
+ * on TV-mode's active state; wires the startup auto-enter read and the
+ * controller menu long-press toggle. Split out from `App` so `TvModeProvider`
+ * (mounted just above it) is already in scope.
+ */
+function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
+  const tvMode = useTvMode();
+  useTvModeAccelerator();
+  useAutoTvModeOnStartup(tvMode);
+  useTvModeControllerToggle();
+
+  return (
+    <AnimatePresence mode="wait">
+      {tvMode.active ? (
+        <TvShell key="tv" onExit={tvMode.exit}>
+          {/* The home stays mounted behind the game takeover (W265) so its
+              per-rail focus memory + scroll position survive an exit — the
+              surface is an overlay, not a swap. */}
+          <TvHome onExit={tvMode.exit} />
+          {tvMode.launched && (
+            <TvGameSurface
+              key={tvMode.launched.game.id}
+              game={tvMode.launched.game}
+              originRect={tvMode.launched.originRect}
+              onExited={tvMode.endLaunch}
+            />
+          )}
+        </TvShell>
+      ) : (
+        <Shell key="desktop" fullscreen={fullscreen} />
+      )}
+    </AnimatePresence>
+  );
+}
+
 function App() {
+  // Hoisted above both Shell and TvModeProvider so entering/exiting TV mode
+  // and the desktop sidebar's fullscreen button drive the SAME window state
+  // (tv-mode-design.md: "Entering TV mode also enters OS fullscreen; exiting
+  // restores").
+  const fullscreen = useFullscreen();
   return (
     // ControllerProvider owns spatial focus + gamepad polling so the whole app
     // is navigable by controller alone (W14, wired into the shell + library in
     // v0.14). MotionConfig reducedMotion="user" makes every Framer animation
     // honour the OS "reduce motion" setting from one place (the CSS side is the
-    // media query in theme/motion.css).
+    // media query in theme/motion.css). TvModeProvider sits inside the router
+    // (via HashRouter in main.tsx) so it can snapshot/restore the desktop route.
     <ControllerProvider>
       <MotionConfig reducedMotion="user">
-        <Shell />
+        <TvModeProvider fullscreen={fullscreen}>
+          <Root fullscreen={fullscreen} />
+        </TvModeProvider>
       </MotionConfig>
     </ControllerProvider>
   );

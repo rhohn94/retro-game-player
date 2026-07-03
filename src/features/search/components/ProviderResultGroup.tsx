@@ -3,6 +3,7 @@
  * select-all; the body shows the filtered + sorted rows (or a no-match / empty /
  * error note). The open-search-page link and the direct-download marker sit
  * beside the toggle so they don't trigger a collapse. */
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { openUrl } from "../../../ipc/opener";
 import { listContainer, DUR, EASE_OUT, EASE_STANDARD } from "../../../lib/motion";
@@ -10,6 +11,7 @@ import { groupSelectionState } from "../resultSelection";
 import { matchStrength } from "../resultRanking";
 import type { RankQuery } from "../resultRanking";
 import type { SearchResultItem, ProviderResults, LinkState } from "../../../ipc/search";
+import { FocusRing, useFocusable } from "../../controller";
 import { ResultRow } from "./ResultRow";
 import { GroupCountBadge, GroupSelectAll } from "./GroupControls";
 
@@ -47,6 +49,15 @@ export function ProviderResultGroup({
   const visibleUrls = visible.map((i) => i.url);
   const selState = groupSelectionState(visibleUrls, selected);
   const filteredEmpty = group.items.length > 0 && visible.length === 0;
+  // Registers the group's expand/collapse toggle with the spatial-nav registry
+  // (W268) — the group header is a required navigable stop per route audit.
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(
+    `search:group:${group.providerId}`,
+    onToggle,
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
 
   return (
     <div style={{ borderTop: "1px solid var(--aura-outline-subtle, transparent)" }}>
@@ -69,7 +80,9 @@ export function ProviderResultGroup({
           <span style={{ width: 16, marginLeft: 16, flexShrink: 0 }} />
         )}
         {/* The toggle owns the chevron + name + count and spans the free space. */}
+        <FocusRing focused={isFocused}>
         <button
+          ref={ref}
           onClick={onToggle}
           aria-expanded={!collapsed}
           aria-controls={bodyId}
@@ -111,6 +124,7 @@ export function ProviderResultGroup({
           </span>
           <GroupCountBadge group={group} count={visible.length} />
         </button>
+        </FocusRing>
         {/* Direct download is live for opted-in providers (v0.24 W244): the
             chip marks the group; each row carries the actual ⬇ action. */}
         {group.directDownload && (

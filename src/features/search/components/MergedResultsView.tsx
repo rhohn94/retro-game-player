@@ -1,6 +1,7 @@
 /** The game-first (v0.19) merged results view: one row per title with an
  *  "available from N providers" expander, plus the provider chip toggle used
  *  in the provider-chips bar. */
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { openUrl } from "../../../ipc/opener";
 import { listContainer, listItem, DUR, EASE_STANDARD } from "../../../lib/motion";
@@ -10,6 +11,7 @@ import type { RankQuery, MatchStrength } from "../resultRanking";
 import type { MergedResult } from "../resultDedup";
 import { isDownloadProvider } from "../downloads";
 import type { SearchProvider, LinkState } from "../../../ipc/search";
+import { FocusRing, useFocusable } from "../../controller";
 import { MatchBadge, BadgeChip, LivenessDot } from "./ResultBadges";
 import { mergedRankable, aggregateState } from "./resultVisibility";
 
@@ -37,6 +39,14 @@ function MergedRow({
   const multi = merged.sources.length > 1;
   const badges = parseBadges(merged.title);
   const aggregate = aggregateState(merged, statusMap);
+  // Register the primary "open" action with the spatial-nav registry (W268) —
+  // one focusable per row, matching the provider-grouped ResultRow pattern.
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(`search:merged:${merged.key}`, () =>
+    openUrl(rep.item.url),
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
 
   return (
     <motion.li
@@ -51,7 +61,9 @@ function MergedRow({
           aria-label={`Select ${merged.title}`}
           style={{ marginLeft: 14, flexShrink: 0, cursor: "pointer" }}
         />
+        <FocusRing focused={isFocused}>
         <button
+          ref={ref}
           onClick={() => openUrl(rep.item.url)}
           style={{
             display: "flex",
@@ -98,6 +110,7 @@ function MergedRow({
             ↗ open
           </span>
         </button>
+        </FocusRing>
         {/* Source-count pill: a toggle when there is more than one provider. */}
         <button
           onClick={() => multi && onToggleExpand(merged.key)}
@@ -115,7 +128,7 @@ function MergedRow({
             marginRight: 12,
             borderRadius: 10,
             border: `1px solid ${multi ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
-            background: multi ? "var(--harmony-provider-enabled-bg)" : "transparent",
+            background: multi ? "var(--rgp-provider-enabled-bg)" : "transparent",
             color: multi ? "var(--aura-primary)" : "var(--aura-on-surface-muted)",
             cursor: multi ? "pointer" : "default",
             flexShrink: 0,
@@ -260,18 +273,32 @@ export function MergedResultsView({
   );
 }
 
-/** Provider chip toggle with edit/remove actions. */
+/** Provider chip toggle with edit/remove actions. `focusId` registers the
+ *  primary enable/disable toggle with the controller spatial-nav registry
+ *  (W268) — edit/remove stay pointer/keyboard-only secondary actions, matching
+ *  the result-row pattern (primary action registered, secondary actions
+ *  reachable via native tab order within the same row). */
 export function ProviderChip({
   provider,
   onToggle,
   onEdit,
   onRemove,
+  focusId,
 }: {
   provider: SearchProvider;
   onToggle: (id: number) => void;
   onEdit: (provider: SearchProvider) => void;
   onRemove: (id: number) => void;
+  focusId?: string;
 }) {
+  const { ref, isFocused } = useFocusable<HTMLButtonElement>(
+    focusId ?? `search:provider:${provider.id}`,
+    () => onToggle(provider.id),
+  );
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+
   return (
     <span
       style={{
@@ -284,7 +311,7 @@ export function ProviderChip({
         fontWeight: provider.enabled ? 600 : 400,
         border: `1.5px solid ${provider.enabled ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
         background: provider.enabled
-          ? "var(--harmony-provider-enabled-bg)"
+          ? "var(--rgp-provider-enabled-bg)"
           : "transparent",
         color: provider.enabled
           ? "var(--aura-primary)"
@@ -292,23 +319,26 @@ export function ProviderChip({
         transition: "all 0.12s",
       }}
     >
-      <button
-        onClick={() => onToggle(provider.id)}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: 0,
-          color: "inherit",
-          fontSize: "inherit",
-          fontWeight: "inherit",
-        }}
-        title={provider.enabled ? "Disable provider" : "Enable provider"}
-      >
-        {provider.enabled ? "✓ " : ""}
-        {isDownloadProvider(provider) ? "⬇ " : ""}
-        {provider.name}
-      </button>
+      <FocusRing focused={isFocused}>
+        <button
+          ref={ref}
+          onClick={() => onToggle(provider.id)}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+            color: "inherit",
+            fontSize: "inherit",
+            fontWeight: "inherit",
+          }}
+          title={provider.enabled ? "Disable provider" : "Enable provider"}
+        >
+          {provider.enabled ? "✓ " : ""}
+          {isDownloadProvider(provider) ? "⬇ " : ""}
+          {provider.name}
+        </button>
+      </FocusRing>
       <button
         onClick={() => onEdit(provider)}
         style={{

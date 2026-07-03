@@ -1,15 +1,15 @@
 [package]
-name = "harmony"
-version = "0.25.1"
-description = "Harmony — a Mac-native (Apple Silicon) retro game player."
-authors = ["Harmony"]
+name = "retro-game-player"
+version = "0.26.0"
+description = "Retro Game Player — a Mac-native (Apple Silicon) retro game player."
+authors = ["Retro Game Player"]
 license = "GPL-3.0-only"
 edition = "2021"
 
 # The library the binary calls into. `cdylib`/`staticlib` are required by the
 # mobile Tauri targets; `lib` lets unit tests link against the crate.
 [lib]
-name = "harmony_lib"
+name = "retro_game_player_lib"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [build-dependencies]

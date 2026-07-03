@@ -39,19 +39,19 @@ function HeroTeaser({ game }: { game: Game | null }) {
       animate={riseIn.animate}
       transition={riseIn.transition}
     >
-      <AuraCard class="harmony-hero">
-        <div className="harmony-hero__cover">
+      <AuraCard class="rgp-hero">
+        <div className="rgp-hero__cover">
           {art ? (
-            <img src={art} alt="" className="harmony-hero__cover-img" />
+            <img src={art} alt="" className="rgp-hero__cover-img" />
           ) : (
-            <span className="harmony-hero__cover-ph">{game.system}</span>
+            <span className="rgp-hero__cover-ph">{game.system}</span>
           )}
         </div>
-        <div className="harmony-hero__meta">
-          <h2 className="harmony-hero__title">{game.cleanName}</h2>
-          <p className="harmony-hero__system">{game.system}</p>
+        <div className="rgp-hero__meta">
+          <h2 className="rgp-hero__title">{game.cleanName}</h2>
+          <p className="rgp-hero__system">{game.system}</p>
           <AuraButton
-            class="harmony-hero__play"
+            class="rgp-hero__play"
             onClick={() => void launchGame(game.id).catch(() => undefined)}
           >
             ▶ Play
@@ -158,26 +158,26 @@ export function LibraryPage() {
   const visible = useMemo(() => filterGames(games, criteria), [games, criteria]);
 
   return (
-    <div className="harmony-library">
+    <div className="rgp-library">
       <HeroBackdrop game={focused} />
 
       {dragOver && (
-        <div className="harmony-dropzone" aria-hidden>
-          <div className="harmony-dropzone__inner">⬇ Drop ROMs to import</div>
+        <div className="rgp-dropzone" aria-hidden>
+          <div className="rgp-dropzone__inner">⬇ Drop ROMs to import</div>
         </div>
       )}
 
-      <div className="harmony-library__content">
+      <div className="rgp-library__content">
         <HeroTeaser game={focused} />
 
-        <div className="harmony-library__toolbar">
+        <div className="rgp-library__toolbar">
           <AuraButton variant="primary" onClick={onPickImport} disabled={importing}>
             {importing ? "Importing…" : "＋ Import games"}
           </AuraButton>
-          <span className="harmony-muted harmony-library__hint">
+          <span className="rgp-muted rgp-library__hint">
             …or drag ROM files anywhere onto the window.
           </span>
-          {importNote && <span className="harmony-library__note">{importNote}</span>}
+          {importNote && <span className="rgp-library__note">{importNote}</span>}
         </div>
 
         <LibraryFilters facets={facets} criteria={criteria} onChange={setCriteria} />
@@ -186,7 +186,7 @@ export function LibraryPage() {
         {error && <ErrorNotice>Could not load games: {error}</ErrorNotice>}
         {!loading && !error && games.length === 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
-            <p className="harmony-muted" style={{ margin: 0 }}>
+            <p className="rgp-muted" style={{ margin: 0 }}>
               No games yet — import a ROM (drag it in or pick a file), create a
               games folder, or add an existing content folder in Settings.
             </p>
@@ -205,7 +205,7 @@ export function LibraryPage() {
         )}
 
         <motion.div
-          className="harmony-grid"
+          className="rgp-grid"
           variants={listContainer}
           initial="hidden"
           animate="visible"

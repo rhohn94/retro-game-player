@@ -33,21 +33,21 @@ export function GetCorePanel({ system, systemLabel, sizeBytes, onInstalled }: Ge
   };
 
   return (
-    <div className="harmony-getcore" role="status">
-      <p className="harmony-getcore__message">
-        Play {systemLabel} titles right here — Harmony just needs this console&apos;s
-        emulator core once ({describeCoreSize(sizeBytes)}, verified download).
+    <div className="rgp-getcore" role="status">
+      <p className="rgp-getcore__message">
+        Play {systemLabel} titles right here — Retro Game Player just needs this
+        console&apos;s emulator core once ({describeCoreSize(sizeBytes)}, verified download).
       </p>
       <button
         type="button"
-        className="harmony-getcore__button"
+        className="rgp-getcore__button"
         onClick={install}
         disabled={installing}
       >
         {installing ? "Downloading core…" : `Get ${systemLabel} core`}
       </button>
-      {error && <p className="harmony-getcore__error">{error}</p>}
-      <p className="harmony-getcore__hint">
+      {error && <p className="rgp-getcore__error">{error}</p>}
+      <p className="rgp-getcore__hint">
         Until then, Play launches this game in RetroArch as before.
       </p>
     </div>

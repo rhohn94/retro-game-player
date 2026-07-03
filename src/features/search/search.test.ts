@@ -63,7 +63,7 @@ describe("validate (ProviderDialog)", () => {
 
 describe("ProviderResults shape", () => {
   // The v0.16 backend returns one group per provider: the constructed
-  // searchUrl, the scraped preview items, and an optional error. Harmony opens
+  // searchUrl, the scraped preview items, and an optional error. The app opens
   // links in the browser; since v0.24 (W244) providers with the per-vendor
   // direct_download opt-in also get an explicit in-row download action
   // (direct-download-design.md) — run_search itself still never fetches content.

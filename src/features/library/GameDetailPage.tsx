@@ -14,7 +14,7 @@ import { motion } from "framer-motion";
 import { SPRING } from "../../lib/motion";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { enrichGameMetadata, fetchBoxart, getGame, launchGame } from "../../ipc/commands";
+import { enrichGameMetadata, fetchBoxart, getGame, launchGame, setFavorite } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { LoadingState } from "../../components/LoadingState";
@@ -35,9 +35,9 @@ function formatSize(bytes: number): string {
 /** One labelled metadata row in the detail panel. */
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="harmony-detail__row" tabIndex={0}>
-      <span className="harmony-detail__row-label">{label}</span>
-      <span className="harmony-detail__row-value">{value}</span>
+    <div className="rgp-detail__row" tabIndex={0}>
+      <span className="rgp-detail__row-label">{label}</span>
+      <span className="rgp-detail__row-value">{value}</span>
     </div>
   );
 }
@@ -91,6 +91,20 @@ export function GameDetailPage() {
     });
   }, [game]);
 
+  // Favorite toggle (v0.26 "library life", W264): optimistic — flips the
+  // local flag immediately, then persists; a failed persist reverts so the
+  // displayed state never drifts from the database's.
+  const onToggleFavorite = useCallback(() => {
+    if (!game) return;
+    const next = !game.favorite;
+    setGame({ ...game, favorite: next });
+    void setFavorite(game.id, next).catch(() => {
+      setGame((current) =>
+        current && current.id === game.id ? { ...current, favorite: !next } : current,
+      );
+    });
+  }, [game]);
+
   const onGetArt = useCallback(() => {
     if (!game) return;
     void fetchBoxart(game.id)
@@ -115,8 +129,8 @@ export function GameDetailPage() {
 
   if (error) {
     return (
-      <div className="harmony-detail">
-        <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
+      <div className="rgp-detail">
+        <AuraButton class="rgp-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
         <ErrorNotice>Could not load game: {error}</ErrorNotice>
@@ -126,23 +140,23 @@ export function GameDetailPage() {
 
   if (!game) {
     return (
-      <div className="harmony-detail">
+      <div className="rgp-detail">
         <LoadingState>Loading…</LoadingState>
       </div>
     );
   }
 
   return (
-    <div className="harmony-detail">
+    <div className="rgp-detail">
       <HeroBackdrop game={game} />
 
       <motion.div
-        className="harmony-detail__content"
+        className="rgp-detail__content"
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={SPRING.gentle}
       >
-        <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
+        <AuraButton class="rgp-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
 
@@ -155,41 +169,52 @@ export function GameDetailPage() {
           />
         </div>
 
-        <div className="harmony-detail__body">
-          <AuraCard class="harmony-detail__cover">
+        <div className="rgp-detail__body">
+          <AuraCard class="rgp-detail__cover">
             {art ? (
-              <img src={art} alt="" className="harmony-detail__cover-img" />
+              <img src={art} alt="" className="rgp-detail__cover-img" />
             ) : (
-              <span className="harmony-detail__cover-ph">{game.system}</span>
+              <span className="rgp-detail__cover-ph">{game.system}</span>
             )}
           </AuraCard>
 
-          <div className="harmony-detail__info">
-            <h1 className="harmony-detail__title">{game.cleanName}</h1>
-            <p className="harmony-detail__subtitle">
+          <div className="rgp-detail__info">
+            <div className="rgp-detail__title-row">
+              <h1 className="rgp-detail__title">{game.cleanName}</h1>
+              <button
+                type="button"
+                className="rgp-detail__favorite"
+                onClick={onToggleFavorite}
+                aria-pressed={game.favorite}
+                aria-label={game.favorite ? "Remove from favorites" : "Add to favorites"}
+              >
+                {game.favorite ? "♥" : "♡"}
+              </button>
+            </div>
+            <p className="rgp-detail__subtitle">
               {game.system}
               {game.datMatched ? " · DAT-matched ✓" : ""} · {formatSize(game.sizeBytes)}
             </p>
             {game.coreHint && (
-              <p className="harmony-detail__core">Core: {game.coreHint}</p>
+              <p className="rgp-detail__core">Core: {game.coreHint}</p>
             )}
 
-            <div className="harmony-detail__actions">
-              <AuraButton class="harmony-detail__play" onClick={onLaunch}>
+            <div className="rgp-detail__actions">
+              <AuraButton class="rgp-detail__play" onClick={onLaunch}>
                 ▶ Play
               </AuraButton>
               <AuraButton
-                class="harmony-detail__secondary"
+                class="rgp-detail__secondary"
                 onClick={onRefreshMetadata}
                 disabled={enriching}
               >
                 {enriching ? "Fetching metadata…" : "Refresh metadata"}
               </AuraButton>
-              <AuraButton class="harmony-detail__secondary" onClick={onGetArt}>
+              <AuraButton class="rgp-detail__secondary" onClick={onGetArt}>
                 Get art
               </AuraButton>
               <AuraButton
-                class="harmony-detail__secondary"
+                class="rgp-detail__secondary"
                 onClick={() =>
                   navigate("/search", { state: { query: game.cleanName } })
                 }
@@ -203,12 +228,12 @@ export function GameDetailPage() {
             )}
 
             {game.description && (
-              <div className="harmony-detail__about">
-                <p className="harmony-detail__desc">{game.description}</p>
+              <div className="rgp-detail__about">
+                <p className="rgp-detail__desc">{game.description}</p>
                 {game.wikipediaUrl && (
                   <button
                     type="button"
-                    className="harmony-detail__wiki"
+                    className="rgp-detail__wiki"
                     onClick={() => void openUrl(game.wikipediaUrl!).catch(() => undefined)}
                   >
                     Read more on Wikipedia ↗
@@ -217,7 +242,7 @@ export function GameDetailPage() {
               </div>
             )}
 
-            <div className="harmony-detail__meta">
+            <div className="rgp-detail__meta">
               <MetaRow label="Path" value={game.path} />
               <MetaRow label="System" value={game.system} />
               <MetaRow label="CRC32" value={game.crc32 ?? "—"} />

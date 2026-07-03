@@ -77,7 +77,7 @@ export function CoresPage() {
 
   return (
     <div
-      className="harmony-panel cores-page"
+      className="rgp-panel cores-page"
       style={{ padding: 24, borderRadius: 12 }}
       onKeyDown={handleRootKeyDown}
     >

@@ -1,0 +1,132 @@
+/*
+ * TV mode ("10-foot") tokens — the `--rgp-tv-*` scale consumed exclusively by
+ * `src/features/tv/` (tv-mode-design.md §Tokens, W260).
+ *
+ * A leanback surface is read from ~3m instead of ~50cm, so nothing from the
+ * desktop scale is reused directly: type is stepped up ×1.6-2.0, tiles are
+ * bigger (320x440, a touch taller than the desktop 3:4 tile so cover art reads
+ * as a "box" at distance), and the whole shell sits inside a 5% overscan
+ * safe-area inset so content never runs under a TV's bezel/scan cutoff.
+ *
+ * Declared in the SAME `rgp-theme` cascade layer as the rest of the app's
+ * overrides (styles/layer-order.css) — TV mode does not need its own layer,
+ * it needs to win the same way every other rgp-theme rule does. Values here
+ * feed the token-adoption guard (scripts/token-adoption.test.mjs) like any
+ * other --rgp-* token: components reference these vars, never literals.
+ */
+
+@layer rgp-theme {
+  :root {
+    /* ---- overscan safe area ----
+       5% of the viewport on every edge, matching the TV industry's standard
+       "title-safe" guideline so nothing is clipped by a bezel or scan cutoff. */
+    --rgp-tv-safe-area: 5vmin;
+
+    /* ---- 10-foot type ramp ----
+       Desktop --rgp-font-* stepped ×1.6-2.0 for distance legibility. Named by
+       role (not by raw px) so a shell/rail/hero can each opt into the right
+       step without recomputing a multiplier at every call site. */
+    --rgp-tv-font-body: 1.25rem; /* 20px — ×1.67 over --rgp-font-caption (12px) */
+    --rgp-tv-font-label: 1.5rem; /* 24px — section-label / rail title, ×1.6 over --rgp-font-chip (12px, rounded) */
+    --rgp-tv-font-title: 2.25rem; /* 36px — tile/rail item title, ×2.0 over --rgp-font-hero-title (26px, rounded) */
+    --rgp-tv-font-hero-title: 3.5rem; /* 56px — the hero region's game title, ×~1.9 over --rgp-detail-title (30px) */
+
+    /* ---- tile + rail geometry ---- */
+    --rgp-tv-tile-width: 320px;
+    --rgp-tv-tile-height: 440px;
+    --rgp-tv-rail-gap: 2rem; /* 32px between tiles in a rail */
+    --rgp-tv-rail-row-gap: 3rem; /* 48px between stacked rails */
+    --rgp-tv-radius-tile: 1rem; /* 16px — chunkier than the desktop card radius */
+    /* Vertical breathing room inside a rail's scroll row so the FOCUSED tile
+       (scaled up + a phosphor glow) is never clipped by the row's scroll
+       container. A horizontal scroll row forces overflow-y to auto too, so the
+       clearance must be real padding, not an overflowing transform. Sized to
+       clear the ~12% scale-up of a 440px tile plus the 2rem glow. */
+    --rgp-tv-rail-row-pad: 3.5rem;
+
+    /* ---- distance-legible focus treatment (W262) ----
+       The whole 10-foot scale lives in one file. Scale exceeds the design's
+       "≥1.08" floor for headroom; the ring is thicker + higher-contrast than
+       the desktop --rgp-focus-ring so it reads from the couch, and the glow
+       gives the focused tile a phosphor-accent halo that carries the eye. */
+    --rgp-tv-focus-scale: 1.12;
+    --rgp-tv-focus-ring-width: 4px;
+    /* The glow's blur radius, named so --rgp-tv-focus-glow and
+       --rgp-tv-focus-clearance (below) derive from the SAME number instead of
+       each hardcoding "2rem" independently (no magic numbers). */
+    --rgp-tv-focus-glow-radius: 2rem;
+    --rgp-tv-focus-glow: 0 0 var(--rgp-tv-focus-glow-radius)
+      color-mix(in oklch, var(--aura-primary) 65%, transparent);
+    /* Unfocused tiles dim slightly so the focused one visually leads — subtle
+       enough to stay legible (favorites/art still readable), strong enough to
+       register as "not the one" at a glance from the couch. */
+    --rgp-tv-focus-dim-opacity: 0.72;
+
+    /* Clearance a rail's scroll viewport must reserve on every edge so the
+       FOCUSED tile's scale-up + ring + glow are never clipped by the
+       viewport's own overflow box (W262 fix for the W261 handoff: ring/glow
+       clipped at the rail's top edge). Derived, not eyeballed: half the
+       tile's scale-up growth (the biggest tile dimension, height, times half
+       the scale delta) plus the glow's blur radius plus the ring width, with
+       a little headroom. Reusing --rgp-tv-safe-area here would UNDER-clear on
+       small viewports (5vmin can fall below the growth+glow budget), which is
+       exactly how the top-edge clip happened — so this is its own token,
+       sized off the focus geometry instead of the frame's overscan inset. */
+    --rgp-tv-focus-clearance: calc(
+      (var(--rgp-tv-tile-height) * (var(--rgp-tv-focus-scale) - 1) / 2) +
+        var(--rgp-tv-focus-glow-radius) + var(--rgp-tv-focus-ring-width)
+    );
+
+    /* ---- controller long-press ----
+       Shared by every long-press-gated affordance in TV mode (menu-hold to
+       toggle TV mode, W260; any future press-and-hold) so the "how long is a
+       hold" answer lives in exactly one token-backed constant. Mirrored in JS
+       as TV_MENU_LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
+       CSS custom properties can't be read by the rAF poll loop, so the
+       millisecond number is intentionally duplicated in the two single
+       sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
+    --rgp-tv-long-press-ms: 600ms;
+
+    /* ---- retro-accent section label chrome ----
+       The chunky pixel-adjacent label treatment tv-mode-design.md's
+       "Retro-but-Aura aesthetic" calls for — expressed via existing Aura
+       tokens (letter-spacing + the secondary brand knob), never a hardcoded
+       font family or literal color. */
+    --rgp-tv-label-tracking: 0.08em;
+    --rgp-tv-label-color: var(--aura-secondary);
+
+    /* ---- crossfade entry/exit ----
+       TV mode's shell-level enter/exit crossfade duration. References the
+       existing slow duration token (motion.css) rather than a new literal;
+       named here so TvShell reads intent ("tv-transition") not "just reuse
+       dur-slow because it happens to look right". */
+    --rgp-tv-transition-dur: var(--rgp-dur-slow);
+
+    /* ---- hero region (W261) ----
+       The key-art hero occupies the top band of the home; ~45% of the viewport
+       (tv-mode-design.md §Design "Hero": "~45% viewport height"). vh (not vmin)
+       so it tracks the TV's aspect. The content padding steps the copy in from
+       the hero's left edge for a cinematic gutter at 10 feet. */
+    --rgp-tv-hero-height: 42vh;
+    --rgp-tv-hero-content-pad: 4vmin;
+    --rgp-tv-hero-title-max: 22ch; /* keep long titles from spanning the frame */
+
+    /* ---- retro-but-Aura hero flourishes (W261) ----
+       Expressed through Aura tokens + a token-scoped opacity so they read as a
+       tasteful CRT accent, never kitsch, and so a theme re-tune flows through.
+       The scanline stripe height is the only raw length (a 1px hairline scaled
+       by devicePixelRatio at the TV) — a genuine physical constant, not a
+       themeable value. */
+    --rgp-tv-scanline-opacity: 0.06;
+    --rgp-tv-scanline-gap: 3px;
+    --rgp-tv-phosphor-color: color-mix(in oklch, var(--aura-primary) 40%, transparent);
+
+    /* ---- focus treatment transition ----
+       The focused tile scales + glows; its transition reuses the base duration
+       token so the pop tracks the app's motion vocabulary (and is neutralised
+       centrally under prefers-reduced-motion). Named here so tv-home.css reads
+       intent rather than reaching for --rgp-dur-base directly. */
+    --rgp-tv-focus-transition: transform var(--rgp-dur-base) var(--rgp-ease-out),
+      box-shadow var(--rgp-dur-base) var(--rgp-ease-out);
+  }
+}
