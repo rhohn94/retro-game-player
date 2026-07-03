@@ -245,11 +245,28 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   // the session's mount, so its blur listener never fires). Blurring tears a
   // running preview down; refocusing re-dwells from zero.
   const windowFocused = useWindowFocus();
+  // W278: the system menu gates the dwell the same way exitConfirm.confirming
+  // already does — "something more important than the home is showing" — so
+  // opening the menu tears a running/building preview down immediately rather
+  // than leaving it to boot (or keep playing, audibly) behind the overlay.
   const previewGame = useAttractDwell({
     key: focusedId,
     game: dwellGame,
-    enabled: launched === null && !exitConfirm.confirming && windowFocused,
+    enabled: launched === null && !exitConfirm.confirming && !tvMode.menuOpen && windowFocused,
   });
+
+  // W278: opening the system menu also cancels an armed exit-confirm — the
+  // same "something else now owns the moment" reasoning `launch()` above
+  // already applies, so a `back` pressed just before the menu opens can never
+  // leave a stale confirm armed underneath the overlay (mirrors the W275
+  // launch-supersedes-exit-confirm fix).
+  const menuOpenRef = useRef(tvMode.menuOpen);
+  useEffect(() => {
+    if (tvMode.menuOpen && !menuOpenRef.current) {
+      exitConfirm.cancel();
+    }
+    menuOpenRef.current = tvMode.menuOpen;
+  }, [tvMode.menuOpen, exitConfirm.cancel]);
 
   // Keyboard/DOM-focus parity across a takeover (W275). While a game is taken
   // over the home is `inert` (below), which makes the browser drop DOM focus
