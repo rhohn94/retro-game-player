@@ -74,8 +74,9 @@ product is a library manager, not a living-room console.
     `TvModeProvider` so the desktop fullscreen button and TV mode's own
     enter/exit stay in sync.
 - **Tokens**: `src/theme/tv.css` defines the `*-tv` scale (type ramp ×1.6–2.0,
-  tile 320×440, safe-area insets, rail gap) inside the existing cascade
-  layers; components consume tokens only (token-adoption guard applies).
+  tile 320×440 CAP with a responsive live width since v0.28 W277 (below),
+  safe-area insets, rail gap) inside the existing cascade layers; components
+  consume tokens only (token-adoption guard applies).
 - **Shelves**: `TvHome.tsx` composes `<TvHero/>` + `<TvRail/>` list. Rails are
   virtualized-light (windowed rendering ≥50 items). Rail rows register with
   the spatial-focus registry; left/right moves within a rail, up/down across
@@ -406,6 +407,101 @@ app-level "a game owns the pad" signal (gates the `menu` long-press toggle).
 Ordering: the takeover surface claims its fallback in a **layout** effect so a
 player's **passive**-effect claim always lands above it. Earlier §Design notes
 describing `setExclusiveHandler` reflect the pre-W275 single-slot API.
+
+## v0.28 "Living Room" (W277) — smaller banner, unchopped tiles, ≥5 visible
+
+User directive (2026-07-03, verbatim): *"The banner is too big. Let's cut it
+down. Game thumbnails are chopped top and bottom. Game thumbnails should never
+be chopped. It is okay to draw them on top of the banner. Shrink them so that
+at least 5 games are visible at a time."*
+
+**Root cause.** At 1920×1080 the old fixed geometry (`--rgp-tv-hero-height:
+42vh`, fixed 320×440 tiles) left only ~1687px of row width after safe-area +
+focus-clearance insets on both sides — **~4.8 tiles visible**, and the rails
+region (leftover height below a 42vh hero) was shorter than one full tile, so
+the visible tile's bottom (and, depending on scroll position, top) was clipped
+by the rail row's own overflow box.
+
+**Geometry, tuned against 1920×1080 (and sanity-checked at a 1512×982 laptop
+fullscreen viewport):**
+
+- **Hero cut from 42vh to 26vh.** Measured against the hero copy stack
+  (title 56px/1.05 + subtitle 24px + a chip row + the play button, `aura-space`
+  gaps between): at 1920×1080 the stack is ≈247px including its own bottom
+  padding, so 26vh (280.8px) clears it with a comfortable margin. The hero's
+  `--rgp-tv-hero-content-pad` was also stepped from 4vmin to 3vmin (buys back
+  headroom under the shorter band). At 1512×982 (26vh = 255.3px) the margin is
+  tighter (font sizes are px, not vh-scaled, so they don't shrink with the
+  viewport) but still positive.
+- **Tile width made responsive; 320×440 becomes a CAP, not a fixed pair.**
+  New tokens `--rgp-tv-tile-width-cap: 320px` / `--rgp-tv-tile-height-cap:
+  440px` hold the original size. The live `--rgp-tv-tile-width` is redeclared
+  per rail row (`tv-home.css` `.rgp-tv-rail__row`, since the formula needs
+  `100vw`, which only makes sense scoped there):
+  ```
+  min(320px, calc((100vw - 2*(safe-area + focus-clearance) - 4*rail-gap) / 5))
+  ```
+  i.e. the smaller of the original cap and the width that fits exactly 5 tiles
+  + 4 gaps across the row's available content width. Below the cap this closes
+  an exact 5-tiles-visible budget **by construction** (`5×width + 4×gap ==
+  available width`), so a 6th tile sits fully outside the visible row rather
+  than being fractionally clipped in. Tile height tracks width via `aspect-
+  ratio: 320 / 440` on `.rgp-tv-tile__frame` (not a second live-height token),
+  keeping the 320:440 "box" proportion at every size.
+  - **Computed at 1920×1080:** tile ≈ 311.8×428.8px, **5.0 tiles visible**
+    (up from ~4.8).
+  - **Computed at 1512×982:** tile ≈ 232.2×319.3px, **5.0 tiles visible**.
+  - **Gotcha (caught by measuring the rendered tile in a real browser, not
+    by reading the CSS): `aspect-ratio` needs a bare `<ratio>` — unitless
+    numbers like `320 / 440`.** Feeding it the existing `<length>` cap
+    tokens (`320px / 440px`) is invalid CSS; it silently resolves to `auto`
+    with no console warning, and the frame's height then falls out of
+    unrelated flex/content sizing instead of the intended aspect (measured
+    ≈467px instead of ≈429px before the fix). Fixed with a second, unitless
+    token pair (`--rgp-tv-tile-aspect-w: 320` / `--rgp-tv-tile-aspect-h:
+    440`) that mirrors the px caps for this one consumer — CSS has no
+    unit-stripping function, so the two pairs are kept in sync by hand if
+    the cap is ever re-tuned.
+- **Circularity trap, resolved per the release-plan warning.**
+  `--rgp-tv-focus-clearance` (the padding/scroll-margin reserved for the
+  focused tile's scale-up + ring + glow) used to derive from the live
+  `--rgp-tv-tile-height`. Once tile width became viewport-derived (and height
+  derives from width via `aspect-ratio`), and the row's available width
+  formula subtracts focus-clearance from `100vw`, deriving clearance from a
+  live tile height would close a `var()` cycle: width → height → clearance →
+  width. **Resolution:** `--rgp-tv-focus-clearance` now derives from the fixed
+  `--rgp-tv-tile-height-cap` (440px) instead of the live tile height — a
+  documented conservative constant. This slightly over-reserves clearance once
+  a tile shrinks below the cap (a smaller focused tile needs less real
+  clearance than the cap-derived value provides), which is the safe direction
+  to be wrong in: tiles stay unclipped, never tight.
+- **Tiles never chopped.** With the shorter hero and the responsive tile
+  height, the rails region's visible height at 1920×1080 (≈566px) already
+  exceeds the responsive tile's own height (≈429px) with **zero** hero/rail
+  overlap — the bare tile was never at risk of clipping once the hero shrank
+  and the tile followed suit. The W262 clearance system (`scroll-margin-block`
+  / `scroll-margin-inline` mirroring the row's padding) is unchanged in shape,
+  just fed by the now-cap-derived `--rgp-tv-focus-clearance` — the focused
+  tile's scale/ring/glow stay unclipped at the new sizes exactly as before.
+- **Rails overlap the hero (user-authorized).** A new `--rgp-tv-rail-overlap:
+  2rem` token pulls `.rgp-tv-home__rails` up over the hero's lower band
+  (negative `margin-top`); paint order (DOM order, both elements `position:
+  relative` at the default z-index) puts the rails above the hero without a
+  z-index. This is a deliberately conservative value — tuned so it only ever
+  draws over the hero's ART/scrim in the dead band below the copy, never over
+  the copy itself (the hero content's existing bottom padding already clears
+  more than 2rem above the hero's true bottom edge at 26vh). It is **not**
+  load-bearing for "unchopped" (the bare tile already fits with zero overlap,
+  above) — it is the authorized visual move that visually reunites the
+  shortened hero with the first shelf instead of leaving a gap between them.
+- **Desktop untouched; reduced-motion unaffected.** Every change here is
+  confined to `--rgp-tv-*` tokens and `src/features/tv/` — no desktop surface
+  or motion/reduced-motion rule was touched.
+
+**Files:** `src/theme/tv.css` (tokens), `src/features/tv/tv-home.css`
+(responsive row formula, aspect-ratio tile frame, hero/rail overlap).
+`src/features/tv/rails.ts` windowing is unchanged (count-based, no width
+knowledge — the responsive width is purely a CSS-layer concern).
 
 ## Open questions
 
