@@ -1,0 +1,389 @@
+/*
+ * TV home (v0.26 W261) — the leanback home's structural + retro-but-Aura styles:
+ * the key-art hero, the cover-art rail stack, and the 10-foot cover tiles.
+ * Consumes ONLY the `--rgp-tv-*` / `--rgp-*` / Aura brand + motion tokens; no
+ * literals (token-adoption guard, scripts/token-adoption.test.mjs) except the
+ * scanline hairline, which is a physical constant (documented in tv.css).
+ * Declared in the same `rgp-theme` layer as every other app override.
+ *
+ * All motion here is CSS transition/animation driven off motion tokens, so it is
+ * neutralised centrally by the prefers-reduced-motion rule in theme/motion.css —
+ * no per-component media query (motion guard).
+ */
+
+@layer rgp-theme {
+  /* ── home layout ──────────────────────────────────────────────────────────
+     The home fills the shell outlet: a fixed-height hero band on top, then a
+     vertically-scrolling rail stack. The rail region owns the scroll so the
+     hero stays pinned as a cinematic backdrop for the focused game. */
+  .rgp-tv-home {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: var(--rgp-tv-rail-row-gap);
+  }
+
+  .rgp-tv-home__rails {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    /* Each rail row carries its own vertical padding (to clear the focus
+       scale/glow), so the inter-rail gap here is modest — space-2 keeps the
+       shelves rhythmically close without the doubled whitespace a full
+       rail-row-gap would add on top of the row padding. */
+    gap: var(--aura-space-2);
+    scrollbar-width: none;
+  }
+  .rgp-tv-home__rails::-webkit-scrollbar {
+    display: none;
+  }
+
+  .rgp-tv-home__loading,
+  .rgp-tv-home__empty {
+    margin: 0;
+    font-size: var(--rgp-tv-font-body);
+    color: var(--aura-on-surface-muted);
+  }
+
+  .rgp-tv-home__exit-confirm {
+    position: absolute;
+    bottom: var(--rgp-tv-safe-area);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--aura-space-3) var(--aura-space-5);
+    border-radius: var(--rgp-tv-radius-tile);
+    background: var(--aura-panel-alpha);
+    border: 1px solid var(--aura-border);
+    color: var(--aura-on-surface);
+    font-size: var(--rgp-tv-font-body);
+    z-index: 3;
+  }
+
+  /* ── hero ─────────────────────────────────────────────────────────────────
+     The hero breaks OUT of the shell's safe-area padding so its art bleeds to
+     the true frame edge (a cinematic full-bleed), while its copy stays inset by
+     the content pad. Negative margins equal to the safe-area inset pull the art
+     band to the frame edge; the rails below keep the safe inset. */
+  .rgp-tv-hero {
+    position: relative;
+    flex: 0 0 var(--rgp-tv-hero-height);
+    margin: calc(-1 * var(--rgp-tv-safe-area)) calc(-1 * var(--rgp-tv-safe-area)) 0;
+    border-radius: 0 0 var(--rgp-tv-radius-tile) var(--rgp-tv-radius-tile);
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    isolation: isolate;
+  }
+
+  /* Full-bleed art layer stack (crossfaded frames live inside). */
+  .rgp-tv-hero__art {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+  .rgp-tv-hero__art-layer {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center 30%;
+  }
+
+  /* Gradient scrim for legibility — anchored bottom-left where the copy sits, so
+     the title reads over any art without dimming the whole frame. Layered darker
+     at the bottom + a soft left wash. Colours track the theme (color-mix on the
+     bg token), never a literal (design-language.md §7.5). */
+  .rgp-tv-hero__scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background:
+      linear-gradient(
+        to top,
+        color-mix(in oklch, var(--aura-bg) 92%, transparent) 0%,
+        color-mix(in oklch, var(--aura-bg) 55%, transparent) 32%,
+        transparent 68%
+      ),
+      linear-gradient(
+        to right,
+        color-mix(in oklch, var(--aura-bg) 70%, transparent) 0%,
+        transparent 55%
+      );
+  }
+
+  /* Scanline texture — a hairline repeating gradient at low opacity. Static (no
+     animation) so it's an accent, not a distraction; disabled implicitly under
+     reduced motion only if animated, but kept subtle regardless. */
+  .rgp-tv-hero__scanlines {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    opacity: var(--rgp-tv-scanline-opacity);
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--aura-on-surface) 0,
+      var(--aura-on-surface) 1px,
+      transparent 1px,
+      transparent var(--rgp-tv-scanline-gap)
+    );
+    mix-blend-mode: overlay;
+  }
+
+  /* Phosphor glow — a soft radial bloom from the lower-left, echoing a CRT's
+     warm corner glow. Token-coloured; a gentle breathing animation gives it life
+     but is neutralised centrally under reduced motion (theme/motion.css). */
+  .rgp-tv-hero__phosphor {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: radial-gradient(
+      120% 90% at 12% 100%,
+      var(--rgp-tv-phosphor-color) 0%,
+      transparent 55%
+    );
+    animation: rgp-tv-phosphor-breathe var(--rgp-dur-ambient) var(--rgp-ease-standard) infinite alternate;
+  }
+  @keyframes rgp-tv-phosphor-breathe {
+    from {
+      opacity: 0.7;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .rgp-tv-hero__content {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--aura-space-4);
+    padding: var(--rgp-tv-hero-content-pad);
+    /* Pad the copy in from the frame edge by the safe-area inset too, so text
+       stays in the title-safe zone even though the art bleeds past it. */
+    padding-left: calc(var(--rgp-tv-safe-area) + var(--rgp-tv-hero-content-pad));
+    padding-bottom: calc(var(--rgp-tv-hero-content-pad) + var(--aura-space-2));
+    max-width: 60%;
+  }
+
+  .rgp-tv-hero__meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-2);
+  }
+  .rgp-tv-hero__title {
+    margin: 0;
+    font-size: var(--rgp-tv-font-hero-title);
+    font-weight: 800;
+    line-height: 1.05;
+    color: var(--aura-on-surface);
+    max-width: var(--rgp-tv-hero-title-max);
+    /* Legibility over bright art: a soft shadow lifted from the scrim colour. */
+    text-shadow: 0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%, transparent);
+  }
+  .rgp-tv-hero__subtitle {
+    margin: 0;
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 600;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    text-transform: uppercase;
+    color: var(--rgp-tv-label-color);
+  }
+  .rgp-tv-hero__chips {
+    display: flex;
+    gap: var(--aura-space-3);
+    flex-wrap: wrap;
+  }
+  .rgp-tv-hero__chip {
+    padding: var(--aura-space-1) var(--aura-space-3);
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-shelf-alpha);
+    border: 1px solid var(--aura-border);
+    font-size: var(--rgp-tv-font-body);
+    color: var(--aura-on-surface);
+  }
+
+  /* Play affordance — the hero's top focus row. Large, high-contrast, with the
+     same distance-legible focus treatment the tiles use. */
+  .rgp-tv-hero__play {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--aura-space-2);
+    padding: var(--aura-space-3) var(--aura-space-6);
+    border: none;
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--rgp-tv-focus-transition);
+  }
+  .rgp-tv-hero__play:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .rgp-tv-hero__play[data-focused="true"] {
+    transform: scale(var(--rgp-tv-focus-scale));
+    box-shadow:
+      0 0 0 var(--rgp-tv-focus-ring-width) var(--aura-focus),
+      var(--rgp-tv-focus-glow);
+    outline: none;
+  }
+
+  /* ── rail ─────────────────────────────────────────────────────────────────
+     A labelled shelf: chunky retro-accent section label over a horizontal row
+     of tiles. The row scrolls horizontally with snap; the focused tile scrolls
+     itself fully into view via native scroll-into-view (TvTile mirrors focus to
+     DOM focus). */
+  .rgp-tv-rail {
+    display: flex;
+    flex-direction: column;
+    /* No gap: the row's own top padding (which clears the focus scale/glow)
+       provides the label-to-tiles separation, so a gap here would double it. */
+    gap: 0;
+  }
+  .rgp-tv-rail__label {
+    margin: 0;
+    padding-left: var(--rgp-tv-safe-area);
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 800;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    text-transform: uppercase;
+    color: var(--rgp-tv-label-color);
+  }
+  .rgp-tv-rail__row {
+    display: flex;
+    gap: var(--rgp-tv-rail-gap);
+    overflow-x: auto;
+    /* Generous vertical padding clears the focused tile's scale-up + glow
+       (which a horizontal scroll row would otherwise clip); horizontal padding
+       is the safe-area inset so the first/last tile clears the frame edge. */
+    padding: var(--rgp-tv-rail-row-pad) var(--rgp-tv-safe-area);
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .rgp-tv-rail__row::-webkit-scrollbar {
+    display: none;
+  }
+  /* Windowed-out tiles are represented by a single width-preserving spacer so
+     horizontal scroll geometry and snap positions stay correct without mounting
+     hundreds of off-screen <img> tiles (TvRail). */
+  .rgp-tv-rail__spacer {
+    flex: 0 0
+      calc(
+        (var(--rgp-tv-tile-width) + var(--rgp-tv-rail-gap)) *
+          var(--rgp-tv-spacer-count, 0)
+      );
+  }
+
+  /* ── tile ─────────────────────────────────────────────────────────────────
+     A 320×440 cover tile. Focus treatment is class/data-attribute driven so
+     W262 can refine it in CSS alone: the focused tile scales up, gains a
+     high-contrast ring, and a phosphor glow — all legible at 3m. */
+  .rgp-tv-tile {
+    flex: 0 0 var(--rgp-tv-tile-width);
+    scroll-snap-align: center;
+    /* When a focused tile is scrolled into view inside the rails scroll
+       container, leave clearance so (a) its scaled-up ring + glow is never
+       flush against (and thus clipped by) the container edge, and (b) its own
+       rail LABEL stays visible above it rather than being scrolled under the
+       hero. The top clearance therefore clears the label line + the row pad;
+       left/right clear the safe-area inset. */
+    scroll-margin-block: calc(var(--rgp-tv-font-label) + var(--rgp-tv-rail-row-pad))
+      var(--rgp-tv-rail-row-pad);
+    scroll-margin-inline: var(--rgp-tv-safe-area);
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    display: block;
+    text-align: left;
+    /* transform-origin bottom so a focused tile grows UP into the gap above it,
+       not down into the label of the rail below. */
+    transform-origin: center bottom;
+    transition: var(--rgp-tv-focus-transition);
+    outline: none;
+  }
+  .rgp-tv-tile__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-2);
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .rgp-tv-tile__frame {
+    position: relative;
+    width: var(--rgp-tv-tile-width);
+    height: var(--rgp-tv-tile-height);
+    border-radius: var(--rgp-tv-radius-tile);
+    overflow: hidden;
+    background: var(--aura-shelf-alpha);
+    border: 1px solid var(--aura-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .rgp-tv-tile__art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .rgp-tv-tile__placeholder {
+    padding: var(--aura-space-4);
+    font-size: var(--rgp-tv-font-title);
+    font-weight: 700;
+    text-align: center;
+    color: var(--aura-on-surface-muted);
+  }
+  .rgp-tv-tile__favorite {
+    position: absolute;
+    top: var(--aura-space-2);
+    right: var(--aura-space-2);
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-panel-alpha);
+    color: var(--aura-primary);
+    font-size: var(--rgp-tv-font-body);
+  }
+  .rgp-tv-tile__caption {
+    display: block;
+    font-size: var(--rgp-tv-font-body);
+    color: var(--aura-on-surface);
+    /* Clamp to one line so a long name never pushes the rail's rhythm around. */
+    max-width: var(--rgp-tv-tile-width);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Focus treatment — the whole point of a 10-foot UI. The focused tile pops
+     forward (scale), gains a thick high-contrast ring, and a phosphor glow, all
+     token-driven so W262 tunes them centrally. The caption brightens to the
+     brand accent so the focused game's name is unmistakable at distance. */
+  .rgp-tv-tile[data-focused="true"] {
+    transform: scale(var(--rgp-tv-focus-scale));
+    z-index: 2;
+  }
+  .rgp-tv-tile[data-focused="true"] .rgp-tv-tile__frame {
+    box-shadow:
+      0 0 0 var(--rgp-tv-focus-ring-width) var(--aura-focus),
+      var(--rgp-tv-focus-glow);
+    border-color: transparent;
+  }
+  .rgp-tv-tile[data-focused="true"] .rgp-tv-tile__caption {
+    color: var(--aura-on-surface);
+    font-weight: 700;
+  }
+}

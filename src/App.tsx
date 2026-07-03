@@ -19,6 +19,7 @@ import { ControllerProvider, HintBar, useController, useFocusable } from "./feat
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
 import {
+  TvHome,
   TvModeProvider,
   TvShell,
   useAutoTvModeOnStartup,
@@ -349,7 +350,9 @@ function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   return (
     <AnimatePresence mode="wait">
       {tvMode.active ? (
-        <TvShell key="tv" onExit={tvMode.exit} />
+        <TvShell key="tv" onExit={tvMode.exit}>
+          <TvHome onExit={tvMode.exit} />
+        </TvShell>
       ) : (
         <Shell key="desktop" fullscreen={fullscreen} />
       )}

@@ -100,18 +100,4 @@
     outline: var(--rgp-focus-ring);
     outline-offset: var(--rgp-focus-ring-offset);
   }
-
-  /* ---- back-again-to-exit confirm affordance ---- */
-  .rgp-tv-shell__confirm {
-    position: absolute;
-    bottom: var(--rgp-tv-safe-area);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: var(--aura-space-3) var(--aura-space-5);
-    border-radius: var(--rgp-tv-radius-tile);
-    background: var(--aura-panel-alpha);
-    border: 1px solid var(--aura-border);
-    color: var(--aura-on-surface);
-    font-size: var(--rgp-tv-font-body);
-  }
 }

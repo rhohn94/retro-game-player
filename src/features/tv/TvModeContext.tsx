@@ -25,7 +25,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import type { UseFullscreenResult } from "../shell/useFullscreen";
 
-/** The TV-mode context surface: current state plus the two transitions. */
+/** The TV-mode context surface: current state plus the transitions. */
 export interface TvModeContextValue {
   /** Whether TV mode is currently active (the shell renders `<TvShell/>`). */
   active: boolean;
@@ -36,6 +36,17 @@ export interface TvModeContextValue {
    * and navigates back to the route that was active before entering. No-op
    * if not active. */
   exit: () => void;
+  /**
+   * Launch a game from TV home (v0.26 W261): leave TV mode and land on the
+   * game's `/game/:id` detail route, which auto-boots the in-page player. This
+   * is the SINGLE launch seam the TV home routes every tile/hero activation
+   * through — W265 replaces its body with the shared-layout takeover transition
+   * without any TV-home component needing to change. Unlike `exit()`, it does
+   * NOT restore the pre-TV route: the user asked to play a game, so the game
+   * screen is the destination. Keeps the desktop-fullscreen restore behaviour
+   * of `exit()` so the window state the user had before TV mode is honoured.
+   */
+  launch: (gameId: number) => void;
 }
 
 const TvModeContext = createContext<TvModeContextValue | null>(null);
@@ -92,9 +103,26 @@ export function TvModeProvider({
     });
   }, [fullscreen, navigate]);
 
+  const launch = useCallback(
+    (gameId: number) => {
+      // Navigate BEFORE deactivating so the desktop `Shell`/router remounts
+      // directly onto the game detail route (the prior-route restore that
+      // `exit()` does would land the user on the library instead). Restore the
+      // fullscreen state captured at enter() time — playing a game shouldn't
+      // silently leave the window fullscreen if the user wasn't before TV mode.
+      navigate(`/game/${gameId}`);
+      setActive((wasActive) => {
+        if (!wasActive) return wasActive;
+        fullscreen.setFullscreen(priorFullscreenRef.current);
+        return false;
+      });
+    },
+    [fullscreen, navigate],
+  );
+
   const value = useMemo<TvModeContextValue>(
-    () => ({ active, enter, exit }),
-    [active, enter, exit],
+    () => ({ active, enter, exit, launch }),
+    [active, enter, exit, launch],
   );
 
   return <TvModeContext.Provider value={value}>{children}</TvModeContext.Provider>;

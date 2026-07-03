@@ -5,5 +5,6 @@
 export { TvModeProvider, useTvMode } from "./TvModeContext";
 export type { TvModeContextValue } from "./TvModeContext";
 export { TvShell } from "./TvShell";
+export { TvHome } from "./TvHome";
 export { useAutoTvModeOnStartup } from "./useAutoTvModeOnStartup";
 export { useTvModeControllerToggle } from "./useTvModeControllerToggle";
