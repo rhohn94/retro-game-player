@@ -19,14 +19,11 @@ import { canPlayInPage, isEmbeddedInPage } from "./ejs";
 import { inPageAvailability, systemLabel } from "./inPageAvailability";
 import { describeDegradation, recordDegradation } from "./degradation";
 import type { DegradationNotice } from "./degradation";
+import { NATIVE_SYSTEM } from "./nativePath";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { listInPageCores } from "../../ipc/inpage-cores";
 import type { InPageCore } from "../../ipc/inpage-cores";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
-
-/** Must match the Rust `play::native::NATIVE_SYSTEM` — the only system v0.21
- * "Bedrock" hosts natively. */
-const NATIVE_SYSTEM = "nes";
 
 export interface PlaySwitchProps {
   gameId: number;
@@ -135,7 +132,10 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
   if (availability.kind === "ready" || justInstalled) {
     // The EmulatorJS iframe cannot become a page background (explicit v0.23
     // non-goal), so attract's "background" degrades to plain foreground here;
-    // only the TV takeover presentation threads through (W272).
+    // only the TV takeover presentation threads through (W272). "preview"
+    // (W273) never reaches this switch at all — the TV home mounts
+    // NativePlayer directly, and only for native-path-eligible games — so it
+    // degrades the same way if a future caller ever routes it here.
     const inPagePresentation: PlayerPresentation =
       presentation === "takeover" ? "takeover" : "foreground";
     return (

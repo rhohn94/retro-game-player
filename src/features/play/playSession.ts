@@ -48,11 +48,20 @@ export class PlaySessionTracker {
  * the session so a window close mid-play still records the partial duration
  * rather than losing it entirely (the backend measures duration up to
  * whenever `record_play_end` actually arrives).
+ *
+ * `enabled` (default true) is the W273 purity seam: a spectator surface (the
+ * TV hover-attract preview) mounts a player whose presentation must leave NO
+ * library-life trace, so it passes
+ * `presentationRecordsPlaySession(presentation)` here and the hook records
+ * nothing at all — no `record_play_start`, no `record_play_end`. The flag
+ * lives on the hook (not an `if` around it) because hooks cannot be
+ * conditional.
  */
-export function usePlaySession(gameId: number): void {
+export function usePlaySession(gameId: number, enabled = true): void {
   const trackerRef = useRef<PlaySessionTracker | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const tracker = new PlaySessionTracker();
     trackerRef.current = tracker;
     void tracker.start(gameId);
@@ -65,5 +74,5 @@ export function usePlaySession(gameId: number): void {
       tracker.end();
       trackerRef.current = null;
     };
-  }, [gameId]);
+  }, [gameId, enabled]);
 }
