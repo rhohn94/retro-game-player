@@ -223,7 +223,7 @@ doesn't modify it, but sequencing after avoids any merge friction) plus
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.28 |
 |---|---|---|---|---|
-| `feat/w277-tv-shelf-aesthetics` (W277) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w277-tv-shelf-aesthetics` (W277) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
