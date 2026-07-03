@@ -150,12 +150,20 @@ export function NativePlayer({
   const openOverlay = useCallback(() => {
     setSelection(0);
     setOverlayOpen(true);
+    // Eagerly mirror into the ref BEFORE dispatching the input release: the
+    // state commit lands a frame later, and this player's raw input poll can
+    // tick in the SAME frame the controller dispatched `menu` — with a stale
+    // ref it re-sent the held bits (Start shares its physical button with
+    // `menu`), stomping the release-to-zero below and leaking a one-frame
+    // Start press to the core (W275).
+    overlayOpenRef.current = true;
     void setNativeInput(0).catch(() => undefined); // release held buttons
     void setNativePaused(true).catch(() => undefined);
   }, []);
 
   const closeOverlay = useCallback(() => {
     setOverlayOpen(false);
+    overlayOpenRef.current = false; // eager mirror — see openOverlay
     void setNativePaused(false).catch(() => undefined);
   }, []);
 
