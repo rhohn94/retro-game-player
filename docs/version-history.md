@@ -7,6 +7,20 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.26.1 — Hotfix: native-play A/V clock (2026-07-02)
+
+Native play now runs at the game's true speed with clean audio. The first
+v0.26 sessions confirmed native playback ran measurably slow and "sounded
+off"; the causes were three compounding timing defects in the emulation
+backend. The frame loop now paces on an absolute-deadline clock (sleep
+overshoot is repaid instead of accumulating, so NES really runs at its
+60.0988 fps), the core's audio is properly resampled to the output device's
+rate with dynamic rate control locking the two clocks together (no more
+wrong-pitch playback, gap crackle, or creeping audio lag), and the realtime
+audio callback is lock- and allocation-free with an audio pre-fill at boot.
+A perf line (effective fps, ring fill, underrun/overrun) logs every 10 s so
+timing health is verifiable, not just audible.
+
 ## v0.26 — Theater (2026-07-02)
 
 Harmony is now **Retro Game Player** — and it belongs in your living room.
