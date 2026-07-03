@@ -212,6 +212,102 @@ const ROUTES = [
       }
     },
   },
+  // v0.28 W278 — the TV system menu (tv-mode-design.md §v0.28 → W278). Driven
+  // via the visible pointer ☰ Menu button (TvShell's header) rather than a
+  // simulated gamepad press — Playwright has no real Gamepad API to emulate,
+  // and the button routes through the SAME `tvMode.openMenu()` seam the
+  // Select/touchpad raw-poll trigger calls, so clicking it exercises the real
+  // open path end-to-end (state + overlay mount), just via the pointer
+  // affordance instead of a physical button.
+  {
+    name: "tv-system-menu",
+    hash: "#/",
+    mockOverrides: { get_auto_tv_mode: true },
+    actions: async (page) => {
+      try {
+        await page.waitForFunction(
+          () => document.body.innerText.includes("CONTINUE PLAYING"),
+          { timeout: 8000 },
+        );
+        const menuButton = await page.$(".rgp-tv-shell__menu");
+        if (!menuButton) return { ok: false, skipReason: "no TV menu button on the shell" };
+        await menuButton.click();
+        await page.waitForSelector('[data-testid="tv-system-menu"]', { timeout: 4000 });
+        const menuShot = join(OUT_DIR, "tv-system-menu.png");
+        await page.screenshot({ path: menuShot, fullPage: false });
+        const marker = await page.evaluate(() => {
+          const panel = document.querySelector('[data-testid="tv-system-menu"]');
+          const items = Array.from(document.querySelectorAll(".rgp-tv-system-menu__item")).map(
+            (el) => el.textContent,
+          );
+          return { hasPanel: !!panel, items };
+        });
+        if (!marker.hasPanel) {
+          return { ok: false, skipReason: "system menu panel did not mount" };
+        }
+        return { ok: true, marker, shotOverride: menuShot };
+      } catch (err) {
+        return { ok: false, skipReason: `system-menu drive failed: ${err && err.message}` };
+      }
+    },
+  },
+  // v0.28 W278 — "every page in TV mode" + the exit-snapshot contract. Opens
+  // the menu, picks Consoles (the embedded region renders the real desktop
+  // ConsolesPage inside the TvShell outlet while TV mode + fullscreen stay
+  // active), then exits TV mode entirely and asserts the hash is back at "/"
+  // (the pre-enter Library route) rather than "#/consoles" (wherever the menu
+  // last navigated) — the exact regression `TvModeContext.exit()`'s
+  // untouched-`priorRouteRef` design prevents (see that file's comments).
+  {
+    name: "tv-embedded-screen",
+    hash: "#/",
+    mockOverrides: { get_auto_tv_mode: true },
+    actions: async (page) => {
+      try {
+        await page.waitForFunction(
+          () => document.body.innerText.includes("CONTINUE PLAYING"),
+          { timeout: 8000 },
+        );
+        const menuButton = await page.$(".rgp-tv-shell__menu");
+        if (!menuButton) return { ok: false, skipReason: "no TV menu button on the shell" };
+        await menuButton.click();
+        await page.waitForSelector('[data-testid="tv-system-menu"]', { timeout: 4000 });
+        // Click the "Consoles" row (second item, after "TV Home" —
+        // systemMenu.ts's TV_MENU_ITEMS order).
+        const items = await page.$$(".rgp-tv-system-menu__item");
+        const consolesItem = items[1];
+        if (!consolesItem) return { ok: false, skipReason: "no Consoles row in the menu" };
+        await consolesItem.click();
+        await page.waitForSelector('[data-testid="tv-embed"]', { timeout: 4000 });
+        await page.waitForFunction(() => document.body.innerText.includes("Consoles"), {
+          timeout: 4000,
+        });
+        const embedShot = join(OUT_DIR, "tv-embedded-screen.png");
+        await page.screenshot({ path: embedShot, fullPage: false });
+        const embedHash = await page.evaluate(() => window.location.hash);
+        // Now exit TV mode entirely (the visible pointer exit button) and
+        // assert the hash restores to the PRE-ENTER route ("#/", Library) —
+        // not "#/consoles", which is what the embedded navigation left it at.
+        const exitButton = await page.$(".rgp-tv-shell__exit");
+        if (!exitButton) return { ok: false, skipReason: "no TV exit button on the shell" };
+        await exitButton.click();
+        await page.waitForFunction(() => !document.querySelector('[data-testid="tv-shell"]'), {
+          timeout: 4000,
+        });
+        const postExitHash = await page.evaluate(() => window.location.hash);
+        const marker = { embedHash, postExitHash };
+        if (postExitHash !== "#/") {
+          return {
+            ok: false,
+            skipReason: `exit did not restore the pre-enter route: hash is "${postExitHash}", expected "#/"`,
+          };
+        }
+        return { ok: true, marker, shotOverride: embedShot };
+      } catch (err) {
+        return { ok: false, skipReason: `embedded-screen drive failed: ${err && err.message}` };
+      }
+    },
+  },
 ];
 
 const MIME = {
