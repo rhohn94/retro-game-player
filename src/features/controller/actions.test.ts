@@ -6,6 +6,7 @@ import {
   STANDARD_BUTTON,
   buttonNameToIndex,
   classifyMapping,
+  defaultAuxBinding,
   defaultBindings,
   detectFamily,
   detectPlayStationModel,
@@ -38,6 +39,33 @@ describe("defaultBindings — per-family confirm/back swap", () => {
     expect(b.nav_right).toBe(STANDARD_BUTTON.dpadRight);
     expect(b.menu).toBe(STANDARD_BUTTON.start);
     expect(b.quit).toBe(STANDARD_BUTTON.select);
+  });
+});
+
+describe("defaultAuxBinding — W278 aux (additive) bindings", () => {
+  it("gives PlayStation an aux touchpad binding for quit", () => {
+    expect(defaultAuxBinding("playstation", "quit")).toBe(STANDARD_BUTTON.touchpad);
+  });
+
+  it("has no aux binding for quit on any other family", () => {
+    for (const fam of ["xbox", "8bitdo", "switch_pro", "generic"] as const) {
+      expect(defaultAuxBinding(fam, "quit")).toBeNull();
+    }
+  });
+
+  it("has no aux binding for any other action, even on PlayStation", () => {
+    expect(defaultAuxBinding("playstation", "menu")).toBeNull();
+    expect(defaultAuxBinding("playstation", "confirm")).toBeNull();
+    expect(defaultAuxBinding("playstation", "back")).toBeNull();
+  });
+
+  it("does not disturb quit's single-binding primary contract", () => {
+    // The primary BindingMap entry for quit stays Select for every family,
+    // regardless of the aux table — resolveBindings/risingActions are
+    // untouched by W278 (actions.ts §Aux bindings header).
+    for (const fam of ["xbox", "playstation", "8bitdo", "switch_pro", "generic"] as const) {
+      expect(defaultBindings(fam).quit).toBe(STANDARD_BUTTON.select);
+    }
   });
 });
 
