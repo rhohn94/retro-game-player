@@ -40,6 +40,14 @@ export interface ControllerContextValue {
   focusedId: string | null;
   /** Programmatically move focus to an id (e.g. on screen mount). */
   setFocus: (id: string | null) => void;
+  /**
+   * Re-assert native DOM focus on a registered focusable's element (W275).
+   * The focus-mirroring effects (`if (isFocused) ref.focus()`) only fire when
+   * `isFocused` CHANGES, so a surface that stole/blurred DOM focus and went
+   * away (the TV takeover) needs this to land keyboard focus back on the
+   * unchanged controller-focused element. No-op for an unknown id.
+   */
+  focusElement: (id: string) => void;
   /** Register a focusable; returns an unregister cleanup. */
   register: (entry: FocusEntry) => () => void;
   /** The active controller's device family (drives HintBar glyphs). */
@@ -112,6 +120,10 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   focusedRef.current = focusedId;
 
   const setFocus = useCallback((id: string | null) => setFocusedId(id), []);
+
+  const focusElement = useCallback((id: string) => {
+    entriesRef.current.get(id)?.el.focus();
+  }, []);
 
   const register = useCallback((entry: FocusEntry) => {
     entriesRef.current.set(entry.id, entry);
@@ -191,6 +203,7 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
     () => ({
       focusedId,
       setFocus,
+      focusElement,
       register,
       family,
       setActionHandlers,
@@ -202,6 +215,7 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
     [
       focusedId,
       setFocus,
+      focusElement,
       register,
       family,
       setActionHandlers,

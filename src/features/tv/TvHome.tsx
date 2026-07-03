@@ -74,7 +74,7 @@ function gameForFocus(rails: readonly TvRailModel[], focusId: string | null): Ga
 export function TvHome({ onExit }: { onExit: () => void }) {
   const { rails, loading } = useTvLibrary();
   const tvMode = useTvMode();
-  const { focusedId, setFocus, claimExclusive } = useController();
+  const { focusedId, setFocus, focusElement, claimExclusive } = useController();
 
   // Per-rail focus memory lives in a ref (not state): the exclusive handler
   // reads + writes it every nav press and must see the latest value without a
@@ -238,6 +238,23 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     enabled: launched === null && !exitConfirm.confirming,
   });
 
+  // Keyboard/DOM-focus parity across a takeover (W275). While a game is taken
+  // over the home is `inert` (below), which makes the browser drop DOM focus
+  // from the originating tile — otherwise a stray Enter/Space kept re-firing
+  // the tile's click under the running game, and Tab reached hidden home
+  // controls. On the way BACK, controller focus never moved (the overlay
+  // design's whole point) so the tiles' own focus-mirroring effects don't
+  // re-fire — re-assert native DOM focus on the focused tile explicitly so a
+  // keyboard user lands exactly where they launched from.
+  const wasLaunchedRef = useRef(launched !== null);
+  useEffect(() => {
+    const wasLaunched = wasLaunchedRef.current;
+    wasLaunchedRef.current = launched !== null;
+    if (wasLaunched && launched === null && focusedRef.current) {
+      focusElement(focusedRef.current);
+    }
+  }, [launched, focusElement]);
+
   // Claim the home's exclusive handler for the LIFETIME of the mount. The
   // exclusive slot is a layered claim stack (W275, ControllerProvider): while a
   // game is taken over, the surface's fallback and then its player claim ABOVE
@@ -249,7 +266,13 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   useEffect(() => claimExclusive(handleAction), [claimExclusive, handleAction]);
 
   return (
-    <div className="rgp-tv-home">
+    // `inert` while a game is taken over: the home stays mounted (per-rail
+    // focus memory + scroll live there, W265) but must be unreachable — no
+    // DOM focus (the origin tile would otherwise keep keyboard focus under
+    // the running game, where Enter re-fired its launch), no Tab stops, no
+    // pointer events. The takeover surface visually covers it anyway; inert
+    // makes the coverage real for input too (W275).
+    <div className="rgp-tv-home" inert={launched !== null || undefined}>
       {/* W273 live attract preview — a full-bleed spectator layer BETWEEN the
           hero backdrop and the rails (z-order: preview first in the DOM, hero/
           rails positioned after it, tv-home.css). Crossfades in/out via the

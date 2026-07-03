@@ -344,6 +344,17 @@ export function InPagePlayer({
     };
   }, [origin, toggleOverlay]);
 
+  // Keyboard parity in the TV takeover (W275): EmulatorJS reads the keyboard
+  // inside its iframe, which only receives keys while the iframe holds DOM
+  // focus. On the desktop the user clicks the frame; the TV surface is
+  // controller-first with no pointer, so focus the iframe once it exists —
+  // a keyboard-only user can then play immediately (and Escape still reaches
+  // the overlay via the player.html bridge's forwarded toggle).
+  useEffect(() => {
+    if (presentation !== "takeover" || !origin) return;
+    iframeRef.current?.focus();
+  }, [presentation, origin]);
+
   // Pause-on-blur (W243): freeze the game when the window loses focus,
   // resume on refocus — unless the overlay already owns the pause.
   useEffect(() => {
