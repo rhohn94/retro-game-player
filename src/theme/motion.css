@@ -19,6 +19,7 @@
     --rgp-dur-base: var(--aura-dur-base); /* 200ms */
     --rgp-dur-slow: var(--aura-dur-slow); /* 360ms */
     --rgp-dur-spinner: 700ms; /* core install spinner sweep */
+    --rgp-dur-ambient: var(--aura-dur-ambient); /* slow idle loop — TV hero phosphor breathe */
 
     /* easings — mirror EASE in src/lib/motion.ts */
     --rgp-ease-out: var(--aura-ease-out); /* decelerate / settle */

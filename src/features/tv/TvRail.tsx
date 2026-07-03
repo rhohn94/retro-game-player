@@ -12,12 +12,7 @@
 import type { Game } from "../../ipc/library";
 import { useController } from "../controller";
 import { TvTile } from "./TvTile";
-import {
-  railWindow,
-  tileFocusId,
-  type RailId,
-  type TvRailModel,
-} from "./rails";
+import { railWindow, tileFocusId, type TvRailModel } from "./rails";
 
 /** How many tiles to keep mounted on each side of the focused tile in a
  * windowed (≥threshold) rail. Wide enough that a left/right press always lands
@@ -26,7 +21,6 @@ const WINDOW_RADIUS = 12;
 
 export interface TvRailProps {
   rail: TvRailModel;
-  onFocusGame: (game: Game) => void;
   onLaunch: (game: Game) => void;
 }
 
@@ -40,7 +34,7 @@ function useFocusedIndex(rail: TvRailModel): number {
 }
 
 /** A single labelled shelf. */
-export function TvRail({ rail, onFocusGame, onLaunch }: TvRailProps) {
+export function TvRail({ rail, onLaunch }: TvRailProps) {
   const focusedIndex = useFocusedIndex(rail);
   const win = railWindow(rail.games, focusedIndex, WINDOW_RADIUS);
   const trailing = win.total - (win.start + win.items.length);
@@ -64,7 +58,6 @@ export function TvRail({ rail, onFocusGame, onLaunch }: TvRailProps) {
             key={tileFocusId(rail.id, game.id)}
             game={game}
             railId={rail.id}
-            onFocusGame={onFocusGame}
             onLaunch={onLaunch}
           />
         ))}

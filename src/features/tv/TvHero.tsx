@@ -5,22 +5,23 @@
 // last-played chip when present. Retro-but-Aura flourishes (a static scanline
 // texture accent + a phosphor-glow accent) are layered via tokens, tastefully.
 //
-// The hero crossfades on focus SETTLE: `TvHome` hands it a debounced game (see
-// useDebouncedValue) so a rapid left/right sweep doesn't thrash the full-bleed
-// art swap — the crossfade fires ~150ms after the user pauses. The crossfade
-// itself is `HeroBackdrop`'s AnimatePresence keyed on the resolved art URL, so
-// there is no layout shift and the image is object-fit: cover.
+// The hero crossfades on focus SETTLE: `TvHome` hands it a debounced game so a
+// rapid left/right sweep doesn't thrash the full-bleed art swap — the crossfade
+// fires ~150ms after the user pauses. The crossfade itself is an AnimatePresence
+// keyed on the resolved art URL, so there is no layout shift and the image is
+// object-fit: cover. Unlike the tiles (local-only), the hero DOES allow a
+// one-shot network fetch (`allowFetch`) so the single featured game resolves
+// cinematic art even when no tier is cached yet.
 //
 // The play affordance registers as the TOP focus row (HERO_FOCUS_ID): a `down`
-// press from it drops into the first rail, and `confirm` on it launches the
-// focused game — the same launch path the tiles use.
+// press from it drops into the first rail (railNav.ts), and `confirm` on it
+// launches the focused game — the same launch path the tiles use.
 
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect } from "react";
 import type { Game } from "../../ipc/library";
-import { riseIn } from "../../lib/motion";
+import { DUR, EASE_OUT, riseIn } from "../../lib/motion";
 import { useFocusable } from "../controller";
-import { HeroBackdrop } from "../library/HeroBackdrop";
 import { useGameArt } from "../library/useGameArt";
 import { tvSystemLabel } from "./systems";
 import { formatLastPlayed, formatPlayTime, heroMetaLine } from "./playtime";
@@ -40,7 +41,7 @@ export function TvHero({ game, onLaunch }: TvHeroProps) {
   // ("hero" surface order), and DO allow a one-shot network fetch so a game
   // with no cached tier still resolves cinematic art for the hero specifically
   // (the tiles stay local-only; only the single featured hero fetches).
-  useGameArt(game, "snap", { surface: "hero", allowFetch: true });
+  const artUrl = useGameArt(game, "snap", { surface: "hero", allowFetch: true });
 
   const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(HERO_FOCUS_ID, () => {
     if (game) onLaunch(game);
@@ -55,9 +56,27 @@ export function TvHero({ game, onLaunch }: TvHeroProps) {
   const lastPlayed = game ? formatLastPlayed(game.lastPlayedAt, Date.now()) : null;
 
   return (
-    <div className="rgp-tv-hero">
-      {/* Full-bleed native-res art of the focused game; crossfades on change. */}
-      <HeroBackdrop game={game} variant="full-bleed" />
+    <section className="rgp-tv-hero" aria-label="Featured game">
+      {/* Full-bleed native-res art of the focused game; crossfades on URL change
+          via AnimatePresence so there is no layout shift and both frames are
+          object-fit: cover. `aria-hidden` — purely decorative behind the copy. */}
+      <div className="rgp-tv-hero__art" aria-hidden>
+        <AnimatePresence>
+          {artUrl && (
+            <motion.div
+              key={artUrl}
+              className="rgp-tv-hero__art-layer"
+              style={{ backgroundImage: `url("${artUrl}")` }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: DUR.base, ease: EASE_OUT }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+      {/* Gradient scrim for legibility over any art. */}
+      <div className="rgp-tv-hero__scrim" aria-hidden />
       {/* Retro-but-Aura accents: a static scanline texture + a phosphor glow,
           both token-driven (tv.css) and disabled under reduced-motion via the
           central rule. Purely decorative → aria-hidden. */}
@@ -77,12 +96,8 @@ export function TvHero({ game, onLaunch }: TvHeroProps) {
             <p className="rgp-tv-hero__subtitle">{metaLine}</p>
             {(playTime || lastPlayed) && (
               <div className="rgp-tv-hero__chips">
-                {lastPlayed && (
-                  <span className="rgp-tv-hero__chip">Played {lastPlayed}</span>
-                )}
-                {playTime && (
-                  <span className="rgp-tv-hero__chip">{playTime} played</span>
-                )}
+                {lastPlayed && <span className="rgp-tv-hero__chip">Played {lastPlayed}</span>}
+                {playTime && <span className="rgp-tv-hero__chip">{playTime} played</span>}
               </div>
             )}
           </motion.div>
@@ -101,6 +116,6 @@ export function TvHero({ game, onLaunch }: TvHeroProps) {
           ▶ Play
         </button>
       </div>
-    </div>
+    </section>
   );
 }

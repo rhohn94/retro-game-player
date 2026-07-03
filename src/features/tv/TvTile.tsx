@@ -3,13 +3,13 @@
 // (320×440 via --rgp-tv-tile-* tokens), boxart-first via `useGameArt`, a clean-
 // name caption fallback when no art resolves, and a favorite badge. Registers
 // with the spatial-focus registry (`useFocusable`) so it is controller-navigable
-// with no pointer; `confirm` while focused launches the game.
+// with no pointer; `confirm` while focused launches the game, and moving focus
+// here reactively drives the hero crossfade (TvHome reads the live `focusedId`).
 //
-// Focus TREATMENT is intentionally class-based (`.rgp-tv-tile`, data-focused
-// attribute) so the next pass (W262) can polish scale/ring/glow purely in CSS
-// without touching this component. This file establishes the hooks; it does not
-// hard-code the distance-focus visuals beyond the token-driven baseline in
-// tv-home.css.
+// Focus TREATMENT is intentionally class + data-attribute based (`.rgp-tv-tile`,
+// `data-focused`) so the next pass (W262) can polish scale/ring/glow purely in
+// CSS without touching this component. This file establishes the hooks; the
+// token-driven baseline focus visuals live in tv-home.css.
 
 import { AuraCard } from "@aura/react";
 import { motion } from "framer-motion";
@@ -25,37 +25,29 @@ export interface TvTileProps {
   /** The rail this tile lives in — scopes its focus id so the same game in two
    * rails gets two distinct focus targets (Continue playing + its system rail). */
   railId: RailId;
-  /** Fires when the tile gains focus (pointer or controller) — drives the hero
-   * crossfade to this game. */
-  onFocusGame: (game: Game) => void;
   /** Fires on activate (click / Enter / controller confirm) — launches the game. */
   onLaunch: (game: Game) => void;
 }
 
 /** A single focusable TV cover tile. */
-export function TvTile({ game, railId, onFocusGame, onLaunch }: TvTileProps) {
+export function TvTile({ game, railId, onLaunch }: TvTileProps) {
   // Boxart-first (the crispest, most recognizable cover at a glance), falling
   // through title → snap via the "tile" surface order; local-only (no network
   // fetch) so a shelf of 50 tiles never fans out 50 CDN calls.
   const art = useGameArt(game, "boxart", { surface: "tile" });
   const focusId = tileFocusId(railId, game.id);
-  const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(focusId, () =>
-    onLaunch(game),
-  );
+  const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(focusId, () => onLaunch(game));
 
   // Mirror controller focus to native DOM focus so the tile scrolls into view
-  // and the browser draws its ring — the same bridge GameTile uses.
+  // and the browser draws its ring — the same bridge GameTile uses. A focused
+  // tile also becomes the hero's featured game because TvHome reads the live
+  // controller `focusedId` reactively; the tile itself does no hero plumbing.
   useEffect(() => {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
 
-  // Pointer focus/hover claims controller focus too (so the spatial ring can't
-  // linger on a gamepad's stale position) AND drives the hero crossfade.
-  const claimFocus = () => {
-    focus();
-    onFocusGame(game);
-  };
-
+  // Pointer focus/hover claims controller focus (so the spatial ring can't
+  // linger on a gamepad's stale position, and the hero follows the pointer).
   return (
     <motion.button
       ref={ref}
@@ -63,8 +55,8 @@ export function TvTile({ game, railId, onFocusGame, onLaunch }: TvTileProps) {
       type="button"
       className="rgp-tv-tile"
       data-focused={isFocused ? "true" : undefined}
-      onFocus={claimFocus}
-      onMouseEnter={claimFocus}
+      onFocus={focus}
+      onMouseEnter={focus}
       onClick={() => onLaunch(game)}
       aria-label={`${game.cleanName} (${game.system})`}
     >
