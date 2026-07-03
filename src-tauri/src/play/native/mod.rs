@@ -6,7 +6,9 @@
 //! automatic fallback if native hosting fails. Design:
 //! docs/design/native-emulation-design.md.
 
+mod audio;
 mod callbacks;
+mod clock;
 mod core_path;
 mod ffi;
 mod frame;
