@@ -81,7 +81,7 @@
        Shared by every long-press-gated affordance in TV mode (menu-hold to
        toggle TV mode, W260; any future press-and-hold) so the "how long is a
        hold" answer lives in exactly one token-backed constant. Mirrored in JS
-       as TV_MENU_LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
+       as LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
        CSS custom properties can't be read by the rAF poll loop, so the
        millisecond number is intentionally duplicated in the two single
        sources the way DUR/EASE already mirror motion.css <-> motion.ts. */

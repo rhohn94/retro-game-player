@@ -361,6 +361,52 @@ controller handling, reduced-motion variants, keyboard-only parity. Small
 gaps are fixed in the audit branch; anything structural is recorded in §5
 follow-ups with a design note.
 
+### W275 audit — findings
+
+Every contract and seam below was verified against the code on
+`fix/w275-tv-gap-audit` (Pass 3), not against this document. Verdicts:
+**OK** (holds as specified), **fixed** (gap closed in this branch),
+**follow-up** (structural — recorded in §Follow-ups, not started).
+
+| # | Contract / seam | Verdict | Notes |
+|---|---|---|---|
+| 1 | v0.26 acceptance: enter/exit affordances + fullscreen restore | fixed | Entry/exit + route/fullscreen snapshot hold (`TvModeContext`), but `InPagePlayer` forced window-fullscreen OFF on every exit/unmount — exiting an EJS game inside the takeover dropped TV mode (and desktop F11) out of fullscreen. Now gated on the player's own immersive mode. |
+| 2 | v0.26 acceptance: `auto_tv_mode` boot → TV home | OK | `useAutoTvModeOnStartup` (one-shot read, silent degrade); smoke `tv-home` route covers it. Boot-seeded focus starts the W273 dwell — intended. |
+| 3 | v0.26 acceptance: hero + ≥3 rails + per-console rails | OK | `useTvLibrary` + pure `buildRails`. |
+| 4 | v0.26 acceptance: fully controller-navigable, no pointer | OK | `railNav` exclusive routing; hero top row; single launch seam. |
+| 5 | v0.26 acceptance: distance-legible focus + snap | OK | 1.12 scale / ring / glow / dim + `scroll-margin` clearance tokens (W262). |
+| 6 | v0.26 acceptance: takeover boots with sound; exit returns to the same tile | fixed | Sound/reveal contract holds (`tvTakeover`); controller focus survives by the overlay design — but native DOM focus did not (see #16). |
+| 7 | v0.26 acceptance: `*-tv` tokens + central reduced motion | OK | Guards green; new W272/W273 motion rides `DUR`/`EASE` + `MotionConfig reducedMotion="user"`; takeover has an explicit reduced-motion path (`beginTakeover` → `revealed`) + collapse safety net. |
+| 8 | W272: edge-to-edge fill on both players; desktop unchanged | OK | `.rgp-player--takeover` scoped rules; chip bar hidden; overlay at TV scale. |
+| 9 | W272: no controller action reaches the home under a running game | fixed | Held for a healthy player, but the single-ref exclusive slot left NO-OWNER windows (in-page origin resolution, native→EJS failure swap, GetCorePanel which claims nothing) where the base engine ran over the hidden home — the W272 defect resurfacing on degraded paths. Replaced with a layered claim stack (`exclusiveStack.ts`, unit-tested) + a surface-level swallow-all fallback claim on `TvGameSurface` for every path. |
+| 10 | W272: overlay controller-drivable on the native path | OK | `routeScopedAction` (unit-tested) via the shared scope. |
+| 11 | W273: 5 s dwell, one constant, hover + keyboard focus alike | OK | `TV_ATTRACT_DWELL_MS` ⇄ `--rgp-tv-attract-dwell-ms`; pointer hover folds into controller focus (one dwell key). |
+| 12 | W273: purity (no play record / saves / perf log) | OK | `presentationRecordsPlaySession` (frontend) + `session_side_effects` (backend), both unit-tested; preview renders bare canvas, skips even the Continue read. |
+| 13 | W273: input never attaches; teardown rules; one session max | OK | Spectator gates keyboard + poll + claim; dwell hook clears on any key/eligibility/gate change; backend `NativeSession` is a replacing singleton, and the preview unmount-cleanup dispatches before the takeover's mount start (same commit). |
+| 14 | Seam: exit-confirm vs takeover | fixed | The armed confirm survived a launch — a quick play-and-return inside its 3 s window let a SINGLE `back` silently exit TV mode. `launch()` now disarms it (`useTvExitConfirm.cancel`). While a takeover runs, `back` never reaches the home (claim stack), so the two can no longer fight. |
+| 15 | Seam: pause-on-blur (W243) in TV mode | fixed | Takeover players share the desktop blur/focus handlers — sane. But the dwell kept counting behind a Cmd+Tab and booted an AUDIBLE preview in a backgrounded app, which pause-on-blur cannot catch (the blur predates the session mount). Dwell + fired preview now gate on window focus (`useWindowFocus`). |
+| 16 | Seam: focus restoration on exiting a game (incl. after a preview) | fixed | Controller focus was already exact (overlay design). DOM focus wasn't: the origin tile kept it under the running game (stray Enter re-fired its launch; Tab reached hidden home controls), and nothing restored it for keyboard users on exit. The home is now `inert` while launched and `focusElement` re-asserts DOM focus on the focused tile at takeover end. A preview never moves focus — nothing to restore. |
+| 17 | Seam: external/RetroArch path inside TV | OK | One-shot launch guard, honest state line, Return as the single focus target; ownership covered by the surface fallback (confirm/back/menu → Return). |
+| 18 | Seam: reduced motion on every W272/W273 animation | OK | All Framer-driven off the central motion source under `MotionConfig reducedMotion="user"`; CSS side neutralised by the one `theme/motion.css` rule. |
+| 19 | Seam: keyboard parity | fixed | Tab/Enter navigation, Cmd+T, Escape-overlay all held — but an EJS game in the takeover was UNPLAYABLE by keyboard (the iframe only receives keys when DOM-focused; nothing focused it without a pointer). The in-page player now focuses its iframe in the takeover presentation. |
+| 20 | Seam: `menu` long-press "outside gameplay" | fixed | The W260 comment claimed the exclusive slot gates the long-press poll — false: `useLongPress` reads the raw pad itself, so holding Start ≥600 ms mid-game toggled TV mode (desktop: unmounted the running game). Now gated on the provider's `gameplayClaimActive` (set by the shared player scope) and threaded the persisted `menu` rebind overrides (W267 parity). |
+| 21 | W273 race: dwell fires as the user presses confirm | OK | Same-commit ordering (preview unmount cleanup → takeover mount) + the backend's replacing session singleton; a batched dwell+launch never mounts the preview at all. |
+| 22 | W273: native-play disabled / ROM missing / core absent mid-dwell | OK | `startNativePlay` rejects → `onStartFailed` → the game is silently marked failed for the mount (no visible error, never retried). Cosmetic residue → follow-up (hero-art handoff below). |
+| 23 | W272 follow-up: PlayNotice/GetCorePanel desktop-scaled in takeover | fixed | Scoped `--rgp-tv-*`-scale rules under `.rgp-tv-game-surface`; the notice also stacked BESIDE the fallback player at half width (row flex) — now a banner above it. |
+| 24 | W272 follow-up: redundant "Full screen" overlay item in takeover | fixed | `presentationAllowsImmersive` (unit-tested) — the item only exists on the desktop foreground player. |
+| 25 | W272 follow-up: native one-frame Start race | fixed | The overlay-open flag is now mirrored into the poll ref eagerly, so the same-frame input poll can't re-send the Start bit and stomp the release-to-zero. |
+
+**Ownership model change (audit fix #9, load-bearing):** the controller's
+exclusive slot is now a *claim stack* (`controller/exclusiveStack.ts`), not a
+single nullable ref. Owners call `claimExclusive(handler, kind)` and release
+by identity; the top claim receives actions, and a release uncovers the claim
+beneath. Kinds: `"ui"` (TV home, takeover fallback) vs `"gameplay"` (a mounted
+player via `useExclusiveControllerScope`) — `gameplayClaimActive` is the
+app-level "a game owns the pad" signal (gates the `menu` long-press toggle).
+Ordering: the takeover surface claims its fallback in a **layout** effect so a
+player's **passive**-effect claim always lands above it. Earlier §Design notes
+describing `setExclusiveHandler` reflect the pre-W275 single-slot API.
+
 ## Open questions
 
 - Per-console rail cap (all 20 systems would be noisy) — start with "systems
@@ -373,3 +419,17 @@ follow-ups with a design note.
 - CRT display filters over gameplay (#23, v0.29).
 - Attract-mode idle screensaver (rolling game art) in TV home.
 - Collections rail once full #21 lands.
+- EmulatorJS-path attract previews (save-suppression through the iframe glue)
+  — W273's recorded v1 scope cut.
+- **Controller-drivable GetCorePanel in the takeover (W275 audit #23):** the
+  panel's "Get core" button is pointer/keyboard-only; the takeover's fallback
+  claim deliberately swallows `confirm` (only `back` exits). A 10-foot
+  affordance would register the button as a focus target and route confirm to
+  it — needs a small focus wiring pass in `GetCorePanel`, not just CSS.
+- **Gate the hero-art→preview handoff on the first painted frame (W275 audit
+  #22):** `TvHome` flips `artHandedOff` the instant the preview layer mounts,
+  so the hero art crossfades out over a still-black canvas for the boot beat —
+  and flashes black briefly when a preview's start FAILS before the silent
+  fallback unmounts it. Threading a "first frame painted" signal out of
+  `NativePlayer`'s frame loop would make the handoff seamless and make a
+  failed preview visually invisible.
