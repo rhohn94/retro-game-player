@@ -214,7 +214,7 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w261-tv-home` (W261) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w261-tv-home` (W261) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 5
 
