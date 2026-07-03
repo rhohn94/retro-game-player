@@ -195,22 +195,32 @@ Three refinements:
 
 1. **Resampler quality** — linear interpolation is audibly rough on NES
    square/triangle waves (first-order roll-off + aliasing on exactly the
-   sustained tones where "slightly off" lives). Upgrade to 4-point
-   Catmull-Rom (cubic Hermite) interpolation with cross-batch history;
-   identity-ratio passthrough stays exact (the spline interpolates through
-   its control points), covered by tests.
+   sustained tones where "slightly off" lives). Upgraded to 4-point
+   Catmull-Rom (cubic Hermite) interpolation with a cross-batch three-frame
+   history window (`audio.rs`); identity-ratio passthrough stays bit-exact
+   (the spline interpolates through its control points, and its Horner form
+   evaluates to exactly `p1` at `t = 0`), covered by tests. Output now lags
+   input by two frames instead of one (segment endpoints + spline
+   lookahead); seeding replicates the first input frame into the older
+   history slots so the first segment starts flat instead of swinging
+   through silence.
 2. **Gentler rate control** — `DRC_GAIN` 0.01 → 0.005 (RetroArch's default
    `d`); halves the worst-case pitch-skew slope while converging, keeping
    any wobble on sustained notes below audibility.
 3. **Persisted perf telemetry** — the 10 s perf line additionally appends to
-   a session log file under the app's `logs/` dir (fresh file per session,
-   e.g. `logs/native-perf.log`), so a Finder-launched playtest is verifiable
-   after the fact. Same line format as stderr; failure to open the file
-   degrades to stderr-only, never a session error.
-4. *(Stretch, only if clean)* core-thread QoS elevation to
-   `QOS_CLASS_USER_INTERACTIVE` on macOS — reduces scheduler-induced tick
-   jitter under load; skip if it adds any unsafe surface beyond a single
-   documented libc call.
+   `logs/native-perf.log` (fresh file per session, truncated at session
+   start), so a Finder-launched playtest is verifiable after the fact. The
+   path resolves through `Paths::native_perf_log_file()` and threads from
+   the commands layer into `NativeRuntime::start`; `perf_file.rs`'s
+   `PerfLogFile` owns the sink. Identical line content to stderr (formatted
+   once); failure to open or write the file degrades silently to
+   stderr-only, never a session error, and all file I/O stays on the core
+   thread — never the realtime audio path.
+4. **Core-thread QoS elevation** (stretch — landed) — the core thread
+   raises itself to `QOS_CLASS_USER_INTERACTIVE` at start via a single
+   documented `libc::pthread_set_qos_class_self_np` call, cfg-gated to
+   macOS; reduces scheduler-induced tick jitter under load, and a failed
+   elevation just logs and keeps the default priority.
 
 ### 3. Frame delivery
 

@@ -1,10 +1,10 @@
-//! The native-play audio chain (W270): core-rate i16 batches are resampled
-//! (linear interpolation, with dynamic rate control against ring fill) into a
-//! lock-free SPSC ring the cpal realtime callback drains — no locks, no
-//! allocation, no logging on the realtime path. Replaces W212's
-//! `Mutex<VecDeque<i16>>` ring, which ignored the core's reported sample
-//! rate entirely (wrong speed/pitch on any core/device rate mismatch) and
-//! locked inside the realtime callback. See
+//! The native-play audio chain (W270, polished in W274): core-rate i16
+//! batches are resampled (4-point Catmull-Rom interpolation, with dynamic
+//! rate control against ring fill) into a lock-free SPSC ring the cpal
+//! realtime callback drains — no locks, no allocation, no logging on the
+//! realtime path. Replaces W212's `Mutex<VecDeque<i16>>` ring, which ignored
+//! the core's reported sample rate entirely (wrong speed/pitch on any
+//! core/device rate mismatch) and locked inside the realtime callback. See
 //! docs/design/native-emulation-design.md §2.
 //!
 //! Thread topology: `cpal::Stream` is `!Send`, so the whole device side lives
@@ -34,8 +34,11 @@ const RING_CAPACITY_MS: u32 = 250;
 const TARGET_FILL_MS: u32 = 80;
 
 /// Proportional gain of the dynamic rate control: how strongly a fill error
-/// (as a fraction of the target) nudges the resampling ratio.
-const DRC_GAIN: f64 = 0.01;
+/// (as a fraction of the target) nudges the resampling ratio. RetroArch's
+/// default (`d` in its dynamic-rate-control paper); halved from W270's 0.01
+/// in W274 so the worst-case pitch-skew slope while converging stays below
+/// audibility on sustained tones.
+const DRC_GAIN: f64 = 0.005;
 
 /// Hard cap on the DRC rate skew (±0.5%) — inaudible as a pitch change, but
 /// enough to lock the core and device clocks together (the RetroArch model).
@@ -132,22 +135,48 @@ pub fn prefill_complete(fill: usize, target_fill: usize, waited: Duration) -> bo
     fill >= target_fill || waited >= PREFILL_TIMEOUT
 }
 
-/// Linear-interpolation stereo resampler: interleaved i16 core-rate batches
-/// in, interleaved ±1.0 f32 device-rate samples out. Keeps the fractional
-/// read position and the last frame across batches, so interpolation is
-/// continuous over the whole session (output lags input by one frame — the
-/// interpolation history). The per-push `skew` is the DRC nudge:
+/// Number of real input frames that must seed the history window before the
+/// resampler can interpolate (the segment endpoints `p1`, `p2`; each further
+/// input frame is the lookahead `p3`).
+const SEED_FRAMES: u8 = 2;
+
+/// 4-point Catmull-Rom (cubic Hermite) interpolation of the segment
+/// [`p1`, `p2`] at fractional position `t` ∈ [0, 1), with `p0`/`p3` as the
+/// outer control points. Evaluated in Horner form; at `t = 0` this is
+/// *exactly* `p1` (`0.5 * (2 * p1)` — both operations exact in binary
+/// floating point), which is what keeps identity-ratio passthrough
+/// bit-exact. Chosen over W270's linear interpolation because first-order
+/// roll-off/aliasing was audible on sustained NES square/triangle tones
+/// (W274; docs/design/native-emulation-design.md §2).
+fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let c1 = p2 - p0;
+    let c2 = 2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3;
+    let c3 = 3.0 * (p1 - p2) + p3 - p0;
+    0.5 * (2.0 * p1 + t * (c1 + t * (c2 + t * c3)))
+}
+
+/// Catmull-Rom stereo resampler (W274, upgraded from W270's linear): 4-point
+/// cubic interpolation of interleaved i16 core-rate batches into interleaved
+/// ±1.0 f32 device-rate samples. Keeps the fractional read position and a
+/// three-frame history window across batches, so interpolation is continuous
+/// over the whole session (output lags input by two frames — the
+/// interpolation history; the spline needs one frame of lookahead past the
+/// segment being rendered). Seeding replicates the first input frame into
+/// the older history slots so the spline's first segment starts flat instead
+/// of swinging through silence. The per-push `skew` is the DRC nudge:
 /// `effective_ratio = base_ratio * (1 + skew)`.
 pub struct StereoResampler {
     /// Output frames produced per input frame (device rate / core rate).
     base_ratio: f64,
-    /// Fractional position between `prev` and the next input frame, in [0, 1).
+    /// Fractional position within the segment [`history[1]`, `history[2]`],
+    /// in [0, 1).
     frac: f64,
-    /// The most recently consumed input frame, kept for cross-batch
-    /// interpolation continuity.
-    prev: [f32; 2],
-    /// False until the first input frame seeds `prev`.
-    primed: bool,
+    /// Sliding history window `[p0, p1, p2]`; the incoming input frame is the
+    /// spline's lookahead point `p3`. Kept across batches for continuity.
+    history: [[f32; 2]; 3],
+    /// How many real input frames have seeded `history`, saturating at
+    /// [`SEED_FRAMES`] (= fully primed).
+    seeded: u8,
 }
 
 impl StereoResampler {
@@ -163,40 +192,48 @@ impl StereoResampler {
         StereoResampler {
             base_ratio,
             frac: 0.0,
-            prev: [0.0; 2],
-            primed: false,
+            history: [[0.0; 2]; 3],
+            seeded: 0,
         }
     }
 
     /// Resamples one interleaved-stereo batch into `out` (cleared first; the
     /// caller reuses the Vec so steady state allocates nothing beyond the
-    /// first few calls' capacity growth).
+    /// first few calls' capacity growth). Splitting an input across calls
+    /// yields exactly the same output as one call — all interpolation state
+    /// lives on `self`.
     pub fn resample_into(&mut self, input: &[i16], skew: f64, out: &mut Vec<f32>) {
         out.clear();
         let frames = input.len() / STEREO;
-        if frames == 0 {
-            return;
-        }
         let ratio = self.base_ratio * (1.0 + skew);
         let step = if ratio > 0.0 { 1.0 / ratio } else { 1.0 };
-        let mut index = 0;
-        if !self.primed {
-            self.prev = Self::frame_at(input, 0);
-            self.primed = true;
-            self.frac = 0.0;
-            index = 1;
-        }
-        while index < frames {
+        for index in 0..frames {
             let cur = Self::frame_at(input, index);
-            while self.frac < 1.0 {
-                let t = self.frac as f32;
-                out.push(self.prev[0] + (cur[0] - self.prev[0]) * t);
-                out.push(self.prev[1] + (cur[1] - self.prev[1]) * t);
-                self.frac += step;
+            match self.seeded {
+                // Replicate-first-frame seeding: p0 = p1 = first frame, so
+                // the first rendered segment starts flat at the first real
+                // sample rather than swinging through silence.
+                0 => {
+                    self.history = [cur, cur, cur];
+                    self.seeded = 1;
+                    self.frac = 0.0;
+                }
+                1 => {
+                    self.history[2] = cur;
+                    self.seeded = SEED_FRAMES;
+                }
+                _ => {
+                    let [p0, p1, p2] = self.history;
+                    while self.frac < 1.0 {
+                        let t = self.frac as f32;
+                        out.push(catmull_rom(p0[0], p1[0], p2[0], cur[0], t));
+                        out.push(catmull_rom(p0[1], p1[1], p2[1], cur[1], t));
+                        self.frac += step;
+                    }
+                    self.frac -= 1.0;
+                    self.history = [p1, p2, cur];
+                }
             }
-            self.frac -= 1.0;
-            self.prev = cur;
-            index += 1;
         }
     }
 
@@ -523,21 +560,16 @@ mod tests {
         let mut out = Vec::new();
         // Frames f0..f3.
         rs.resample_into(&[10, -10, 20, -20, 30, -30, 40, -40], 0.0, &mut out);
-        // One-frame interpolation latency: f0..f2 come out of the first batch.
+        // Two-frame interpolation latency (segment endpoints + spline
+        // lookahead): f0..f1 come out of the first batch, bit-exact — the
+        // Catmull-Rom spline interpolates *through* its control points.
         assert_eq!(
             out,
-            vec![
-                norm(10),
-                norm(-10),
-                norm(20),
-                norm(-20),
-                norm(30),
-                norm(-30)
-            ]
+            vec![norm(10), norm(-10), norm(20), norm(-20)]
         );
-        // Frames f4..f5 — f3 (held) plus f4 emerge.
+        // Frames f4..f5 — f2 and f3 (held as history) emerge.
         rs.resample_into(&[50, -50, 60, -60], 0.0, &mut out);
-        assert_eq!(out, vec![norm(40), norm(-40), norm(50), norm(-50)]);
+        assert_eq!(out, vec![norm(30), norm(-30), norm(40), norm(-40)]);
     }
 
     #[test]
@@ -547,7 +579,9 @@ mod tests {
         // Frames f0..f7, mono-ish values on both channels for readability.
         let input: Vec<i16> = (0..8).flat_map(|f| [f * 100, f * 100]).collect();
         rs.resample_into(&input, 0.0, &mut out);
-        let expected: Vec<f32> = [0, 2, 4, 6]
+        // Two seed frames, then every other segment start: f0, f2, f4 (f6 is
+        // still held as interpolation history).
+        let expected: Vec<f32> = [0, 2, 4]
             .iter()
             .flat_map(|&f| [norm(f * 100), norm(f * 100)])
             .collect();
@@ -558,7 +592,7 @@ mod tests {
     fn positive_skew_produces_more_output_frames() {
         let mut rs = StereoResampler::new(48_000.0, 48_000.0);
         let mut out = Vec::new();
-        let input = vec![0i16; 1001 * STEREO]; // 1000 frames after priming
+        let input = vec![0i16; 1002 * STEREO]; // 1000 segments after seeding
         rs.resample_into(&input, MAX_SKEW, &mut out);
         let out_frames = out.len() / STEREO;
         // ~1000 * 1.005 = ~1005 output frames.
@@ -572,7 +606,7 @@ mod tests {
     fn negative_skew_produces_fewer_output_frames() {
         let mut rs = StereoResampler::new(48_000.0, 48_000.0);
         let mut out = Vec::new();
-        let input = vec![0i16; 1001 * STEREO];
+        let input = vec![0i16; 1002 * STEREO]; // 1000 segments after seeding
         rs.resample_into(&input, -MAX_SKEW, &mut out);
         let out_frames = out.len() / STEREO;
         assert!(
@@ -581,28 +615,56 @@ mod tests {
         );
     }
 
+    /// Catmull-Rom reproduces any locally-linear signal exactly (a cubic
+    /// through collinear control points is the line itself), so a 1:2
+    /// upsample of a ramp must yield the ramp's exact integer points and
+    /// exact midpoints wherever all four control points sit on the ramp.
     #[test]
-    fn upsampling_interpolates_midpoints_between_frames() {
+    fn upsampling_a_linear_ramp_yields_exact_midpoints() {
         let mut rs = StereoResampler::new(24_000.0, 48_000.0); // 1:2
         let mut out = Vec::new();
-        rs.resample_into(&[0, 0, 100, -100, 200, -200], 0.0, &mut out);
-        // f0, midpoint(f0,f1), f1, midpoint(f1,f2), ... — approximate
-        // comparison because lerp arithmetic and direct normalization may
-        // differ in the last ulp.
-        let expected = [
-            norm(0),
-            norm(0),
-            norm(50),
-            norm(-50),
-            norm(100),
-            norm(-100),
-            norm(150),
-            norm(-150),
-        ];
-        assert_eq!(out.len(), expected.len());
-        for (got, want) in out.iter().zip(expected) {
+        // Ramp frames f0..f6: L = i*100, R = -i*100.
+        let input: Vec<i16> = (0..7).flat_map(|i| [i * 100, -i * 100]).collect();
+        rs.resample_into(&input, 0.0, &mut out);
+        // Five segments render (two seed frames), two outputs each (t = 0,
+        // t = 0.5). Segment 0's p0 is the replicated seed frame (off-ramp),
+        // so its midpoint is excluded from the exactness property; its t = 0
+        // output is still exactly f0.
+        assert_eq!(out.len(), 5 * 2 * STEREO);
+        assert_eq!(out[0], norm(0));
+        assert_eq!(out[1], norm(0));
+        // Segments 1..4 have all four control points on the ramp: outputs
+        // are the exact ramp values 100, 150, 200, 250, ... (approximate
+        // comparison only for float-rounding in the last ulp).
+        let expected: Vec<f32> = (0..8)
+            .flat_map(|k| {
+                let v = 100.0 + 50.0 * k as f32;
+                [v / I16_FULL_SCALE, -v / I16_FULL_SCALE]
+            })
+            .collect();
+        for (got, want) in out[2 * STEREO..].iter().zip(expected) {
             assert!((got - want).abs() < 1e-6, "got {got}, want {want}");
         }
+    }
+
+    /// All interpolation state (history window + fractional position) lives
+    /// on the resampler, so splitting one input into two pushes must yield
+    /// exactly the same output as pushing it whole (cross-batch continuity).
+    #[test]
+    fn splitting_a_batch_across_pushes_yields_identical_output() {
+        let input: Vec<i16> = (0..64i16)
+            .flat_map(|i| [i.wrapping_mul(517) % 1000, i.wrapping_mul(311) % 1000])
+            .collect();
+        let mut whole = Vec::new();
+        StereoResampler::new(44_100.0, 48_000.0).resample_into(&input, 0.0, &mut whole);
+
+        let mut rs = StereoResampler::new(44_100.0, 48_000.0);
+        let mut split = Vec::new();
+        let mut tail = Vec::new();
+        rs.resample_into(&input[..10 * STEREO], 0.0, &mut split);
+        rs.resample_into(&input[10 * STEREO..], 0.0, &mut tail);
+        split.extend_from_slice(&tail);
+        assert_eq!(split, whole);
     }
 
     #[test]
@@ -610,7 +672,7 @@ mod tests {
         for (core, device) in [(0.0, 48_000.0), (-1.0, 48_000.0), (44_100.0, 0.0)] {
             let mut rs = StereoResampler::new(core, device);
             let mut out = Vec::new();
-            rs.resample_into(&[10, -10, 20, -20], 0.0, &mut out);
+            rs.resample_into(&[10, -10, 20, -20, 30, -30], 0.0, &mut out);
             assert_eq!(out, vec![norm(10), norm(-10)], "rates {core}/{device}");
         }
     }
@@ -646,6 +708,9 @@ mod tests {
 
     #[test]
     fn drc_skew_clamps_at_the_maximum_in_both_directions() {
+        // At the RetroArch-default gain (0.005 = MAX_SKEW) a fully-empty
+        // ring lands exactly on the positive clamp; a huge overfill error
+        // still clamps at the negative rail.
         assert_eq!(rate_control_skew(0, 1000), MAX_SKEW);
         assert_eq!(rate_control_skew(1_000_000, 1000), -MAX_SKEW);
     }

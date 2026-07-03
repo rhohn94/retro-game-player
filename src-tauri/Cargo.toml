@@ -46,6 +46,11 @@ tauri-plugin-dialog = "2"                                 # v0.12 (native file p
 walkdir = "2"                                              # W6 (recursive folder walker)
 zip = { version = "2", default-features = false, features = ["deflate"] } # W5 (core archive unzip)
 
+# macOS-only: the core thread's QoS elevation (W274 stretch) is a Darwin
+# scheduler concept, cfg-gated in play::native::runtime.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"                                               # W274 (pthread_set_qos_class_self_np core-thread QoS)
+
 [dev-dependencies]
 tempfile = "3"                                             # W8 (test helpers)
 
