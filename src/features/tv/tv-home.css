@@ -17,6 +17,10 @@
      vertically-scrolling rail stack. The rail region owns the scroll so the
      hero stays pinned as a cinematic backdrop for the focused game. */
   .rgp-tv-home {
+    /* Positioned so the absolutely-positioned exit-confirm toast (below) anchors
+       to the HOME, not to whatever positioned ancestor happens to be nearest —
+       the toast is a home affordance and should sit at the home's bottom edge. */
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
