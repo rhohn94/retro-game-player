@@ -117,7 +117,7 @@ feature including attract: → sequenced.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.27 |
 |---|---|---|---|---|
-| `feat/w273-tv-hover-attract` (W273) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w273-tv-hover-attract` (W273) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
