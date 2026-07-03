@@ -237,3 +237,75 @@ loopback server still needs **no COOP/COEP headers** and no
   (Settings → Playback toggle). Window `blur` freezes the game
   (`set_native_paused` / `harmony-pause`) unless the overlay already owns
   the pause; `focus` resumes only what blur paused.
+
+## 9. Warm-then-reset audio warmup (v0.27.1, W276)
+
+**The defect.** A fresh `AudioContext` produces ~2–3 s of garbled samples on
+every EmulatorJS boot while the WASM JIT warms, the core finishes init, and
+RetroArch's resampler converges. v0.21 "Bedrock" fixed this at the root for
+NES by hosting it natively, but the EJS path remains the primary in-page
+player for the 7 v0.24 systems (SNES, Genesis, Master System, N64, PS1,
+Atari 2600, PC Engine) and the automatic NES fallback — so every EJS boot
+still garbled.
+
+**Three historical approaches** (`fix/audio-warmup`, 2026-06-29), forward-
+ported here from the final commit (`2ecf102`) — the branch predates the v0.23
+save bridge and W243 volume/rewind bridge, so this was a re-port, not a merge:
+
+1. *Master-gain fade-in* (`1379ac4`) — rejected: a fade long enough to mask
+   the garble swallows the boot jingle, violating the boot-with-sound retro
+   vibe (a hard product requirement — never a muted or vibe-less boot).
+2. *Larger audio buffer / `latencyHint`* (`14710e4`) — rejected: the samples
+   themselves are wrong during cold-start; buffering them differently just
+   plays the same garble later.
+3. ***Warm-then-reset*** (`2ecf102`, shipped here) — boot once muted and
+   covered to pay the cold-start cost, then reset the emulator and reveal:
+   the boot the user sees and hears replays clean from power-on, preserving
+   the boot screen + jingle.
+
+**Shim contract** (`player.html`, its own `<script>` before the boot script).
+Wraps `AudioContext`/`webkitAudioContext`; every wrapped context gets a
+per-context master `GainNode` (`ctx.__harmonyMaster`) spliced in by rerouting
+`connect(ctx.destination)` through it (`disconnect` handled symmetrically).
+The master starts at gain 0 (or 1 for contexts created after reveal).
+`window.__harmonyRevealAudio()` fades all masters up with a 0.25 s
+exponential ramp. Every wrapper is defensive: any failure leaves native
+audio untouched.
+
+**Orchestration contract** (main IIFE, after the loader append). A black
+`#warmup-cover` div ("Warming up…", also the DOM marker for the smoke
+inspect) covers the frame. `WARMUP_MS = 3000` is timed from the emulator's
+one-shot `start` event (fallback: instance-appearance polling if `.on` is
+absent); then `gameManager.restart()` (fallback `em.restart()`), then reveal
+(fade audio up + fade the cover out). If the reset throws, reveal anyway.
+`MAX_WAIT_MS = 25000` is an unconditional reveal safety net — the page can
+never stay muted/covered forever; a reset deferred past it becomes a no-op
+(never reset a game the user can already see).
+
+**Interaction seams (new since the historical branch):**
+
+- **Save bridge (v0.23 W231):** the post-reset boot re-fires `start`, so the
+  save-bridge wiring (`restoreSram` + SRAM flush interval + pending-volume
+  apply) carries a one-shot `wired` guard, exactly like the warmup's own
+  `start` listener. SRAM restored before the reset survives it — a reset
+  preserves the core's SRAM region (that is what battery saves are).
+- **Pause (v0.15 overlay / W243 pause-on-blur):** the message bridge tracks
+  `paused` from `harmony-pause`/`harmony-resume`; a warm timer firing while
+  paused defers the reset+reveal to the next resume, so the reveal never
+  presents a paused, still-garbled frame. (The `MAX_WAIT_MS` net still
+  reveals unconditionally.)
+- **Volume (W243):** no change needed — verified by reading the flow:
+  `EJS_emulator.setVolume` writes the per-source OpenAL gain nodes
+  (`Module.AL.currentCtx.sources[].gain`), which sit upstream of the terminal
+  `connect(ctx.destination)` the shim reroutes. The two gains are in series
+  and multiply, so they compose: muted warmup wins regardless of user volume
+  (0 × v = 0), and after reveal the user volume applies unchanged.
+
+**Accepted cost:** every EJS boot takes ~3 s longer, spent behind the
+"Warming up…" cover. Recorded refinement (release plan §4): adaptively
+shortening the window by measuring the garble, if 3 s proves annoying.
+
+**Coverage:** no JS test rig exists for `player.html`; the automated coverage
+is the `server.rs` route test asserting the served page contains
+`__harmonyMaster`, plus the runtime smoke. The logic is kept defensively
+simple for that reason.
