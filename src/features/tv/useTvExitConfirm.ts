@@ -16,6 +16,11 @@ export interface TvExitConfirm {
   /** Handle a `back` press: arms the confirm on the first press, calls `onExit`
    * on the second press within the window. */
   requestExit: () => void;
+  /** Disarm an armed confirm without exiting (W275). Called when the user does
+   * something that supersedes the exit intent — launching a game — so a
+   * pre-launch `back` can never leave TV mode one press from silently exiting
+   * after a quick play-and-return inside the confirm window. */
+  cancel: () => void;
 }
 
 /**
@@ -38,11 +43,13 @@ export function useTvExitConfirm(onExit: () => void): TvExitConfirm {
     });
   }, []);
 
+  const cancel = useCallback(() => setConfirming(false), []);
+
   useEffect(() => {
     if (!confirming) return;
     const timer = window.setTimeout(() => setConfirming(false), EXIT_CONFIRM_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [confirming]);
 
-  return { confirming, requestExit };
+  return { confirming, requestExit, cancel };
 }

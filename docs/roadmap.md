@@ -7,7 +7,10 @@ it manages a local game library with cover art and metadata across 20 classic
 consoles, discovers and links (never downloads) game sources, and **plays
 games in-page** — an embedded EmulatorJS core or a natively-hosted libretro
 core, with external RetroArch as the fallback for everything else. It ships
-**no** game content — it scans folders the user provides. One `## vX.Y`
+**no** game content — it scans folders the user provides. Long-term, RGP's
+ambition extends past retro: a frontend for **all** games on the system,
+including Windows titles via CrossOver (see
+[Horizon](#horizon--the-universal-frontend-ambition-unscheduled)). One `## vX.Y`
 section per planned release; the integration master uses this file as the
 primary input to `grm-release-planning`.
 
@@ -18,6 +21,16 @@ works toward that in order of what hurts most today: progress is never lost →
 every game plays inside Retro Game Player, fast → the library feels like
 *yours* → the couch/TV experience → authentic retro presentation →
 distribution to the world.
+
+**Ambition rings (user-directed 2026-07-03):** the retro core is ring one,
+not the ceiling. **Ring two — every game on the system:** non-retro titles
+(Steam, GOG, bare `.app` bundles, …) join the same library, shelves,
+controller-first TV mode, and launch flow, making RGP the frontend for *all*
+games on the Mac. **Ring three — Windows games via CrossOver:** RGP
+integrates with [CrossOver](https://www.codeweavers.com/crossover) to make
+running Windows games on macOS easy, with RGP as the friendly frontend.
+Neither ring is scheduled yet — see [Horizon](#horizon--the-universal-frontend-ambition-unscheduled)
+below; the retro north star stays the near-term priority.
 Gap analysis of record: issues
 [#16](https://github.com/rhohn94/harmony/issues/16)–[#29](https://github.com/rhohn94/harmony/issues/29)
 (filed 2026-07-01) plus the standing TV epic
@@ -130,12 +143,21 @@ Plan: [`release-planning-v0.26.md`](release-planning/release-planning-v0.26.md).
 
 ---
 
-## v0.27 / v0.28 — absorbed into v0.26 Theater
+## v0.27 — Immersion (released — see version-history.md)
 
-The former v0.27 "Theater" (leanback structure) and v0.28 "Marquee"
-(art-forward shelves) were pulled forward wholesale into v0.26 by user
-direction; see the v0.26 entry above. Next planned versions remain v0.29
-Craft and v0.30 Passport.
+**Theme:** Make playing a game in TV mode actually feel like a console —
+driven by the 2026-07-03 couch playtest. Fullscreen takeover play (kill the
+desktop "porthole" card), watertight controller-input scoping (a layered
+exclusive-claim stack), the 5-second hover-attract live preview (strictly
+no-trace), native-audio polish + persisted perf telemetry, and a full
+25-seam TV-mode gap audit with 11 fixes.
+
+(The version numbers v0.27/v0.28 were originally absorbed into v0.26
+Theater — the former v0.27 "Theater" and v0.28 "Marquee" scopes shipped
+there; this v0.27 is a new scope. v0.28 stays retired; next planned versions
+remain v0.29 Craft and v0.30 Passport.)
+
+Plan: [`release-planning-v0.27.md`](release-planning/release-planning-v0.27.md).
 
 ---
 
@@ -160,6 +182,59 @@ Craft and v0.30 Passport.
   ([#27](https://github.com/rhohn94/harmony/issues/27)).
 - License follow-through if not already closed in v0.23
   ([#26](https://github.com/rhohn94/harmony/issues/26)).
+
+---
+
+## Horizon — the universal-frontend ambition (unscheduled)
+
+> Scope directive (2026-07-03): *"Expand scope and ambition of this project to
+> include playing NON retro games via the frontend interface. In the distant
+> future, it will be usable as a frontend for all games on the system. In the
+> future, it will support interacting with CrossOver to make it easy to run
+> Windows games on MacOS by using RGP as the frontend."*
+
+Two staged epics, H1 before H2 (H2's CrossOver entries are a
+launcher/source pairing built on H1's abstractions). Earliest realistic slot
+is after v0.30 Passport; each gets a real design doc + release plan when
+scheduled. Everything the app already does for retro games — art-forward
+shelves, TV mode, controller-first navigation, play-session tracking — is
+the product surface these epics plug new game *sources* and *launchers* into.
+
+### H1 — Non-retro games in the library (frontend for everything installed)
+
+- **Pluggable game sources** beyond the ROM scanner: discover installed
+  titles from Steam (appmanifests under
+  `~/Library/Application Support/Steam/steamapps`), `/Applications` `.app`
+  scanning with game heuristics, GOG/itch installs; user-added manual
+  entries as the escape hatch.
+- **Launcher abstraction:** generalize the existing external-launch play
+  path (today RetroArch-only) into a per-game launch descriptor —
+  `open -a`, `steam://rungameid/<id>` URL schemes, custom exec + args —
+  same detail page and TV launch flow, with play-session start/stop tracked
+  by app-focus observation instead of process exit where needed.
+- **Library model:** `games` rows without a ROM hash — nullable
+  hash/system, plus source + launch-descriptor columns; shelves, filtering,
+  favorites, and play-time treat non-retro entries as first-class.
+- **Art & metadata for non-retro titles:** Steam CDN header/hero art maps
+  naturally onto the TV shelves; SteamGridDB is the candidate for
+  everything else.
+- **Non-goals:** storefront purchases, install/uninstall management,
+  in-page play for native titles (they launch externally by definition).
+
+### H2 — CrossOver integration (Windows games on macOS)
+
+- **Detection & enumeration:** find a CrossOver install, enumerate its
+  **bottles** and each bottle's installed Windows applications (bottle
+  metadata / CrossOver CLI), and surface them as library entries.
+- **Launch:** one click / controller press from the shelves runs the
+  Windows title through CrossOver's CLI — the TV couch flow, for Windows
+  games.
+- **Ease-of-use flow:** a guided "run a Windows game" path — pick an
+  installer or `.exe` → choose/create a bottle → the game appears in the
+  library. RGP as the friendly face of CrossOver.
+- **Boundary:** RGP orchestrates CrossOver; it never ships, patches, or
+  configures Wine itself. CrossOver stays a user-installed prerequisite,
+  exactly like RetroArch today.
 
 ---
 

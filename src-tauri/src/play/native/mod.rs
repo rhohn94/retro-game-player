@@ -13,6 +13,7 @@ mod core_path;
 mod ffi;
 mod frame;
 mod host;
+mod perf_file;
 mod runtime;
 
 pub use callbacks::{

@@ -10,6 +10,24 @@
 // the core (set_native_paused) and releases input so nothing sticks. The
 // runtime switch that decides whether to mount this or InPagePlayer is
 // PlaySwitch.tsx (W215).
+//
+// v0.27 W272: while mounted foreground (or in the TV takeover) this player
+// owns the controller's exclusive slot via the shared scope
+// (useExclusiveControllerScope) — previously it never claimed the slot, so
+// the base spatial engine stayed live underneath (on the TV home, PS ✕ =
+// `confirm` could activate the focused tile and launch a DIFFERENT game
+// mid-play). `menu` summons the overlay and the controller drives it; game
+// buttons keep flowing via the raw gamepad poll below, never via semantic
+// actions.
+//
+// v0.27 W273: the "preview" presentation is the TV hover-attract spectator
+// surface (tv-mode-design.md §v0.27 → W273). Like "background" it detaches
+// ALL input (keyboard + gamepad poll — the page keeps the controller) and
+// ducks audio to the attract gain; unlike it the SESSION itself is pure: no
+// library-life play-session record (usePlaySession disabled via
+// presentationRecordsPlaySession), the backend session starts save-less
+// (`preview: true` → saves: None, no perf log), and the render is a bare
+// canvas — no Continue button, no chip bar, no overlay affordances.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -29,9 +47,16 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
+import {
+  playerShellClass,
+  presentationIsSpectator,
+  presentationRecordsPlaySession,
+  type PlayerPresentation,
+} from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
 import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
+import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
 
 /** Ducked audio gain while the game plays as the page background (W235). */
@@ -40,10 +65,17 @@ const ATTRACT_GAIN = 0.3;
 export interface NativePlayerProps {
   gameId: number;
   gameName: string;
-  /** W235 attract mode: "background" re-presents the live canvas as a
-   * dimmed, full-bleed page backdrop — input detaches, audio ducks, the
-   * session keeps running. Default "foreground" (the interactive player). */
-  presentation?: "foreground" | "background";
+  /** How the player is presented (presentation.ts). "background" (W235
+   * attract) re-presents the live canvas as a dimmed, full-bleed page
+   * backdrop — input detaches, audio ducks, the session keeps running, and
+   * the page keeps the controller. "takeover" (v0.27 W272) is the TV
+   * fullscreen surface — edge-to-edge fill, controller owned like
+   * foreground. "preview" (v0.27 W273) is the TV hover-attract spectator
+   * surface — a no-trace session (no play record, no saves), input fully
+   * detached, audio ducked, bare canvas only; a mount is preview for its
+   * whole life (the TV home keys the mount to the dwelt game). Default
+   * "foreground" (the interactive detail-page player). */
+  presentation?: PlayerPresentation;
   /** Called once if the native session fails to start — the caller (the
    * runtime-switch component, W215) decides what to do (typically: fall
    * back to InPagePlayer rather than show an error state). */
@@ -67,18 +99,24 @@ export function NativePlayer({
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
 
+  // W273: a preview session is a no-trace spectator session end-to-end —
+  // `preview` gates the backend save wiring (below) and the play-session
+  // record; `spectator` (background OR preview) gates input + the audio duck.
+  const preview = presentation === "preview";
+  const spectator = presentationIsSpectator(presentation);
+
   // Library-life play-session tracking (v0.26 W264): brackets the native
   // session's start/stop lifetime (the effect below re-subscribes per
-  // `gameId` only — matching this hook's own dependency).
-  usePlaySession(gameId);
+  // `gameId`/`preview` only — matching this hook's own dependencies).
+  // Disabled for previews (W273 purity: no play count / recency / play-time).
+  usePlaySession(gameId, presentationRecordsPlaySession(presentation));
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.
   const overlayOpenRef = useRef(overlayOpen);
   overlayOpenRef.current = overlayOpen;
-  const backgrounded = presentation === "background";
-  const backgroundedRef = useRef(backgrounded);
-  backgroundedRef.current = backgrounded;
+  const spectatorRef = useRef(spectator);
+  spectatorRef.current = spectator;
 
   // Player prefs (W243): the persisted volume feeds the effective gain
   // below; pause-on-blur is read by the window blur/focus handlers.
@@ -87,35 +125,45 @@ export function NativePlayer({
   pauseOnBlurRef.current = prefs.pauseOnBlur;
 
   // One place computes what the core should output: the user's volume,
-  // ducked while the game plays as the page background (W235). Re-applied
-  // whenever either input changes and after a session (re)starts.
-  const effectiveGain = prefs.volume * (backgrounded ? ATTRACT_GAIN : 1);
+  // ducked while the game plays as a spectator surface — the W235 page
+  // background and the W273 TV preview share the same attract gain.
+  // Re-applied whenever either input changes and after a session (re)starts.
+  const effectiveGain = prefs.volume * (spectator ? ATTRACT_GAIN : 1);
   const effectiveGainRef = useRef(effectiveGain);
   effectiveGainRef.current = effectiveGain;
   useEffect(() => {
     void setNativeVolume(effectiveGain).catch(() => undefined);
   }, [effectiveGain]);
 
-  // Attract transitions (W235): release every held button exactly once at
-  // the handoff (nothing sticks). The core keeps running throughout — no
-  // reboot; the gain effect above handles the duck/restore.
+  // Spectator transitions (W235 attract; W273 preview from mount): release
+  // every held button exactly once at the handoff (nothing sticks). The core
+  // keeps running throughout — no reboot; the gain effect above handles the
+  // duck/restore.
   useEffect(() => {
-    if (backgrounded) {
-      setOverlayOpen(false); // attract shows the running game, never a menu
+    if (spectator) {
+      setOverlayOpen(false); // a spectator shows the running game, never a menu
       void setNativePaused(false).catch(() => undefined);
       void setNativeInput(0).catch(() => undefined);
     }
-  }, [backgrounded]);
+  }, [spectator]);
 
   const openOverlay = useCallback(() => {
     setSelection(0);
     setOverlayOpen(true);
+    // Eagerly mirror into the ref BEFORE dispatching the input release: the
+    // state commit lands a frame later, and this player's raw input poll can
+    // tick in the SAME frame the controller dispatched `menu` — with a stale
+    // ref it re-sent the held bits (Start shares its physical button with
+    // `menu`), stomping the release-to-zero below and leaking a one-frame
+    // Start press to the core (W275).
+    overlayOpenRef.current = true;
     void setNativeInput(0).catch(() => undefined); // release held buttons
     void setNativePaused(true).catch(() => undefined);
   }, []);
 
   const closeOverlay = useCallback(() => {
     setOverlayOpen(false);
+    overlayOpenRef.current = false; // eager mirror — see openOverlay
     void setNativePaused(false).catch(() => undefined);
   }, []);
 
@@ -131,10 +179,13 @@ export function NativePlayer({
 
   // "Continue" (W232): if a state this path wrote exists (the exit auto-save
   // or a manual slot), offer to restore the newest one into the running,
-  // freshly-booted session. Dismisses itself once used.
+  // freshly-booted session. Dismisses itself once used. A preview renders no
+  // Continue affordance and must not touch saves at all (W273 purity), so it
+  // skips even this read.
   const [continueTarget, setContinueTarget] = useState<SaveSlot | null>(null);
   useCancellableEffect(
     (isCancelled) => {
+      if (preview) return;
       listGameSaves(gameId)
         .then((saves) => {
           if (isCancelled()) return;
@@ -142,7 +193,7 @@ export function NativePlayer({
         })
         .catch(() => undefined);
     },
-    [gameId],
+    [gameId, preview],
   );
   const onContinue = useCallback(() => {
     const slot = continueTarget;
@@ -179,6 +230,22 @@ export function NativePlayer({
     if (overlayOpen) resetView();
   }, [overlayOpen, resetView]); // resetView is a stable callback
 
+  // Own the controller's exclusive slot while foreground/takeover (W272 — see
+  // file header). `ready` is unconditionally true: the native session boots on
+  // mount, and holding the slot for the whole foreground mount means nothing
+  // leaks to the page beneath even during the boot frames. Backgrounded
+  // (attract) sessions leave the slot free — the page owns the controller.
+  useExclusiveControllerScope({
+    presentation,
+    ready: true,
+    overlayOpen,
+    items,
+    selection,
+    setSelection,
+    openOverlay,
+    closeOverlay,
+  });
+
   useEffect(() => {
     let cancelled = false;
     let frameHandle = 0;
@@ -186,9 +253,10 @@ export function NativePlayer({
     let lastSentBits = -1; // -1 never matches a real bitmask, so the first tick always sends
 
     const onKeyDown = (e: KeyboardEvent) => {
-      // Backgrounded (attract mode): the page owns the keyboard entirely —
-      // no capture, no preventDefault (arrows/space must scroll), no overlay.
-      if (backgroundedRef.current) return;
+      // Spectator (attract background / TV preview): the page owns the
+      // keyboard entirely — no capture, no preventDefault (arrows/space must
+      // scroll), no overlay.
+      if (spectatorRef.current) return;
       if (e.key === "Escape") {
         e.preventDefault();
         if (overlayOpenRef.current) closeOverlay();
@@ -217,7 +285,7 @@ export function NativePlayer({
       heldKeys.add(e.code);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (backgroundedRef.current || overlayOpenRef.current) return;
+      if (spectatorRef.current || overlayOpenRef.current) return;
       if (!isBoundKey(e.code)) return;
       e.preventDefault();
       heldKeys.delete(e.code);
@@ -245,8 +313,8 @@ export function NativePlayer({
     window.addEventListener("focus", onFocus);
 
     const pollInput = () => {
-      // Paused behind the overlay or backgrounded — nothing reaches the core.
-      if (overlayOpenRef.current || backgroundedRef.current) return;
+      // Paused behind the overlay or spectating — nothing reaches the core.
+      if (overlayOpenRef.current || spectatorRef.current) return;
       const gamepad = navigator.getGamepads?.()[0] ?? null;
       const bits = computeJoypadBits(heldKeys, gamepad);
       if (bits !== lastSentBits) {
@@ -288,7 +356,9 @@ export function NativePlayer({
         });
     };
 
-    startNativePlay(gameId)
+    // W273: a preview session starts with NO save wiring and NO perf log
+    // backend-side — booting it can never disturb a real session's traces.
+    startNativePlay(gameId, { preview })
       .then(() => {
         if (cancelled) return;
         // A fresh session starts at gain 1.0 backend-side — re-apply the
@@ -310,38 +380,51 @@ export function NativePlayer({
       void setNativeInput(0).catch(() => undefined); // release all buttons before tearing down
       void stopNativePlay();
     };
-  }, [gameId]); // intentionally re-subscribes per gameId only — open/close callbacks are stable
+    // Intentionally re-subscribes per gameId/preview only (open/close
+    // callbacks are stable): flipping into or out of "preview" must reboot
+    // the session, since save wiring is fixed at session start — a save-less
+    // preview core can never silently become the user's persisted session.
+    // Foreground<->background attract flips keep `preview` constant, so the
+    // W235 handoff still never reboots.
+  }, [gameId, preview]);
 
+  // W273: a preview is a pure spectator surface — the bare canvas only. No
+  // Continue button, no chip bar, no overlay (the overlay could save/load
+  // state, which a no-trace session must never offer).
   return (
-    <div className={backgrounded ? "rgp-player rgp-player--attract" : "rgp-player"}>
+    <div className={playerShellClass(presentation)}>
       <div className="rgp-player__frame">
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
-      <div className="rgp-player__bar">
-        {continueTarget && (
-          <button type="button" className="rgp-player__fs" onClick={onContinue}>
-            ⟳ Continue
+      {!preview && (
+        <div className="rgp-player__bar">
+          {continueTarget && (
+            <button type="button" className="rgp-player__fs" onClick={onContinue}>
+              ⟳ Continue
+            </button>
+          )}
+          <button type="button" className="rgp-player__fs" onClick={openOverlay}>
+            ☰ Menu
           </button>
-        )}
-        <button type="button" className="rgp-player__fs" onClick={openOverlay}>
-          ☰ Menu
-        </button>
-        <button type="button" className="rgp-player__fs" onClick={exitGame}>
-          ✕ Exit
-        </button>
-      </div>
+          <button type="button" className="rgp-player__fs" onClick={exitGame}>
+            ✕ Exit
+          </button>
+        </div>
+      )}
 
-      <PlayerOverlay
-        gameName={gameName}
-        open={overlayOpen}
-        items={items}
-        selection={selection}
-        setSelection={setSelection}
-        onScrimClick={closeOverlay}
-        status={status}
-        hint="Esc or ☰ to toggle"
-        volume={{ value: prefs.volume, onChange: prefs.setVolume }}
-      />
+      {!preview && (
+        <PlayerOverlay
+          gameName={gameName}
+          open={overlayOpen}
+          items={items}
+          selection={selection}
+          setSelection={setSelection}
+          onScrimClick={closeOverlay}
+          status={status}
+          hint="Esc or ☰ to toggle"
+          volume={{ value: prefs.volume, onChange: prefs.setVolume }}
+        />
+      )}
     </div>
   );
 }

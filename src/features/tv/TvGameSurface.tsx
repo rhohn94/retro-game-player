@@ -27,7 +27,7 @@
 // the same honesty the desktop external path shows, dressed for the couch.
 
 import { motion, useReducedMotion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Game } from "../../ipc/library";
 import { launchGame } from "../../ipc/launch";
 import { DUR, EASE_OUT } from "../../lib/motion"; // cover expand/collapse timing
@@ -98,10 +98,15 @@ function coverTarget(rect: TileRect | null, phase: string) {
 
 /**
  * The fullscreen game takeover surface. Owns the expand/reveal/collapse
- * animation and mounts the correct player underneath. The player itself installs
- * the controller's exclusive handler (in-page / native) so the PlayerOverlay and
- * its menu/back → Resume/Save/Load/Exit work unchanged on top; this surface only
- * wires exit for the EXTERNAL path (which has no player to trap the controller).
+ * animation and mounts the correct player underneath in the "takeover"
+ * presentation (v0.27 W272): the player fills the surface edge-to-edge (no
+ * desktop 760px card, no chip bar — the PlayerOverlay is the sole in-game
+ * menu here) and owns the controller's exclusive slot via the shared scope
+ * (useExclusiveControllerScope) — `menu` summons the overlay, every other
+ * semantic action is swallowed, so nothing reaches the still-mounted home
+ * underneath. This surface additionally claims a swallow-all FALLBACK beneath
+ * the player's claim (W275) so the boot/swap/get-core/external windows where
+ * no player owns the slot still never leak to the home.
  */
 export function TvGameSurface({ game, originRect, onExited }: TvGameSurfaceProps) {
   const reducedMotion = useReducedMotion() ?? false;
@@ -140,27 +145,40 @@ export function TvGameSurface({ game, originRect, onExited }: TvGameSurfaceProps
     setState((s) => beginCollapse(s));
   }, []);
 
-  // The external surface has no player owning the controller, so THIS surface
-  // installs an exclusive handler for it. The external surface's ONLY affordance
-  // is "Return to library", so confirm/back/menu all map to returning — the
-  // exclusive handler bypasses the base spatial engine entirely, so confirm must
-  // be handled here explicitly (it would otherwise never reach the Return
-  // button's activation). In-page/native players install their own exclusive
-  // handler (their overlay), superseding any handler here, so we only wire one
-  // for the external path.
-  const { setExclusiveHandler } = useController();
+  // Surface-level exclusive-controller FALLBACK for EVERY play path (W275).
+  // The mounted player claims the slot itself as a gameplay owner (the shared
+  // exclusive-controller scope, W272), but there are honest windows where no
+  // player claim exists: the in-page player before its play origin resolves,
+  // the native→in-page failure swap, the GetCorePanel path (which mounts no
+  // player at all), and the external path (no player by design). Without a
+  // fallback those windows dropped to the base spatial engine over the
+  // still-mounted home — the original W272 leak resurfacing. This claim
+  // covers the surface's WHOLE life: `back` collapses the takeover (and for
+  // external — whose only affordance is Return — confirm/menu do too); every
+  // other action is swallowed so nothing reaches the home underneath.
+  //
+  // Ordering matters: this is a LAYOUT effect so it claims before any player's
+  // passive-effect claim in the same commit, keeping the player on TOP of the
+  // stack (layout effects all run before passive effects; releases are
+  // identity-based, so no ordering can pop the wrong owner — exclusiveStack).
+  const { claimExclusive } = useController();
   const requestExitRef = useRef(requestExit);
   requestExitRef.current = requestExit;
-  useEffect(() => {
-    if (!isExternal) return;
+  useLayoutEffect(() => {
     const handler = (action: SemanticAction) => {
-      if (action === "confirm" || action === "back" || action === "menu") {
-        requestExitRef.current();
+      if (isExternal) {
+        // Return-to-library is the external surface's single affordance.
+        if (action === "confirm" || action === "back" || action === "menu") {
+          requestExitRef.current();
+        }
+        return;
       }
+      // In-page/native boot gap or the get-core panel: back backs out of the
+      // takeover; everything else is deliberately eaten.
+      if (action === "back") requestExitRef.current();
     };
-    setExclusiveHandler(handler);
-    return () => setExclusiveHandler(null);
-  }, [isExternal, setExclusiveHandler]);
+    return claimExclusive(handler, "ui");
+  }, [isExternal, claimExclusive]);
 
   // The cover's from-state (initial): the tile rect it grows out of (so the very
   // first paint is anchored to the tile the user launched from), or the filled
@@ -207,6 +225,7 @@ export function TvGameSurface({ game, originRect, onExited }: TvGameSurfaceProps
             gameId={game.id}
             system={game.system}
             gameName={game.cleanName}
+            presentation="takeover"
             onExit={requestExit}
           />
         )}

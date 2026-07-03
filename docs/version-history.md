@@ -7,6 +7,41 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.27 — Immersion (2026-07-03)
+
+Playing a game in TV mode now actually feels like a console — driven end to
+end by a real couch playtest.
+
+- **True fullscreen play.** Launching a game from the TV shelves fills the
+  screen edge-to-edge (letterboxed on pure black) instead of the small
+  desktop player card, with in-game chrome at 10-foot scale. Desktop play is
+  visually unchanged.
+- **Controller input is properly scoped.** A running game owns the
+  controller outright: no button can reach the home shelves underneath (the
+  "pressing ✕ mid-game launched a different game" bug is structurally
+  impossible now — ownership is a layered claim stack with no gaps, covering
+  even boot, path-fallback, and get-core moments). The in-game overlay is
+  now controller-drivable on the native path too, and holding Start mid-game
+  no longer yanks you out of TV mode.
+- **Hover-attract.** Rest on any NES tile for 5 seconds (controller focus or
+  mouse hover) and the game boots as a live, dimmed, sound-ducked preview
+  behind the shelves — pure attract-mode vibe. Previews are strictly
+  no-trace: no play counts, no recency, no saves, ever; moving focus tears
+  the preview down instantly and launching for real always boots fresh.
+- **Native audio polish.** The resampler upgraded to 4-point Catmull-Rom
+  with gentler rate control (addressing "mostly fine but slightly off"), the
+  emulation thread runs at user-interactive priority, and each session now
+  writes a readable perf log to `logs/native-perf.log` so timing health is
+  verifiable after any playtest.
+- **A full TV-mode gap audit** (25 contracts and seams) fixed eight more
+  paper cuts: exiting an in-page game no longer drops the app out of
+  fullscreen, keyboard users get focus back on the exact tile they launched
+  from (and can actually play in-page games in the takeover), a pre-launch
+  back-press can no longer leave TV mode one press from silently exiting, a
+  backgrounded app can no longer boot an audible preview, play-path notices
+  render at TV scale, and a one-frame Start-button leak on the native path
+  is gone.
+
 ## v0.26.2 — Hotfix: images restored after the rename (2026-07-03)
 
 Fixes "no images anywhere in the app" for users upgrading from Harmony. The

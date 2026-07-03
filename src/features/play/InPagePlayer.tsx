@@ -7,11 +7,14 @@
 //
 //  * #8 in-page play: the game auto-boots on entry (player.html sets
 //    EJS_startOnLoaded) with sound.
-//  * #6 in-game overlay + immersive mode: while the player is mounted it owns the
-//    controller (the gamepad belongs to the game). The menu/Start button, the
-//    controller "back", or Escape open an in-app overlay — Resume / Full screen /
-//    Exit — that pauses the emulator (so the gamepad doesn't drive the game
-//    behind the menu) and traps input via the controller exclusive handler.
+//  * #6 in-game overlay + immersive mode: while the player is mounted
+//    foreground it owns the controller (the gamepad belongs to the game) via
+//    the SHARED exclusive-controller scope (useExclusiveControllerScope,
+//    v0.27 W272). The menu/Start button or Escape opens an in-app overlay —
+//    Resume / Full screen / Exit — that pauses the emulator (so the gamepad
+//    doesn't drive the game behind the menu); every other semantic action is
+//    swallowed while the overlay is closed (EmulatorJS reads the gamepad
+//    itself inside the iframe, so game input never rides semantic actions).
 //    "Full screen" is the app's immersive mode (window fullscreen + the player
 //    fills the viewport over the app chrome) rather than iframe element-
 //    fullscreen, so the overlay can render over the running game.
@@ -22,16 +25,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useController } from "../controller";
-import type { SemanticAction } from "../controller/actions";
 import { getPlayOrigin } from "../../ipc/play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
 import { PlayerOverlay } from "./PlayerOverlay";
+import {
+  playerShellClass,
+  presentationAllowsImmersive,
+  type PlayerPresentation,
+} from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
 import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
+import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
 
 /** How long a save/load round-trip to the game iframe may take before the
@@ -61,12 +68,25 @@ export interface InPagePlayerProps {
    * `navigate(-1)`. The TV takeover surface supplies its own callback so exit
    * collapses the takeover back to the tile instead of popping router history. */
   onExit?: () => void;
+  /** How the player is presented (v0.27 W272). The TV takeover passes
+   * "takeover" (edge-to-edge fill, TV-scale overlay chrome); the desktop
+   * detail route omits it ("foreground"). "background" never reaches this
+   * player — PlaySwitch normalizes it away (the EmulatorJS iframe cannot
+   * become a page background; explicit v0.23 non-goal) — but if it ever did,
+   * the shared controller scope would correctly release the slot. */
+  presentation?: PlayerPresentation;
 }
 
 /** Mounts the in-page emulator for one game; auto-starts on load. */
-export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExit }: InPagePlayerProps) {
+export function InPagePlayer({
+  gameId,
+  ejsSystem,
+  gameName,
+  onUnavailable,
+  onExit,
+  presentation = "foreground",
+}: InPagePlayerProps) {
   const navigate = useNavigate();
-  const { setExclusiveHandler } = useController();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Library-life play-session tracking (v0.26 W264): the session brackets
@@ -86,8 +106,6 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
   overlayOpenRef.current = overlayOpen;
   const immersiveRef = useRef(immersive);
   immersiveRef.current = immersive;
-  const selectionRef = useRef(selection);
-  selectionRef.current = selection;
 
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
@@ -206,12 +224,21 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const exitGame = useCallback(() => {
-    void setWindowFullscreen(false);
+    // Only unwind the window-fullscreen THIS player entered (immersive mode).
+    // Unconditionally forcing it off yanked the window out of TV mode's own
+    // fullscreen when an in-page game exited inside the takeover — and out of
+    // a user's F11 fullscreen on the desktop (W275).
+    if (immersiveRef.current) void setWindowFullscreen(false);
     // TV takeover supplies its own exit (collapse to the tile); the desktop
     // detail route falls back to popping history back to the grid.
     if (onExitRef.current) onExitRef.current();
     else navigate(-1);
   }, [navigate]);
+
+  // The app-immersive "Full screen" affordance only exists on the desktop
+  // foreground player: inside the TV takeover the window is already
+  // fullscreen and TV mode owns that state (presentation.ts, W275).
+  const allowImmersive = presentationAllowsImmersive(presentation);
 
   // Overlay menu (index order drives controller selection): Resume / Save
   // state / Load state / Full screen / Exit, with the slot sub-views owned
@@ -248,15 +275,19 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
         label: prefs.volume === 0 ? "🔇 Unmute" : "🔇 Mute",
         run: () => prefs.toggleMute(),
       },
-      {
-        key: "immersive",
-        label: immersive ? "Exit full screen" : "Full screen",
-        run: () => {
-          if (immersiveRef.current) exitImmersive();
-          else enterImmersive();
-          closeOverlay();
-        },
-      },
+      ...(allowImmersive
+        ? [
+            {
+              key: "immersive",
+              label: immersive ? "Exit full screen" : "Full screen",
+              run: () => {
+                if (immersiveRef.current) exitImmersive();
+                else enterImmersive();
+                closeOverlay();
+              },
+            },
+          ]
+        : []),
     ],
     exit: { key: "exit", label: "Exit game", run: () => exitGame() },
     saveSlot: (slot) => requestSaveOp("save", slot),
@@ -264,39 +295,27 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
     onLoaded: () => closeOverlay(),
     onViewChange: () => setSelection(0),
   });
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
 
   // Back to the main view whenever the overlay opens fresh.
   useEffect(() => {
     if (overlayOpen) resetView();
   }, [overlayOpen, resetView]); // resetView is a stable callback
 
-  // While the player is mounted it owns the controller: the gamepad drives the
-  // game, and menu/back summon the overlay; when the overlay is open the gamepad
-  // drives the menu (the game is paused).
-  useEffect(() => {
-    // Only capture the controller while a real player is active. When the play
-    // server is unavailable (origin "") or still resolving (null) the page shows
-    // no player, so it must NOT trap controller input.
-    if (!origin) return;
-    const handler = (action: SemanticAction) => {
-      if (!overlayOpenRef.current) {
-        if (action === "menu" || action === "back") openOverlay();
-        return;
-      }
-      const n = itemsRef.current.length;
-      if (action === "nav_up") setSelection((s) => (s - 1 + n) % n);
-      else if (action === "nav_down") setSelection((s) => (s + 1) % n);
-      else if (action === "confirm") {
-        const item = itemsRef.current[selectionRef.current];
-        if (item && !item.disabled) item.run();
-      }
-      else if (action === "back" || action === "menu") closeOverlay();
-    };
-    setExclusiveHandler(handler);
-    return () => setExclusiveHandler(null);
-  }, [origin, setExclusiveHandler, openOverlay, closeOverlay]);
+  // While a REAL player is active (origin resolved — unavailable "" or
+  // still-resolving null must not trap input) and foreground-presented, it
+  // owns the controller via the shared exclusive scope (W272): menu summons
+  // the overlay, every other semantic action is swallowed; with the overlay
+  // open the controller drives the menu (the game is paused behind it).
+  useExclusiveControllerScope({
+    presentation,
+    ready: !!origin,
+    overlayOpen,
+    items,
+    selection,
+    setSelection,
+    openOverlay,
+    closeOverlay,
+  });
 
   // Escape opens the overlay from the keyboard — directly when the app holds
   // focus, and via a forwarded postMessage when the game iframe holds focus.
@@ -325,6 +344,17 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
     };
   }, [origin, toggleOverlay]);
 
+  // Keyboard parity in the TV takeover (W275): EmulatorJS reads the keyboard
+  // inside its iframe, which only receives keys while the iframe holds DOM
+  // focus. On the desktop the user clicks the frame; the TV surface is
+  // controller-first with no pointer, so focus the iframe once it exists —
+  // a keyboard-only user can then play immediately (and Escape still reaches
+  // the overlay via the player.html bridge's forwarded toggle).
+  useEffect(() => {
+    if (presentation !== "takeover" || !origin) return;
+    iframeRef.current?.focus();
+  }, [presentation, origin]);
+
   // Pause-on-blur (W243): freeze the game when the window loses focus,
   // resume on refocus — unless the overlay already owns the pause.
   useEffect(() => {
@@ -349,12 +379,20 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
     };
   }, [origin]);
 
-  // Always leave fullscreen if the player unmounts (SPA navigation away).
-  useEffect(() => () => void setWindowFullscreen(false), []);
+  // Leave fullscreen if the player unmounts while ITS immersive mode holds it
+  // (SPA navigation away mid-immersive). Guarded on the live immersive state:
+  // an unconditional exit here dropped TV mode's own fullscreen every time an
+  // in-page game left the takeover (W275).
+  useEffect(
+    () => () => {
+      if (immersiveRef.current) void setWindowFullscreen(false);
+    },
+    [],
+  );
 
   if (origin === null) {
     return (
-      <div className="rgp-player">
+      <div className={playerShellClass(presentation)}>
         <div className="rgp-player__frame" />
       </div>
     );
@@ -366,7 +404,7 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExi
     `&game=${gameId}&name=${encodeURIComponent(gameName)}`;
 
   return (
-    <div className={immersive ? "rgp-player rgp-player--immersive" : "rgp-player"}>
+    <div className={playerShellClass(presentation, immersive)}>
       <iframe
         ref={iframeRef}
         className="rgp-player__frame"
