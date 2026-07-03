@@ -227,7 +227,7 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w26a-tv-polish` (W26A) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w26a-tv-polish` (W26A) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -253,5 +253,13 @@ zero results), so no framework-required scope is trimmed here.
   needs a mock cached-art tier + an external-play fixture game + a per-route
   action hook in the harness (W265); keyboard-arrow rail navigation stays out
   of scope per the #29 non-goal (no keyboard→SemanticAction bridge exists).
+- **Pass 6 follow-ups (W26A):** external-play takeover surface
+  (TvExternalSurface) has no headless smoke coverage — every mock system is
+  in-page-capable; add an external-only fixture game (saturn/dreamcast) to a
+  future mock slice. Desktop GameDetailPage still resolves art via the older
+  useBoxart path — unify onto useGameArt in a future pass. Real-device
+  verification of the takeover boot-with-sound remains the standing
+  post-install check (headless capture exercises the degradation path by
+  construction — no loopback player server under mock IPC).
 - **W269 repo links:** README clone URL + issue links still say
   `rhohn94/harmony` until the GitHub repo rename at the push stage.
