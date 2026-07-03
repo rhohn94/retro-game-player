@@ -73,7 +73,7 @@ No conflicts — sole branch in the lane.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26.2 |
 |---|---|---|---|---|
-| `fix/w271-rename-db-path-repair` (W271) | ☑ | ☐ | ☐ | ☐ |
+| `fix/w271-rename-db-path-repair` (W271) | ☑ | ☑ | ☑ | ☐ |
 
 ### Follow-ups discovered during implementation
 
