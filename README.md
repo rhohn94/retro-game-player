@@ -12,6 +12,12 @@ RetroArch launch as the fallback for every other system.
 **Retro Game Player ships no game content.** It scans folders you provide and
 imports files you choose.
 
+Retro is the heart, not the ceiling: long-term, RGP aims to be the frontend
+for **all** games on your Mac — non-retro titles on the same shelves and
+couch-first TV mode, and eventually Windows games made easy through
+[CrossOver](https://www.codeweavers.com/crossover) integration. See the
+roadmap's [Horizon section](docs/roadmap.md#horizon--the-universal-frontend-ambition-unscheduled).
+
 ---
 
 ## Contents

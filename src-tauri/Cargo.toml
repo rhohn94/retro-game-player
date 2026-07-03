@@ -1,6 +1,6 @@
 [package]
 name = "retro-game-player"
-version = "0.26.2"
+version = "0.27.0"
 description = "Retro Game Player — a Mac-native (Apple Silicon) retro game player."
 authors = ["Retro Game Player"]
 license = "GPL-3.0-only"
@@ -45,6 +45,11 @@ include_dir = "0.7"                                       # v0.12 (embed the bun
 tauri-plugin-dialog = "2"                                 # v0.12 (native file picker for ROM import)
 walkdir = "2"                                              # W6 (recursive folder walker)
 zip = { version = "2", default-features = false, features = ["deflate"] } # W5 (core archive unzip)
+
+# macOS-only: the core thread's QoS elevation (W274 stretch) is a Darwin
+# scheduler concept, cfg-gated in play::native::runtime.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"                                               # W274 (pthread_set_qos_class_self_np core-thread QoS)
 
 [dev-dependencies]
 tempfile = "3"                                             # W8 (test helpers)

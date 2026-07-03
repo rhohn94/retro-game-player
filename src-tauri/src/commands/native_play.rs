@@ -45,12 +45,40 @@ fn lock(session: &NativeSession) -> std::sync::MutexGuard<'_, Option<native::Nat
     session.0.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Resolves the session's side-effect wiring (v0.27 W273): a PREVIEW session
+/// (the TV hover-attract spectator surface) must leave no trace, so it drops
+/// both the save wiring — `saves: None` structurally disables the SRAM load/
+/// flush and the exit auto-save-state in the runtime (`run_core_loop` gates
+/// every save touch on `Some`, runtime.rs) — and the perf-log path, so a
+/// preview never truncates the last REAL session's `logs/native-perf.log`
+/// (`PerfLogFile::create(None)` is the disabled sink, perf_file.rs). A normal
+/// session passes both through unchanged. Pure, so the decision is
+/// unit-testable at the command level.
+fn session_side_effects(
+    preview: bool,
+    saves: Option<GameSaves>,
+    perf_log_path: Option<PathBuf>,
+) -> (Option<GameSaves>, Option<PathBuf>) {
+    if preview {
+        (None, None)
+    } else {
+        (saves, perf_log_path)
+    }
+}
+
 /// Starts a native session for `game_id`, replacing any session already
 /// running. Resolves the installed `fceumm` core path (W213) and the game's
 /// ROM path (the library row), then spawns the runtime (W212).
+///
+/// `preview` (v0.27 W273, default false so existing callers are unchanged):
+/// start as a NO-TRACE preview — no save wiring, no perf log (see
+/// [`session_side_effects`]). Library-life purity (no play-session record) is
+/// the frontend's half of the contract (`NativePlayer` in the "preview"
+/// presentation skips `usePlaySession`).
 #[tauri::command]
 pub fn start_native_play(
     game_id: i64,
+    preview: Option<bool>,
     db: State<'_, Db>,
     session: State<'_, NativeSession>,
 ) -> AppResult<()> {
@@ -76,7 +104,14 @@ pub fn start_native_play(
         .and_then(|p| p.saves_dir())
         .map(|root| GameSaves::new(&root, &game.system, &rom_path))
         .ok();
-    let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves)?;
+    // Perf telemetry file (W274): best-effort — an unresolvable logs dir
+    // means the perf line stays stderr-only rather than failing the boot.
+    let perf_log_path = Paths::app_support()
+        .and_then(|p| p.native_perf_log_file())
+        .ok();
+    let (saves, perf_log_path) =
+        session_side_effects(preview.unwrap_or(false), saves, perf_log_path);
+    let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
     *lock(&session) = Some(runtime);
     Ok(())
 }
@@ -251,5 +286,46 @@ mod tests {
     #[test]
     fn returns_an_empty_body_with_no_frame_available() {
         assert!(encode_frame_response(0, None).is_empty());
+    }
+
+    // ---- session_side_effects (v0.27 W273 preview purity) ----
+    // GameSaves::new is pure path composition (no IO), so a dummy instance is
+    // safe here; the runtime-side behaviour behind `saves: None` (no SRAM
+    // load/flush, no exit auto-save) is structural in run_core_loop
+    // (runtime.rs), and the disabled perf sink behind `None` is covered by
+    // perf_file.rs's `no_configured_path_yields_a_disabled_sink`.
+
+    fn dummy_wiring() -> (Option<GameSaves>, Option<PathBuf>) {
+        (
+            Some(GameSaves::new(
+                Path::new("/tmp/saves"),
+                "nes",
+                Path::new("/tmp/rom.nes"),
+            )),
+            Some(PathBuf::from("/tmp/logs/native-perf.log")),
+        )
+    }
+
+    #[test]
+    fn a_preview_session_drops_both_saves_and_the_perf_log() {
+        let (saves, perf) = dummy_wiring();
+        let (saves, perf) = session_side_effects(true, saves, perf);
+        assert!(saves.is_none());
+        assert!(perf.is_none());
+    }
+
+    #[test]
+    fn a_normal_session_keeps_its_save_and_perf_log_wiring() {
+        let (saves, perf) = dummy_wiring();
+        let (saves, perf) = session_side_effects(false, saves, perf);
+        assert!(saves.is_some());
+        assert_eq!(perf, Some(PathBuf::from("/tmp/logs/native-perf.log")));
+    }
+
+    #[test]
+    fn a_normal_session_passes_an_absent_wiring_through_unchanged() {
+        let (saves, perf) = session_side_effects(false, None, None);
+        assert!(saves.is_none());
+        assert!(perf.is_none());
     }
 }

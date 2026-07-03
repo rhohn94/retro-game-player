@@ -14,26 +14,28 @@ import { GetCorePanel } from "./GetCorePanel";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
 import { PlayNotice } from "./PlayNotice";
+import type { PlayerPresentation } from "./presentation";
 import { canPlayInPage, isEmbeddedInPage } from "./ejs";
 import { inPageAvailability, systemLabel } from "./inPageAvailability";
 import { describeDegradation, recordDegradation } from "./degradation";
 import type { DegradationNotice } from "./degradation";
+import { NATIVE_SYSTEM } from "./nativePath";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { listInPageCores } from "../../ipc/inpage-cores";
 import type { InPageCore } from "../../ipc/inpage-cores";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 
-/** Must match the Rust `play::native::NATIVE_SYSTEM` — the only system v0.21
- * "Bedrock" hosts natively. */
-const NATIVE_SYSTEM = "nes";
-
 export interface PlaySwitchProps {
   gameId: number;
   system: string;
   gameName: string;
-  /** W235 attract mode — forwarded to the native player only (the EmulatorJS
-   * iframe cannot become a page background; explicit v0.23 non-goal). */
-  presentation?: "foreground" | "background";
+  /** How the mounted player is presented (presentation.ts). "background"
+   * (W235 attract) is meaningful to the native player only — the EmulatorJS
+   * iframe cannot become a page background (explicit v0.23 non-goal), so it
+   * degrades to plain foreground on the in-page path. "takeover" (v0.27
+   * W272, the TV fullscreen surface) threads through to BOTH players:
+   * edge-to-edge fill, and the player owns the controller's exclusive slot. */
+  presentation?: PlayerPresentation;
   /** How "Exit game" leaves the player (v0.26 W265). Omitted on the desktop
    * detail route → the players default to `navigate(-1)` (back to the grid).
    * The TV takeover surface passes an explicit callback so exiting collapses
@@ -128,6 +130,14 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
   const availability = inPageAvailability(system, cores);
   if (availability.kind === "none") return noticeEl;
   if (availability.kind === "ready" || justInstalled) {
+    // The EmulatorJS iframe cannot become a page background (explicit v0.23
+    // non-goal), so attract's "background" degrades to plain foreground here;
+    // only the TV takeover presentation threads through (W272). "preview"
+    // (W273) never reaches this switch at all — the TV home mounts
+    // NativePlayer directly, and only for native-path-eligible games — so it
+    // degrades the same way if a future caller ever routes it here.
+    const inPagePresentation: PlayerPresentation =
+      presentation === "takeover" ? "takeover" : "foreground";
     return (
       <>
         {noticeEl}
@@ -137,6 +147,7 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
           gameName={gameName}
           onUnavailable={onEjsUnavailable}
           onExit={onExit}
+          presentation={inPagePresentation}
         />
       </>
     );

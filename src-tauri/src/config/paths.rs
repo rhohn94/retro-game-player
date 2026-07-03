@@ -34,6 +34,11 @@ pub const APP_CONFIG_FILE_NAME: &str = "app-config.json";
 /// `run.json` telemetry filename in the deployed version dir (§4.2).
 pub const RUN_FILE_NAME: &str = "run.json";
 
+/// Per-session native-play perf telemetry filename under `logs/` (§4.1;
+/// W274 — macOS discards stderr for Finder-launched apps, so the
+/// `[rgp-native] perf:` line is also persisted here, fresh each session).
+pub const NATIVE_PERF_LOG_FILE_NAME: &str = "native-perf.log";
+
 /// Deployed-apps subtree under the deployed root (§4.2).
 const DEPLOYED_APP_DIR: &str = "harmony";
 
@@ -109,6 +114,14 @@ impl Paths {
     /// `logs/` dir (created) — telemetry / run logs (§4.1).
     pub fn logs_dir(&self) -> AppResult<PathBuf> {
         self.subdir("logs")
+    }
+
+    /// The per-session native-play perf log (`logs/native-perf.log`, W274);
+    /// its parent `logs/` dir is ensured. The file itself is created —
+    /// truncating the previous session's — by the native runtime's perf
+    /// logger at session start.
+    pub fn native_perf_log_file(&self) -> AppResult<PathBuf> {
+        Ok(self.logs_dir()?.join(NATIVE_PERF_LOG_FILE_NAME))
     }
 
     /// `saves/` dir (created) — battery SRAM + save states, one subdir per
@@ -216,6 +229,11 @@ mod tests {
         assert!(paths.blur_cache_dir().unwrap().is_dir());
         assert!(paths.logs_dir().unwrap().is_dir());
         assert!(paths.root().ends_with(BUNDLE_ID));
+
+        let perf = paths.native_perf_log_file().unwrap();
+        assert_eq!(perf.file_name().unwrap(), NATIVE_PERF_LOG_FILE_NAME);
+        assert!(perf.parent().unwrap().ends_with("logs"));
+        assert!(perf.parent().unwrap().is_dir());
 
         std::fs::remove_dir_all(&tmp).ok();
     }

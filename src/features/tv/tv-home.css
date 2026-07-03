@@ -34,6 +34,10 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
+    /* Positioned so the rails paint ABOVE the W273 attract-preview layer
+       (positioned elements at the same z level paint in DOM order; the
+       preview renders first). No z-index needed — DOM order carries it. */
+    position: relative;
     /* Each rail row carries its own vertical padding (to clear the focus
        scale/glow), so the inter-rail gap here is modest — space-2 keeps the
        shelves rhythmically close without the doubled whitespace a full
@@ -64,6 +68,53 @@
     color: var(--aura-on-surface);
     font-size: var(--rgp-tv-font-body);
     z-index: 3;
+  }
+
+  /* ── W273 hover-attract preview ───────────────────────────────────────────
+     The live no-trace gameplay preview behind the home: a fixed full-bleed
+     layer (like the takeover surface it foreshadows, tv-game-surface.css) that
+     paints UNDER everything else on the home — it renders first in the DOM and
+     the hero/rails/toast are positioned, so tree order keeps them above without
+     a z-index arms race. The Framer crossfade (TvHome) carries entry/exit. */
+  .rgp-tv-home__preview {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: var(--aura-bg);
+  }
+
+  /* The preview player fills the layer edge-to-edge: shed the desktop card
+     styling exactly like the takeover fill (tv-game-surface.css), but as a
+     cinematic backdrop the canvas COVER-fits (crops) rather than letterboxes,
+     matching the W235 attract treatment (library.css). */
+  .rgp-player--preview {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    gap: 0;
+  }
+  .rgp-player--preview .rgp-player__frame {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+  .rgp-player--preview .rgp-native-player__canvas {
+    object-fit: cover;
+    /* Same dim/desaturate recipe as the W235 attract backdrop (library.css) so
+       "gameplay as a backdrop" reads identically across the app. */
+    filter: brightness(0.45) saturate(0.85);
+  }
+
+  /* Dim wash over the running game so rails and hero copy stay legible at 3m —
+     the hero's own gradient scrim still layers on top inside the hero band.
+     Colour tracks the theme (color-mix on the bg token), never a literal. */
+  .rgp-tv-home__preview-scrim {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in oklch, var(--aura-bg) 45%, transparent);
   }
 
   /* ── hero ─────────────────────────────────────────────────────────────────

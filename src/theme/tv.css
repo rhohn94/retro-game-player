@@ -81,11 +81,20 @@
        Shared by every long-press-gated affordance in TV mode (menu-hold to
        toggle TV mode, W260; any future press-and-hold) so the "how long is a
        hold" answer lives in exactly one token-backed constant. Mirrored in JS
-       as TV_MENU_LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
+       as LONG_PRESS_MS (src/features/controller/useLongPress.ts) —
        CSS custom properties can't be read by the rAF poll loop, so the
        millisecond number is intentionally duplicated in the two single
        sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
     --rgp-tv-long-press-ms: 600ms;
+
+    /* ---- hover-attract dwell (W273) ----
+       How long focus/hover must settle on ONE shelf tile before the live
+       preview boots behind the home (tv-mode-design.md §v0.27 → W273:
+       keyboard-focus and pointer-hover alike, one constant). Mirrored in JS
+       as TV_ATTRACT_DWELL_MS (src/features/tv/useAttractDwell.ts) — the same
+       dual-source pattern as --rgp-tv-long-press-ms above, since a CSS custom
+       property can't be read by a JS timer. */
+    --rgp-tv-attract-dwell-ms: 5000ms;
 
     /* ---- retro-accent section label chrome ----
        The chunky pixel-adjacent label treatment tv-mode-design.md's
@@ -102,6 +111,12 @@
        dur-slow because it happens to look right". */
     --rgp-tv-transition-dur: var(--rgp-dur-slow);
 
+    /* ---- in-game overlay at the 10-foot scale (W272) ----
+       The TV takeover re-dresses the shared PlayerOverlay: the panel's floor
+       is wider than the desktop 280px so the menu rows read from the couch
+       (typography rides the existing --rgp-tv-font-* ramp above). */
+    --rgp-tv-overlay-panel-min: 400px;
+
     /* ---- hero region (W261) ----
        The key-art hero occupies the top band of the home; ~45% of the viewport
        (tv-mode-design.md §Design "Hero": "~45% viewport height"). vh (not vmin)
@@ -110,6 +125,10 @@
     --rgp-tv-hero-height: 42vh;
     --rgp-tv-hero-content-pad: 4vmin;
     --rgp-tv-hero-title-max: 22ch; /* keep long titles from spanning the frame */
+    /* Readable measure cap for 10-foot body copy (the get-core panel and any
+       future full-surface prose, W275) — long lines are the first thing to go
+       illegible at 3m. */
+    --rgp-tv-measure-max: 60ch;
 
     /* ---- retro-but-Aura hero flourishes (W261) ----
        Expressed through Aura tokens + a token-scoped opacity so they read as a

@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "retro-game-player"
-version = "0.26.2"
+version = "0.27.0"
 dependencies = [
  "base64 0.22.1",
  "cpal",
@@ -3619,6 +3619,7 @@ dependencies = [
  "image",
  "include_dir",
  "keyring",
+ "libc",
  "libloading 0.8.9",
  "md-5",
  "percent-encoding",
