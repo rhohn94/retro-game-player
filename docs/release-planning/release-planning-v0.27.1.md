@@ -102,7 +102,7 @@ DOM marker).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.27.1 |
 |---|---|---|---|---|
-| `fix/w276-ejs-audio-warmup` (W276) | ☐ | ☐ | ☐ | ☐ |
+| `fix/w276-ejs-audio-warmup` (W276) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
