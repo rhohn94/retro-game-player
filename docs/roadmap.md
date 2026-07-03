@@ -757,7 +757,7 @@ removed during scope-trimming.
 
 ## Issues
 
-Issues are tracked in **GitHub** (`rhohn94/harmony`, configured via the
+Issues are tracked in **GitHub** (`rhohn94/retro-game-player`, configured via the
 `grm-issue-tracker` block in `.claude/grimoire-config.json`). The GitHub repo must
 be created and pushed before issue operations resolve; until then this roadmap
 is the canonical visible state. Manage trackers with `issue-tracker-switch list`.

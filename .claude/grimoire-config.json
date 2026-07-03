@@ -19,7 +19,7 @@
       {
         "name": "default",
         "provider": "github",
-        "repo": "rhohn94/harmony",
+        "repo": "rhohn94/retro-game-player",
         "audience": "internal",
         "labels": []
       }
