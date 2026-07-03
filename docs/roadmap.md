@@ -97,7 +97,7 @@ against a real OpenSearch provider (Wikipedia).
 
 ---
 
-## v0.26 — Theater (in flight)
+## v0.26 — Theater (released — see version-history.md)
 
 **Theme:** The couch release, user-directed (2026-07-02): the **entire 10-foot
 TV epic** ([#8](https://github.com/rhohn94/harmony/issues/8)) lands in one
