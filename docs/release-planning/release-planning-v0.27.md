@@ -110,7 +110,7 @@ feature including attract: → sequenced.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.27 |
 |---|---|---|---|---|
-| `fix/w272-tv-play-experience` (W272) | ☑ | ☑ | ☑ | ☐ |
+| `fix/w272-tv-play-experience` (W272) | ☑ | ☑ | ☑ | ☑ |
 | `fix/w274-native-audio-polish` (W274) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
