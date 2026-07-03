@@ -33,7 +33,7 @@
 
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -44,10 +44,70 @@ const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DIST = join(ROOT, "dist");
+const SRC = join(ROOT, "src");
 const OUT_DIR = join(ROOT, "artifacts", "visual-inspection");
 const PNG_PATH = join(OUT_DIR, "screenshot.png");
 const DOM_PATH = join(OUT_DIR, "dom.html");
 const REPORT_PATH = join(OUT_DIR, "report.json");
+
+// The source roots whose newest change must predate the built bundle. index.html
+// is the Vite entry (it references the bundle), so a change there also demands a
+// rebuild. Kept small + deterministic; deep-walks src/ (below).
+const SOURCE_ROOTS = [SRC, join(ROOT, "index.html")];
+
+/** The newest mtime (ms) under a path, recursing into directories. Missing
+ *  paths contribute 0 so an absent optional root never trips the check. */
+export function newestMtimeMs(path) {
+  let info;
+  try {
+    info = statSync(path);
+  } catch {
+    return 0;
+  }
+  if (!info.isDirectory()) return info.mtimeMs;
+  let newest = info.mtimeMs;
+  for (const entry of readdirSync(path)) {
+    // node_modules / build output can't live under src/, but skip dotdirs to
+    // stay cheap + deterministic.
+    if (entry.startsWith(".")) continue;
+    const child = newestMtimeMs(join(path, entry));
+    if (child > newest) newest = child;
+  }
+  return newest;
+}
+
+/**
+ * Guard against a STALE bundle silently passing the gate: if any source file is
+ * newer than the built `dist/index.html`, the running harness is inspecting an
+ * old build (the exact failure mode that let tv-home pass on a pre-W261 bundle).
+ * Returns `{ stale, distMs, srcMs }` — the caller fails loudly on `stale`.
+ * Skipped when `HARMONY_INSPECT_ALLOW_STALE=1` (an escape hatch for the rare
+ * case where inspecting a deliberately-old bundle is intended).
+ *
+ * The dist index + source roots are injectable (defaulting to the real repo
+ * paths) so the freshness logic is unit-testable against a temp fixture tree.
+ */
+export function checkBundleFreshness({
+  distIndex = join(DIST, "index.html"),
+  sourceRoots = SOURCE_ROOTS,
+  allowStale = process.env.HARMONY_INSPECT_ALLOW_STALE === "1",
+} = {}) {
+  if (allowStale) {
+    return { stale: false, distMs: 0, srcMs: 0, skipped: true };
+  }
+  let distMs = 0;
+  try {
+    distMs = statSync(distIndex).mtimeMs;
+  } catch {
+    return { stale: false, distMs: 0, srcMs: 0, missing: true };
+  }
+  let srcMs = 0;
+  for (const root of sourceRoots) {
+    const m = newestMtimeMs(root);
+    if (m > srcMs) srcMs = m;
+  }
+  return { stale: srcMs > distMs, distMs, srcMs };
+}
 
 // The primary routes (hash-router paths) the harness walks. `name` doubles as
 // the screenshot filename; `expect` is a substring that must appear in the
@@ -59,6 +119,12 @@ const ROUTES = [
   { name: "cores", hash: "#/cores", expect: "Cores" },
   { name: "search", hash: "#/search", expect: "Search" },
   { name: "settings", hash: "#/settings", expect: "Settings" },
+  // The desktop game-detail route (W26A closes the §5 follow-up: /game/:id was
+  // missing from the walk). The mock `get_game` returns SMB3, so its clean name
+  // is the durable rendered marker — it appears in the detail `<h1>` regardless
+  // of play state (the in-page player renders nothing under the mock's empty
+  // play origin, but the title/metadata panel always paints).
+  { name: "game-detail", hash: "#/game/1", expect: "Super Mario Bros. 3" },
   // v0.26 W260 — TV mode auto-enter (tv-mode-design.md §Acceptance bullet 2):
   // with `auto_tv_mode: true`, a fresh launch (any/no hash — App.tsx's
   // startup read fires regardless of route) must land in the TV shell
@@ -76,6 +142,75 @@ const ROUTES = [
     // uppercasing is a core design decision, so the marker is durable.
     expect: "CONTINUE PLAYING",
     mockOverrides: { get_auto_tv_mode: true },
+  },
+  // v0.26 W26A — the tile→fullscreen takeover (tv-mode-design.md §Design
+  // "Transitions"). Deterministic because the mock now serves a cached boxart
+  // tier (mock-ipc.mjs), so the first tile has real cover art and the takeover's
+  // cover layer has art to expand — no flake. Driven via the `actions` hook
+  // below rather than a body-text `expect`, because the launched in-page player
+  // renders nothing under the mock's empty play origin (no loopback server), so
+  // the DURABLE marker is the surface + its animating cover layer, not text.
+  // `actions` runs on the same auto-tv page after the home settles; if it
+  // can't reach a deterministic takeover it returns ok:false and the harness
+  // SKIPS (logs, does not fail) — the gate is never flaked by this capture.
+  {
+    name: "tv-takeover",
+    hash: "#/",
+    mockOverrides: { get_auto_tv_mode: true },
+    // A per-route interaction hook: (page) => { ok, marker, skipReason }.
+    // Runs post-goto/settle; returns ok:true with a satisfied marker to assert,
+    // or ok:false + skipReason to skip cleanly. Never throws to the gate.
+    actions: async (page) => {
+      try {
+        await page.waitForFunction(
+          () => document.body.innerText.includes("CONTINUE PLAYING"),
+          { timeout: 8000 },
+        );
+        // Focus + confirm the first tile (the seeded-focus tile). A pointer
+        // click claims controller focus and routes through the SAME launch seam
+        // (tvMode.launch) that controller `confirm` uses.
+        const firstTile = await page.$(".rgp-tv-tile");
+        if (!firstTile) return { ok: false, skipReason: "no tiles on TV home" };
+        await firstTile.hover();
+        await page.waitForTimeout(150);
+        await firstTile.click();
+        // The surface is the durable marker (always mounts on launch). The
+        // cover-art layer mounts synchronously too when art resolves; screenshot
+        // the cover MID-EXPAND (the signature W265 tile→fullscreen animation) as
+        // soon as it exists. The reveal fires on the next rAF and the cover then
+        // expands (position) + fades (opacity) concurrently over DUR.slow, so the
+        // FIRST painted frame after mount has the cover art large (~890px, filling
+        // toward the frame) and near-fully-opaque (~0.9) — the meaningful "game
+        // launching, art blooming to fullscreen" capture. Waiting even ~90ms lands
+        // after the cover has crossed out, so we screenshot with no settle. This
+        // route OWNS its screenshot (returned as `shotOverride`).
+        await page.waitForSelector(".rgp-tv-game-surface", { timeout: 4000 });
+        // Best-effort wait for the cover (art-dependent); if it never mounts we
+        // still capture + assert the surface, so the capture never flakes.
+        await page
+          .waitForSelector(".rgp-tv-game-surface__cover", { timeout: 1500 })
+          .catch(() => {});
+        const takeoverShot = join(OUT_DIR, "tv-takeover.png");
+        await page.screenshot({ path: takeoverShot, fullPage: false });
+        const marker = await page.evaluate(() => {
+          const surf = document.querySelector(".rgp-tv-game-surface");
+          const cover = document.querySelector(".rgp-tv-game-surface__cover");
+          const player = document.querySelector(".rgp-tv-game-surface__player");
+          return {
+            hasSurface: !!surf,
+            phase: surf ? surf.getAttribute("data-phase") : null,
+            hasCover: !!cover,
+            playerMounted: !!player,
+          };
+        });
+        if (!marker.hasSurface) {
+          return { ok: false, skipReason: "takeover surface did not mount" };
+        }
+        return { ok: true, marker, shotOverride: takeoverShot };
+      } catch (err) {
+        return { ok: false, skipReason: `takeover drive failed: ${err && err.message}` };
+      }
+    },
   },
 ];
 
@@ -164,6 +299,8 @@ export function resolveChromiumExecutable(chromium) {
 
 // Assert the SPA actually rendered on the current page: React mounted content
 // into #root, the shell chrome is present, and the route's expected text shows.
+// An `actions`-only route (no `expect`) has its render verdict come from its
+// hook instead, so `hasExpectedText` is vacuously true when `expect` is absent.
 async function assertRendered(page, route) {
   return page.evaluate((expect) => {
     const root = document.getElementById("root");
@@ -176,9 +313,9 @@ async function assertRendered(page, route) {
       rootChildren,
       rootHtmlLen: root ? root.innerHTML.length : 0,
       hasShell,
-      hasExpectedText: bodyText.includes(expect),
+      hasExpectedText: expect == null ? true : bodyText.includes(expect),
     };
-  }, route.expect);
+  }, route.expect ?? null);
 }
 
 async function captureWithBrowser(useMock) {
@@ -191,6 +328,25 @@ async function captureWithBrowser(useMock) {
   let browser;
   const consoleErrors = [];
   const pageErrors = [];
+  // Mock-IPC "no fixture for command: X" warnings: a missing fixture means a
+  // real screen invoked an IPC the harness didn't mock, so that surface rendered
+  // against a null (degraded) result — and it is a console WARNING the gate must
+  // fail on (W26A console hygiene). Collected separately from generic warnings
+  // (which the desktop toolkit can emit benignly) so ONLY this precise, always-
+  // actionable signal fails the gate.
+  const mockWarnings = [];
+  // Attach the console/pageerror/mock-warning listeners to a page (the shared
+  // page and each mockOverride page get the SAME capture, so a warning on any
+  // TV surface is seen). Kept in one helper so the two call sites can't drift.
+  const wireDiagnostics = (target) => {
+    target.on("console", (m) => {
+      if (m.type() === "error") consoleErrors.push(m.text());
+      else if (m.type() === "warning" && m.text().includes("[mock-ipc]")) {
+        mockWarnings.push(m.text());
+      }
+    });
+    target.on("pageerror", (e) => pageErrors.push(e.message));
+  };
   try {
     browser = await chromium.launch({
       executablePath,
@@ -201,10 +357,7 @@ async function captureWithBrowser(useMock) {
       deviceScaleFactor: 2,
     });
     if (useMock) await page.addInitScript(buildMockIpcInitScript());
-    page.on("console", (m) => {
-      if (m.type() === "error") consoleErrors.push(m.text());
-    });
-    page.on("pageerror", (e) => pageErrors.push(e.message));
+    wireDiagnostics(page);
 
     const routeResults = [];
     for (const route of ROUTES) {
@@ -217,10 +370,7 @@ async function captureWithBrowser(useMock) {
         : page;
       if (route.mockOverrides) {
         if (useMock) await routePage.addInitScript(buildMockIpcInitScript(route.mockOverrides));
-        routePage.on("console", (m) => {
-          if (m.type() === "error") consoleErrors.push(m.text());
-        });
-        routePage.on("pageerror", (e) => pageErrors.push(e.message));
+        wireDiagnostics(routePage);
       }
 
       const before = pageErrors.length;
@@ -243,36 +393,75 @@ async function captureWithBrowser(useMock) {
         await routePage.waitForTimeout(RENDER_POLL_MS);
         checks = await assertRendered(routePage, route);
       }
-      const shot = join(OUT_DIR, `${route.name}.png`);
-      await routePage.screenshot({ path: shot, fullPage: false });
+
+      // A route with an `actions` hook drives an interaction (e.g. tile confirm
+      // → takeover) and returns its own render verdict. It NEVER fails the gate:
+      // ok:false means "couldn't reach a deterministic state" → the route is
+      // marked skipped (logged, excluded from guiOk), so this capture can't
+      // flake the smoke gate (W26A design constraint).
+      let actionResult = null;
+      let skipped = false;
+      if (route.actions) {
+        actionResult = await route.actions(routePage).catch((err) => ({
+          ok: false,
+          skipReason: `actions threw: ${err && err.message}`,
+        }));
+        if (!actionResult.ok) skipped = true;
+      }
+
+      // An actions route may capture its own screenshot at a precise animation
+      // frame (shotOverride); honour it instead of a post-actions capture that
+      // would land after the transition settled.
+      const shot =
+        actionResult && actionResult.shotOverride
+          ? actionResult.shotOverride
+          : join(OUT_DIR, `${route.name}.png`);
+      if (!(actionResult && actionResult.shotOverride)) {
+        await routePage.screenshot({ path: shot, fullPage: false });
+      }
       if (route.name === "library") {
         await routePage.screenshot({ path: PNG_PATH, fullPage: false });
         await writeFile(DOM_PATH, await routePage.content(), "utf-8");
       }
       if (route.mockOverrides) await routePage.close().catch(() => {});
       const routeErrors = pageErrors.slice(before);
-      const rendered =
+      // Render verdict: a normal route needs root+shell+expected-text; an
+      // `actions` route additionally needs its hook to have succeeded. A skipped
+      // actions route is neither rendered nor a failure — it drops out of the
+      // guiOk tally below.
+      const baseRendered =
         checks.rootChildren > 0 && checks.hasShell && checks.hasExpectedText;
+      const rendered = route.actions
+        ? baseRendered && !!(actionResult && actionResult.ok)
+        : baseRendered;
       routeResults.push({
         route: route.name,
         hash: route.hash,
         screenshot: shot,
         rendered,
+        skipped,
+        skipReason: skipped ? actionResult.skipReason : undefined,
+        actionMarker: actionResult ? actionResult.marker : undefined,
         ...checks,
         pageErrors: routeErrors,
       });
     }
 
-    const allRendered = routeResults.every((r) => r.rendered);
+    // Skipped routes (an actions hook that couldn't reach a deterministic state)
+    // are excluded from the pass/fail tally — they never fail the gate. A
+    // mock-ipc "no fixture" warning always fails: it means a rendered screen hit
+    // an unmocked IPC (degraded render), which the console-hygiene gate forbids.
+    const allRendered = routeResults.every((r) => r.skipped || r.rendered);
     return {
       ok: true,
       verified: true,
-      guiOk: allRendered && pageErrors.length === 0,
+      guiOk: allRendered && pageErrors.length === 0 && mockWarnings.length === 0,
       executablePath,
       mock: !!useMock,
       routes: routeResults,
       consoleErrors,
       pageErrors,
+      mockWarnings,
     };
   } finally {
     if (browser) await browser.close().catch(() => {});
@@ -291,6 +480,20 @@ async function captureStaticFallback() {
 async function main() {
   if (!existsSync(DIST) || !existsSync(join(DIST, "index.html"))) {
     console.error("[visual-inspect] dist/ not built. Run `pnpm build` first.");
+    process.exit(2);
+  }
+  // Rebuild-awareness (W26A): a stale dist/ silently passing is the exact bug
+  // that let tv-home render a pre-W261 bundle. Fail LOUDLY (exit 2, same class
+  // as "not built") when any source file is newer than the built bundle.
+  const freshness = checkBundleFreshness();
+  if (freshness.stale) {
+    const ageSec = Math.round((freshness.srcMs - freshness.distMs) / 1000);
+    console.error(
+      "[visual-inspect] STALE BUNDLE — dist/ is older than src/ " +
+        `(newest source is ${ageSec}s newer than dist/index.html). ` +
+        "Run `pnpm build` before inspecting, or set HARMONY_INSPECT_ALLOW_STALE=1 " +
+        "to inspect an old build on purpose.",
+    );
     process.exit(2);
   }
   await mkdir(OUT_DIR, { recursive: true });
@@ -330,6 +533,7 @@ async function main() {
     routes: detail.routes || [],
     consoleErrors: detail.consoleErrors || [],
     pageErrors: detail.pageErrors || [],
+    mockWarnings: detail.mockWarnings || [],
     domPath: existsSync(DOM_PATH) ? DOM_PATH : null,
     screenshotPath: existsSync(PNG_PATH) ? PNG_PATH : null,
     executablePath: detail.executablePath || null,
@@ -340,19 +544,27 @@ async function main() {
   // Report summary.
   if (verified) {
     for (const r of report.routes) {
-      const flag = r.rendered ? "ok " : "FAIL";
-      console.log(`[visual-inspect] ${flag} ${r.route.padEnd(9)} ${r.screenshot}`);
+      const flag = r.skipped ? "SKIP" : r.rendered ? "ok " : "FAIL";
+      const suffix = r.skipped ? ` (${r.skipReason})` : "";
+      console.log(`[visual-inspect] ${flag} ${r.route.padEnd(11)} ${r.screenshot}${suffix}`);
     }
     if (report.pageErrors.length) {
       console.error("[visual-inspect] uncaught page errors:");
       for (const e of report.pageErrors) console.error(`  ✗ ${e}`);
     }
+    if (report.mockWarnings.length) {
+      console.error(
+        "[visual-inspect] mock-ipc gaps (a rendered screen invoked an unmocked IPC — " +
+          "add the fixture to scripts/mock-ipc.mjs):",
+      );
+      for (const w of [...new Set(report.mockWarnings)]) console.error(`  ✗ ${w}`);
+    }
   }
 
   if (verified && !guiOk) {
     console.error(
-      "[visual-inspect] GUI VERIFICATION FAILED — a route is blank or the page threw. " +
-        `See ${REPORT_PATH}`,
+      "[visual-inspect] GUI VERIFICATION FAILED — a route is blank, the page threw, " +
+        `or a screen hit an unmocked IPC (see mock-ipc gaps above). See ${REPORT_PATH}`,
     );
     process.exit(1);
   }

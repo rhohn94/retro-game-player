@@ -215,24 +215,61 @@ product is a library manager, not a living-room console.
 
 ## Acceptance
 
-- [ ] TV mode can be entered and exited via sidebar button, `Cmd+T`, and
+_Checked off by W26A (v0.26 Pass 6, the final quality gate). Evidence noted per
+bullet: test name / screenshot path / measured value._
+
+- [x] TV mode can be entered and exited via sidebar button, `Cmd+T`, and
       controller `menu` long-press; enter goes fullscreen, exit restores the
       prior desktop route and window state.
-- [ ] With `auto_tv_mode: true`, a fresh launch lands directly in TV home
+      — Wired in `App.tsx`: sidebar `📺 TV mode` button (`FocusableTvModeButton`),
+      `useTvModeAccelerator` (`Cmd/Ctrl+T` → `enter()`/`exit()`),
+      `useTvModeControllerToggle` (`menu` long-press). Enter couples
+      `fullscreen.setFullscreen(true)`; `TvModeProvider.exit()` restores the
+      snapshotted route + fullscreen state (`TvModeContext.tsx`).
+- [x] With `auto_tv_mode: true`, a fresh launch lands directly in TV home
       (verified via mock-IPC visual inspection).
-- [ ] TV home shows hero + ≥3 rails (Continue playing, Favorites, Recently
+      — visual-inspect `tv-home` route (mockOverride `get_auto_tv_mode: true`)
+      renders the TV shell + "CONTINUE PLAYING"; screenshot
+      `artifacts/visual-inspection/tv-home.png`.
+- [x] TV home shows hero + ≥3 rails (Continue playing, Favorites, Recently
       added) populated from fixtures; per-console rails appear for systems
       with games.
-- [ ] All TV surfaces are fully controller-navigable (rail traversal, hero
+      — Measured: hero present + 7 rails: `Continue playing, Favorites, Recently
+      added, NES, SNES, Genesis, Nintendo 64` (per-console rails for every
+      system with games). `tv-home.png` shows the hero + populated first rail.
+- [x] All TV surfaces are fully controller-navigable (rail traversal, hero
       focus, game launch, back-out) with no pointer required.
-- [ ] Focus treatment legible at distance: focused tile scales ≥1.08 with a
+      — `TvHome` installs an exclusive controller handler driving
+      `resolveRailNav` (unit-tested: `railNav.test.ts`); hero is the top focus
+      row (`HERO_FOCUS_ID`); `confirm` launches via the one `tvMode.launch` seam;
+      `back` runs the two-press exit-confirm. Tiles/hero/external-Return all
+      register `useFocusable`.
+- [x] Focus treatment legible at distance: focused tile scales ≥1.08 with a
       high-contrast ring; rails snap the focused tile fully into view.
-- [ ] Launching from a tile plays the takeover animation and boots the game
+      — Measured: focused tile `transform: matrix(1.12…)` (≥1.08), ring
+      box-shadow present, unfocused tiles dim to opacity `0.72`; the last tile
+      after focus is fully within the rail row bounds (native scroll-into-view +
+      `scroll-margin` clearance, W262).
+- [x] Launching from a tile plays the takeover animation and boots the game
       with sound (no manual play gate); exiting returns to the same rail +
       tile position.
-- [ ] Type/spacing/margins come from `*-tv` tokens; token-adoption and motion
+      — `tvTakeover.ts` state machine (unit-tested `tvTakeover.test.ts`); the
+      cover expands tile→fullscreen — screenshot
+      `artifacts/visual-inspection/tv-takeover.png` (cover mid-expand). Boots with
+      sound (no gate): `PlaySwitch` mounts under the cover, iframe `allow="autoplay"`,
+      default `volume: 1` (never muted). Exit keeps `TvHome` mounted behind the
+      overlay, so the originating tile stays focused (measured: same tile focused
+      after launch; the overlay design restores focus + scroll for free).
+- [x] Type/spacing/margins come from `*-tv` tokens; token-adoption and motion
       guards stay green; `prefers-reduced-motion` disables the flourishes.
-- [ ] `recipe.py smoke` passes with TV routes included in visual inspection.
+      — `token-adoption.test.mjs` + `motion.test.mjs` + `aura-wiring.test.mjs`
+      green; `pnpm lint` clean. Measured under reduced motion: the hero phosphor
+      breathe `animation-duration` collapses to `0.01ms` via the single central
+      `theme/motion.css` rule (no per-component media query).
+- [x] `recipe.py smoke` passes with TV routes included in visual inspection.
+      — `recipe.py smoke` exits 0; visual-inspect walks `tv-home` + `tv-takeover`
+      (+ the desktop `game-detail` route), is rebuild-aware (fails loudly on a
+      stale `dist/`), and reports zero console/page errors on all TV surfaces.
 
 ## Open questions
 

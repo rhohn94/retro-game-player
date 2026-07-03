@@ -17,6 +17,18 @@ const NOW = 1_700_000_000_000;
 const NOW_SEC = NOW / 1000;
 const DAY_SEC = 86_400;
 
+/** A tiny deterministic PNG (8×12 gradient) as a data: URI, used as the mock's
+ *  cached cover-art path. `convertFileSrc` in the mock is identity, so the art
+ *  resolvers (`useGameArt` → `heroArtFor` → `artUrl`) paint this straight into
+ *  `<img src>` / `background-image` with no network — so the TV home renders an
+ *  ART-FORWARD library (cover tiles + hero backdrop) and the takeover's
+ *  expanding cover layer has real art to animate, all headless + deterministic
+ *  (v0.26 W26A). A data URI (not a filesystem path) is the only art source that
+ *  actually paints in the headless harness. Boxart-only so every surface's
+ *  fallback chain (tile: boxart→…, hero: snap→title→boxart) resolves to it. */
+const MOCK_COVER_DATA_URI =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAMCAYAAABfnvydAAAAuElEQVR4nA3Doa2CUQyA0U7CBm8DNmADNsCgK28wVCCq/lTWkDSoCjQGg0azS993kiM7/c1u0egMJov9G/nT7/wtGp3BZLG/I3v9zH7R6Awmi/0ZOehrDotGZzBZ7NfIUZ9zXDQ6g8liP0dO+pjTotEZTBb7MaKao4tGZzBZ7By56jbXRaMzmCz2NrLpbbZFozOYLPZt5K6XuS8ancFksS8jT9V5LhqdwWSxdeSt53kvGp3BZLHP8w/4S/8xaYkmPQAAAABJRU5ErkJggg==";
+
 /** The mock library, pulled into a named const so the play-stats slices
  *  (list_recently_played / list_favorites) return the SAME records the library
  *  does — the TV home renders real-looking, self-consistent shelves headlessly
@@ -173,6 +185,23 @@ export const MOCK_FIXTURES = {
 
   // --- Launch / RetroArch (src/ipc/launch.ts) ---
   locate_retroarch: "/Applications/RetroArch.app/Contents/MacOS/RetroArch",
+  // W26A — the external (RetroArch-only) TV takeover fires launch_game itself;
+  // returning void (null) lets TvExternalSurface report "Running in RetroArch"
+  // without warning. void = null in the mock.
+  launch_game: null,
+
+  // --- Native play (src/ipc/native-play.ts, v0.21) — the TV takeover mounts
+  //     PlaySwitch, which resolves the native-play opt-in for the native-
+  //     candidate system on every launch; without these the smoke walk warns
+  //     "[mock-ipc] no fixture" on every takeover (W26A console hygiene). Native
+  //     hosting is off by default (get_native_play_enabled: false → the in-page
+  //     path is taken, matching a fresh install), and the session/input writes
+  //     are void. ---
+  get_native_play_enabled: false,
+  set_native_play_enabled: null,
+  start_native_play: null,
+  stop_native_play: null,
+  set_native_input: null,
 
   // --- Console catalog (src/ipc/console.ts, v0.12) ---
   list_consoles: [
@@ -203,10 +232,15 @@ export const MOCK_FIXTURES = {
   probe_familiar: { available: false },
   get_cached_art: null,
   fetch_boxart: null,
-  // v0.26 W263 — per-tier hi-res pipeline. A fresh/mocked install has no
-  // cached tiers yet; fetch_game_art mirrors fetch_boxart's "no art on the
-  // CDN" empty-string miss signal.
-  get_cached_art_tiers: [],
+  // v0.26 W263 — per-tier hi-res pipeline. W26A: return a real (data-URI)
+  // boxart tier so the art resolvers paint a cover on every surface headlessly
+  // — the TV home is ART-FORWARD (cover tiles + hero backdrop) and the takeover
+  // cover layer has art to expand. The mock ignores the gameId arg, so every
+  // game resolves the SAME cover; that is fine for a deterministic smoke visual.
+  // Boxart-only so both the tile order (boxart→title→snap) and the hero order
+  // (snap→title→boxart) fall through to it. `fetch_game_art` still returns the
+  // empty-string miss (nothing is left to fetch once the tier is cached).
+  get_cached_art_tiers: [{ tier: "boxart", path: MOCK_COVER_DATA_URI }],
   fetch_game_art: "",
   enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   import_games: [],
