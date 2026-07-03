@@ -45,7 +45,7 @@ function MediaChip({
         fontSize: 12,
         fontWeight: active ? 600 : 400,
         border: `1.5px solid ${active ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
-        background: active ? "var(--harmony-provider-enabled-bg)" : "transparent",
+        background: active ? "var(--rgp-provider-enabled-bg)" : "transparent",
         color: active ? "var(--aura-primary)" : "var(--aura-on-surface-muted)",
         cursor: "pointer",
         whiteSpace: "nowrap",
@@ -206,7 +206,7 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
 
   return (
     <AuraDialog
-      class="harmony-provider-catalog"
+      class="rgp-provider-catalog"
       open
       style={{ "--aura-dialog-width": "560px" } as React.CSSProperties}
     >
@@ -241,7 +241,7 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
         <AuraField>
           <input
             name="catalog-filter"
-            className="harmony-input"
+            className="rgp-input"
             type="search"
             value={filter}
             placeholder="Search providers…"

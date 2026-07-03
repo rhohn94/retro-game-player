@@ -54,7 +54,7 @@ describe("motion single-source (v0.4 W43)", () => {
   it("carries the global reduced-motion rule in theme/motion.css", () => {
     const css = readFileSync(join(SRC, "theme/motion.css"), "utf8");
     expect(css.includes("prefers-reduced-motion: reduce")).toBe(true);
-    expect(css.includes("--harmony-dur-fast")).toBe(true);
+    expect(css.includes("--rgp-dur-fast")).toBe(true);
   });
 
   it("exports the shared motion presets", () => {

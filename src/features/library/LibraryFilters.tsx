@@ -34,10 +34,10 @@ function FacetSelect({
   onSelect: (value: string | null) => void;
 }) {
   return (
-    <label className="harmony-facet">
-      <span className="harmony-facet__label">{label}</span>
+    <label className="rgp-facet">
+      <span className="rgp-facet__label">{label}</span>
       <select
-        className="harmony-facet__select"
+        className="rgp-facet__select"
         value={value}
         onChange={(e) => onSelect(e.target.value === "" ? null : e.target.value)}
       >
@@ -57,16 +57,16 @@ export function LibraryFilters({ facets, criteria, onChange }: LibraryFiltersPro
   const systems = [ALL_SYSTEMS, ...facets.systems];
 
   return (
-    <div className="harmony-filters">
+    <div className="rgp-filters">
       {/* Console pill tabs */}
-      <div className="harmony-tabs" role="tablist" aria-label="System filter">
+      <div className="rgp-tabs" role="tablist" aria-label="System filter">
         {systems.map((s) => (
           <button
             key={s}
             type="button"
             role="tab"
             aria-selected={s === criteria.system}
-            className={s === criteria.system ? "harmony-tab harmony-tab--active" : "harmony-tab"}
+            className={s === criteria.system ? "rgp-tab rgp-tab--active" : "rgp-tab"}
             onClick={() => set({ system: s })}
           >
             {s}
@@ -75,10 +75,10 @@ export function LibraryFilters({ facets, criteria, onChange }: LibraryFiltersPro
       </div>
 
       {/* Text search + metadata facets */}
-      <div className="harmony-filters__row">
+      <div className="rgp-filters__row">
         <input
           type="search"
-          className="harmony-filters__search"
+          className="rgp-filters__search"
           placeholder="Search title or alias…"
           aria-label="Search games by title or alias"
           value={criteria.query}

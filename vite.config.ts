@@ -3,8 +3,8 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Vite config for the Harmony frontend. The Tauri dev server expects a fixed
-// port; the build emits a static bundle the Rust shell loads.
+// Vite config for the Retro Game Player frontend. The Tauri dev server expects
+// a fixed port; the build emits a static bundle the Rust shell loads.
 const TAURI_DEV_PORT = 1420;
 
 // The Aura runtime (vendor/aura/dist/aura.js) is a self-registering IIFE bundle.

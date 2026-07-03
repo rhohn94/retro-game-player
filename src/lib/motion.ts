@@ -1,5 +1,5 @@
 /*
- * Shared Framer Motion presets (v0.4 "Motion") — the JS half of Harmony's single
+ * Shared Framer Motion presets (v0.4 "Motion") — the JS half of the app's single
  * motion source. The CSS half lives in src/theme/motion.css; the duration/easing
  * numbers are mirrored between the two (Framer transitions are plain JS numbers,
  * not CSS custom properties, so they cannot read the CSS tokens at runtime).
@@ -12,15 +12,15 @@
  */
 import type { Transition, Variants } from "framer-motion";
 
-/** Durations in SECONDS (Framer's unit). Mirror --harmony-dur-* in motion.css. */
+/** Durations in SECONDS (Framer's unit). Mirror --rgp-dur-* in motion.css. */
 export const DUR = {
   fast: 0.12, // 120ms — --aura-dur-fast
   base: 0.2, // 200ms — --aura-dur-base
   slow: 0.36, // 360ms — --aura-dur-slow
-  entrance: 0.18, // content rise-in (hero, list items) — Harmony choice
+  entrance: 0.18, // content rise-in (hero, list items) — app-specific choice
 } as const;
 
-/** Cubic-bezier easing arrays. Mirror --harmony-ease-* in motion.css. */
+/** Cubic-bezier easing arrays. Mirror --rgp-ease-* in motion.css. */
 export const EASE_OUT = [0.16, 1, 0.3, 1] as const; // --aura-ease-out (settle)
 export const EASE_STANDARD = [0.2, 0, 0, 1] as const; // --aura-ease-standard
 

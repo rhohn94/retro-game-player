@@ -1,0 +1,103 @@
+/*
+ * TV shell chrome (v0.26 W260) — the leanback surface's structural styles.
+ * Consumes ONLY the `--rgp-tv-*` tokens (theme/tv.css) plus the existing Aura
+ * brand/motion tokens; no literals (token-adoption guard,
+ * scripts/token-adoption.test.mjs). Declared in the same `rgp-theme` layer as
+ * every other app override (styles/layer-order.css).
+ */
+
+@layer rgp-theme {
+  .rgp-tv-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 500; /* above the desktop shell (App.tsx has no z-index of its
+                     own, but TV mode is a full takeover, not a stacked
+                     overlay — this only guards against any future desktop
+                     surface that DOES claim a stacking context). */
+    background: var(--aura-bg);
+    color: var(--aura-on-surface);
+    overflow: hidden;
+  }
+
+  /* The safe-area frame: everything TV-mode renders sits inset from the true
+     viewport edge by the overscan margin (tv-mode-design.md §Tokens). */
+  .rgp-tv-shell__frame {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    padding: var(--rgp-tv-safe-area);
+    display: flex;
+    flex-direction: column;
+    gap: var(--rgp-tv-rail-row-gap);
+  }
+
+  .rgp-tv-shell__header {
+    flex: 0 0 auto;
+  }
+
+  /* Chunky retro-accent section-label treatment (tv-mode-design.md: "chunky
+     pixel-font accents for section labels") — expressed via existing Aura
+     tokens (secondary brand knob + generous letter-spacing), never a
+     hardcoded font-family or literal color. */
+  .rgp-tv-shell__label {
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 700;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    text-transform: uppercase;
+    color: var(--rgp-tv-label-color);
+  }
+
+  .rgp-tv-shell__outlet {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--rgp-tv-rail-row-gap);
+  }
+
+  /* ---- placeholder TV-home region (W261 replaces this) ---- */
+  .rgp-tv-home-placeholder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: var(--aura-space-4);
+    max-width: 60ch;
+  }
+  .rgp-tv-home-placeholder__eyebrow {
+    margin: 0;
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 700;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    color: var(--rgp-tv-label-color);
+  }
+  .rgp-tv-home-placeholder__body {
+    margin: 0;
+    font-size: var(--rgp-tv-font-body);
+    color: var(--aura-on-surface-muted);
+    line-height: 1.5;
+  }
+
+  /* ---- exit affordance ---- */
+  .rgp-tv-shell__exit {
+    position: absolute;
+    top: var(--rgp-tv-safe-area);
+    right: var(--rgp-tv-safe-area);
+    padding: var(--aura-space-2) var(--aura-space-4);
+    border-radius: var(--rgp-tv-radius-tile);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface);
+    font-size: var(--rgp-tv-font-body);
+    cursor: pointer;
+    transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
+  }
+  .rgp-tv-shell__exit:hover,
+  .rgp-tv-shell__exit:focus-visible {
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
+  }
+}

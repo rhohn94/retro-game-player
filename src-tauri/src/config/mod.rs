@@ -8,6 +8,7 @@
 //! `AppConfig` deliberately uses named typed fields with defaults; the dynamic
 //! `settings` table covers the open-ended case.
 
+pub mod migrate;
 pub mod paths;
 
 use crate::error::AppResult;
@@ -35,7 +36,8 @@ pub struct AppConfig {
     pub familiar_base_url: String,
     /// Whether to launch games fullscreen by default.
     pub launch_fullscreen: bool,
-    /// Absolute path to the games directory Harmony created for the user, if any
+    /// Absolute path to the games directory Retro Game Player created for the
+    /// user, if any
     /// (W51). `None` until the user accepts the "create a games folder" offer.
     pub games_dir: Option<String>,
     /// Native libretro core hosting for NES instead of the in-page
@@ -48,9 +50,13 @@ pub struct AppConfig {
     /// In-game audio volume [0, 1], applied on both play paths and persisted
     /// from the overlay's volume control (v0.24 W243, #22).
     pub player_volume: f32,
-    /// Pause the running game when the Harmony window loses focus, resuming
+    /// Pause the running game when the Retro Game Player window loses focus, resuming
     /// on refocus (v0.24 W243, #22). On by default.
     pub pause_on_blur: bool,
+    /// Land directly in TV mode (the 10-foot leanback shell, fullscreen) on a
+    /// fresh launch instead of the desktop library (v0.26 W260,
+    /// tv-mode-design.md §Auto-enter). Off by default — TV mode is opt-in.
+    pub auto_tv_mode: bool,
 }
 
 impl Default for AppConfig {
@@ -64,6 +70,7 @@ impl Default for AppConfig {
             native_play_enabled: true,
             player_volume: 1.0,
             pause_on_blur: true,
+            auto_tv_mode: false,
         }
     }
 }
@@ -105,7 +112,7 @@ mod tests {
     use super::*;
 
     fn temp_paths(tag: &str) -> (Paths, std::path::PathBuf) {
-        let tmp = std::env::temp_dir().join(format!("harmony-config-{tag}-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("rgp-config-{tag}-{}", std::process::id()));
         let p = Paths::with_root(tmp.join(paths::BUNDLE_ID)).expect("root");
         (p, tmp)
     }
@@ -121,6 +128,20 @@ mod tests {
         assert!(cfg.native_play_enabled); // on by default since v0.24 (W240)
         assert_eq!(cfg.player_volume, 1.0);
         assert!(cfg.pause_on_blur);
+        assert!(!cfg.auto_tv_mode); // TV mode is opt-in (v0.26 W260)
+    }
+
+    #[test]
+    fn auto_tv_mode_round_trips() {
+        let (paths, tmp) = temp_paths("auto-tv-mode");
+        let cfg = AppConfig {
+            auto_tv_mode: true,
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert!(loaded.auto_tv_mode);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

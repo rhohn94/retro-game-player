@@ -4,7 +4,14 @@
 //! - `launch_game`        — resolve core + locate RetroArch + spawn.
 //! - `locate_retroarch`   — probe and return the current RetroArch path.
 //! - `set_retroarch_path` — persist a user-chosen path to AppConfig.
+//!
+//! v0.26 "library life" (W264): `launch_game` also hooks the external play
+//! path's session tracking. RetroArch runs as its own process outside
+//! Harmony's window, so there is no in-app mount/unmount to hang the
+//! start/end pair on — instead a background thread waits on the spawned
+//! child and brackets its whole lifetime with `record_play_start`/`_end`.
 
+use crate::commands::play_stats::PlayStatsState;
 use crate::config::{paths::Paths, AppConfig};
 use crate::core::launch::{args, launcher, locator};
 use crate::db::{
@@ -13,7 +20,20 @@ use crate::db::{
 };
 use crate::error::{AppError, AppResult};
 use std::path::PathBuf;
-use tauri::State;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Manager, State};
+
+/// Current Unix epoch seconds, used to stamp `last_played_at` at session end.
+/// Mirrors `commands::play_stats::now_epoch_secs` (kept module-local since
+/// this thread never has a `commands::play_stats` import worth sharing a
+/// single-line helper over — a shared time source would be over-engineering
+/// for a one-line `SystemTime` call).
+fn now_epoch_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 /// Launch the game identified by `game_id`.
 ///
@@ -23,6 +43,8 @@ use tauri::State;
 /// 3. Look up the game row to get its filesystem `path` and `system`.
 /// 4. Look up the active core for that `system`.
 /// 5. Build args and spawn.
+/// 6. (v0.26 W264) Track the session on a background thread bracketing the
+///    spawned RetroArch process's whole lifetime.
 ///
 /// Missing RetroArch → `AppError::Dependency` with an actionable message.
 /// Missing active core → `AppError::NotFound`.
@@ -31,6 +53,7 @@ pub async fn launch_game(
     game_id: i64,
     fullscreen: Option<bool>,
     db: State<'_, Db>,
+    app: AppHandle,
 ) -> AppResult<()> {
     // --- 1. Config ---
     let paths = Paths::app_support()?;
@@ -67,7 +90,58 @@ pub async fn launch_game(
         use_fullscreen,
     );
 
-    launcher::spawn(&launch_args)
+    let child = launcher::spawn(&launch_args)?;
+
+    // --- 6. Library-life session tracking (v0.26 W264) ---
+    // RetroArch is its own top-level process — there's no in-app
+    // mount/unmount to hang a start/end pair on the way the two in-app play
+    // paths do. Instead: start the session now (the tracker is Tauri-free,
+    // so this call is synchronous and infallible from here), then spawn a
+    // background thread that waits on the child and ends the session the
+    // moment it actually exits. The thread opens its OWN db connection via
+    // `db_path` (mirrors `commands::downloads`'s worker pattern) since the
+    // managed `Db` handle's borrow can't cross this call's return.
+    let db_path = paths.db_file()?;
+    let session_id = app.state::<PlayStatsState>().0.start(game_id);
+    spawn_session_watcher(app, db_path, session_id, child);
+
+    Ok(())
+}
+
+/// Waits on `child` in a background thread, then ends `session_id` and
+/// persists the play-stats aggregate update via a fresh db connection.
+/// Best-effort: a failure to wait or to persist is logged, never surfaced
+/// (the game already launched successfully from the user's perspective).
+fn spawn_session_watcher(
+    app: AppHandle,
+    db_path: PathBuf,
+    session_id: i64,
+    mut child: std::process::Child,
+) {
+    std::thread::Builder::new()
+        .name(format!("rgp-external-play-{session_id}"))
+        .spawn(move || {
+            if let Err(e) = child.wait() {
+                eprintln!("[play_stats] failed to wait on RetroArch child: {e}");
+            }
+            let Some((game_id, duration_ms)) = app.state::<PlayStatsState>().0.end(session_id)
+            else {
+                return; // already ended (shouldn't happen for this path, but harmless)
+            };
+            let db = match Db::open(&db_path) {
+                Ok(db) => db,
+                Err(e) => {
+                    eprintln!("[play_stats] failed to open db to record session end: {e}");
+                    return;
+                }
+            };
+            if let Err(e) =
+                LibraryRepo::new(&db).record_play_session(game_id, now_epoch_secs(), duration_ms)
+            {
+                eprintln!("[play_stats] failed to record play session: {e}");
+            }
+        })
+        .ok();
 }
 
 /// Probe for the RetroArch executable and return its path, or `null` if absent.

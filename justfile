@@ -1,4 +1,4 @@
-app    := "Harmony"
+app    := "Retro Game Player"
 target := "aarch64-apple-darwin"
 bundle := "src-tauri/target/" + target + "/release/bundle/macos/" + app + ".app"
 deploy-root := env_var('HOME') / "Projects/deployed-apps/harmony"

@@ -5,7 +5,7 @@
  *
  * Key contracts:
  *  - v0.16 PREVIEWS results: the backend fetches each provider's search page and
- *    returns the links it found, grouped by provider. Harmony NEVER downloads
+ *    returns the links it found, grouped by provider. Retro Game Player NEVER downloads
  *    the content — each item's `url` is opened in the system browser via
  *    tauri-plugin-opener. (download-search-design.md)
  *  - Ships with an empty user-provider list; guides the user to add one.
@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { openUrl } from "../../ipc/opener";
 import { AuraButton, AuraField, AuraCard } from "@aura/react";
+import { FocusRing, useFocusable } from "../controller";
 import {
   listProviders,
   addProvider,
@@ -70,6 +71,100 @@ const MAX_PROBE_URLS = 64;
 interface DialogState {
   open: boolean;
   provider?: SearchProvider;
+}
+
+// ── Controller navigability (W268, controller-input-design.md §compat matrix) ──
+//
+// SearchPage previously registered no elements with the spatial-nav focus
+// registry, so it was a dead end for a controller-only user (docstring above
+// overstated this — audited + fixed here). `FocusableSearchField` and
+// `FocusableAction` are small generic wrappers, mirroring the GameTile /
+// FocusableNavItem pattern (App.tsx, library/GameTile.tsx): register the
+// element with `useFocusable`, mirror controller focus onto native DOM focus so
+// the ring + scroll-into-view work, and draw the shared `FocusRing`.
+
+/** A focusable text/search `<input>` wrapped in the shared `FocusRing`.
+ *  `confirm` on a text field just moves native DOM focus into it (so the user
+ *  can then type) rather than triggering a click. */
+function FocusableSearchField({
+  focusId,
+  inputRef,
+  ...inputProps
+}: {
+  focusId: string;
+  inputRef?: React.Ref<HTMLInputElement>;
+} & React.InputHTMLAttributes<HTMLInputElement>) {
+  const { ref, isFocused } = useFocusable<HTMLInputElement>(focusId);
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <FocusRing focused={isFocused}>
+      <input
+        {...inputProps}
+        ref={(el) => {
+          ref.current = el;
+          if (typeof inputRef === "function") inputRef(el);
+          else if (inputRef) (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+        }}
+      />
+    </FocusRing>
+  );
+}
+
+/** A focusable action control wrapped in the shared `FocusRing`. Generic over
+ *  `HTMLElement` (rather than `HTMLButtonElement`) so it works uniformly for
+ *  AuraButton (whose forwarded ref types as `HTMLElement`, design-language.md
+ *  §7.2), plain `<button>`, and native-checkbox `<label>` toolbar controls.
+ *
+ *  `onActivate` fires exactly once per confirm-press OR native click/change —
+ *  never both — so a checkbox's own onChange stays the single source of truth
+ *  for its state and `render`'s `onClick` is JUST the focus-claim (no
+ *  redundant onActivate call), avoiding a double-toggle. */
+function FocusableAction({
+  focusId,
+  onActivate,
+  disabled,
+  children,
+  render,
+}: {
+  focusId: string;
+  onActivate: () => void;
+  disabled?: boolean;
+  children?: React.ReactNode;
+  /** Custom render for the inner control (e.g. AuraButton, or a checkbox
+   *  `<label>`); receives the ref + a focus-claim-only `onClick` (does NOT
+   *  call `onActivate` — the control's own native handler owns that). Defaults
+   *  to a plain `<button>` whose click both claims focus and activates. */
+  render?: (props: {
+    ref: React.Ref<HTMLElement>;
+    onClick: () => void;
+    disabled?: boolean;
+  }) => React.ReactNode;
+}) {
+  const { ref, isFocused, focus } = useFocusable<HTMLElement>(focusId, disabled ? undefined : onActivate);
+  useEffect(() => {
+    if (isFocused) ref.current?.focus();
+  }, [isFocused, ref]);
+  return (
+    <FocusRing focused={isFocused}>
+      {render ? (
+        render({ ref, onClick: focus, disabled })
+      ) : (
+        <button
+          ref={ref as React.Ref<HTMLButtonElement>}
+          type="button"
+          onClick={() => {
+            focus();
+            onActivate();
+          }}
+          disabled={disabled}
+        >
+          {children}
+        </button>
+      )}
+    </FocusRing>
+  );
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -348,22 +443,24 @@ export function SearchPage() {
       {/* Header */}
       <h1 style={{ margin: 0, fontSize: 22 }}>Search</h1>
       <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-        Find games and info across your providers. Harmony{" "}
+        Find games and info across your providers. Retro Game Player{" "}
         <strong>previews what each provider found</strong> and opens your chosen
         link in your browser — or, for providers you've enabled direct download
         for, downloads your chosen file straight into your library.{" "}
-        <span aria-hidden>⬇</span> marks download sources. Harmony never fetches
-        content on its own initiative; providers vary in what they host, and
-        you're responsible for how you use any link you open or file you download.
+        <span aria-hidden>⬇</span> marks download sources. Retro Game Player
+        never fetches content on its own initiative; providers vary in what
+        they host, and you're responsible for how you use any link you open or
+        file you download.
       </p>
 
       {/* Query + structured filters + run */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
         <AuraField style={{ flex: 1, minWidth: 200 }}>
-          <input
-            ref={queryRef}
+          <FocusableSearchField
+            focusId="search:query"
+            inputRef={queryRef}
             name="search-query"
-            className="harmony-input"
+            className="rgp-input"
             type="search"
             value={query}
             placeholder="Game name…"
@@ -372,10 +469,12 @@ export function SearchPage() {
           />
         </AuraField>
         {/* Structured filters (v0.18): always feed relevance ranking; appended
-            to a provider's query only when it has compose-filters enabled. */}
+            to a provider's query only when it has compose-filters enabled.
+            Native <select> elements are already keyboard/controller-operable
+            via the platform's own select UI, so they're left unwrapped. */}
         <select
           name="search-console"
-          className="harmony-input"
+          className="rgp-input"
           aria-label="Console"
           value={consoleKey}
           onChange={(e) => setConsoleKey(e.target.value)}
@@ -390,7 +489,7 @@ export function SearchPage() {
         </select>
         <select
           name="search-region"
-          className="harmony-input"
+          className="rgp-input"
           aria-label="Region"
           value={region}
           onChange={(e) => setRegion(e.target.value)}
@@ -403,13 +502,16 @@ export function SearchPage() {
             </option>
           ))}
         </select>
-        <AuraButton
-          variant="primary"
-          onClick={handleSearch}
+        <FocusableAction
+          focusId="search:run"
+          onActivate={handleSearch}
           disabled={!query.trim() || activeCount === 0 || running}
-        >
-          {running ? "Searching…" : "Search"}
-        </AuraButton>
+          render={({ ref, onClick, disabled }) => (
+            <AuraButton ref={ref} variant="primary" onClick={onClick} disabled={disabled}>
+              {running ? "Searching…" : "Search"}
+            </AuraButton>
+          )}
+        />
       </div>
 
       {/* Provider chips */}
@@ -425,22 +527,37 @@ export function SearchPage() {
               onToggle={handleToggle}
               onEdit={handleEditOpen}
               onRemove={handleRemove}
+              focusId={`search:provider:${p.id}`}
             />
           ))}
-          <AuraButton
-            variant="ghost"
-            style={{ fontSize: 13, padding: "4px 10px" }}
-            onClick={() => setDialog({ open: true })}
-          >
-            + Add
-          </AuraButton>
-          <AuraButton
-            variant="ghost"
-            style={{ fontSize: 13, padding: "4px 10px" }}
-            onClick={() => setCatalogOpen(true)}
-          >
-            ⊞ Browse providers
-          </AuraButton>
+          <FocusableAction
+            focusId="search:add-provider"
+            onActivate={() => setDialog({ open: true })}
+            render={({ ref, onClick }) => (
+              <AuraButton
+                ref={ref}
+                variant="ghost"
+                style={{ fontSize: 13, padding: "4px 10px" }}
+                onClick={onClick}
+              >
+                + Add
+              </AuraButton>
+            )}
+          />
+          <FocusableAction
+            focusId="search:browse-providers"
+            onActivate={() => setCatalogOpen(true)}
+            render={({ ref, onClick }) => (
+              <AuraButton
+                ref={ref}
+                variant="ghost"
+                style={{ fontSize: 13, padding: "4px 10px" }}
+                onClick={onClick}
+              >
+                ⊞ Browse providers
+              </AuraButton>
+            )}
+          />
         </div>
       ) : (
         /* No providers configured → empty state */
@@ -456,7 +573,7 @@ export function SearchPage() {
       {/* Results — one previewed group per provider */}
       {results !== null && (
         <AuraCard
-          class="harmony-panel"
+          class="rgp-panel"
           style={{ padding: 0, overflow: "hidden" }}
         >
           {results.length === 0 ? (
@@ -479,9 +596,10 @@ export function SearchPage() {
                   }}
                 >
                   <AuraField style={{ flex: 1, minWidth: 160 }}>
-                    <input
+                    <FocusableSearchField
+                      focusId="search:result-filter"
                       name="result-filter"
-                      className="harmony-input"
+                      className="rgp-input"
                       type="search"
                       value={filter}
                       placeholder="Filter results…"
@@ -500,7 +618,7 @@ export function SearchPage() {
                     Sort
                     <select
                       name="result-sort"
-                      className="harmony-input"
+                      className="rgp-input"
                       value={sortKey}
                       onChange={(e) =>
                         isSortKey(e.target.value) && handleSortChange(e.target.value)
@@ -528,7 +646,7 @@ export function SearchPage() {
                     Group
                     <select
                       name="result-groupby"
-                      className="harmony-input"
+                      className="rgp-input"
                       value={groupBy}
                       onChange={(e) =>
                         setGroupBy(e.target.value === "game" ? "game" : "provider")
@@ -541,88 +659,127 @@ export function SearchPage() {
                   </label>
                   {/* Liveness (v0.19): opt-in HEAD probe of each link. Off by
                       default; never blocks browsing. */}
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 12,
-                      color: "var(--aura-on-surface-muted)",
-                      cursor: "pointer",
-                    }}
-                    title="Probe each link with a HEAD request and mark it alive / dead / unknown. Off by default."
-                  >
-                    <input
-                      name="result-check-links"
-                      type="checkbox"
-                      checked={checkLinks}
-                      onChange={(e) => setCheckLinks(e.target.checked)}
-                    />
-                    {probing ? "Checking links…" : "Check links"}
-                  </label>
+                  <FocusableAction
+                    focusId="search:check-links"
+                    onActivate={() => setCheckLinks((v) => !v)}
+                    render={({ ref, onClick }) => (
+                      <label
+                        ref={ref as React.Ref<HTMLLabelElement>}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 12,
+                          color: "var(--aura-on-surface-muted)",
+                          cursor: "pointer",
+                        }}
+                        title="Probe each link with a HEAD request and mark it alive / dead / unknown. Off by default."
+                      >
+                        <input
+                          name="result-check-links"
+                          type="checkbox"
+                          checked={checkLinks}
+                          onChange={(e) => {
+                            setCheckLinks(e.target.checked);
+                            onClick();
+                          }}
+                        />
+                        {probing ? "Checking links…" : "Check links"}
+                      </label>
+                    )}
+                  />
                   {/* Hide-weak (v0.18): off by default; weak matches are
                       otherwise demoted to the bottom, never hidden silently. */}
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 12,
-                      color: "var(--aura-on-surface-muted)",
-                      cursor: "pointer",
-                    }}
-                    title="Hide rows that don't match your search (kept, just hidden)"
-                  >
-                    <input
-                      name="result-hide-weak"
-                      type="checkbox"
-                      checked={hideWeak}
-                      onChange={(e) => setHideWeak(e.target.checked)}
-                    />
-                    Hide unlikely matches
-                  </label>
+                  <FocusableAction
+                    focusId="search:hide-weak"
+                    onActivate={() => setHideWeak((v) => !v)}
+                    render={({ ref, onClick }) => (
+                      <label
+                        ref={ref as React.Ref<HTMLLabelElement>}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 12,
+                          color: "var(--aura-on-surface-muted)",
+                          cursor: "pointer",
+                        }}
+                        title="Hide rows that don't match your search (kept, just hidden)"
+                      >
+                        <input
+                          name="result-hide-weak"
+                          type="checkbox"
+                          checked={hideWeak}
+                          onChange={(e) => {
+                            setHideWeak(e.target.checked);
+                            onClick();
+                          }}
+                        />
+                        Hide unlikely matches
+                      </label>
+                    )}
+                  />
                   {groupBy === "provider" && results.length > 1 && (
                     <>
-                      <button
-                        onClick={expandAll}
+                      <FocusableAction
+                        focusId="search:expand-all"
+                        onActivate={expandAll}
                         disabled={collapsed.size === 0}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: collapsed.size === 0 ? "default" : "pointer",
-                          padding: 0,
-                          fontSize: 11,
-                          color:
-                            collapsed.size === 0
-                              ? "var(--aura-on-surface-muted)"
-                              : "var(--aura-primary)",
-                          opacity: collapsed.size === 0 ? 0.5 : 1,
-                        }}
-                      >
-                        Expand all
-                      </button>
+                        render={({ ref, onClick, disabled }) => (
+                          <button
+                            ref={ref as React.Ref<HTMLButtonElement>}
+                            onClick={() => {
+                              onClick();
+                              expandAll();
+                            }}
+                            disabled={disabled}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: disabled ? "default" : "pointer",
+                              padding: 0,
+                              fontSize: 11,
+                              color: disabled
+                                ? "var(--aura-on-surface-muted)"
+                                : "var(--aura-primary)",
+                              opacity: disabled ? 0.5 : 1,
+                            }}
+                          >
+                            Expand all
+                          </button>
+                        )}
+                      />
                       <span style={{ color: "var(--aura-on-surface-muted)", fontSize: 11 }}>
                         ·
                       </span>
-                      <button
-                        onClick={collapseAll}
+                      <FocusableAction
+                        focusId="search:collapse-all"
+                        onActivate={collapseAll}
                         disabled={collapsed.size === results.length}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor:
-                            collapsed.size === results.length ? "default" : "pointer",
-                          padding: 0,
-                          fontSize: 11,
-                          color:
-                            collapsed.size === results.length
-                              ? "var(--aura-on-surface-muted)"
-                              : "var(--aura-primary)",
-                          opacity: collapsed.size === results.length ? 0.5 : 1,
-                        }}
-                      >
-                        Collapse all
-                      </button>
+                        render={({ ref, onClick, disabled }) => (
+                          <button
+                            ref={ref as React.Ref<HTMLButtonElement>}
+                            onClick={() => {
+                              onClick();
+                              collapseAll();
+                            }}
+                            disabled={disabled}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: disabled ? "default" : "pointer",
+                              padding: 0,
+                              fontSize: 11,
+                              color: disabled
+                                ? "var(--aura-on-surface-muted)"
+                                : "var(--aura-primary)",
+                              opacity: disabled ? 0.5 : 1,
+                            }}
+                          >
+                            Collapse all
+                          </button>
+                        )}
+                      />
                     </>
                   )}
                   <span
@@ -689,22 +846,45 @@ export function SearchPage() {
                   <span style={{ flex: 1, fontSize: 13 }}>
                     {selected.size} selected
                   </span>
-                  <button
-                    onClick={clearSelection}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 0,
-                      fontSize: 12,
-                      color: "var(--aura-on-surface-muted)",
-                    }}
-                  >
-                    Clear
-                  </button>
-                  <AuraButton variant="primary" onClick={openSelected}>
-                    Open {selected.size} in browser ↗
-                  </AuraButton>
+                  <FocusableAction
+                    focusId="search:clear-selection"
+                    onActivate={clearSelection}
+                    render={({ ref, onClick }) => (
+                      <button
+                        ref={ref as React.Ref<HTMLButtonElement>}
+                        onClick={() => {
+                          onClick();
+                          clearSelection();
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 0,
+                          fontSize: 12,
+                          color: "var(--aura-on-surface-muted)",
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  />
+                  <FocusableAction
+                    focusId="search:open-selected"
+                    onActivate={openSelected}
+                    render={({ ref, onClick }) => (
+                      <AuraButton
+                        ref={ref}
+                        variant="primary"
+                        onClick={() => {
+                          onClick();
+                          void openSelected();
+                        }}
+                      >
+                        Open {selected.size} in browser ↗
+                      </AuraButton>
+                    )}
+                  />
                 </div>
               )}
             </>

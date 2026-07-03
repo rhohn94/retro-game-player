@@ -1,0 +1,83 @@
+/* controllers-pane.css — Settings → Controllers rebind editor (W267,
+   controller-input-design.md §Remapping UI). Aura tokens only; no hardcoded
+   colours (token-adoption guard). */
+
+.rgp-remap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aura-space-3);
+  width: 100%;
+  padding: var(--aura-space-2) var(--rgp-space-2-5);
+  border-radius: var(--aura-radius-sm);
+  border: 1px solid transparent;
+  background: var(--aura-surface-2);
+  color: var(--aura-on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--rgp-dur-fast) var(--rgp-ease-out),
+    border-color var(--rgp-dur-fast) var(--rgp-ease-out);
+}
+
+.rgp-remap-row:hover {
+  background: var(--aura-surface-3);
+}
+
+.rgp-remap-row:focus-visible,
+.rgp-remap-row.rgp-remap-row--focused {
+  outline: var(--rgp-focus-ring);
+  outline-offset: var(--rgp-focus-ring-offset);
+  border-color: var(--aura-primary);
+}
+
+.rgp-remap-row__action {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.rgp-remap-row__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--aura-space-2);
+  font-size: 13px;
+  color: var(--aura-on-surface-muted);
+}
+
+.rgp-remap-row__button-glyph {
+  font-size: 16px;
+}
+
+.rgp-remap-row__button--unbound {
+  color: var(--aura-error);
+}
+
+/* Full-pane capture overlay — takes exclusive input while active. */
+.rgp-remap-capture {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--aura-lightbox-scrim);
+  z-index: var(--aura-z-overlay);
+}
+
+.rgp-remap-capture__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--aura-space-3);
+  padding: var(--aura-space-6) var(--aura-space-5);
+  border-radius: var(--aura-radius-md);
+  background: var(--aura-surface-2);
+  border: 1px solid var(--aura-border);
+  min-width: 280px;
+  text-align: center;
+}
+
+.rgp-remap-conflict__actions {
+  display: flex;
+  gap: var(--aura-space-2);
+  justify-content: center;
+}

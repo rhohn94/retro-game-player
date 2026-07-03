@@ -34,6 +34,12 @@ export interface PlaySwitchProps {
   /** W235 attract mode — forwarded to the native player only (the EmulatorJS
    * iframe cannot become a page background; explicit v0.23 non-goal). */
   presentation?: "foreground" | "background";
+  /** How "Exit game" leaves the player (v0.26 W265). Omitted on the desktop
+   * detail route → the players default to `navigate(-1)` (back to the grid).
+   * The TV takeover surface passes an explicit callback so exiting collapses
+   * the takeover back to the originating tile instead of touching the router
+   * (TV mode is not route-driven — there is no history entry to pop). */
+  onExit?: () => void;
 }
 
 /**
@@ -41,7 +47,7 @@ export interface PlaySwitchProps {
  * system with no in-page path at all (native external RetroArch launch only
  * — unaffected by this switch).
  */
-export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitchProps) {
+export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: PlaySwitchProps) {
   const isNativeCandidate = system === NATIVE_SYSTEM;
   // null = still resolving the flag; true/false once known. Only matters for
   // the native-candidate system — every other system ignores it entirely.
@@ -113,6 +119,7 @@ export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitc
           gameName={gameName}
           presentation={presentation}
           onStartFailed={onNativeFailed}
+          onExit={onExit}
         />
       </>
     );
@@ -129,6 +136,7 @@ export function PlaySwitch({ gameId, system, gameName, presentation }: PlaySwitc
           ejsSystem={availability.ejsCore}
           gameName={gameName}
           onUnavailable={onEjsUnavailable}
+          onExit={onExit}
         />
       </>
     );

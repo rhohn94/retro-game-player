@@ -49,8 +49,8 @@ export function ConsoleDetailPage() {
 
   if (error) {
     return (
-      <div className="harmony-console-detail">
-        <AuraButton class="harmony-detail__back" onClick={() => navigate(-1)}>
+      <div className="rgp-console-detail">
+        <AuraButton class="rgp-detail__back" onClick={() => navigate(-1)}>
           ◀ Back
         </AuraButton>
         <ErrorNotice>Could not load console: {error}</ErrorNotice>
@@ -60,7 +60,7 @@ export function ConsoleDetailPage() {
 
   if (!info) {
     return (
-      <div className="harmony-console-detail">
+      <div className="rgp-console-detail">
         <LoadingState>Loading…</LoadingState>
       </div>
     );
@@ -70,39 +70,39 @@ export function ConsoleDetailPage() {
 
   return (
     <motion.div
-      className="harmony-console-detail"
+      className="rgp-console-detail"
       initial={{ opacity: 0, scale: 0.99 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={SPRING.gentle}
     >
-      <AuraButton class="harmony-detail__back" onClick={() => navigate("/consoles")}>
+      <AuraButton class="rgp-detail__back" onClick={() => navigate("/consoles")}>
         ◀ All consoles
       </AuraButton>
 
-      <header className="harmony-console-detail__hero">
-        <AuraCard class="harmony-console-detail__photo">
+      <header className="rgp-console-detail__hero">
+        <AuraCard class="rgp-console-detail__photo">
           {img ? (
-            <img src={img} alt="" className="harmony-console-detail__photo-img" />
+            <img src={img} alt="" className="rgp-console-detail__photo-img" />
           ) : (
-            <span className="harmony-console-detail__photo-ph">{info.abbreviation}</span>
+            <span className="rgp-console-detail__photo-ph">{info.abbreviation}</span>
           )}
         </AuraCard>
-        <div className="harmony-console-detail__info">
-          <h1 className="harmony-console-detail__name">{info.name}</h1>
-          <p className="harmony-console-detail__facts">
+        <div className="rgp-console-detail__info">
+          <h1 className="rgp-console-detail__name">{info.name}</h1>
+          <p className="rgp-console-detail__facts">
             {info.manufacturer} · Generation {info.generation} · {info.year}
           </p>
-          <p className="harmony-console-detail__counts">
+          <p className="rgp-console-detail__counts">
             {info.ownedCount.toLocaleString()} in your library ·{" "}
             {info.catalogCount.toLocaleString()} known titles
           </p>
           {info.description && (
-            <p className="harmony-console-detail__desc">{info.description}</p>
+            <p className="rgp-console-detail__desc">{info.description}</p>
           )}
           {info.wikipediaUrl && (
             <button
               type="button"
-              className="harmony-detail__wiki"
+              className="rgp-detail__wiki"
               onClick={() => void openUrl(info.wikipediaUrl!).catch(() => undefined)}
             >
               Read more on Wikipedia ↗
@@ -111,9 +111,9 @@ export function ConsoleDetailPage() {
         </div>
       </header>
 
-      <section className="harmony-console-detail__section">
-        <h2 className="harmony-console-detail__h2">Hardware</h2>
-        <table className="harmony-specs">
+      <section className="rgp-console-detail__section">
+        <h2 className="rgp-console-detail__h2">Hardware</h2>
+        <table className="rgp-specs">
           <tbody>
             <tr>
               <th scope="row">CPU</th>
@@ -132,9 +132,9 @@ export function ConsoleDetailPage() {
       </section>
 
       {owned.length > 0 && (
-        <section className="harmony-console-detail__section">
-          <h2 className="harmony-console-detail__h2">Your {info.abbreviation} games</h2>
-          <div className="harmony-grid">
+        <section className="rgp-console-detail__section">
+          <h2 className="rgp-console-detail__h2">Your {info.abbreviation} games</h2>
+          <div className="rgp-grid">
             {owned.map((g) => (
               <GameTile
                 key={g.id}
@@ -147,11 +147,11 @@ export function ConsoleDetailPage() {
         </section>
       )}
 
-      <section className="harmony-console-detail__section">
-        <h2 className="harmony-console-detail__h2">All {info.name} games</h2>
-        <p className="harmony-muted" style={{ marginTop: 0 }}>
-          The full known catalog. Pick a title to find downloads — Harmony opens
-          links in your browser and never downloads anything for you.
+      <section className="rgp-console-detail__section">
+        <h2 className="rgp-console-detail__h2">All {info.name} games</h2>
+        <p className="rgp-muted" style={{ marginTop: 0 }}>
+          The full known catalog. Pick a title to find downloads — Retro Game
+          Player opens links in your browser and never downloads anything for you.
         </p>
         <CatalogBrowser system={info.key} />
       </section>

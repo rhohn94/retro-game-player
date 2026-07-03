@@ -1,7 +1,7 @@
 // EmulatorJS system mapping for the in-page WASM player (v0.15; extended by
 // v0.24 W241 multi-core coverage — in-page-play-design.md §7).
 //
-// Maps a Harmony system key (Game.system) to the value passed as the player
+// Maps a Retro Game Player system key (Game.system) to the value passed as the player
 // page's `?core=` / `EJS_core`. NES uses the EJS system alias "nes" (resolves
 // to the *embedded* fceumm core — always available, no acquisition). Every
 // other entry is an explicit EmulatorJS core name from the curated on-demand
@@ -14,7 +14,7 @@
 // BIOS-gated exceptions: ps1 runs pcsx_rearmed's HLE BIOS (most titles boot,
 // some need a real BIOS — out of scope; single-file images only).
 
-/** Harmony system key → `EJS_core` value, for in-page-capable systems only. */
+/** Retro Game Player system key → `EJS_core` value, for in-page-capable systems only. */
 export const EJS_SYSTEM: Readonly<Record<string, string>> = {
   nes: "nes", // embedded fceumm (v0.15)
   snes: "snes9x",
@@ -27,7 +27,7 @@ export const EJS_SYSTEM: Readonly<Record<string, string>> = {
 };
 
 /**
- * The `EJS_core` value for a Harmony system, or undefined when the system has
+ * The `EJS_core` value for a Retro Game Player system, or undefined when the system has
  * no in-page core at all (caller falls back to the native launch).
  *
  * Uses an own-property check so a system string that collides with an

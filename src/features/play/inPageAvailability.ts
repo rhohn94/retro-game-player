@@ -37,7 +37,7 @@ export function describeCoreSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Display names for the get-core panel copy, keyed by Harmony system. */
+/** Display names for the get-core panel copy, keyed by Retro Game Player system. */
 const SYSTEM_LABELS: Readonly<Record<string, string>> = {
   snes: "SNES",
   genesis: "Genesis",

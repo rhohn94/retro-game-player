@@ -66,51 +66,51 @@ export function CatalogBrowser({ system }: { system: string }) {
   const rangeEnd = Math.min(offset + PAGE_SIZE, total);
 
   return (
-    <div className="harmony-catalog">
-      <div className="harmony-catalog__bar">
-        <AuraField class="harmony-catalog__search">
+    <div className="rgp-catalog">
+      <div className="rgp-catalog__bar">
+        <AuraField class="rgp-catalog__search">
           <input
             type="search"
-            className="harmony-input"
+            className="rgp-input"
             placeholder="Search this console's catalog…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </AuraField>
-        <span className="harmony-muted harmony-catalog__count">
+        <span className="rgp-muted rgp-catalog__count">
           {total.toLocaleString()} {total === 1 ? "title" : "titles"}
           {total > 0 ? ` · showing ${rangeStart.toLocaleString()}–${rangeEnd.toLocaleString()}` : ""}
         </span>
       </div>
 
-      {loading && !page && !error && <p className="harmony-muted">Loading catalog…</p>}
+      {loading && !page && !error && <p className="rgp-muted">Loading catalog…</p>}
 
       {error && (
         <p style={{ color: "var(--aura-error)" }}>Could not load the catalog: {error}</p>
       )}
 
       {page && page.items.length === 0 && (
-        <p className="harmony-muted">No titles match your search.</p>
+        <p className="rgp-muted">No titles match your search.</p>
       )}
 
       {page && page.items.length > 0 && (
         <motion.ul
-          className="harmony-catalog__list"
+          className="rgp-catalog__list"
           variants={listContainer}
           initial="hidden"
           animate="visible"
         >
           {page.items.map((t) => (
-            <motion.li key={t.title} variants={listItem} className="harmony-catalog__li">
+            <motion.li key={t.title} variants={listItem} className="rgp-catalog__li">
               <button
                 type="button"
-                className="harmony-catalog__row"
+                className="rgp-catalog__row"
                 onClick={() => navigate("/search", { state: { query: t.title } })}
                 title={`Find downloads for ${t.title}`}
               >
-                <span className="harmony-catalog__name">{t.title}</span>
-                {t.owned && <span className="harmony-catalog__owned">✓ In library</span>}
-                <span className="harmony-catalog__find">Find downloads ↗</span>
+                <span className="rgp-catalog__name">{t.title}</span>
+                {t.owned && <span className="rgp-catalog__owned">✓ In library</span>}
+                <span className="rgp-catalog__find">Find downloads ↗</span>
               </button>
             </motion.li>
           ))}
@@ -118,7 +118,7 @@ export function CatalogBrowser({ system }: { system: string }) {
       )}
 
       {(hasPrev || hasNext) && (
-        <div className="harmony-catalog__pager">
+        <div className="rgp-catalog__pager">
           <AuraButton
             variant="ghost"
             disabled={!hasPrev}

@@ -105,12 +105,15 @@ renders an ordered list of `{ action, label }` hints plus an optional combined
 
 ## 5. Persistence (`commands/controllers.rs`, `ipc/controllers.ts`)
 
-Bindings persist in SQLite via the W3 `controller_bindings` repo. Two minimal
+Bindings persist in SQLite via the W3 `controller_bindings` repo. Three minimal
 append-friendly commands back the frontend:
 - `list_bindings(deviceFamily?)` → `ControllerBinding[]` — overrides folded over
   compiled-in family defaults (empty list = pure defaults).
 - `set_binding(deviceFamily, action, button)` → `ControllerBinding` — upserts one
   override.
+- `reset_bindings(deviceFamily)` → `void` (W267) — deletes every override row for
+  one family (`ControllerBindingsRepo::delete_family`), restoring its compiled-in
+  defaults. An empty family is a no-op success, not an error.
 
 `resolveBindings(family, overrides)` applies overrides over `defaultBindings`,
 ignoring unknown actions/buttons so a stale row can never crash input.
@@ -120,8 +123,126 @@ ignoring unknown actions/buttons so a stale row can never crash input.
 - `harmony-ux-design.md` §0 — controller model, focus ring, per-screen hints.
 - `architecture-design.md` §2.10, §3 — `controller_bindings` surface + table.
 
+## Remapping UI (W267)
+
+Settings → Controllers replaces the stub with a full press-to-rebind editor
+(`ControllersPane.tsx`), one section per `DEVICE_FAMILIES` entry, each a table
+of the eight `SemanticAction`s showing the currently bound button (family
+glyph via `glyphFor` + a human label).
+
+**Capture mode.** Clicking/activating a row (mouse or controller `confirm` via
+`useFocusable`) opens a "press a button…" overlay and starts polling
+`navigator.getGamepads()` directly for the next rising-edge button press on any
+connected pad whose `detectFamily(id)` matches the row's family — deliberately
+bypassing the shared `ControllerProvider`/spatial-nav loop so ordinary nav
+input doesn't leak into the capture. `Escape` or an 8-second timeout
+(`CAPTURE_TIMEOUT_MS`) cancels back to the table with no change.
+
+**Conflict handling.** A captured button already bound to a different action
+in the same family surfaces a Swap/Clear choice rather than silently
+clobbering it:
+- **Swap** — the two actions exchange buttons; both stay bound.
+- **Clear** — the rebound action takes the button; the other action becomes
+  `UNBOUND` (a sentinel index of `-1`, distinct from every real Gamepad API
+  button index, so it can never accidentally fire).
+
+This merge is pure logic in the new `src/features/settings/remap.ts` module
+(`findConflict`, `applyRebind`, `diffBindings`) — fully unit-tested
+(`remap.test.ts`) without any DOM or hardware dependency, mirroring the
+existing `actions.ts`/`spatial.ts` pure-core convention. `diffBindings` computes
+only the rows that actually changed, so a rebind/swap persists the minimal set
+of `set_binding` calls rather than rewriting the whole family.
+
+**Live apply.** After persisting, the pane calls the controller context's new
+`refreshBindings()` (`ControllerProvider.tsx`) — a small additive export that
+re-fetches `listBindings()` and updates the overrides `ControllerProvider`
+already threads into `useGamepadPoll`. No event bus, no restart: the next
+gamepad poll tick immediately resolves bindings against the refreshed
+overrides. **Reset to defaults** per family calls the new `reset_bindings` IPC
+(§5) then the same `refreshBindings()` path.
+
+**Pane navigability.** Every rebind row registers with `useFocusable` like any
+other controller-operable control, so the pane itself is fully drivable from a
+gamepad; capture mode's window-level `Escape` listener plus the direct
+Gamepad-API poll give it exclusive input while open (nav/confirm from the
+underlying pane do not interfere, since the shared poll loop is untouched by a
+capture in progress).
+
 ## Open questions
 
 - Global/background gamepad capture (needs a native plugin) — deferred; the
   `useGamepadPoll` swap point isolates it.
 - In-app binding-editor UX lives with Settings → Controllers (W15).
+
+## Compatibility matrix
+
+Audited and hardened for v0.26 (W268) against real-world macOS `Gamepad.id`
+strings for Xbox, DualShock 4 (PS4), DualSense (PS5), 8BitDo, and Switch Pro.
+`detectFamily` (§2.1) now prefers a vendor hex-id sniff (Chromium/Firefox-style
+`Vendor: XXXX` / `XXXX-YYYY-name` tags) and falls back to name-substring
+matching for platforms — notably macOS WKWebView — that report a bare product
+name with no hex tag. `detectPlayStationModel` further distinguishes DualShock
+4 vs DualSense within the `playstation` family (product hex `05c4`/`09cc` vs
+`0ce6`) for surfaces that need the finer-grained pad model.
+
+| Family | Detection | Nav (spatial-nav) | In-page play input | Native play input | Remap support | Glyphs |
+|---|---|---|---|---|---|---|
+| Xbox (wired + Bluetooth) | Vendor hex `045e`; name fallback `/xbox\|xinput/` | Standard mapping → full D-pad/stick/confirm/back/menu/quit | EmulatorJS reads the browser Gamepad API directly (own mapping) | `nativeInput.ts` `GAMEPAD_BINDINGS` (STANDARD_BUTTON indices) | Yes — `controller_bindings` overrides via Settings → Controllers | Ⓐ confirm / Ⓑ back / Ⓨ / Ⓧ / ☰ Menu / ⊗ Quit |
+| DualShock 4 (PS4) | Vendor hex `054c` + product hex `05c4`/`09cc`; name fallback `/dualshock\|wireless controller/` | Same as Xbox (standard mapping) | Same (EmulatorJS's own mapping) | Same (`GAMEPAD_BINDINGS`) | Yes | ✕ confirm / ○ back / △ / □ / ☰ Options / ⊗ **Share** |
+| DualSense (PS5) | Vendor hex `054c` + product hex `0ce6`; name fallback `/dualsense/` | Same as Xbox (standard mapping) | Same (EmulatorJS's own mapping) | Same (`GAMEPAD_BINDINGS`) | Yes | ✕ confirm / ○ back / △ / □ / ☰ Options / ⊗ **Create** |
+| 8BitDo | Vendor hex `2dc8`; name fallback `/8bitdo/` | Same as Xbox (standard mapping; some older firmwares report a non-"standard" `Gamepad.mapping` — see degradation fallback below) | Same (EmulatorJS's own mapping) | Same (`GAMEPAD_BINDINGS`) | Yes | Ⓐ confirm / Ⓑ back / Ⓨ / Ⓧ / ☰ Menu / ⊗ Quit |
+| Switch Pro | Vendor hex `057e`; name fallback `/switch pro\|pro controller\|nintendo/` | Same as Xbox, but confirm/back mirrored (physical A on the right — §2.2) | Same (EmulatorJS's own mapping) | Same (`GAMEPAD_BINDINGS`) | Yes | Ⓐ confirm / Ⓑ back / Ⓧ / Ⓨ / ☰ Menu / ⊗ Quit |
+| Generic (unrecognized) | Fallback when no rule matches | Standard-mapping defaults (Xbox-style confirm/back) | Same (EmulatorJS's own mapping) | Same (`GAMEPAD_BINDINGS`) | Yes | Ⓐ confirm / Ⓑ back / Ⓨ / Ⓧ / ☰ Menu / ⊗ Quit |
+
+**Tested id-string list** (data-driven cases in `actions.test.ts`):
+- `Xbox Wired Controller (STANDARD GAMEPAD Vendor: 045e Product: 02ea)`
+- `Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)`
+- `045e-0b13-Xbox Wireless Controller`
+- `Xbox 360 Controller (XInput STANDARD GAMEPAD)`
+- `Xbox One Controller`
+- `DUALSHOCK 4 Wireless Controller`
+- `Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 05c4)`
+- `Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)`
+- `DualSense Wireless Controller`
+- `DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)`
+- `8BitDo SN30 Pro (STANDARD GAMEPAD Vendor: 2dc8 Product: 6001)`
+- `2dc8-6001-8BitDo SN30 Pro`
+- `Pro Controller`
+- `Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)`
+
+**Non-standard mapping fallback.** `classifyMapping` (`actions.ts`) flags any
+pad whose `Gamepad.mapping !== "standard"` (empty string, or any other
+non-standard value some third-party/older firmware reports) as degraded.
+`useGamepadPoll` still applies the best-effort STANDARD_BUTTON fallback (most
+such pads are physically standard-shaped) so input is never silently dead, but
+surfaces a one-per-family-per-session visible hint via `HintBar`'s
+`mappingNotice` prop ("This controller didn't report a standard button
+layout... remap in Settings → Controllers"), mirroring the play-path
+degradation-notice pattern (`src/features/play/degradation.ts`).
+
+**Navigability audit (this pass).** SearchPage was a known controller
+dead-end (no elements registered with the spatial-nav registry) — fixed: the
+query field, per-result filter field, run-search/toolbar/expand-collapse
+actions, provider chips (+Add / Browse providers), provider group headers,
+every result row (both provider-grouped and game-merged views), and the
+selection-footer actions now register via `useFocusable`. `back` (B) is wired
+globally in `App.tsx`'s `ShellControllerBindings` and applies to every route,
+including Search. Consoles/Cores/Settings routes use native `<button>`/
+`tabIndex` elements (keyboard-Tab reachable, not a dead end) but are **not yet
+registered with the spatial-nav registry** for D-pad navigation — tracked as a
+follow-up (see below) rather than fixed here, since it spans many files outside
+this work item's file ownership and risks colliding with sibling W267's
+Settings/Controllers-pane work.
+
+## Follow-ups (W268)
+
+- Register Consoles/Cores/Settings' remaining interactive elements
+  (`ConsolesPage`/`ConsoleDetailPage`/`CatalogBrowser`/`CoresPage`/`CoreRow`/
+  `SystemList`/`SettingsPage` section nav + panes) with `useFocusable` so D-pad
+  navigation reaches them directly, not just native Tab order. Scoped out of
+  W268 to respect file ownership with sibling W267 (Settings → Controllers
+  pane) — a dedicated follow-up work item should own the full-app spatial-nav
+  registration audit.
+- Live-hardware verification of the DualSense/DualShock 4 product-id sniff and
+  the non-standard-mapping fallback on real 8BitDo/older-firmware pads (the
+  spike note in §1 applies equally here — no gamepad hardware in CI).

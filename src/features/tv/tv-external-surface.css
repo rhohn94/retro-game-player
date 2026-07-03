@@ -1,0 +1,89 @@
+/*
+ * TV external-play surface (v0.26 W265) — the branded "Running in RetroArch"
+ * panel the takeover lands on for systems with no in-page/native player. A
+ * calm, centred, 10-foot-legible statement of honesty (the game runs in a
+ * separate window) with a large Return control. Tokens only (--rgp-tv-* /
+ * --rgp-* / Aura); focus treatment reuses the same ring/glow/scale vocabulary
+ * as the tiles and hero so the couch experience is consistent.
+ *
+ * Declared in the same rgp-theme cascade layer as every other app override.
+ */
+
+@layer rgp-theme {
+  .rgp-tv-external {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--aura-bg);
+    padding: var(--rgp-tv-safe-area);
+  }
+
+  .rgp-tv-external__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--aura-space-4);
+    max-width: 60ch;
+  }
+
+  .rgp-tv-external__eyebrow {
+    margin: 0;
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 800;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    text-transform: uppercase;
+    color: var(--rgp-tv-label-color);
+  }
+
+  .rgp-tv-external__title {
+    margin: 0;
+    font-size: var(--rgp-tv-font-hero-title);
+    font-weight: 800;
+    line-height: 1.05;
+    color: var(--aura-on-surface);
+  }
+
+  .rgp-tv-external__status {
+    margin: 0;
+    font-size: var(--rgp-tv-font-title);
+    font-weight: 700;
+    color: var(--aura-on-surface);
+  }
+  /* Honesty about a failed external start reads in the theme's danger accent. */
+  .rgp-tv-external[data-state="failed"] .rgp-tv-external__status {
+    color: var(--aura-danger);
+  }
+
+  .rgp-tv-external__hint {
+    margin: 0;
+    font-size: var(--rgp-tv-font-body);
+    color: var(--aura-on-surface-muted);
+    max-width: 48ch;
+  }
+
+  .rgp-tv-external__return {
+    margin-top: var(--aura-space-4);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--aura-space-2);
+    padding: var(--aura-space-3) var(--aura-space-6);
+    border: none;
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--rgp-tv-focus-transition);
+  }
+  .rgp-tv-external__return[data-focused="true"] {
+    transform: scale(var(--rgp-tv-focus-scale));
+    box-shadow:
+      0 0 0 var(--rgp-tv-focus-ring-width) var(--aura-focus),
+      var(--rgp-tv-focus-glow);
+    outline: none;
+  }
+}

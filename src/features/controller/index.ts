@@ -5,7 +5,13 @@
 export * from "./actions";
 export * from "./spatial";
 export * from "./glyphs";
-export { useGamepadPoll } from "./useGamepadPoll";
+export {
+  useGamepadPoll,
+  describeMappingDegradation,
+  recordMappingDegradation,
+  resetMappingDegradationsForTest,
+} from "./useGamepadPoll";
+export type { GamepadPollOptions, MappingDegradationNotice } from "./useGamepadPoll";
 export { ControllerProvider, ControllerContext } from "./ControllerProvider";
 export type { ControllerContextValue, ActionHandlers } from "./ControllerProvider";
 export { useController, useFocusable } from "./hooks";
@@ -13,3 +19,5 @@ export type { UseFocusableResult } from "./hooks";
 export { FocusRing, focusRingStyle } from "./FocusRing";
 export { HintBar, MOVE_HINT } from "./HintBar";
 export type { Hint, HintBarProps } from "./HintBar";
+export { useLongPress, longPressElapsed, LONG_PRESS_MS } from "./useLongPress";
+export type { LongPressOptions } from "./useLongPress";

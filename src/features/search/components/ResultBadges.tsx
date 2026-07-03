@@ -28,7 +28,7 @@ export function MatchBadge({ strength }: { strength: MatchStrength }) {
         padding: "2px 5px",
         borderRadius: 4,
         border: `1px solid ${color}`,
-        background: strong ? "var(--harmony-provider-enabled-bg)" : "transparent",
+        background: strong ? "var(--rgp-provider-enabled-bg)" : "transparent",
         color,
         flexShrink: 0,
         letterSpacing: "0.02em",

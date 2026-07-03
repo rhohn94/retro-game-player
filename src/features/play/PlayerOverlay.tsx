@@ -47,7 +47,7 @@ export function PlayerOverlay({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="harmony-overlay"
+          className="rgp-overlay"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -56,9 +56,9 @@ export function PlayerOverlay({
             if (e.target === e.currentTarget) onScrimClick();
           }}
         >
-          <motion.div className="harmony-overlay__panel" {...dialogPop}>
-            <p className="harmony-overlay__title">{gameName}</p>
-            <div className="harmony-overlay__actions">
+          <motion.div className="rgp-overlay__panel" {...dialogPop}>
+            <p className="rgp-overlay__title">{gameName}</p>
+            <div className="rgp-overlay__actions">
               {items.map((it, i) => (
                 <button
                   key={it.key}
@@ -66,8 +66,8 @@ export function PlayerOverlay({
                   disabled={it.disabled}
                   className={
                     i === selection
-                      ? "harmony-overlay__btn harmony-overlay__btn--active"
-                      : "harmony-overlay__btn"
+                      ? "rgp-overlay__btn rgp-overlay__btn--active"
+                      : "rgp-overlay__btn"
                   }
                   onMouseEnter={() => setSelection(i)}
                   onClick={() => {
@@ -79,7 +79,7 @@ export function PlayerOverlay({
               ))}
             </div>
             {volume && (
-              <label className="harmony-overlay__volume">
+              <label className="rgp-overlay__volume">
                 <span>🔊 Volume</span>
                 <input
                   type="range"
@@ -90,13 +90,13 @@ export function PlayerOverlay({
                   aria-label="Volume"
                   onChange={(e) => volume.onChange(Number(e.target.value))}
                 />
-                <span className="harmony-overlay__volume-pct">
+                <span className="rgp-overlay__volume-pct">
                   {Math.round(volume.value * 100)}%
                 </span>
               </label>
             )}
-            {status && <p className="harmony-overlay__status">{status}</p>}
-            {hint && <p className="harmony-overlay__hint">{hint}</p>}
+            {status && <p className="rgp-overlay__status">{status}</p>}
+            {hint && <p className="rgp-overlay__hint">{hint}</p>}
           </motion.div>
         </motion.div>
       )}

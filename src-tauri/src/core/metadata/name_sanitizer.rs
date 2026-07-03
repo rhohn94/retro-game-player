@@ -54,7 +54,7 @@ const REPLACE_WITH_UNDERSCORE: &[char] = &['&', '*', '/', ':', '<', '>', '\\', '
 ///
 /// # Examples
 /// ```
-/// use harmony_lib::core::metadata::name_sanitizer::sanitize;
+/// use retro_game_player_lib::core::metadata::name_sanitizer::sanitize;
 /// assert_eq!(sanitize("Super Mario Bros. 3 (USA)"), "Super%20Mario%20Bros.%203%20(USA)");
 /// assert_eq!(sanitize("Tom & Jerry: War of the Whiskers (USA)"), "Tom%20_%20Jerry_%20War%20of%20the%20Whiskers%20(USA)");
 /// ```

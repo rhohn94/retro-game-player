@@ -9,7 +9,7 @@
 // X/Z/Enter/Tab) so flipping the native-play flag doesn't retrain muscle
 // memory. Gamepad defaults reuse the same STANDARD_BUTTON indices the
 // menu-navigation controller subsystem already binds (src/features/controller/
-// actions.ts) — both EmulatorJS and Harmony's own UI follow the W3C
+// actions.ts) — both EmulatorJS and the app's own UI follow the W3C
 // "standard" gamepad mapping, so it's the same physical buttons either way.
 //
 // Pure (no DOM, no IPC) so the bit math is unit-testable without a real

@@ -1,11 +1,11 @@
 // AuraProvider — the app-entry seam that (1) loads the Aura CSS barrel, the Aura
 // runtime (so `customElements.define` runs before <App/> mounts — design-
-// language.md §7.4), and Harmony's theme CSS; and (2) owns the live theme:
-// applying the theme class to <html>, persisting it to localStorage under the
-// same key the anti-FOUC head script reads, and exposing a setter via context.
-// See docs/design/ux/design-language.md §2.3, §3, §4.
+// language.md §7.4), and Retro Game Player's theme CSS; and (2) owns the live
+// theme: applying the theme class to <html>, persisting it to localStorage
+// under the same key the anti-FOUC head script reads, and exposing a setter
+// via context. See docs/design/ux/design-language.md §2.3, §3, §4.
 
-// Order matters: the @layer barrel first, then Harmony's override layer
+// Order matters: the @layer barrel first, then the app's override layer
 // (declared after Aura's — design-language.md §7.5). The Aura RUNTIME is NOT
 // imported here: importing it as an ES module defers its execution past parse,
 // which fires Aura's internal `ready()` callback before `Aura.icons` is defined
@@ -15,6 +15,7 @@
 import "@aura/css/aura.css";
 import "./aura-theme.css";
 import "./motion.css";
+import "./tv.css";
 
 import {
   createContext,
@@ -27,6 +28,7 @@ import {
 } from "react";
 import {
   DEFAULT_THEME,
+  LEGACY_THEME_STORAGE_KEY,
   NAMED_THEMES,
   resolveTheme,
   THEME_STORAGE_KEY,
@@ -42,10 +44,17 @@ export interface AuraThemeContextValue {
 
 const AuraThemeContext = createContext<AuraThemeContextValue | null>(null);
 
-/** Read the persisted theme (or the dark default) without throwing on bad storage. */
+/**
+ * Read the persisted theme (or the dark default) without throwing on bad
+ * storage. W269 rename: one-time fallback to the legacy `harmony.theme` key
+ * if the new key was never written, so an upgrading user's chosen theme
+ * survives — the effect below then persists it under the new key.
+ */
 function readPersistedTheme(): NamedTheme {
   try {
-    return resolveTheme(window.localStorage.getItem(THEME_STORAGE_KEY));
+    const current = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (current) return resolveTheme(current);
+    return resolveTheme(window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY));
   } catch {
     return DEFAULT_THEME;
   }

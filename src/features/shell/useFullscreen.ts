@@ -1,6 +1,6 @@
-// useFullscreen — toggle the Harmony window in/out of OS fullscreen (v0.14, #2).
+// useFullscreen — toggle the app window in/out of OS fullscreen (v0.14, #2).
 //
-// A "full screen experience" for couch / big-picture use: the whole Harmony UI
+// A "full screen experience" for couch / big-picture use: the whole app UI
 // fills the display. Backed by Tauri's window API (`core:window:allow-set-
 // fullscreen` capability). Pressing F11 anywhere toggles it; the shell also
 // renders a button bound to `toggle`. Everything is guarded so the hook is a

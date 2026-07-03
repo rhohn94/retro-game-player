@@ -14,6 +14,35 @@
 // src/ipc/*.ts.
 
 const NOW = 1_700_000_000_000;
+const NOW_SEC = NOW / 1000;
+const DAY_SEC = 86_400;
+
+/** A tiny deterministic PNG (8×12 gradient) as a data: URI, used as the mock's
+ *  cached cover-art path. `convertFileSrc` in the mock is identity, so the art
+ *  resolvers (`useGameArt` → `heroArtFor` → `artUrl`) paint this straight into
+ *  `<img src>` / `background-image` with no network — so the TV home renders an
+ *  ART-FORWARD library (cover tiles + hero backdrop) and the takeover's
+ *  expanding cover layer has real art to animate, all headless + deterministic
+ *  (v0.26 W26A). A data URI (not a filesystem path) is the only art source that
+ *  actually paints in the headless harness. Boxart-only so every surface's
+ *  fallback chain (tile: boxart→…, hero: snap→title→boxart) resolves to it. */
+const MOCK_COVER_DATA_URI =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAMCAYAAABfnvydAAAAuElEQVR4nA3Doa2CUQyA0U7CBm8DNmADNsCgK28wVCCq/lTWkDSoCjQGg0azS993kiM7/c1u0egMJov9G/nT7/wtGp3BZLG/I3v9zH7R6Awmi/0ZOehrDotGZzBZ7NfIUZ9zXDQ6g8liP0dO+pjTotEZTBb7MaKao4tGZzBZ7By56jbXRaMzmCz2NrLpbbZFozOYLPZt5K6XuS8ancFksS8jT9V5LhqdwWSxdeSt53kvGp3BZLHP8w/4S/8xaYkmPQAAAABJRU5ErkJggg==";
+
+/** The mock library, pulled into a named const so the play-stats slices
+ *  (list_recently_played / list_favorites) return the SAME records the library
+ *  does — the TV home renders real-looking, self-consistent shelves headlessly
+ *  (v0.26 W261). Varied lastPlayedAt / favorite / system so the home shows a
+ *  populated Continue-playing rail, a Favorites rail, per-system rails ordered
+ *  by recency, and a mix of art-less tiles (name-caption fallback). */
+const MOCK_GAMES = [
+  { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], favorite: true, lastPlayedAt: NOW_SEC, playCount: 5, totalPlayTimeMs: 3_600_000 },
+  { id: 2, path: "/roms/snes/The Legend of Zelda - A Link to the Past.sfc", system: "snes", crc32: "777aac2f", md5: null, cleanName: "The Legend of Zelda: A Link to the Past", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 1048576, addedAt: NOW, year: 1991, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["ALttP", "Zelda 3"], favorite: true, lastPlayedAt: NOW_SEC - DAY_SEC, playCount: 3, totalPlayTimeMs: 7_200_000 },
+  { id: 3, path: "/roms/snes/Super Metroid.sfc", system: "snes", crc32: "d63ed5f8", md5: null, cleanName: "Super Metroid", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 3145728, addedAt: NOW, year: 1994, developer: "Nintendo R&D1", publisher: "Nintendo", aliases: ["Metroid 3"], favorite: false, lastPlayedAt: NOW_SEC - 3 * DAY_SEC, playCount: 1, totalPlayTimeMs: 1_800_000 },
+  { id: 4, path: "/roms/n64/Super Mario 64.z64", system: "n64", crc32: "635a2bff", md5: null, cleanName: "Super Mario 64", datMatched: true, coreHint: "mupen64plus_next", artPath: null, sizeBytes: 8388608, addedAt: NOW, year: 1996, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["SM64"], favorite: true, lastPlayedAt: NOW_SEC - 12 * DAY_SEC, playCount: 8, totalPlayTimeMs: 18_000_000 },
+  { id: 5, path: "/roms/nes/Metroid.nes", system: "nes", crc32: null, md5: null, cleanName: "Metroid.nes", datMatched: false, coreHint: "fceumm", artPath: null, sizeBytes: 131072, addedAt: NOW, year: null, developer: null, publisher: null, aliases: [], favorite: false, lastPlayedAt: null, playCount: 0, totalPlayTimeMs: 0 },
+  { id: 6, path: "/roms/genesis/Sonic the Hedgehog 2.md", system: "genesis", crc32: "7b905516", md5: null, cleanName: "Sonic the Hedgehog 2", datMatched: true, coreHint: "genesis_plus_gx", artPath: null, sizeBytes: 1048576, addedAt: NOW, year: 1992, developer: "Sega Technical Institute", publisher: "Sega", aliases: ["Sonic 2"], favorite: false, lastPlayedAt: NOW_SEC - 2 * DAY_SEC, playCount: 2, totalPlayTimeMs: 5_400_000 },
+];
 
 /** Fixtures keyed by IPC command name. Values must be JSON-serializable
  *  (injected via JSON.stringify), so single-shape returns only — commands that
@@ -22,14 +51,8 @@ export const MOCK_FIXTURES = {
   ping: "pong (mock-ipc)",
 
   // --- Library (src/ipc/library.ts) ---
-  list_games: [
-    { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"] },
-    { id: 2, path: "/roms/snes/The Legend of Zelda - A Link to the Past.sfc", system: "snes", crc32: "777aac2f", md5: null, cleanName: "The Legend of Zelda: A Link to the Past", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 1048576, addedAt: NOW, year: 1991, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["ALttP", "Zelda 3"] },
-    { id: 3, path: "/roms/snes/Super Metroid.sfc", system: "snes", crc32: "d63ed5f8", md5: null, cleanName: "Super Metroid", datMatched: true, coreHint: "snes9x", artPath: null, sizeBytes: 3145728, addedAt: NOW, year: 1994, developer: "Nintendo R&D1", publisher: "Nintendo", aliases: ["Metroid 3"] },
-    { id: 4, path: "/roms/n64/Super Mario 64.z64", system: "n64", crc32: "635a2bff", md5: null, cleanName: "Super Mario 64", datMatched: true, coreHint: "mupen64plus_next", artPath: null, sizeBytes: 8388608, addedAt: NOW, year: 1996, developer: "Nintendo EAD", publisher: "Nintendo", aliases: ["SM64"] },
-    { id: 5, path: "/roms/nes/Metroid.nes", system: "nes", crc32: null, md5: null, cleanName: "Metroid.nes", datMatched: false, coreHint: "fceumm", artPath: null, sizeBytes: 131072, addedAt: NOW, year: null, developer: null, publisher: null, aliases: [] },
-  ],
-  get_game: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "Super Mario Bros. 3 is a 1988 platform game developed and published by Nintendo for the Famicom and NES.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3" },
+  list_games: MOCK_GAMES,
+  get_game: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "Super Mario Bros. 3 is a 1988 platform game developed and published by Nintendo for the Famicom and NES.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   list_content_folders: [
     { id: 1, path: "/Users/you/ROMs", enabled: true, addedAt: NOW },
   ],
@@ -154,11 +177,31 @@ export const MOCK_FIXTURES = {
     { url: "https://www.pdroms.de/homebrew-mario", state: "unknown" },
   ],
 
-  // --- Controller (src/ipc/controllers.ts) ---
+  // --- Controller (src/ipc/controllers.ts; set_binding/reset_bindings added
+  //     by W267's remap UI) ---
   list_bindings: [],
+  set_binding: { id: 1, deviceFamily: "xbox", action: "confirm", button: "faceDown" },
+  reset_bindings: null,
 
   // --- Launch / RetroArch (src/ipc/launch.ts) ---
   locate_retroarch: "/Applications/RetroArch.app/Contents/MacOS/RetroArch",
+  // W26A — the external (RetroArch-only) TV takeover fires launch_game itself;
+  // returning void (null) lets TvExternalSurface report "Running in RetroArch"
+  // without warning. void = null in the mock.
+  launch_game: null,
+
+  // --- Native play (src/ipc/native-play.ts, v0.21) — the TV takeover mounts
+  //     PlaySwitch, which resolves the native-play opt-in for the native-
+  //     candidate system on every launch; without these the smoke walk warns
+  //     "[mock-ipc] no fixture" on every takeover (W26A console hygiene). Native
+  //     hosting is off by default (get_native_play_enabled: false → the in-page
+  //     path is taken, matching a fresh install), and the session/input writes
+  //     are void. ---
+  get_native_play_enabled: false,
+  set_native_play_enabled: null,
+  start_native_play: null,
+  stop_native_play: null,
+  set_native_input: null,
 
   // --- Console catalog (src/ipc/console.ts, v0.12) ---
   list_consoles: [
@@ -189,7 +232,17 @@ export const MOCK_FIXTURES = {
   probe_familiar: { available: false },
   get_cached_art: null,
   fetch_boxart: null,
-  enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3" },
+  // v0.26 W263 — per-tier hi-res pipeline. W26A: return a real (data-URI)
+  // boxart tier so the art resolvers paint a cover on every surface headlessly
+  // — the TV home is ART-FORWARD (cover tiles + hero backdrop) and the takeover
+  // cover layer has art to expand. The mock ignores the gameId arg, so every
+  // game resolves the SAME cover; that is fine for a deterministic smoke visual.
+  // Boxart-only so both the tile order (boxart→title→snap) and the hero order
+  // (snap→title→boxart) fall through to it. `fetch_game_art` still returns the
+  // empty-string miss (nothing is left to fetch once the tier is cached).
+  get_cached_art_tiers: [{ tier: "boxart", path: MOCK_COVER_DATA_URI }],
+  fetch_game_art: "",
+  enrich_game_metadata: { id: 1, path: "/roms/nes/Super Mario Bros. 3.nes", system: "nes", crc32: "0b742b33", md5: null, cleanName: "Super Mario Bros. 3", datMatched: true, coreHint: "mesen", artPath: null, sizeBytes: 393216, addedAt: NOW, year: 1988, developer: "Nintendo R&D4", publisher: "Nintendo", aliases: ["SMB3"], description: "A platform game.", wikipediaUrl: "https://en.wikipedia.org/wiki/Super_Mario_Bros._3", favorite: true, lastPlayedAt: NOW / 1000, playCount: 5, totalPlayTimeMs: 3_600_000 },
   import_games: [],
   // v0.15 in-page play — empty origin means "play server unavailable", so the
   // headless/mocked detail route renders the native Play button (no iframe to a
@@ -216,6 +269,25 @@ export const MOCK_FIXTURES = {
   discard_staged_download: null,
   // v0.25 W250 provider API auto-discovery.
   discover_provider: [],
+  // v0.26 W264 "library life" — favorites, recently-played, play-time. The two
+  // list slices return the SAME game records as list_games so the TV home (W261)
+  // renders self-consistent Continue-playing + Favorites shelves headlessly:
+  //   - recently-played: every played game, most-recently-played first.
+  //   - favorites: every favorited game (ordered by title, mirroring the backend).
+  set_favorite: null,
+  record_play_start: 1,
+  record_play_end: null,
+  list_recently_played: MOCK_GAMES
+    .filter((g) => g.lastPlayedAt != null)
+    .sort((a, b) => b.lastPlayedAt - a.lastPlayedAt),
+  list_favorites: MOCK_GAMES
+    .filter((g) => g.favorite)
+    .sort((a, b) => a.cleanName.localeCompare(b.cleanName)),
+  // v0.26 W260 — TV mode auto-enter. The dedicated `tv-home` mock route
+  // (scripts/visual-inspect.mjs) overrides this to `true`; every other route
+  // keeps the desktop default of `false`.
+  get_auto_tv_mode: false,
+  set_auto_tv_mode: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before
