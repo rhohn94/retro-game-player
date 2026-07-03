@@ -74,7 +74,7 @@ verified against the live arm64 buildbot.
 
 ```bash
 # 1. Clone (Aura is committed under vendor/aura — no submodules)
-git clone https://github.com/rhohn94/harmony.git
+git clone https://github.com/rhohn94/retro-game-player.git
 cd harmony
 
 # 2. Install dependencies
