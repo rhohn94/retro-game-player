@@ -143,12 +143,21 @@ Plan: [`release-planning-v0.26.md`](release-planning/release-planning-v0.26.md).
 
 ---
 
-## v0.27 / v0.28 — absorbed into v0.26 Theater
+## v0.27 — Immersion (released — see version-history.md)
 
-The former v0.27 "Theater" (leanback structure) and v0.28 "Marquee"
-(art-forward shelves) were pulled forward wholesale into v0.26 by user
-direction; see the v0.26 entry above. Next planned versions remain v0.29
-Craft and v0.30 Passport.
+**Theme:** Make playing a game in TV mode actually feel like a console —
+driven by the 2026-07-03 couch playtest. Fullscreen takeover play (kill the
+desktop "porthole" card), watertight controller-input scoping (a layered
+exclusive-claim stack), the 5-second hover-attract live preview (strictly
+no-trace), native-audio polish + persisted perf telemetry, and a full
+25-seam TV-mode gap audit with 11 fixes.
+
+(The version numbers v0.27/v0.28 were originally absorbed into v0.26
+Theater — the former v0.27 "Theater" and v0.28 "Marquee" scopes shipped
+there; this v0.27 is a new scope. v0.28 stays retired; next planned versions
+remain v0.29 Craft and v0.30 Passport.)
+
+Plan: [`release-planning-v0.27.md`](release-planning/release-planning-v0.27.md).
 
 ---
 
