@@ -86,7 +86,7 @@ No conflicts — sole branch in the lane.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26.1 |
 |---|---|---|---|---|
-| `fix/w270-native-av-clock` (W270) | ☑ | ☐ | ☐ | ☐ |
+| `fix/w270-native-av-clock` (W270) | ☑ | ☑ | ☑ | ☐ |
 
 ### Follow-ups discovered during implementation
 
