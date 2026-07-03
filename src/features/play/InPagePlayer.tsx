@@ -57,10 +57,14 @@ export interface InPagePlayerProps {
   /** Called once if the play server is unavailable (origin "") — the caller
    * surfaces the degradation (W234); this player renders nothing. */
   onUnavailable?: () => void;
+  /** How "Exit game" leaves (v0.26 W265). Default (desktop detail route):
+   * `navigate(-1)`. The TV takeover surface supplies its own callback so exit
+   * collapses the takeover back to the tile instead of popping router history. */
+  onExit?: () => void;
 }
 
 /** Mounts the in-page emulator for one game; auto-starts on load. */
-export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InPagePlayerProps) {
+export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable, onExit }: InPagePlayerProps) {
   const navigate = useNavigate();
   const { setExclusiveHandler } = useController();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -197,9 +201,16 @@ export function InPagePlayer({ gameId, ejsSystem, gameName, onUnavailable }: InP
     void setWindowFullscreen(false);
   }, []);
 
+  // Keep the latest onExit reachable from the stable overlay-menu callback
+  // without re-installing the whole menu on every parent render.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const exitGame = useCallback(() => {
     void setWindowFullscreen(false);
-    navigate(-1);
+    // TV takeover supplies its own exit (collapse to the tile); the desktop
+    // detail route falls back to popping history back to the grid.
+    if (onExitRef.current) onExitRef.current();
+    else navigate(-1);
   }, [navigate]);
 
   // Overlay menu (index order drives controller selection): Resume / Save

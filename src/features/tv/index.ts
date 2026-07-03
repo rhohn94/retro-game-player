@@ -3,8 +3,9 @@
 // from here rather than reaching into individual files.
 
 export { TvModeProvider, useTvMode } from "./TvModeContext";
-export type { TvModeContextValue } from "./TvModeContext";
+export type { TvModeContextValue, TvLaunch } from "./TvModeContext";
 export { TvShell } from "./TvShell";
 export { TvHome } from "./TvHome";
+export { TvGameSurface } from "./TvGameSurface";
 export { useAutoTvModeOnStartup } from "./useAutoTvModeOnStartup";
 export { useTvModeControllerToggle } from "./useTvModeControllerToggle";

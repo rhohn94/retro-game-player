@@ -118,6 +118,50 @@ product is a library manager, not a living-room console.
   fullscreen player surface; player boot happens *under* the expanding tile
   art so the swap is invisible; exit reverses to the originating tile
   (scroll restored first). All durations/easings from the motion source.
+  - **Implementation note (W265):** the takeover is an OVERLAY, not a route or
+    mode swap. `TvModeContext.launch(game, originRect)` sets a `launched`
+    `{ game, originRect }` (replacing W261's navigate-to-`/game/:id` seam);
+    `App.tsx`'s `Root` then renders `<TvGameSurface/>` on top of the *still-
+    mounted* `<TvHome/>` inside `TvShell`. Keeping the home mounted is what
+    makes exit land exactly where the user left — its per-rail focus memory and
+    scroll position are component-local state that would be lost by an unmount,
+    so an overlay is the only design that restores focus for free (no explicit
+    scroll/focus save-and-restore needed).
+  - **Reveal contract (the honest part):** the sequencing is a pure, unit-tested
+    state machine (`tvTakeover.ts`): `idle → expanding → revealed`, with `exit`
+    going `→ collapsing → idle`. `beginTakeover` captures the originating tile
+    rect; the cover-art layer (boxart-first via the SAME `useGameArt` resolver
+    the tile used, so no swap flash) animates that rect → full-viewport while
+    `PlaySwitch` mounts and boots UNDERNEATH — boot screen + sound intact, never
+    gated, never muted. `revealPlayer` fires on the next animation frame (the
+    player surface EXISTS by then), crossfading the cover OUT: the reveal is
+    driven by the surface existing, *not* a fixed timer, so the EmulatorJS boot
+    screen (part of the retro vibe) is never held under the cover artificially
+    long. `beginCollapse` reverses (cover fades back in over the running game and
+    shrinks to the tile), then `onExited` drops the overlay. `revealPlayer` and
+    `beginCollapse` are idempotent so their triggers can fire more than once
+    safely. Reduced motion makes `beginTakeover` jump straight to `revealed` (no
+    expand) — a plain crossfade, degrading to an instant swap once the app's
+    central reduced-motion policy zeroes the durations.
+  - **Controller ownership:** the exclusive-handler slot is single-owner. While a
+    game runs, the in-page/native player owns it (so `PlayerOverlay`'s
+    menu/back → Resume/Save/Load/Exit works unchanged); the external surface —
+    which has no player — installs its own back/menu → Return handler. `TvHome`
+    gates its own exclusive-handler install on `!launched`, releasing on launch
+    and re-asserting it when the surface unmounts, so the home never fights the
+    running game for the controller.
+  - **Exit seam:** the players take an optional `onExit` (threaded through
+    `PlaySwitch`); the TV surface passes one that begins the collapse, while the
+    desktop detail route leaves it undefined and the players fall back to
+    `navigate(-1)`. Session cleanup is identical to the desktop path —
+    `usePlaySession` (W264) is mounted inside each player, so it brackets the
+    TV-mounted player's lifetime too.
+  - **Three play paths share the chrome:** in-page + native mount `PlaySwitch`
+    under the expanding art (native's canvas boots under the cover just like the
+    iframe); external RetroArch-only systems (`!canPlayInPage`) land on
+    `TvExternalSurface` — a branded "Running in RetroArch" panel that fires the
+    external `launch_game` itself and offers a 10-foot Return control, matching
+    the desktop path's honesty about external play.
 - **Auto-enter**: `AppConfig.auto_tv_mode: bool` (Rust `config/mod.rs`,
   default `false`) + `get_config`/`set_config` IPC already present; on mount,
   `App.tsx` reads config and calls `enter()` once when set.

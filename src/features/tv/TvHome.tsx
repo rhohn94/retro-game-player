@@ -98,7 +98,25 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   const featuredRef = useRef<Game | null>(featuredGame);
   featuredRef.current = featuredGame;
 
-  const launch = useCallback((game: Game) => tvMode.launch(game.id), [tvMode]);
+  // Launch into the in-TV takeover (W265). The takeover expands from the tile
+  // the user launched from, so we capture that tile's viewport rect here. The
+  // focused tile mirrors controller focus to DOM focus (TvTile), so at confirm
+  // time `document.activeElement` is the originating tile button; a pointer
+  // click lands its own target as `activeElement` too. When neither resolves to
+  // a launch button (e.g. the hero Play, which is focused but is not a tile) we
+  // pass null and the takeover falls back to a centred crossfade.
+  const launch = useCallback(
+    (game: Game) => {
+      const active = document.activeElement as HTMLElement | null;
+      const rect = active?.getBoundingClientRect();
+      const originRect =
+        rect && rect.width > 0 && rect.height > 0
+          ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+          : null;
+      tvMode.launch(game, originRect);
+    },
+    [tvMode],
+  );
 
   // Fold EVERY focus change (controller nav OR pointer hover) into the per-rail
   // focus memory from one place, so a later up/down that returns to a rail
@@ -165,10 +183,19 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     [setFocus],
   );
 
+  // Install the home's exclusive handler only while NO game is taken over (W265).
+  // The exclusive slot is single-owner (ControllerProvider): while a game runs,
+  // its player (or the external surface) owns the slot, and the player's cleanup
+  // on exit clears it — so the home must re-assert ownership when the takeover
+  // ends. Gating this effect on `launched` does exactly that: it releases on
+  // launch and re-installs `handleAction` when the surface unmounts, without the
+  // home ever fighting the running game for the controller.
+  const launched = tvMode.launched;
   useEffect(() => {
+    if (launched) return;
     setExclusiveHandler(handleAction);
     return () => setExclusiveHandler(null);
-  }, [setExclusiveHandler, handleAction]);
+  }, [launched, setExclusiveHandler, handleAction]);
 
   return (
     <div className="rgp-tv-home">
