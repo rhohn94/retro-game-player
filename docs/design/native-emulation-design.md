@@ -131,6 +131,62 @@ is a known, well-documented technique (not novel to this design) and is the
 first thing to implement once basic playback is audible — get correctness
 first, then add the trim once drift is observed in practice.
 
+**v0.26.1 (W270) — pacing, resampler + rate control, realtime hygiene.** The
+trim above was never actually implemented, and real v0.26.0 sessions surfaced
+the consequences ("runs slow, sounds off"). Three compounding defects, all in
+`runtime.rs`:
+
+1. *The core's reported `sample_rate` was never consumed.* The cpal stream
+   opened at the device's default config and played the core's samples
+   verbatim — any core/device rate mismatch shifts pitch/speed and permanently
+   drains or floods the ring (constant pad-silence gaps or drop-oldest skips;
+   in the flood direction the ring pins at its cap, adding ~300 ms of audio
+   latency).
+2. *Relative-sleep pacing accumulated overshoot.* `thread::sleep(frame_duration
+   - elapsed)` from a fresh `Instant` each tick never repays macOS's
+   ~0.5–2 ms sleep overshoot, so the core ran measurably below its native fps
+   (game literally slow) and audio production fell below device consumption
+   (periodic underrun crackle) even when rates nominally matched.
+3. *Realtime-callback hygiene.* The ring was a `Mutex<VecDeque<i16>>` locked
+   inside the realtime callback against the core thread's per-sample push loop
+   (priority-inversion risk), and the F32 path allocated a scratch `Vec` per
+   callback.
+
+The W270 rework, split into `clock.rs` + `audio.rs` (runtime.rs keeps only
+orchestration):
+
+- **`FrameClock`** — absolute-deadline scheduler: the next deadline
+  accumulates (`next += frame_duration`) instead of restarting from "now",
+  so overshoot on one tick is repaid on the next; a coarse sleep covers all
+  but the final ~1.5 ms, a yield/spin tail lands the deadline precisely; a
+  stall beyond a few frames (machine sleep, debugger) resyncs rather than
+  fast-forwarding, and pause resyncs on resume.
+- **Resampler + dynamic rate control** — a linear-interpolation stereo
+  resampler converts core-rate batches to the device rate on the core thread,
+  its effective ratio nudged each push by ring fill against a target
+  (RetroArch's dynamic-rate-control model, skew clamped to a fraction of a
+  percent — inaudible, but it locks the two clocks together so steady-state
+  drop/pad disappears).
+- **Lock-free SPSC ring** (`rtrb`) — producer: core thread; consumer: the
+  realtime callback, which pops chunks straight into the output buffer with
+  the gain applied inline — no locks, no allocation. Underruns pad silence
+  and bump an atomic counter; overruns drop and count (DRC keeps both at
+  zero in steady state).
+- **Pre-fill** — the stream starts only once the ring holds the target fill
+  (~80 ms, with a timeout), killing residual cold-start garble and bounding
+  startup latency.
+- **Device shape** — the writer maps stereo frames onto the device's actual
+  channel count (extra channels silent, mono averages L+R) and supports the
+  I16/F32 sample formats without allocation.
+- **Perf counters** — frames run, underrun/overrun samples, and ring fill,
+  logged as an effective-fps line every ~10 s (`[rgp-native]` prefix, also
+  replacing the stale `[harmony-native]` prefixes), so on-device verification
+  is objective rather than by ear alone.
+- **Frame conversion** — row-wise pixel conversion into a reused buffer
+  (the per-frame allocation and per-pixel bounds-checked indexing were the
+  glue-code hot spots), plus `[profile.dev] opt-level = 1` so dev-mode
+  testing is representative of release behavior.
+
 ### 3. Frame delivery
 
 Two real options surfaced, both viable on Tauri 2 / macOS:

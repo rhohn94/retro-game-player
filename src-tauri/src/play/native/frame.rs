@@ -14,32 +14,51 @@ pub struct Rgba8Frame {
     pub height: u32,
 }
 
-/// Converts `frame`'s raw bytes (in `format`) to RGBA8888, stripping any
-/// pitch padding along the way (a core's row stride may exceed
-/// `width * bytes_per_pixel` for alignment).
-pub fn to_rgba8(frame: &VideoFrame, format: PixelFormat) -> Rgba8Frame {
+/// Bytes per RGBA8888 output pixel.
+const RGBA_BYTES: usize = 4;
+
+/// Owned-buffer convenience around [`to_rgba8_into`], kept for terse test
+/// assertions — production (the runtime's video drain) uses the into-buffer
+/// form so steady-state conversion allocates nothing.
+#[cfg(test)]
+fn to_rgba8(frame: &VideoFrame, format: PixelFormat) -> Rgba8Frame {
+    let mut data = Vec::new();
+    to_rgba8_into(frame, format, &mut data);
+    Rgba8Frame {
+        data,
+        width: frame.width,
+        height: frame.height,
+    }
+}
+
+/// Row-wise conversion into a caller-supplied buffer, so a steady-state
+/// consumer (the runtime's 60 Hz video drain, W270) reuses one allocation
+/// instead of paying `width * height * 4` bytes per frame. `out` is resized
+/// to exactly the frame's RGBA size; pixels missing from a short/corrupt
+/// frame are left transparent black.
+pub fn to_rgba8_into(frame: &VideoFrame, format: PixelFormat, out: &mut Vec<u8>) {
     let (width, height, pitch) = (frame.width as usize, frame.height as usize, frame.pitch);
     let bytes_per_pixel = match format {
         PixelFormat::Xrgb8888 => 4,
         PixelFormat::Rgb1555 | PixelFormat::Rgb565 => 2,
     };
-    let mut out = vec![0u8; width * height * 4];
+    // clear + resize zero-fills the whole buffer (capacity is retained), so
+    // truncated-input pixels read as transparent black without a per-pixel
+    // bounds check in the hot loop.
+    out.clear();
+    out.resize(width * height * RGBA_BYTES, 0);
     for row in 0..height {
-        let row_start = row * pitch;
-        for col in 0..width {
-            let px_start = row_start + col * bytes_per_pixel;
-            if px_start + bytes_per_pixel > frame.data.len() {
-                continue; // a short/corrupt frame — leave this pixel transparent black
-            }
-            let out_start = (row * width + col) * 4;
-            let rgba = pixel_to_rgba(&frame.data[px_start..px_start + bytes_per_pixel], format);
-            out[out_start..out_start + 4].copy_from_slice(&rgba);
+        let out_row = &mut out[row * width * RGBA_BYTES..(row + 1) * width * RGBA_BYTES];
+        // The input row is everything from the row's pitch offset onward;
+        // zipping against the width-limited output row caps the pixel count,
+        // and `chunks_exact` stops early on truncated data.
+        let in_row = frame.data.get(row * pitch..).unwrap_or(&[]);
+        for (px, out_px) in in_row
+            .chunks_exact(bytes_per_pixel)
+            .zip(out_row.chunks_exact_mut(RGBA_BYTES))
+        {
+            out_px.copy_from_slice(&pixel_to_rgba(px, format));
         }
-    }
-    Rgba8Frame {
-        data: out,
-        width: frame.width,
-        height: frame.height,
     }
 }
 
@@ -155,5 +174,40 @@ mod tests {
         let out = to_rgba8(&f, PixelFormat::Xrgb8888);
         assert_eq!(&out.data[0..4], &[0xFF, 0x00, 0x00, 255]);
         assert_eq!(&out.data[4..8], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn truncated_row_beyond_the_data_end_stays_transparent_black() {
+        // 1x2 frame whose second row's pitch offset is past the data end.
+        let f = frame(vec![0x00, 0x00, 0xFF, 0x00], 1, 2, 4);
+        let out = to_rgba8(&f, PixelFormat::Xrgb8888);
+        assert_eq!(&out.data[0..4], &[0xFF, 0x00, 0x00, 255]);
+        assert_eq!(&out.data[4..8], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn into_buffer_reuses_the_allocation_and_matches_the_owned_path() {
+        let f = frame(vec![0x00, 0x00, 0xFF, 0x00], 1, 1, 4);
+        let mut buf = Vec::new();
+        to_rgba8_into(&f, PixelFormat::Xrgb8888, &mut buf);
+        assert_eq!(buf, to_rgba8(&f, PixelFormat::Xrgb8888).data);
+        let capacity_after_first = buf.capacity();
+        to_rgba8_into(&f, PixelFormat::Xrgb8888, &mut buf);
+        assert_eq!(buf, vec![0xFF, 0x00, 0x00, 255]);
+        assert_eq!(buf.capacity(), capacity_after_first); // no realloc on reuse
+    }
+
+    #[test]
+    fn into_buffer_clears_stale_content_when_the_frame_shrinks() {
+        let mut buf = Vec::new();
+        // First a 2x1 white RGB565 frame...
+        let wide = frame(vec![0xFF, 0xFF, 0xFF, 0xFF], 2, 1, 4);
+        to_rgba8_into(&wide, PixelFormat::Rgb565, &mut buf);
+        assert_eq!(buf.len(), 8);
+        // ...then a 1x1 black frame into the same buffer: exactly one pixel,
+        // no stale white bytes surviving.
+        let small = frame(vec![0x00, 0x00], 1, 1, 2);
+        to_rgba8_into(&small, PixelFormat::Rgb565, &mut buf);
+        assert_eq!(buf, vec![0, 0, 0, 255]);
     }
 }

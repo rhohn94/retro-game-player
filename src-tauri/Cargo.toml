@@ -1,6 +1,6 @@
 [package]
 name = "retro-game-player"
-version = "0.26.0"
+version = "0.26.1"
 description = "Retro Game Player — a Mac-native (Apple Silicon) retro game player."
 authors = ["Retro Game Player"]
 license = "GPL-3.0-only"
@@ -35,6 +35,7 @@ md-5 = "0.10"                                              # W6 (MD5 ROM hashing
 percent-encoding = "2"                                     # W8 (CDN URL encoding)
 quick-xml = "0.36"                                         # W6 (No-Intro Logiqx DAT parsing)
 reqwest = { version = "0.12", features = ["json", "blocking"] } # W5/W8/W12 (network)
+rtrb = "0.3"                                               # W270 (lock-free SPSC audio ring for the realtime callback)
 rusqlite = { version = "0.32", features = ["bundled"] }    # W3 (db)
 scraper = "0.20"                                           # v0.16 (parse provider search-result HTML for in-app preview)
 sha2 = "0.10"                                              # W241 (SHA-256 verify of on-demand EmulatorJS cores)
@@ -47,3 +48,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] } # W5 (
 
 [dev-dependencies]
 tempfile = "3"                                             # W8 (test helpers)
+
+# Dev-mode native play must be representative of release timing — at O0 the
+# per-frame pixel/audio loops are slow enough to distort A/V pacing (W270).
+[profile.dev]
+opt-level = 1
