@@ -48,6 +48,10 @@ export interface NativePlayerProps {
    * runtime-switch component, W215) decides what to do (typically: fall
    * back to InPagePlayer rather than show an error state). */
   onStartFailed?: () => void;
+  /** How "Exit game" leaves (v0.26 W265). Default (desktop detail route):
+   * `navigate(-1)`. The TV takeover surface supplies its own callback so exit
+   * collapses the takeover back to the tile instead of popping router history. */
+  onExit?: () => void;
 }
 
 /** Mounts a native libretro core session for one game; auto-starts on load. */
@@ -56,6 +60,7 @@ export function NativePlayer({
   gameName,
   presentation = "foreground",
   onStartFailed,
+  onExit,
 }: NativePlayerProps) {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -114,7 +119,15 @@ export function NativePlayer({
     void setNativePaused(false).catch(() => undefined);
   }, []);
 
-  const exitGame = useCallback(() => navigate(-1), [navigate]);
+  // Keep the latest onExit reachable from the stable overlay-menu callback.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+  const exitGame = useCallback(() => {
+    // TV takeover supplies its own exit (collapse to the tile); the desktop
+    // detail route falls back to popping history back to the grid.
+    if (onExitRef.current) onExitRef.current();
+    else navigate(-1);
+  }, [navigate]);
 
   // "Continue" (W232): if a state this path wrote exists (the exit auto-save
   // or a manual slot), offer to restore the newest one into the running,

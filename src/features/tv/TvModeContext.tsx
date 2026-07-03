@@ -24,6 +24,16 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { UseFullscreenResult } from "../shell/useFullscreen";
+import type { Game } from "../../ipc/library";
+import type { TileRect } from "./tvTakeover";
+
+/** A game launched into the in-TV takeover: the game plus the originating tile
+ * rect the takeover expands from / collapses back to (null when launched from a
+ * non-tile affordance — a centred plain crossfade). */
+export interface TvLaunch {
+  game: Game;
+  originRect: TileRect | null;
+}
 
 /** The TV-mode context surface: current state plus the transitions. */
 export interface TvModeContextValue {
@@ -37,16 +47,21 @@ export interface TvModeContextValue {
    * if not active. */
   exit: () => void;
   /**
-   * Launch a game from TV home (v0.26 W261): leave TV mode and land on the
-   * game's `/game/:id` detail route, which auto-boots the in-page player. This
-   * is the SINGLE launch seam the TV home routes every tile/hero activation
-   * through — W265 replaces its body with the shared-layout takeover transition
-   * without any TV-home component needing to change. Unlike `exit()`, it does
-   * NOT restore the pre-TV route: the user asked to play a game, so the game
-   * screen is the destination. Keeps the desktop-fullscreen restore behaviour
-   * of `exit()` so the window state the user had before TV mode is honoured.
+   * Launch a game from TV home into the in-TV fullscreen takeover (v0.26 W265).
+   * This is the SINGLE launch seam the TV home routes every tile/hero activation
+   * through. Rather than navigating to the desktop detail route (the W261
+   * behaviour this replaced), it sets `launched` so `TvShell` renders
+   * `<TvGameSurface/>` — the game boots INSIDE TV mode with the shared-layout
+   * takeover animation, and exiting collapses back to the originating tile with
+   * the home's focus intact. TV mode stays active throughout.
    */
-  launch: (gameId: number) => void;
+  launch: (game: Game, originRect: TileRect | null) => void;
+  /** The game currently taken over to (via `launch`), or null when the home is
+   * showing. `TvShell` reads this to decide whether to render the game surface. */
+  launched: TvLaunch | null;
+  /** End the takeover: drop the launched game and return to the home. Called
+   * once the exit-collapse animation completes (TvGameSurface.onExited). */
+  endLaunch: () => void;
 }
 
 const TvModeContext = createContext<TvModeContextValue | null>(null);
@@ -73,6 +88,8 @@ export function TvModeProvider({
   children: ReactNode;
 }) {
   const [active, setActive] = useState(false);
+  // The in-TV takeover target (v0.26 W265) — null while the home is showing.
+  const [launched, setLaunched] = useState<TvLaunch | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -101,28 +118,24 @@ export function TvModeProvider({
       navigate(priorRouteRef.current);
       return false;
     });
+    // Leaving TV mode entirely also drops any in-flight takeover.
+    setLaunched(null);
   }, [fullscreen, navigate]);
 
-  const launch = useCallback(
-    (gameId: number) => {
-      // Navigate BEFORE deactivating so the desktop `Shell`/router remounts
-      // directly onto the game detail route (the prior-route restore that
-      // `exit()` does would land the user on the library instead). Restore the
-      // fullscreen state captured at enter() time — playing a game shouldn't
-      // silently leave the window fullscreen if the user wasn't before TV mode.
-      navigate(`/game/${gameId}`);
-      setActive((wasActive) => {
-        if (!wasActive) return wasActive;
-        fullscreen.setFullscreen(priorFullscreenRef.current);
-        return false;
-      });
-    },
-    [fullscreen, navigate],
-  );
+  // Launch a game into the in-TV takeover (W265): TV mode stays active; TvShell
+  // renders the game surface over the home. The home stays mounted behind it, so
+  // its per-rail focus memory + scroll position survive for the exit collapse.
+  const launch = useCallback((game: Game, originRect: TileRect | null) => {
+    setLaunched({ game, originRect });
+  }, []);
+
+  // End the takeover and return to the home (called when the exit collapse
+  // completes). TV mode itself stays active.
+  const endLaunch = useCallback(() => setLaunched(null), []);
 
   const value = useMemo<TvModeContextValue>(
-    () => ({ active, enter, exit, launch }),
-    [active, enter, exit, launch],
+    () => ({ active, enter, exit, launch, launched, endLaunch }),
+    [active, enter, exit, launch, launched, endLaunch],
   );
 
   return <TvModeContext.Provider value={value}>{children}</TvModeContext.Provider>;

@@ -19,6 +19,7 @@ import { ControllerProvider, HintBar, useController, useFocusable } from "./feat
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
 import {
+  TvGameSurface,
   TvHome,
   TvModeProvider,
   TvShell,
@@ -351,7 +352,18 @@ function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
     <AnimatePresence mode="wait">
       {tvMode.active ? (
         <TvShell key="tv" onExit={tvMode.exit}>
+          {/* The home stays mounted behind the game takeover (W265) so its
+              per-rail focus memory + scroll position survive an exit — the
+              surface is an overlay, not a swap. */}
           <TvHome onExit={tvMode.exit} />
+          {tvMode.launched && (
+            <TvGameSurface
+              key={tvMode.launched.game.id}
+              game={tvMode.launched.game}
+              originRect={tvMode.launched.originRect}
+              onExited={tvMode.endLaunch}
+            />
+          )}
         </TvShell>
       ) : (
         <Shell key="desktop" fullscreen={fullscreen} />
