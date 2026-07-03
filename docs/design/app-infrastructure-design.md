@@ -147,6 +147,31 @@ bundle `identifier` (and therefore the app-support root folder name) changed;
 renaming the on-disk DB filename or the deployed-instance tree was out of
 scope for W269.
 
+#### v0.26.2 (W271) — DB path repair after the directory move
+
+W269's migration moved the *files* but never rewrote the *database rows* that
+store **absolute** paths into the app-support root. After the rename, on a
+migrated machine, every such row pointed into the now-nonexistent
+`…/com.harmony.app/` tree — doubly broken for images, because the stale paths
+also fall outside the asset-protocol scope (`$APPDATA/art-cache/**`,
+`$APPDATA/console-art/**`), which resolves against the *new* identifier.
+User-visible symptom: **no images anywhere in the app** (all 20 console
+photos via `console_meta.image_path`, game box art via `games.art_path`, the
+v0.26 art tiers via `art_cache.path`), plus stale `cores.installed_path` rows
+(cosmetic on the Cores page — the native-play launch path re-resolves the
+core file under the live app-support root, which is why play kept working).
+
+Fix: migration `011_repair_renamed_app_paths.sql` string-replaces the
+identifier path segment (`/com.harmony.app/` → `/com.retro-game-player.app/`)
+in those four columns, guarded by `LIKE` so it is a no-op on fresh installs
+and idempotent on repaired ones. The rewritten paths are correct because the
+files themselves *did* move (or were copied) by `migrate_app_data`.
+
+**Root design flaw + durable follow-up:** these columns should store paths
+*relative to the app-support root*, resolved at read time — then an
+identifier change can never dangle them again. Deferred (touches every art
+read/write site); candidate for v0.29 Craft.
+
 ### Post-rename identifier decisions (W269B, v0.26)
 
 W269 deliberately left three "harmony" literals in place pending a decision.
