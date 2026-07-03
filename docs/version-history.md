@@ -7,6 +7,15 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.26.2 — Hotfix: images restored after the rename (2026-07-03)
+
+Fixes "no images anywhere in the app" for users upgrading from Harmony. The
+v0.26 rename moved your data folder, but 28 database records still pointed
+at the old location with absolute paths — every console photo, box art, and
+art-tier cache entry (and the installed-core paths on the Cores page)
+dangled. A one-time database repair rewrites them to the new location on
+first launch; your art files were always safe on disk.
+
 ## v0.26.1 — Hotfix: native-play A/V clock (2026-07-02)
 
 Native play now runs at the game's true speed with clean audio. The first

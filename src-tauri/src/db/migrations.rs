@@ -59,6 +59,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 10,
         sql: include_str!("migrations/010_library_life.sql"),
     },
+    Migration {
+        version: 11,
+        sql: include_str!("migrations/011_repair_renamed_app_paths.sql"),
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -322,6 +326,158 @@ mod tests {
         assert_eq!(clean_name, "Old Game", "pre-existing data must survive");
         assert_eq!(favorite, 0);
         assert_eq!(play_count, 0);
+    }
+
+    /// Old and new app-support roots as they appear inside stored absolute
+    /// paths (W271, v0.26.2 — see 011_repair_renamed_app_paths.sql).
+    const OLD_ROOT: &str = "/Users/u/Library/Application Support/com.harmony.app";
+    const NEW_ROOT: &str = "/Users/u/Library/Application Support/com.retro-game-player.app";
+
+    /// The version migration 011 upgrades FROM (a machine that ran W269's
+    /// directory move but still carries old-prefix rows).
+    const PRE_REPAIR_VERSION: i64 = 10;
+
+    /// Build a database at `PRE_REPAIR_VERSION` seeded with the exact stale
+    /// state W271 repairs: old-prefix absolute paths in all four affected
+    /// columns, plus already-new-prefix, unrelated-path, and NULL rows that
+    /// the migration must leave untouched.
+    fn seed_pre_repair_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version <= PRE_REPAIR_VERSION) {
+            conn.execute_batch(migration.sql).expect("pre-011 migrate");
+        }
+        set_version(&conn, PRE_REPAIR_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        // games.art_path: stale, already-repaired, user-owned, and NULL rows.
+        conn.execute_batch(&format!(
+            "INSERT INTO games (id, folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at, art_path) VALUES \
+             (1, 1, '/roms/a.nes', 'nes', 'A', 0, 1, 0, '{OLD_ROOT}/art-cache/boxart/1.png'), \
+             (2, 1, '/roms/b.nes', 'nes', 'B', 0, 1, 0, '{NEW_ROOT}/art-cache/boxart/2.png'), \
+             (3, 1, '/roms/c.nes', 'nes', 'C', 0, 1, 0, '/Users/u/my-art/c.png'), \
+             (4, 1, '/roms/d.nes', 'nes', 'D', 0, 1, 0, NULL);",
+        ))
+        .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO art_cache (game_id, tier, path, fetched_at) VALUES \
+             (1, 'boxart', '{OLD_ROOT}/art-cache/boxart/1.png', 0), \
+             (2, 'title',  '{NEW_ROOT}/art-cache/title/2.png', 0);",
+        ))
+        .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO console_meta (key, image_path, fetched_at) VALUES \
+             ('nes',  '{OLD_ROOT}/console-art/nes.jpg', 0), \
+             ('snes', NULL, 0);",
+        ))
+        .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO cores (system, core_id, installed_path) VALUES \
+             ('nes', 'mesen', '{OLD_ROOT}/cores/mesen_libretro.dylib'), \
+             ('snes', 'snes9x', NULL);",
+        ))
+        .unwrap();
+        conn
+    }
+
+    /// Fetch a single nullable TEXT column via the given query.
+    fn text_col(conn: &Connection, query: &str) -> Option<String> {
+        conn.query_row(query, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn migration_011_rewrites_old_prefix_paths_in_all_four_columns() {
+        let mut conn = seed_pre_repair_db();
+        run(&mut conn).expect("apply migration 011");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+        // Only the identifier segment changes; the rest of each path is
+        // byte-identical (same filename, same subdirectory).
+        assert_eq!(
+            text_col(&conn, "SELECT art_path FROM games WHERE id = 1"),
+            Some(format!("{NEW_ROOT}/art-cache/boxart/1.png")),
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT path FROM art_cache WHERE game_id = 1"),
+            Some(format!("{NEW_ROOT}/art-cache/boxart/1.png")),
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT image_path FROM console_meta WHERE key = 'nes'"),
+            Some(format!("{NEW_ROOT}/console-art/nes.jpg")),
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT installed_path FROM cores WHERE core_id = 'mesen'"),
+            Some(format!("{NEW_ROOT}/cores/mesen_libretro.dylib")),
+        );
+        // Nothing still carries the old identifier segment anywhere.
+        let stale: i64 = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM games WHERE art_path LIKE '%/com.harmony.app/%') \
+                 + (SELECT count(*) FROM art_cache WHERE path LIKE '%/com.harmony.app/%') \
+                 + (SELECT count(*) FROM console_meta WHERE image_path LIKE '%/com.harmony.app/%') \
+                 + (SELECT count(*) FROM cores WHERE installed_path LIKE '%/com.harmony.app/%')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stale, 0, "no old-prefix paths may survive the repair");
+    }
+
+    #[test]
+    fn migration_011_leaves_new_prefix_and_unrelated_paths_untouched() {
+        let mut conn = seed_pre_repair_db();
+        run(&mut conn).expect("apply migration 011");
+        assert_eq!(
+            text_col(&conn, "SELECT art_path FROM games WHERE id = 2"),
+            Some(format!("{NEW_ROOT}/art-cache/boxart/2.png")),
+            "already-repaired path must not be double-rewritten",
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT path FROM art_cache WHERE game_id = 2"),
+            Some(format!("{NEW_ROOT}/art-cache/title/2.png")),
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT art_path FROM games WHERE id = 3"),
+            Some("/Users/u/my-art/c.png".to_string()),
+            "a user-owned path outside the app-support root must be untouched",
+        );
+    }
+
+    #[test]
+    fn migration_011_preserves_null_path_columns() {
+        let mut conn = seed_pre_repair_db();
+        run(&mut conn).expect("apply migration 011");
+        assert_eq!(text_col(&conn, "SELECT art_path FROM games WHERE id = 4"), None);
+        assert_eq!(
+            text_col(&conn, "SELECT image_path FROM console_meta WHERE key = 'snes'"),
+            None,
+        );
+        assert_eq!(
+            text_col(&conn, "SELECT installed_path FROM cores WHERE core_id = 'snes9x'"),
+            None,
+        );
+    }
+
+    #[test]
+    fn migration_011_sql_is_idempotent_when_applied_twice() {
+        // The runner never re-applies a migration, but the SQL itself is also
+        // idempotent (the LIKE guard skips repaired rows) — apply it twice
+        // directly to prove a second pass changes nothing.
+        let conn = seed_pre_repair_db();
+        let repair_sql = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 11)
+            .expect("migration 011 registered")
+            .sql;
+        conn.execute_batch(repair_sql).expect("first apply");
+        conn.execute_batch(repair_sql).expect("second apply");
+        assert_eq!(
+            text_col(&conn, "SELECT art_path FROM games WHERE id = 1"),
+            Some(format!("{NEW_ROOT}/art-cache/boxart/1.png")),
+            "a second pass must not rewrite an already-repaired path",
+        );
     }
 
     #[test]
