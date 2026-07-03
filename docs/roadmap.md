@@ -165,8 +165,22 @@ Plan: [`release-planning-v0.27.md`](release-planning/release-planning-v0.27.md).
 
 **Theme:** Authentic retro presentation and engineering depth.
 
-- **CRT / scanline display filters** (presets, both paths where feasible)
+- **State-of-the-art, highly configurable CRT filter** — scanlines, screen
+  curvature, color bleed, and related shader-style effects, with presets and
+  per-parameter tuning, on both play paths where feasible
   ([#23](https://github.com/rhohn94/harmony/issues/23)).
+- **Emulation performance tooling (user directive, 2026-07-03):** an optional
+  in-play FPS counter; profiling tools that record emulation performance
+  (frame timing / audio ring health / core hot spots) to an easily-accessible
+  file, reviewable both externally and from an in-app GUI panel. Builds on
+  the native path's existing `logs/native-perf.log` (W270/W274) — extends
+  that telemetry to be richer and to cover the EJS path too, plus surfaces it
+  in the UI instead of a plain-text file only.
+- **Per-core settings GUI (user directive, 2026-07-03):** a screen for
+  adjusting libretro core options per-console/per-core (today set only via
+  each core's own defaults) — needs a design pass on how core-specific
+  option schemas are discovered/persisted (native cores vs. RetroArch-managed
+  cores likely need different plumbing).
 - **Keyboard accessibility:** focus-visible + full keyboard operability
   ([#29](https://github.com/rhohn94/harmony/issues/29)).
 - **Play-path integration tests** so a broken player fails CI, not manual QA

@@ -12,7 +12,7 @@
 |---|---|
 | **Version** | `v0.28.0` |
 | **Previous** | v0.27.1 (EJS audio-warmup hotfix) |
-| **Theme** | The whole app from the couch. Two user directives (2026-07-03): **(a)** *"The banner is too big. Let's cut it down. Game thumbnails are chopped top and bottom. Game thumbnails should never be chopped. It is okay to draw them on top of the banner. Shrink them so that at least 5 games are visible at a time."* **(b)** *"Support hitting 'Select' (outside of games) or Playstation Touchpad to open a menu for navigating to other screens in the app, such as the Console database and Settings page. All pages and features should be accessible in TV mode."* |
+| **Theme** | The whole app from the couch, and a controller that doesn't fight the games it's playing. Three user directives (2026-07-03): **(a)** *"The banner is too big. Let's cut it down. Game thumbnails are chopped top and bottom. Game thumbnails should never be chopped. It is okay to draw them on top of the banner. Shrink them so that at least 5 games are visible at a time."* **(b)** *"Support hitting 'Select' (outside of games) or Playstation Touchpad to open a menu for navigating to other screens in the app, such as the Console database and Settings page. All pages and features should be accessible in TV mode."* **(c)** *"While playing a game, don't bind the emulation menu to 'Start' because all games require the 'Start' button for gameplay. Bind it to start + select or to holding Start for 5 seconds. (Show an indicator when holding the button so the user knows that holding it will open a menu)"* |
 
 **Version-number note:** the roadmap previously recorded "v0.28 stays retired"
 (after the original v0.28 "Marquee" scope was absorbed into v0.26 Theater).
@@ -117,11 +117,71 @@ to TV home; exit-TV still restores the pre-enter desktop route; all gates +
 `tv-mode-design.md` + `controller-input-design.md` updated. —
 **Branch:** `feat/w278-tv-system-menu`
 
+### W279 — Stop the in-game menu from eating the Start button
+
+**The defect (user directive, 2026-07-03, verbatim):** *"While playing a
+game, don't bind the emulation menu to 'Start' because all games require the
+'Start' button for gameplay. Bind it to start + select or to holding Start
+for 5 seconds. (Show an indicator when holding the button so the user knows
+that holding it will open a menu)"*
+
+**Root cause (verified in code):** `useExclusiveControllerScope.ts`'s
+`routeScopedAction` opens the in-game overlay on the bare `menu` semantic
+action — a single Start press — while, independently,
+`nativeInput.ts`'s `computeJoypadBits` maps the SAME physical button
+straight into the NES core's `START` bit on every poll tick regardless of
+overlay state (`GAMEPAD_BINDINGS[STANDARD_BUTTON.start] = "START"`). So one
+Start press does double duty: it reaches the game **and** pops the overlay
+in the same frame — a game that itself uses Start for pause/menu can never
+be played without fighting the app's own menu.
+
+**Fix contract:**
+
+- **Two ways to summon the overlay while gameplay owns the exclusive scope**
+  (both — the user's "or" is additive, not a choice to make for them):
+  1. **Chord:** Start+Select held together (both bound buttons pressed in
+     the same poll tick) opens the overlay immediately.
+  2. **Hold:** holding Start alone for **5 s** opens the overlay — mirrors
+     `useLongPress`'s poll-the-raw-pad pattern (own small hook or an
+     additive `onProgress`/duration-reporting extension of `useLongPress`;
+     do not regress its existing single-fire callers), but the existing
+     `LONG_PRESS_MS` (600 ms, TV-mode toggle) is a **different, unrelated**
+     threshold — this needs its own named constant (e.g. `MENU_HOLD_MS =
+     5000`), not a reuse.
+  3. A **bare, un-held, un-chorded Start press no longer opens the
+     overlay** — it only reaches the core as gameplay input, exactly like
+     every other joypad button. `routeScopedAction`'s bare-`menu` branch is
+     removed/regated accordingly (its unit tests updated to match, not
+     silently left describing the old behavior).
+- **Hold indicator:** while Start is held (and the 5 s window is running,
+  not yet cancelled by release), show a small on-screen affordance — a
+  progress ring/bar or equivalent at the `--rgp-tv-*` or desktop player
+  scale as appropriate — so the user knows holding will open a menu before
+  it fires. Respect `prefers-reduced-motion` (no animated fill; a static/
+  stepped indicator is fine) per the central motion policy.
+- **Scope:** this is a **gameplay-only** rebind (`useExclusiveControllerScope`
+  / `routeScopedAction`, shared by both play paths per its file header) — it
+  does not touch W278's TV-system-menu trigger (Select/touchpad, gated on
+  `!gameplayClaimActive`, "outside of games"); the two menus stay on
+  distinct, non-conflicting gestures by construction (one requires a
+  gameplay claim, the other requires its absence).
+- Update `controller-input-design.md` with the new gesture + the two
+  distinct hold-threshold constants; note in `HintBar`/glyph surfaces if a
+  hint renders for the in-game menu today.
+
+**Acceptance:** a bare Start press while playing reaches the game only (no
+overlay); Start+Select opens the overlay instantly; holding Start alone for
+5 s opens the overlay with a visible indicator building toward it; releasing
+before 5 s cancels silently (no overlay, no partial-open); the TV system
+menu (W278) is unaffected; existing `routeScopedAction`/`useLongPress` unit
+tests updated and green; all gates + `recipe.py smoke` green. —
+**Branch:** `fix/w279-gameplay-menu-trigger`
+
 ---
 
 ## 3. Parallel Implementation Strategy
 
-Sequential passes — both items touch `tv.css` and TvHome-adjacent files:
+Sequential passes — all three touch overlapping controller/TV files:
 
 ### Pass 1
 
@@ -130,6 +190,13 @@ Sequential passes — both items touch `tv.css` and TvHome-adjacent files:
 ### Pass 2
 
 `feat/w278-tv-system-menu` — builds on the settled shelf layout.
+
+### Pass 3
+
+`fix/w279-gameplay-menu-trigger` — touches the same
+`useExclusiveControllerScope`/`routeScopedAction` file W278 reads from (W278
+doesn't modify it, but sequencing after avoids any merge friction) plus
+`useLongPress`-adjacent code.
 
 ---
 
@@ -141,6 +208,12 @@ Sequential passes — both items touch `tv.css` and TvHome-adjacent files:
 - Keyboard accessibility completion (#29, v0.29 Craft) — the menu gets the
   pointer button for non-controller users; a dedicated key is not required.
 - Controller remap UI changes beyond keeping `quit` overrides working.
+- Making the Start+Select chord / 5 s hold **user-remappable** — the
+  thresholds are fixed constants for now (a full remap UI is issue #20,
+  v0.26 roadmap backlog).
+- The FPS counter, profiling-tools, per-core-settings-GUI, and CRT-filter
+  directives from the same 2026-07-03 message — recorded in
+  `docs/roadmap.md` under v0.29 Craft; out of scope for this release.
 
 ---
 
@@ -157,6 +230,12 @@ Sequential passes — both items touch `tv.css` and TvHome-adjacent files:
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.28 |
 |---|---|---|---|---|
 | `feat/w278-tv-system-menu` (W278) | ☐ | ☐ | ☐ | ☐ |
+
+### Pass 3
+
+| Branch | Design doc | Implemented | Reviewed | Merged into version/0.28 |
+|---|---|---|---|---|
+| `fix/w279-gameplay-menu-trigger` (W279) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
 
