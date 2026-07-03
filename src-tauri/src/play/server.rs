@@ -449,7 +449,11 @@ mod tests {
         // player.html
         let (status, body) = http_get(port, "/player.html");
         assert_eq!(status, 200);
-        assert!(String::from_utf8_lossy(&body).contains("EJS_pathtodata"));
+        let player_html = String::from_utf8_lossy(&body);
+        assert!(player_html.contains("EJS_pathtodata"));
+        // W276: the audio warm-up master-gain shim must actually ship with
+        // the served page (warm-then-reset cold-start fix).
+        assert!(player_html.contains("__harmonyMaster"));
 
         // embedded runtime asset (present in every EmulatorJS release)
         let (status, _) = http_get(port, "/emulatorjs/loader.js");
