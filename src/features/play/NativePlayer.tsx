@@ -10,6 +10,15 @@
 // the core (set_native_paused) and releases input so nothing sticks. The
 // runtime switch that decides whether to mount this or InPagePlayer is
 // PlaySwitch.tsx (W215).
+//
+// v0.27 W272: while mounted foreground (or in the TV takeover) this player
+// owns the controller's exclusive slot via the shared scope
+// (useExclusiveControllerScope) — previously it never claimed the slot, so
+// the base spatial engine stayed live underneath (on the TV home, PS ✕ =
+// `confirm` could activate the focused tile and launch a DIFFERENT game
+// mid-play). `menu` summons the overlay and the controller drives it; game
+// buttons keep flowing via the raw gamepad poll below, never via semantic
+// actions.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -29,9 +38,11 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { playerShellClass, type PlayerPresentation } from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
 import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
+import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
 
 /** Ducked audio gain while the game plays as the page background (W235). */
@@ -40,10 +51,13 @@ const ATTRACT_GAIN = 0.3;
 export interface NativePlayerProps {
   gameId: number;
   gameName: string;
-  /** W235 attract mode: "background" re-presents the live canvas as a
-   * dimmed, full-bleed page backdrop — input detaches, audio ducks, the
-   * session keeps running. Default "foreground" (the interactive player). */
-  presentation?: "foreground" | "background";
+  /** How the player is presented (presentation.ts). "background" (W235
+   * attract) re-presents the live canvas as a dimmed, full-bleed page
+   * backdrop — input detaches, audio ducks, the session keeps running, and
+   * the page keeps the controller. "takeover" (v0.27 W272) is the TV
+   * fullscreen surface — edge-to-edge fill, controller owned like
+   * foreground. Default "foreground" (the interactive detail-page player). */
+  presentation?: PlayerPresentation;
   /** Called once if the native session fails to start — the caller (the
    * runtime-switch component, W215) decides what to do (typically: fall
    * back to InPagePlayer rather than show an error state). */
@@ -179,6 +193,22 @@ export function NativePlayer({
     if (overlayOpen) resetView();
   }, [overlayOpen, resetView]); // resetView is a stable callback
 
+  // Own the controller's exclusive slot while foreground/takeover (W272 — see
+  // file header). `ready` is unconditionally true: the native session boots on
+  // mount, and holding the slot for the whole foreground mount means nothing
+  // leaks to the page beneath even during the boot frames. Backgrounded
+  // (attract) sessions leave the slot free — the page owns the controller.
+  useExclusiveControllerScope({
+    presentation,
+    ready: true,
+    overlayOpen,
+    items,
+    selection,
+    setSelection,
+    openOverlay,
+    closeOverlay,
+  });
+
   useEffect(() => {
     let cancelled = false;
     let frameHandle = 0;
@@ -313,7 +343,7 @@ export function NativePlayer({
   }, [gameId]); // intentionally re-subscribes per gameId only — open/close callbacks are stable
 
   return (
-    <div className={backgrounded ? "rgp-player rgp-player--attract" : "rgp-player"}>
+    <div className={playerShellClass(presentation)}>
       <div className="rgp-player__frame">
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
