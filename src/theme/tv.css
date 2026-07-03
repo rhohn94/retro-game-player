@@ -44,14 +44,38 @@
        clear the ~12% scale-up of a 440px tile plus the 2rem glow. */
     --rgp-tv-rail-row-pad: 3.5rem;
 
-    /* ---- distance-legible focus treatment ----
-       Consumed by W262 (focus/snap engine); declared here so the whole
-       10-foot scale lives in one file. Scale exceeds the design's "≥1.08"
-       floor for headroom; the ring is thicker + higher-contrast than the
-       desktop --rgp-focus-ring so it reads from the couch. */
+    /* ---- distance-legible focus treatment (W262) ----
+       The whole 10-foot scale lives in one file. Scale exceeds the design's
+       "≥1.08" floor for headroom; the ring is thicker + higher-contrast than
+       the desktop --rgp-focus-ring so it reads from the couch, and the glow
+       gives the focused tile a phosphor-accent halo that carries the eye. */
     --rgp-tv-focus-scale: 1.12;
     --rgp-tv-focus-ring-width: 4px;
-    --rgp-tv-focus-glow: 0 0 2rem color-mix(in oklch, var(--aura-primary) 65%, transparent);
+    /* The glow's blur radius, named so --rgp-tv-focus-glow and
+       --rgp-tv-focus-clearance (below) derive from the SAME number instead of
+       each hardcoding "2rem" independently (no magic numbers). */
+    --rgp-tv-focus-glow-radius: 2rem;
+    --rgp-tv-focus-glow: 0 0 var(--rgp-tv-focus-glow-radius)
+      color-mix(in oklch, var(--aura-primary) 65%, transparent);
+    /* Unfocused tiles dim slightly so the focused one visually leads — subtle
+       enough to stay legible (favorites/art still readable), strong enough to
+       register as "not the one" at a glance from the couch. */
+    --rgp-tv-focus-dim-opacity: 0.72;
+
+    /* Clearance a rail's scroll viewport must reserve on every edge so the
+       FOCUSED tile's scale-up + ring + glow are never clipped by the
+       viewport's own overflow box (W262 fix for the W261 handoff: ring/glow
+       clipped at the rail's top edge). Derived, not eyeballed: half the
+       tile's scale-up growth (the biggest tile dimension, height, times half
+       the scale delta) plus the glow's blur radius plus the ring width, with
+       a little headroom. Reusing --rgp-tv-safe-area here would UNDER-clear on
+       small viewports (5vmin can fall below the growth+glow budget), which is
+       exactly how the top-edge clip happened — so this is its own token,
+       sized off the focus geometry instead of the frame's overscan inset. */
+    --rgp-tv-focus-clearance: calc(
+      (var(--rgp-tv-tile-height) * (var(--rgp-tv-focus-scale) - 1) / 2) +
+        var(--rgp-tv-focus-glow-radius) + var(--rgp-tv-focus-ring-width)
+    );
 
     /* ---- controller long-press ----
        Shared by every long-press-gated affordance in TV mode (menu-hold to

@@ -98,6 +98,34 @@ product is a library manager, not a living-room console.
     without touching any TV-home component. First mount seeds focus onto the
     first tile of the first populated rail (the hero's play button otherwise
     claims initial focus, since it registers first).
+  - **Implementation note (W262 — distance-legible focus + snap):** the W261
+    handoff flagged the focused tile's ring/glow clipping at the rail
+    viewport's top edge. Root cause: `.rgp-tv-rail__row`'s vertical padding
+    (`--rgp-tv-rail-row-pad`) was sized for the label + row rhythm, not for
+    the focus scale-up + glow, and the row's horizontal padding reused
+    `--rgp-tv-safe-area` (as small as ~5vmin), which can fall short of the
+    scale+glow footprint on a compact viewport — clipping the first/last tile
+    horizontally too. Fix: a new derived token, `--rgp-tv-focus-clearance`
+    (`theme/tv.css`) — half the tile's scale-up growth plus the glow radius
+    plus the ring width — added on top of BOTH the row's existing padding
+    (vertical) and the safe-area inset (horizontal), and mirrored into
+    `.rgp-tv-tile`'s `scroll-margin-block`/`scroll-margin-inline` so native
+    scroll-into-view (the mirrored-DOM-focus mechanism `TvTile` already uses)
+    leaves the same breathing room on every edge, first/last tile included.
+    Also added: unfocused tiles dim to `--rgp-tv-focus-dim-opacity` (0.72) so
+    the focused one visually leads; the focused caption switches from
+    single-line ellipsis to full wrapped text (the scaled-up tile has the
+    width/weight to carry it). D-pad **hold-to-repeat** was added to
+    `useGamepadPoll` (a pure `navRepeatDue(heldMs, msSinceLastFire)` scheduler,
+    unit-tested like `longPressElapsed`): a held nav button re-fires after
+    `NAV_REPEAT_DELAY_MS` (400ms) then every `NAV_REPEAT_INTERVAL_MS` (150ms),
+    scoped to the four `nav_*` actions only (confirm/back/menu/quit stay
+    single-fire). Keyboard-arrow rail navigation was **not** added — TV mode's
+    non-goals already scope full keyboard accessibility to #29, and no
+    keyboard→SemanticAction bridge exists anywhere in the controller layer
+    today, so "native key-repeat" for keyboard applies only to the desktop's
+    existing native `<button>`/`tabIndex` elements (a browser built-in,
+    nothing to implement).
 - **Hero**: focused-game key art via the high-res tier
   ([metadata-art-design.md](metadata-art-design.md)); crossfade ≤300ms on
   focus settle (debounced ~150ms), gradient scrim for legibility.

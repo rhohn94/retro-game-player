@@ -260,11 +260,22 @@
   .rgp-tv-rail__row {
     display: flex;
     gap: var(--rgp-tv-rail-gap);
+    /* NOTE: setting overflow-x without overflow-y computes the Y axis to
+       `auto` too (CSS overflow spec) — this box IS a vertical overflow
+       boundary for its own content, which is exactly why the focused tile's
+       scale-up + glow need real padding (below), not just a transform, to
+       avoid being clipped against this row's top/bottom edge (the W261
+       handoff bug). */
     overflow-x: auto;
-    /* Generous vertical padding clears the focused tile's scale-up + glow
-       (which a horizontal scroll row would otherwise clip); horizontal padding
-       is the safe-area inset so the first/last tile clears the frame edge. */
-    padding: var(--rgp-tv-rail-row-pad) var(--rgp-tv-safe-area);
+    /* Vertical padding clears the focused tile's scale-up + glow against the
+       row's own top/bottom overflow edge. Horizontal padding adds the SAME
+       focus clearance on top of the safe-area inset so the first/last tile's
+       ring+glow also clears the row's left/right scroll edge, not just the
+       frame edge: the safe-area alone (as small as ~5vmin on a compact
+       viewport) can fall short of the scale+glow budget, which is exactly how
+       the edge tiles clipped. */
+    padding: calc(var(--rgp-tv-rail-row-pad) + var(--rgp-tv-focus-clearance))
+      calc(var(--rgp-tv-safe-area) + var(--rgp-tv-focus-clearance));
     scroll-snap-type: x proximity;
     scrollbar-width: none;
   }
@@ -293,11 +304,15 @@
        container, leave clearance so (a) its scaled-up ring + glow is never
        flush against (and thus clipped by) the container edge, and (b) its own
        rail LABEL stays visible above it rather than being scrolled under the
-       hero. The top clearance therefore clears the label line + the row pad;
-       left/right clear the safe-area inset. */
-    scroll-margin-block: calc(var(--rgp-tv-font-label) + var(--rgp-tv-rail-row-pad))
-      var(--rgp-tv-rail-row-pad);
-    scroll-margin-inline: var(--rgp-tv-safe-area);
+       hero. The top clearance therefore clears the label line + the row pad +
+       the focus clearance; left/right/bottom clear the row pad/safe-area plus
+       the same focus clearance, so ring+glow have breathing room on every
+       edge once scroll-into-view (native, via TvTile's focus mirror) settles. */
+    scroll-margin-block: calc(
+        var(--rgp-tv-font-label) + var(--rgp-tv-rail-row-pad) + var(--rgp-tv-focus-clearance)
+      )
+      calc(var(--rgp-tv-rail-row-pad) + var(--rgp-tv-focus-clearance));
+    scroll-margin-inline: calc(var(--rgp-tv-safe-area) + var(--rgp-tv-focus-clearance));
     padding: 0;
     border: none;
     background: none;
@@ -307,8 +322,12 @@
     /* transform-origin bottom so a focused tile grows UP into the gap above it,
        not down into the label of the rail below. */
     transform-origin: center bottom;
-    transition: var(--rgp-tv-focus-transition);
+    transition: var(--rgp-tv-focus-transition), opacity var(--rgp-dur-base) var(--rgp-ease-out);
     outline: none;
+    /* Unfocused tiles dim slightly (design bullet 1: "unfocused tiles slightly
+       dimmed so the focused one carries the eye") — the focused tile below
+       overrides this back to fully opaque. */
+    opacity: var(--rgp-tv-focus-dim-opacity);
   }
   .rgp-tv-tile__card {
     display: flex;
@@ -361,7 +380,9 @@
     display: block;
     font-size: var(--rgp-tv-font-body);
     color: var(--aura-on-surface);
-    /* Clamp to one line so a long name never pushes the rail's rhythm around. */
+    /* Clamp to one line so a long name never pushes the rail's rhythm around
+       while unfocused; focus reveals the full title (below) since the
+       scaled-up tile has the width and the visual weight to carry it. */
     max-width: var(--rgp-tv-tile-width);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -370,10 +391,12 @@
 
   /* Focus treatment — the whole point of a 10-foot UI. The focused tile pops
      forward (scale), gains a thick high-contrast ring, and a phosphor glow, all
-     token-driven so W262 tunes them centrally. The caption brightens to the
-     brand accent so the focused game's name is unmistakable at distance. */
+     token-driven so W262 tunes them centrally. The caption brightens to full
+     contrast + wraps (instead of clipping) so a truncated name reads in full
+     once its tile carries the eye. Full opacity overrides the unfocused dim. */
   .rgp-tv-tile[data-focused="true"] {
     transform: scale(var(--rgp-tv-focus-scale));
+    opacity: 1;
     z-index: 2;
   }
   .rgp-tv-tile[data-focused="true"] .rgp-tv-tile__frame {
@@ -385,5 +408,8 @@
   .rgp-tv-tile[data-focused="true"] .rgp-tv-tile__caption {
     color: var(--aura-on-surface);
     font-weight: 700;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 }
