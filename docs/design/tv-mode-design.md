@@ -451,6 +451,17 @@ fullscreen viewport):**
   - **Computed at 1920×1080:** tile ≈ 311.8×428.8px, **5.0 tiles visible**
     (up from ~4.8).
   - **Computed at 1512×982:** tile ≈ 232.2×319.3px, **5.0 tiles visible**.
+  - **Gotcha (caught by measuring the rendered tile in a real browser, not
+    by reading the CSS): `aspect-ratio` needs a bare `<ratio>` — unitless
+    numbers like `320 / 440`.** Feeding it the existing `<length>` cap
+    tokens (`320px / 440px`) is invalid CSS; it silently resolves to `auto`
+    with no console warning, and the frame's height then falls out of
+    unrelated flex/content sizing instead of the intended aspect (measured
+    ≈467px instead of ≈429px before the fix). Fixed with a second, unitless
+    token pair (`--rgp-tv-tile-aspect-w: 320` / `--rgp-tv-tile-aspect-h:
+    440`) that mirrors the px caps for this one consumer — CSS has no
+    unit-stripping function, so the two pairs are kept in sync by hand if
+    the cap is ever re-tuned.
 - **Circularity trap, resolved per the release-plan warning.**
   `--rgp-tv-focus-clearance` (the padding/scroll-margin reserved for the
   focused tile's scale-up + ring + glow) used to derive from the live
