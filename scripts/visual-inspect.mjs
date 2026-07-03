@@ -68,7 +68,13 @@ const ROUTES = [
   {
     name: "tv-home",
     hash: "#/",
-    expect: "TV HOME",
+    // The real TV home (v0.26 W261) — the "Continue playing" rail label, which
+    // only renders once the hero+shelves actually mount with populated fixtures
+    // (replacing the W260 placeholder's "TV HOME" eyebrow). Matched in
+    // ALL-CAPS because `innerText` reflects the label's `text-transform:
+    // uppercase` (the retro-accent section-label treatment, tv.css) — the
+    // uppercasing is a core design decision, so the marker is durable.
+    expect: "CONTINUE PLAYING",
     mockOverrides: { get_auto_tv_mode: true },
   },
 ];
