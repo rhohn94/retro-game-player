@@ -7,6 +7,36 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.26 — Theater (2026-07-02)
+
+Harmony is now **Retro Game Player** — and it belongs in your living room.
+
+- **The app has a new name.** Everything user-visible says Retro Game Player,
+  and your existing library, saves, settings, and art move over automatically
+  on first launch — nothing to re-import, nothing lost.
+- **TV mode.** A full 10-foot leanback experience: press Cmd+T, use the
+  sidebar button, or long-press your controller's menu button (or flip
+  "Start in TV mode" in Settings → Appearance) and the whole app becomes a
+  couch console — big type, TV-safe margins, and a home built from
+  cover-art shelves (Continue playing, Favorites, Recently added, and one
+  rail per console) under a full-bleed key-art hero that follows your focus.
+- **Seamless in and out of games.** Selecting a game expands its cover art to
+  fullscreen while the emulator boots underneath — sound on, boot screen and
+  all — and exiting drops you back on the exact shelf spot you launched from.
+- **Built for the controller.** Distance-legible focus (scaled, glowing,
+  never clipped), shelves that snap the focused tile into view, hold-to-repeat
+  navigation, and full support for Xbox, PS4 (DualShock 4), and PS5
+  (DualSense) pads on macOS — with correct button glyphs per controller.
+- **Remap your buttons.** Settings → Controllers is now a real press-to-rebind
+  editor: pick an action, press a button, done — per controller family, with
+  conflict handling and reset-to-defaults.
+- **Your library remembers.** Favorites (a heart on any game), recently
+  played, play counts, and total play time now persist across all three play
+  paths — they power the TV shelves and stick across restarts.
+- **Sharper art on big screens.** Cover, title, and in-game snapshot art now
+  fetch and cache at full resolution, with full-bleed hero rendering on TV
+  surfaces.
+
 ## v0.25.1 — Hotfix: Aura Dependency Channel migration (2026-07-02)
 
 The Aura design-language runtime moves from a git submodule (v3.20) to a
