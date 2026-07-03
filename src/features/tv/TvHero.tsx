@@ -32,11 +32,16 @@ export interface TvHeroProps {
   game: Game | null;
   /** Launch the featured game (confirm on the hero play affordance). */
   onLaunch: (game: Game) => void;
+  /** W273 hover-attract: true while a live preview plays behind the home —
+   * the hero's art layer hands off to the real gameplay underneath
+   * (crossfading out via its existing AnimatePresence), while the scrim,
+   * accents, and copy stay so the title reads over the running game. */
+  artHandedOff?: boolean;
 }
 
 /** The hero region. Renders a settle-state when no game is focused yet so the
  * home never shows a bare backdrop with no title. */
-export function TvHero({ game, onLaunch }: TvHeroProps) {
+export function TvHero({ game, onLaunch, artHandedOff = false }: TvHeroProps) {
   // Prime a high-res hero tier for the featured game: snap → title → boxart
   // ("hero" surface order), and DO allow a one-shot network fetch so a game
   // with no cached tier still resolves cinematic art for the hero specifically
@@ -59,10 +64,12 @@ export function TvHero({ game, onLaunch }: TvHeroProps) {
     <section className="rgp-tv-hero" aria-label="Featured game">
       {/* Full-bleed native-res art of the focused game; crossfades on URL change
           via AnimatePresence so there is no layout shift and both frames are
-          object-fit: cover. `aria-hidden` — purely decorative behind the copy. */}
+          object-fit: cover. `aria-hidden` — purely decorative behind the copy.
+          While a W273 preview plays, the art layer exits through the same
+          AnimatePresence crossfade, uncovering the live gameplay behind. */}
       <div className="rgp-tv-hero__art" aria-hidden>
         <AnimatePresence>
-          {artUrl && (
+          {artUrl && !artHandedOff && (
             <motion.div
               key={artUrl}
               className="rgp-tv-hero__art-layer"

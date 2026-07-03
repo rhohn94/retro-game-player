@@ -16,9 +16,19 @@ export function setNativePlayEnabled(enabled: boolean): Promise<void> {
   return invoke<void>("set_native_play_enabled", { enabled });
 }
 
+/** Options for `startNativePlay` (v0.27 W273). */
+export interface StartNativePlayOptions {
+  /** Start the session as a NO-TRACE preview (the TV hover-attract surface,
+   * tv-mode-design.md §v0.27 → W273 "Purity"): the backend passes
+   * `saves: None` (no SRAM load/flush, no exit auto-save-state) and no
+   * perf-log path (so a preview never truncates the last real session's
+   * `logs/native-perf.log`). Default false — a normal, persisted session. */
+  preview?: boolean;
+}
+
 /** Starts a native session for `gameId`, replacing any session already running. */
-export function startNativePlay(gameId: number): Promise<void> {
-  return invoke<void>("start_native_play", { gameId });
+export function startNativePlay(gameId: number, opts: StartNativePlayOptions = {}): Promise<void> {
+  return invoke<void>("start_native_play", { gameId, preview: opts.preview ?? false });
 }
 
 /** Stops the in-flight native session, if any. */
