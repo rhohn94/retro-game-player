@@ -87,6 +87,15 @@
        sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
     --rgp-tv-long-press-ms: 600ms;
 
+    /* ---- hover-attract dwell (W273) ----
+       How long focus/hover must settle on ONE shelf tile before the live
+       preview boots behind the home (tv-mode-design.md §v0.27 → W273:
+       keyboard-focus and pointer-hover alike, one constant). Mirrored in JS
+       as TV_ATTRACT_DWELL_MS (src/features/tv/useAttractDwell.ts) — the same
+       dual-source pattern as --rgp-tv-long-press-ms above, since a CSS custom
+       property can't be read by a JS timer. */
+    --rgp-tv-attract-dwell-ms: 5000ms;
+
     /* ---- retro-accent section label chrome ----
        The chunky pixel-adjacent label treatment tv-mode-design.md's
        "Retro-but-Aura aesthetic" calls for — expressed via existing Aura

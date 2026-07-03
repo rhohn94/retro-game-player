@@ -33,6 +33,11 @@
 
   .rgp-tv-shell__header {
     flex: 0 0 auto;
+    /* Positioned + raised so the header label stays above the W273 attract
+       preview (a fixed full-bleed layer inside the home that would otherwise
+       paint over this non-positioned flex child — tv-home.css). */
+    position: relative;
+    z-index: 1;
   }
 
   /* Chunky retro-accent section-label treatment (tv-mode-design.md: "chunky
