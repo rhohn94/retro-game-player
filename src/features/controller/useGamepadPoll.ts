@@ -11,6 +11,7 @@
 
 import { useEffect, useRef } from "react";
 import {
+  SEMANTIC_ACTIONS,
   type BindingMap,
   type DeviceFamily,
   type GamepadMapping,
@@ -27,6 +28,52 @@ const AXIS_LEFT_X = 0;
 const AXIS_LEFT_Y = 1;
 /** Repeat cadence (ms) while a stick is held past the deadzone — avoids one move per frame. */
 const STICK_REPEAT_MS = 180;
+
+// ── Digital D-pad hold-to-repeat (W262, tv-mode-design.md §Acceptance bullet 5) ──
+//
+// risingActions() below only ever fires a nav action on the press's rising
+// edge — correct for confirm/back/menu/quit (one fire per press), but a D-pad
+// held down should auto-repeat the move like the analog stick already does
+// (STICK_REPEAT_MS above) and like every leanback/console UI: a brief initial
+// delay so a single tap never double-fires, then a steady repeat cadence.
+// Keyboard arrows get the same feel for free via the browser's native OS key-
+// repeat (a `keydown` handler firing on the DOM, unrelated to this poll) — see
+// railNav's consumer, which reacts to one nav action per call either way.
+
+/** Delay (ms) after a D-pad direction is first pressed before it starts
+ * auto-repeating — long enough that a quick single tap can never double-fire. */
+export const NAV_REPEAT_DELAY_MS = 400;
+/** Repeat cadence (ms) once a held D-pad direction is auto-repeating. Faster
+ * than the initial delay (standard "accelerate into it" leanback feel) but
+ * slow enough that a rail traversal stays readable at distance. */
+export const NAV_REPEAT_INTERVAL_MS = 150;
+
+/** The four semantic actions eligible for D-pad hold-to-repeat. Confirm/back/
+ * menu/quit are deliberately excluded — those must stay single-fire-per-press. */
+const REPEATABLE_NAV_ACTIONS: ReadonlySet<SemanticAction> = new Set([
+  "nav_up",
+  "nav_down",
+  "nav_left",
+  "nav_right",
+]);
+
+/**
+ * Pure scheduler: given how long a repeatable action has been continuously
+ * held (ms) and how long ago it last fired (ms, `null` if it has only fired
+ * once on the initial press), should it fire again THIS frame? Mirrors
+ * `longPressElapsed`'s pure/impure split (useLongPress.ts) so the "first
+ * repeat needs the longer initial delay, subsequent repeats use the shorter
+ * interval" edge case is independently unit-testable without a rAF loop.
+ */
+export function navRepeatDue(
+  heldMs: number,
+  msSinceLastFire: number | null,
+  delayMs: number = NAV_REPEAT_DELAY_MS,
+  intervalMs: number = NAV_REPEAT_INTERVAL_MS,
+): boolean {
+  if (msSinceLastFire === null) return heldMs >= delayMs;
+  return msSinceLastFire >= intervalMs;
+}
 
 // ── Non-standard mapping degradation notice (W268) ──────────────────────────
 //
@@ -121,6 +168,12 @@ export function useGamepadPoll(opts: GamepadPollOptions): void {
     let prevPressed = new Set<number>();
     let lastFamily: DeviceFamily | null = null;
     let lastStickFire = 0;
+    // Hold-to-repeat state for the currently-held repeatable nav button (at
+    // most one D-pad direction can be physically held at a time in practice;
+    // tracking a single button index keeps this a plain scalar, not a map).
+    let heldNavButton: number | null = null;
+    let heldNavSince = 0;
+    let lastNavRepeatFire: number | null = null;
 
     const overridesFor = (family: DeviceFamily) =>
       overridesRef.current.filter((o) => o.deviceFamily === family);
@@ -152,6 +205,43 @@ export function useGamepadPoll(opts: GamepadPollOptions): void {
           onActionRef.current(action);
         }
         prevPressed = nowPressed;
+
+        // D-pad hold-to-repeat (design: "holding a nav direction repeats
+        // movement at a tokenized interval after a tokenized delay"). Only the
+        // four repeatable nav actions auto-repeat; confirm/back/menu/quit stay
+        // single-fire via risingActions above. Re-resolves which button (if
+        // any) is bound to a repeatable action and currently held each frame,
+        // so a rebind takes effect immediately and releasing/switching buttons
+        // resets the hold cleanly.
+        let currentHeldButton: number | null = null;
+        for (const action of SEMANTIC_ACTIONS) {
+          if (!REPEATABLE_NAV_ACTIONS.has(action)) continue;
+          const idx = bindings[action];
+          if (nowPressed.has(idx)) {
+            currentHeldButton = idx;
+            break;
+          }
+        }
+        if (currentHeldButton === null) {
+          heldNavButton = null;
+          lastNavRepeatFire = null;
+        } else if (currentHeldButton !== heldNavButton) {
+          // A new hold started (or switched buttons) — the initial rising-edge
+          // fire above already moved focus once; the repeat clock starts now.
+          heldNavButton = currentHeldButton;
+          heldNavSince = now;
+          lastNavRepeatFire = null;
+        } else {
+          const heldMs = now - heldNavSince;
+          const sinceLastFire = lastNavRepeatFire === null ? null : now - lastNavRepeatFire;
+          if (navRepeatDue(heldMs, sinceLastFire)) {
+            lastNavRepeatFire = now;
+            const repeatedAction = SEMANTIC_ACTIONS.find(
+              (a) => REPEATABLE_NAV_ACTIONS.has(a) && bindings[a] === currentHeldButton,
+            );
+            if (repeatedAction) onActionRef.current(repeatedAction);
+          }
+        }
 
         // Analog stick → nav, rate-limited so a held stick repeats, not floods.
         const nav = stickToNav(pad.axes[AXIS_LEFT_X] ?? 0, pad.axes[AXIS_LEFT_Y] ?? 0);
