@@ -121,6 +121,11 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   // pass null and the takeover falls back to a centred crossfade.
   const launch = useCallback(
     (game: Game) => {
+      // Launching supersedes any armed exit intent: without this, a `back`
+      // pressed just before confirm left the exit-confirm armed under the
+      // takeover, and a quick play-and-return inside its window let a SINGLE
+      // back press silently exit TV mode (W275).
+      exitConfirm.cancel();
       const active = document.activeElement as HTMLElement | null;
       const rect = active?.getBoundingClientRect();
       const originRect =
@@ -129,7 +134,7 @@ export function TvHome({ onExit }: { onExit: () => void }) {
           : null;
       tvMode.launch(game, originRect);
     },
-    [tvMode],
+    [tvMode, exitConfirm.cancel],
   );
 
   // Fold EVERY focus change (controller nav OR pointer hover) into the per-rail
