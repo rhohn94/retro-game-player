@@ -503,6 +503,196 @@ fullscreen viewport):**
 `src/features/tv/rails.ts` windowing is unchanged (count-based, no width
 knowledge — the responsive width is purely a CSS-layer concern).
 
+## v0.28 "Living Room" (W278) — TV system menu + every page in TV mode
+
+User directive (2026-07-03, verbatim): *"Support hitting 'Select' (outside of
+games) or Playstation Touchpad to open a menu for navigating to other screens
+in the app, such as the Console database and Settings page. All pages and
+features should be accessible in TV mode."*
+
+Before this, TV mode was a closed loop: home → hero/rails → game takeover →
+back to home. Every other screen (Consoles, Search, Cores, Settings) was
+unreachable without exiting TV mode entirely — the couch experience covered
+browsing + playing, but nothing else.
+
+### Trigger — Select / PlayStation touchpad, outside gameplay
+
+The `quit` semantic action was bound to Select (`STANDARD_BUTTON.select`,
+button 8) on every family but consumed nowhere in the app (only labeled in
+`glyphs.ts`) — the natural, already-present trigger to repurpose as "open the
+TV system menu." PlayStation pads additionally trigger it with the touchpad
+click (`STANDARD_BUTTON.touchpad`, button 17) via a new, small **aux-binding**
+table in `actions.ts` (`defaultAuxBinding(family, action)`) rather than
+widening `BindingMap` to multiple buttons per action — full mechanism in
+controller-input-design.md §2.4. This keeps `quit`'s existing single-binding
+contract (persisted rebind overrides, `nativeInput.ts`'s mapping, the main
+`useGamepadPoll`/`risingActions` dispatch) completely undisturbed.
+
+The trigger itself is a **raw-poll rising-edge hook**
+(`src/features/controller/useMenuTrigger.ts`), mirroring `useLongPress`'s
+shape (own small rAF loop reading `navigator.getGamepads()` directly + the
+same `resolveBindings`/`detectFamily` helpers) rather than routing through
+`ControllerProvider`'s exclusive-claim dispatch — so it fires regardless of
+who currently holds the exclusive slot (the TV home's own claim must not
+block it). Unlike `useLongPress` this is rising-edge, not hold-to-fire: the
+spec calls for an immediate open on a single press, not a long hold. The pure
+per-tick check (`isMenuTriggerPressed`) is unit-tested without hardware.
+
+A TV-feature-level policy hook, `useTvSystemMenuTrigger` (mirroring
+`useTvModeControllerToggle`'s split of "controller feature owns the
+mechanism, TV feature owns the policy"), gates the raw trigger on ALL of:
+
+- TV mode active (`tvMode.active`);
+- the menu not already open (`!tvMode.menuOpen` — a second Select/touchpad
+  press while the panel is open is handled entirely by `TvSystemMenu`'s own
+  exclusive-claim `back`/`quit` handling, a completely independent dispatch
+  path from this raw poll; re-arming this trigger too would race the two
+  "did Select just close it" signals against each other for no benefit);
+- outside gameplay (`!gameplayClaimActive` — the exclusive-claim-stack signal
+  `useTvModeControllerToggle` already reads for the same reason);
+- no takeover surface mounted (`tvMode.launched === null` — a running game
+  keeps sole ownership of every input source, matching the takeover's own
+  swallow-all fallback claim);
+- the window focused (`useWindowFocus`, the same gate W275 added to the
+  hover-attract dwell).
+
+### Menu — `TvSystemMenu`
+
+A 10-foot overlay panel (`src/features/tv/TvSystemMenu.tsx` +
+`src/features/tv/systemMenu.ts` for the pure list/nav model) listing, in
+order: **TV Home · Consoles · Search · Cores · Settings · Exit TV mode**
+(`TV_MENU_ITEMS`, systemMenu.ts) — the same "primary destinations" set the
+desktop sidebar shows (`HARMONY_ROUTES` entries with a `navLabel`), plus the
+menu's own TV Home / Exit TV mode rows. Console detail / game detail stay
+deep-link-only, matching the sidebar's own gated list.
+
+While open, `TvSystemMenu` claims `"ui"` on the controller's exclusive stack
+(`claimExclusive`, `ControllerProvider`) — ABOVE whatever `TvHome` or an
+embedded screen already holds, so:
+
+- `nav_up`/`nav_down` move the selected row (`nextMenuIndex`, no
+  wraparound — an end-stop, mirroring `railNav`'s left/right end-stops);
+- `confirm` activates the selected row;
+- `back` **or** `quit` (Select-again) close the panel without navigating.
+
+Selection is tracked via the same `focusedId`/`setFocus` primitives every
+other TV surface uses (not `useFocusable`'s `register()`, since the panel is
+driven by its own exclusive claim rather than the base spatial engine — the
+same reasoning `TvHome`'s rail navigation already applies). Pointer hover
+funnels into the same focus id, matching the tile/hero convention.
+
+Opening the menu also:
+- **cancels an armed exit-confirm** (`TvHome`'s `exitConfirm.cancel()`) —
+  mirrors the W275 fix where `launch()` already disarms a stale confirm so a
+  `back` pressed just before doesn't leave TV mode one press from silently
+  exiting under the overlay;
+- **suppresses the W273 attract dwell + preview** — `tvMode.menuOpen` is
+  threaded into `useAttractDwell`'s `enabled` alongside `launched === null`
+  and `!exitConfirm.confirming` (the same "something more important is
+  showing" gating family), so a running/building preview tears down the
+  instant the menu opens rather than continuing (audibly) behind it.
+
+**Pointer parity:** a visible **☰ Menu** button sits in `TvShell`'s header,
+in the same `.rgp-tv-shell__chrome-buttons` group as the existing exit
+button (same styling family, positioned as a flex row rather than two
+independently-absolute-positioned elements, so their relative placement
+comes from a themeable gap token instead of a hand-measured offset — see
+tv-shell.css). It calls `tvMode.openMenu()` directly, the same seam the
+controller trigger calls.
+
+New `--rgp-tv-*` tokens (`theme/tv.css`): `--rgp-tv-menu-panel-width`
+(reuses the W272 overlay-panel floor), `--rgp-tv-menu-item-gap`, and
+`--rgp-tv-embed-scale` (below).
+
+### Every page in TV mode — the embedded-screen outlet
+
+Choosing a non-home, non-exit destination renders the **real desktop screen**
+inside the TvShell outlet, in place of `TvHome` — TV mode and OS fullscreen
+stay active throughout. This is a full swap, not an overlay: unlike the game
+takeover (which keeps `TvHome` mounted behind it so focus memory survives),
+picking a destination actually **unmounts** `TvHome`, which automatically
+releases its exclusive claim (`exclusiveStack`'s release-by-identity
+contract) — the embedded screen's own base-spatial-nav (`useFocusable`)
+registrations then just work, exactly as they do on the desktop.
+
+`TvModeContext` gained two pieces of state for this (`embeddedPath`,
+`menuOpen`) plus three transitions:
+
+- **`enterEmbedded(path)`** — navigates the REAL router to `path` (so
+  `HARMONY_ROUTES`' real elements + params resolve exactly as they do on the
+  desktop: `/console/:key`, `/game/:id` deep links, and any in-screen
+  navigation like "Consoles → a console's own detail link" just work with no
+  bespoke handling) and sets `embeddedPath` so `Root` (App.tsx) swaps the
+  outlet content.
+- **`returnToHome()`** — hides the embedded region (`embeddedPath = null`).
+  Does NOT navigate: `TvHome` reads no router location state, so nothing
+  needs to change there; the next `enterEmbedded` call navigates fresh.
+- **`TvEmbeddedScreen`** (`src/features/tv/TvEmbeddedScreen.tsx`) — reuses
+  the SAME `HARMONY_ROUTES` table + `<Routes>`/`<Route>` resolution
+  `RoutedOutlet` (App.tsx) uses on the desktop, driven by the real router
+  location. Registers `back → returnToHome` as the screen-level action
+  handler (`setActionHandlers`) — the same seam `ShellControllerBindings`
+  uses for the desktop's own global `back → navigate(-1)` binding. `back` at
+  the embedded region always returns to TV home (it does not first
+  "un-nest" one level within an embedded screen's own history) — a screen's
+  OWN "back to parent list" affordance (e.g. `ConsoleDetailPage`'s own back
+  button, already a real on-screen `<button>`) is a separate control, not
+  this semantic action. Wrapped in a **uniform 10-foot scale-up**
+  (`.rgp-tv-embed`, CSS `zoom: var(--rgp-tv-embed-scale)` — one knob, not
+  per-screen restyling, per the release-plan contract): `zoom` (unlike
+  `transform: scale`) keeps layout math — `getBoundingClientRect` reads the
+  base spatial engine depends on, native scroll-into-view, hit-testing — in
+  scaled coordinates, so nothing needed to change in the embedded screens
+  themselves.
+
+**The exit-snapshot contract (the trickiest seam, W260's original design)**
+is preserved by construction: `TvModeContext`'s `priorRouteRef` — the ref
+`exit()` reads to restore the pre-enter desktop route — is written in
+EXACTLY one place, inside `enter()`'s `!wasActive` branch. `enterEmbedded`
+and `returnToHome` never touch it, no matter how many in-TV navigations run
+between `enter()` and `exit()`. So `exit()`'s `navigate(priorRouteRef.current)`
+always lands on the route that was active before TV mode was entered — never
+on whatever embedded screen the menu last showed. Verified against a real
+running instance (not just read from the code): `scripts/visual-inspect.mjs`'s
+`tv-embedded-screen` route opens the menu, navigates to Consoles, then exits
+TV mode and asserts the hash is back at `#/` (the pre-enter Library route),
+failing loudly if it were ever `#/consoles` instead.
+
+`exit()` also resets `menuOpen`/`embeddedPath` to their initial values, so a
+later `enter()` always starts fresh on the TV home rather than resuming
+wherever in-TV navigation left off.
+
+### Known-honest v1 edges (recorded, not solved)
+
+- **Embedded game-detail play uses the desktop-style in-page player** inside
+  the outlet (with sound — the auto-boot contract holds), not the TV
+  takeover (`TvGameSurface`). Routing an embedded launch through the takeover
+  chrome is a follow-up.
+- **Per-screen 10-foot restyling beyond the uniform scale-up** is a
+  follow-up — the embedded region gets ONE `zoom` knob, not bespoke TV
+  layouts for Consoles/Search/Cores/Settings.
+- **`back` at an embedded screen always returns to TV home**, rather than
+  first un-nesting one level of the embedded screen's own navigation history
+  (e.g. console detail → consoles list) — screens already expose that as
+  their own on-screen back affordance (a real, controller-focusable button),
+  so this is a deliberate v1 simplification rather than a gap, but is worth
+  revisiting if user feedback wants `back` to feel more "layered."
+- **No dedicated TV-mode `HintBar`.** TV mode has never rendered a hint bar
+  (the desktop `HintBar` in `App.tsx`'s `Shell` is desktop-only); the
+  Select/touchpad system-menu gesture's sole on-screen discoverability today
+  is the visible ☰ Menu button, not a controller-glyph hint. Adding a
+  TV-scaled hint bar is out of scope for this item (pre-existing gap, not
+  introduced here) — tracked as a follow-up alongside the CRT-filter /
+  attract-mode-screensaver items below.
+
+**Files:** `src/features/controller/actions.ts` (touchpad button + aux-binding
+table), `src/features/controller/useMenuTrigger.ts` (+ `.test.ts`),
+`src/features/tv/systemMenu.ts` (+ `.test.ts`), `src/features/tv/TvSystemMenu.tsx`,
+`src/features/tv/tv-system-menu.css`, `src/features/tv/TvEmbeddedScreen.tsx`,
+`src/features/tv/useTvSystemMenuTrigger.ts`, `src/features/tv/TvModeContext.tsx`
+(menu/embedded state), `src/features/tv/TvShell.tsx` (☰ Menu button + menu
+mount), `src/App.tsx` (`Root`'s outlet swap), `src/theme/tv.css` (new tokens).
+
 ## Open questions
 
 - Per-console rail cap (all 20 systems would be noisy) — start with "systems
@@ -529,3 +719,12 @@ knowledge — the responsive width is purely a CSS-layer concern).
   fallback unmounts it. Threading a "first frame painted" signal out of
   `NativePlayer`'s frame loop would make the handoff seamless and make a
   failed preview visually invisible.
+- **Route embedded game-detail play through the TV takeover (W278):** an
+  embedded `/game/:id` currently boots the desktop-style in-page player inside
+  the outlet rather than `TvGameSurface`'s fullscreen takeover chrome.
+- **Per-screen 10-foot restyling of embedded desktop screens (W278):** the
+  embedded region gets one uniform `zoom` scale-up knob; bespoke TV layouts
+  for Consoles/Search/Cores/Settings are out of scope for now.
+- **A TV-scaled `HintBar` (W278):** TV mode has never rendered a hint bar: the
+  Select/touchpad system-menu gesture's only on-screen discoverability today
+  is the visible ☰ Menu button, not a controller-glyph hint.

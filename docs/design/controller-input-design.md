@@ -77,6 +77,63 @@ to one move. `risingActions()` reports buttons newly pressed this frame
 (rising-edge), so one physical press fires exactly one action regardless of poll
 rate; the polling hook rate-limits held-stick repeats (`STICK_REPEAT_MS`).
 
+### 2.4 Auxiliary (per-family, additive) bindings — W278
+
+`BindingMap` is deliberately **one-button-per-action**: `resolveBindings` /
+`risingActions` assume a single physical button fires a given semantic action,
+which is the right shape for confirm/back/nav/menu/quit everywhere else in the
+app. The v0.28 "Living Room" TV system menu (tv-mode-design.md §v0.28 → W278)
+needed a SECOND physical button to also open it — the PlayStation touchpad
+click — without turning every action's binding into an array just to
+accommodate one extra button on one family.
+
+The fix is a small, separate, additive lookup in `actions.ts`, deliberately
+**not** folded into `resolveBindings`/`risingActions`:
+
+```ts
+export const STANDARD_BUTTON = {
+  // ...
+  touchpad: 17, // PlayStation touchpad click (DualShock 4 / DualSense)
+} as const;
+
+const AUX_BINDINGS: Partial<Record<DeviceFamily, Partial<Record<SemanticAction, number>>>> = {
+  playstation: { quit: STANDARD_BUTTON.touchpad },
+};
+
+export function defaultAuxBinding(family: DeviceFamily, action: SemanticAction): number | null;
+```
+
+`defaultAuxBinding(family, action)` returns the extra button index for that
+family/action pair, or `null` when there is none — today only
+`playstation`/`quit` has an entry. Consumers that need "does EITHER the
+primary or the aux button fire this action" check both explicitly (see
+`useMenuTrigger.isMenuTriggerPressed`, controller feature) rather than the aux
+table changing `resolveBindings`'s return shape. This keeps three existing
+contracts completely undisturbed:
+
+- **`quit`'s primary binding** stays Select (`STANDARD_BUTTON.select`) for
+  every family, in `resolveBindings`/`defaultBindings` — unaffected by W278.
+- **`risingActions`/the main `useGamepadPoll` dispatch** are untouched — the
+  aux table is not read there at all, so `nativeInput.ts`'s "quit" mapping and
+  every other `quit` consumer see no change.
+- **Persisted rebind overrides keyed `"quit"`** (`controller_bindings` DB rows)
+  keep resolving through `resolveBindings` exactly as before; the aux
+  touchpad binding is independent of any override on the primary binding (a
+  user who rebinds `quit` off Select does not lose the PS touchpad's ability
+  to open the TV menu, and vice versa — they are two separate paths to the
+  same action, not one binding with an override).
+
+The TV menu's own trigger is a raw-poll rising-edge hook
+(`src/features/controller/useMenuTrigger.ts`) mirroring `useLongPress`'s shape
+(own small rAF loop reading `navigator.getGamepads()` + the same
+`resolveBindings`/`detectFamily` helpers) rather than routing through
+`ControllerProvider`'s dispatch — so it fires regardless of who currently
+holds the exclusive claim stack. `isMenuTriggerPressed(pad, family,
+overrides)` is the pure, unit-tested "is the trigger down this tick" check
+(both the primary Select binding and, for PlayStation, the aux touchpad
+button); see tv-mode-design.md §v0.28 → W278 for the TV-feature-level gating
+policy (`useTvSystemMenuTrigger`) that wraps it.
+
 ## 3. Spatial focus engine (`spatial.ts`, `ControllerProvider.tsx`, `hooks.ts`)
 
 A dependency-free geometric nearest-neighbour core (implemented in-repo rather
@@ -209,6 +266,13 @@ name with no hex tag. `detectPlayStationModel` further distinguishes DualShock
 - `2dc8-6001-8BitDo SN30 Pro`
 - `Pro Controller`
 - `Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)`
+
+**PlayStation touchpad (W278, TV system menu).** `STANDARD_BUTTON.touchpad`
+(index 17) is a DualShock 4 / DualSense-only aux binding for `quit`, layered on
+top of the table above rather than a new column: PlayStation pads open the TV
+system menu (v0.28 "Living Room") with EITHER Select (like every other family)
+OR a touchpad click — see §2.4 for the aux-binding mechanism. No other
+recognised family reports a button at index 17.
 
 **Non-standard mapping fallback.** `classifyMapping` (`actions.ts`) flags any
 pad whose `Gamepad.mapping !== "standard"` (empty string, or any other
