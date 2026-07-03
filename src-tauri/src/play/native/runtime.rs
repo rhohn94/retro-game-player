@@ -1,27 +1,25 @@
-//! Owns the per-frame core tick and the audio output path. Two dedicated
-//! threads: the **core thread** loads a [`LibretroCore`], wires up
-//! [`callbacks`], and calls `retro_run` at a fixed rate, draining the video
-//! callback into a latest-frame-wins buffer and the audio callback into a
-//! ring buffer; the **audio thread** owns a `cpal` output stream that drains
-//! the ring buffer in its real-time audio callback. The two are split
-//! because `cpal::Stream` is not `Send`/`Sync` — it cannot live on the same
-//! struct as the rest of the runtime state, only be reached through the ring
-//! buffer's channel-like handoff. W212 — see
+//! Orchestrates a native core session across two dedicated threads: the
+//! **core thread** loads a [`LibretroCore`], wires up [`callbacks`], and
+//! calls `retro_run` on an absolute-deadline [`FrameClock`], draining video
+//! into a latest-frame-wins slot and audio through the resampler + rate
+//! control chain into a lock-free ring; the **audio thread** owns the
+//! `cpal::Stream` (which is not `Send`/`Sync`) and drains that ring in its
+//! realtime callback. The pacing/resampling/ring mechanics live in
+//! [`super::clock`] and [`super::audio`]; this module only wires them to the
+//! core lifecycle. W212 + W270 — see
 //! docs/design/native-emulation-design.md §2.
-//!
-//! First cut is a fixed-rate feed (no dynamic rate control yet — see the
-//! design doc's "Follow-ups"); the ring buffer simply drops the oldest
-//! samples on overflow rather than nudging playback rate against fill level.
 
+use super::audio::{
+    run_audio_thread, AudioBringUp, AudioProducer, PerfCounters, SharedGain, StereoResampler,
+};
 use super::callbacks::{self, AudioBatch, EnvironmentEvent, PixelFormat};
-use super::frame::{to_rgba8, Rgba8Frame};
+use super::clock::FrameClock;
+use super::frame::{to_rgba8_into, Rgba8Frame};
 use super::host::LibretroCore;
 use crate::error::{AppError, AppResult};
 use crate::play::saves::{GameSaves, PlayPath, AUTO_SLOT};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -37,6 +35,20 @@ const SRAM_FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// means a timeout signals a wedged core loop, not a slow save.
 const COMMAND_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// How long `start` waits for the audio thread to open the device and hand
+/// back the ring producer. Device bring-up is tens of milliseconds; hitting
+/// this means audio is wedged, and the session proceeds video-only.
+const AUDIO_BRING_UP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How often the core loop emits the `[rgp-native]` perf line (effective
+/// fps, ring fill, underrun/overrun deltas) — frequent enough to correlate
+/// with what the ear hears, rare enough to never matter.
+const PERF_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Fallback frame rate when a core reports `fps <= 0` (shouldn't happen for
+/// any real core, but `retro_get_system_av_info` is core-controlled input).
+const FALLBACK_FPS: f64 = 60.0;
+
 /// Requests executed **on the core thread** between frames — libretro calls
 /// are not thread-safe off the run loop, so the runtime never touches the
 /// core from IPC threads directly.
@@ -49,94 +61,6 @@ enum CoreCommand {
         slot: String,
         reply: Sender<AppResult<()>>,
     },
-}
-
-/// Caps how much audio the ring buffer holds before it starts dropping the
-/// oldest samples — about 0.3s at a typical 48kHz stereo rate. Large enough
-/// to absorb normal core/device cadence jitter, small enough that a stall
-/// doesn't turn into a multi-second audio delay once it recovers.
-const RING_CAPACITY_SAMPLES: usize = 48_000 / 1000 * 300 * 2;
-
-/// Fallback frame rate when a core reports `fps <= 0` (shouldn't happen for
-/// any real core, but `retro_get_system_av_info` is core-controlled input).
-const FALLBACK_FPS: f64 = 60.0;
-
-/// A bounded, thread-shared queue of interleaved stereo `i16` samples.
-/// Producer (core thread) pushes whole [`AudioBatch`]es; consumer (cpal's
-/// realtime callback) pops individual samples. Backed by a `Mutex` rather
-/// than a lock-free structure — simple and correct for v1; revisit only if
-/// profiling shows contention. Carries the output gain (W235 attract-mode
-/// duck / future volume control, #22) as atomic f32 bits so the realtime
-/// callback reads it without locking.
-struct AudioRing {
-    samples: Mutex<VecDeque<i16>>,
-    gain_bits: AtomicU32,
-}
-
-impl AudioRing {
-    fn new() -> Self {
-        AudioRing {
-            samples: Mutex::new(VecDeque::with_capacity(RING_CAPACITY_SAMPLES)),
-            gain_bits: AtomicU32::new(1.0_f32.to_bits()),
-        }
-    }
-
-    /// Sets the output gain, clamped to [0, 1].
-    fn set_gain(&self, gain: f32) {
-        self.gain_bits
-            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-
-    fn gain(&self) -> f32 {
-        f32::from_bits(self.gain_bits.load(Ordering::Relaxed))
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<i16>> {
-        self.samples.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// Pushes `samples`, dropping the oldest entries first if the ring is at
-    /// capacity. Audible as a small skip under sustained overload rather
-    /// than unbounded memory growth or an ever-increasing latency.
-    fn push(&self, samples: &[i16]) {
-        let mut buf = self.lock();
-        for &s in samples {
-            if buf.len() >= RING_CAPACITY_SAMPLES {
-                buf.pop_front();
-            }
-            buf.push_back(s);
-        }
-    }
-
-    /// Fills `out` from the ring, oldest samples first, applying the current
-    /// gain; pads any shortfall with silence (`0`) rather than repeating
-    /// samples, matching the standard libretro/RetroArch underrun behavior
-    /// (a brief gap, not a glitch-loop). Returns how many real samples were
-    /// copied.
-    fn pop_into(&self, out: &mut [i16]) -> usize {
-        let gain = self.gain();
-        let mut buf = self.lock();
-        let mut copied = 0;
-        for slot in out.iter_mut() {
-            match buf.pop_front() {
-                Some(sample) => {
-                    *slot = if gain >= 1.0 {
-                        sample
-                    } else {
-                        (f32::from(sample) * gain) as i16
-                    };
-                    copied += 1;
-                }
-                None => *slot = 0,
-            }
-        }
-        copied
-    }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.lock().len()
-    }
 }
 
 /// The shared latest-frame slot. Each stored frame is stamped with a
@@ -155,10 +79,10 @@ pub struct NativeRuntime {
     latest_frame: Arc<Mutex<FrameSlot>>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
-    ring: Arc<AudioRing>,
+    gain: Arc<SharedGain>,
     commands: Sender<CoreCommand>,
     core_thread: Option<JoinHandle<()>>,
-    audio_thread: Option<JoinHandle<AppResult<()>>>,
+    audio_thread: Option<JoinHandle<()>>,
 }
 
 impl NativeRuntime {
@@ -167,42 +91,15 @@ impl NativeRuntime {
     /// callers can read [`Self::latest_frame`] as soon as the core produces
     /// its first frame. When `saves` is present, existing battery SRAM is
     /// loaded before the first frame, SRAM changes flush periodically and on
-    /// stop, and an auto save-state is written on stop (W230).
+    /// stop, and an auto save-state is written on stop (W230). If no usable
+    /// audio output exists the session still runs, video-only, with the
+    /// core's audio discarded.
     pub fn start(core_path: &Path, rom_path: &Path, saves: Option<GameSaves>) -> AppResult<Self> {
         // Channels first: cores negotiate (e.g. SET_PIXEL_FORMAT) during
         // retro_init/retro_load_game, and events sent before install() would
         // be silently dropped.
         let channels = callbacks::install();
-        let bring_up = || -> AppResult<(LibretroCore, f64)> {
-            let mut core = LibretroCore::load(core_path)?;
-            // Contract order (see LibretroCore's doc): environment MUST be
-            // registered before retro_init — real cores query it during init.
-            core.set_environment(callbacks::environment);
-            core.init()?;
-            core.set_video_refresh(callbacks::video_refresh);
-            core.set_audio_sample_batch(callbacks::audio_sample_batch);
-            core.set_input_poll(callbacks::input_poll);
-            core.set_input_state(callbacks::input_state);
-            core.load_game(rom_path)?;
-            // Restore battery progress before the first frame runs. A
-            // corrupt/mismatched .srm degrades to a fresh session, never a
-            // failed boot.
-            if let Some(saves) = &saves {
-                if let Some(sram) = saves.read_sram() {
-                    if let Err(e) = core.load_sram(&sram) {
-                        eprintln!("[harmony-native] ignoring saved SRAM: {e}");
-                    }
-                }
-            }
-            let av = core.av_info();
-            let fps = if av.timing.fps > 0.0 {
-                av.timing.fps
-            } else {
-                FALLBACK_FPS
-            };
-            Ok((core, fps))
-        };
-        let (core, fps) = match bring_up() {
+        let (core, fps, core_sample_rate) = match bring_up_core(core_path, rom_path, &saves) {
             Ok(v) => v,
             Err(e) => {
                 callbacks::uninstall(); // don't leave dead sinks installed
@@ -213,27 +110,32 @@ impl NativeRuntime {
         let latest_frame = Arc::new(Mutex::new(FrameSlot::default()));
         // Libretro's implicit default before a core negotiates otherwise.
         let pixel_format = Arc::new(Mutex::new(PixelFormat::Rgb1555));
-        let ring = Arc::new(AudioRing::new());
         let stop = Arc::new(AtomicBool::new(false));
         let paused = Arc::new(AtomicBool::new(false));
+        let gain = Arc::new(SharedGain::new());
+        let counters = Arc::new(PerfCounters::default());
         let (commands, command_rx) = mpsc::channel();
+
+        let (audio_thread, audio) =
+            bring_up_audio(core_sample_rate, &stop, &paused, &gain, &counters);
 
         let core_thread = {
             let latest_frame = Arc::clone(&latest_frame);
             let pixel_format = Arc::clone(&pixel_format);
-            let ring = Arc::clone(&ring);
             let stop = Arc::clone(&stop);
             let paused = Arc::clone(&paused);
+            let counters = Arc::clone(&counters);
             std::thread::spawn(move || {
                 run_core_loop(CoreLoop {
                     core,
                     channels,
                     fps,
                     saves,
+                    audio,
+                    counters,
                     commands: command_rx,
                     latest_frame: &latest_frame,
                     pixel_format: &pixel_format,
-                    ring: &ring,
                     stop: &stop,
                     paused: &paused,
                 });
@@ -241,17 +143,11 @@ impl NativeRuntime {
             })
         };
 
-        let audio_thread = {
-            let ring = Arc::clone(&ring);
-            let stop = Arc::clone(&stop);
-            std::thread::spawn(move || run_audio_output(&ring, &stop))
-        };
-
         Ok(NativeRuntime {
             latest_frame,
             stop,
             paused,
-            ring,
+            gain,
             commands,
             core_thread: Some(core_thread),
             audio_thread: Some(audio_thread),
@@ -262,12 +158,13 @@ impl NativeRuntime {
     /// (W235) and the seam #22's volume control builds on. Applied atomically
     /// in the realtime output callback; no locking, no click.
     pub fn set_volume(&self, gain: f32) {
-        self.ring.set_gain(gain);
+        self.gain.set(gain);
     }
 
     /// Pauses/resumes the core tick (the overlay opens → the game freezes
     /// behind it, exactly like the EmulatorJS path's pause). Save/load
-    /// commands still execute while paused.
+    /// commands still execute while paused; the frame clock resyncs on
+    /// resume rather than replaying the deadlines missed while frozen.
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
     }
@@ -317,57 +214,162 @@ impl Drop for NativeRuntime {
     }
 }
 
+/// Loads and initializes the core + ROM (+ saved SRAM), returning it with
+/// the fps and audio sample rate it reports.
+fn bring_up_core(
+    core_path: &Path,
+    rom_path: &Path,
+    saves: &Option<GameSaves>,
+) -> AppResult<(LibretroCore, f64, f64)> {
+    let mut core = LibretroCore::load(core_path)?;
+    // Contract order (see LibretroCore's doc): environment MUST be
+    // registered before retro_init — real cores query it during init.
+    core.set_environment(callbacks::environment);
+    core.init()?;
+    core.set_video_refresh(callbacks::video_refresh);
+    core.set_audio_sample_batch(callbacks::audio_sample_batch);
+    core.set_input_poll(callbacks::input_poll);
+    core.set_input_state(callbacks::input_state);
+    core.load_game(rom_path)?;
+    // Restore battery progress before the first frame runs. A
+    // corrupt/mismatched .srm degrades to a fresh session, never a failed
+    // boot.
+    if let Some(saves) = saves {
+        if let Some(sram) = saves.read_sram() {
+            if let Err(e) = core.load_sram(&sram) {
+                eprintln!("[rgp-native] ignoring saved SRAM: {e}");
+            }
+        }
+    }
+    let av = core.av_info();
+    let fps = if av.timing.fps > 0.0 {
+        av.timing.fps
+    } else {
+        FALLBACK_FPS
+    };
+    Ok((core, fps, av.timing.sample_rate))
+}
+
+/// Spawns the audio thread and waits for its bring-up handoff: the device's
+/// actual rate plus the ring producer, wrapped with a resampler configured
+/// core-rate → device-rate. Any failure (no device, no config, timeout)
+/// degrades to a video-only session — `None` — with the reason logged.
+fn bring_up_audio(
+    core_sample_rate: f64,
+    stop: &Arc<AtomicBool>,
+    paused: &Arc<AtomicBool>,
+    gain: &Arc<SharedGain>,
+    counters: &Arc<PerfCounters>,
+) -> (JoinHandle<()>, Option<CoreAudio>) {
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let audio_thread = {
+        let stop = Arc::clone(stop);
+        let paused = Arc::clone(paused);
+        let gain = Arc::clone(gain);
+        let counters = Arc::clone(counters);
+        std::thread::spawn(move || run_audio_thread(&ready_tx, &stop, &paused, &gain, &counters))
+    };
+    let audio = match ready_rx.recv_timeout(AUDIO_BRING_UP_TIMEOUT) {
+        Ok(Ok(AudioBringUp {
+            device_rate,
+            producer,
+        })) => Some(CoreAudio {
+            resampler: StereoResampler::new(core_sample_rate, device_rate),
+            producer,
+            device_rate,
+        }),
+        Ok(Err(e)) => {
+            eprintln!("[rgp-native] audio unavailable, continuing video-only: {e}");
+            None
+        }
+        // Timeout or a dead audio thread — either way audio never came up.
+        Err(_) => {
+            eprintln!("[rgp-native] audio bring-up did not answer, continuing video-only");
+            None
+        }
+    };
+    (audio_thread, audio)
+}
+
+/// The core thread's half of the audio chain: resamples each core batch to
+/// the device rate (with the DRC skew for the current ring fill) and pushes
+/// it into the ring.
+struct CoreAudio {
+    resampler: StereoResampler,
+    producer: AudioProducer,
+    device_rate: f64,
+}
+
 /// Everything the core thread owns for one session.
 struct CoreLoop<'a> {
     core: LibretroCore,
     channels: callbacks::CallbackChannels,
     fps: f64,
     saves: Option<GameSaves>,
+    /// `None` = no usable audio output; batches are drained and discarded.
+    audio: Option<CoreAudio>,
+    counters: Arc<PerfCounters>,
     commands: Receiver<CoreCommand>,
     latest_frame: &'a Mutex<FrameSlot>,
     pixel_format: &'a Mutex<PixelFormat>,
-    ring: &'a AudioRing,
     stop: &'a AtomicBool,
     paused: &'a AtomicBool,
 }
 
-/// Drives `retro_run` at a fixed cadence (`1/fps` per frame, no
-/// dynamic-rate-control yet) until `stop` is set, draining each frame's
-/// environment/video/audio callback output into the shared buffers,
-/// executing save/load commands between frames, flushing dirty battery SRAM
-/// periodically, and writing the final SRAM + auto save-state on exit.
+/// Drives `retro_run` on an absolute-deadline [`FrameClock`] (`1/fps`
+/// period) until `stop` is set, draining each frame's environment/video/
+/// audio callback output into the shared buffers, executing save/load
+/// commands between frames, flushing dirty battery SRAM periodically,
+/// logging perf counters, and writing the final SRAM + auto save-state on
+/// exit.
 fn run_core_loop(mut ctx: CoreLoop<'_>) {
     let frame_duration = Duration::from_secs_f64(1.0 / ctx.fps);
+    let mut clock = FrameClock::new(frame_duration);
     let mut last_flushed_sram: Option<Vec<u8>> = None;
     let mut last_flush_check = Instant::now();
+    let mut perf = PerfLog::new(&ctx.counters);
+    // Reused across frames so steady-state conversion allocates nothing.
+    let mut rgba_scratch: Vec<u8> = Vec::new();
+    let mut resample_scratch: Vec<f32> = Vec::new();
+    let mut was_paused = false;
     while !ctx.stop.load(Ordering::Relaxed) {
-        let tick_start = Instant::now();
         if ctx.paused.load(Ordering::Relaxed) {
             // Frozen behind the overlay: no frames tick, but save/load
             // commands still answer so the slot picker works while paused.
             handle_commands(&mut ctx);
             std::thread::sleep(frame_duration);
+            was_paused = true;
             continue;
+        }
+        if was_paused {
+            // Resume from "now" — replaying the deadlines missed while
+            // paused would burst the core to catch up.
+            clock.resync();
+            was_paused = false;
         }
         if ctx.core.run_frame().is_err() {
             // A bug (run before load_game), not a runtime fault a retry can
             // fix — stop rather than spin.
             break;
         }
+        ctx.counters.frames_run.fetch_add(1, Ordering::Relaxed);
         // Before video: a core typically negotiates its pixel format once
         // near startup, before its first real video_refresh call.
         drain_environment(&ctx.channels, ctx.pixel_format, ctx.stop);
-        drain_video(&ctx.channels, ctx.latest_frame, ctx.pixel_format);
-        drain_audio(&ctx.channels, ctx.ring);
+        drain_video(
+            &ctx.channels,
+            ctx.latest_frame,
+            ctx.pixel_format,
+            &mut rgba_scratch,
+        );
+        drain_audio(&ctx.channels, &mut ctx.audio, &mut resample_scratch);
         handle_commands(&mut ctx);
         if last_flush_check.elapsed() >= SRAM_FLUSH_INTERVAL {
             last_flush_check = Instant::now();
             flush_sram_if_dirty(&ctx, &mut last_flushed_sram);
         }
-        let elapsed = tick_start.elapsed();
-        if elapsed < frame_duration {
-            std::thread::sleep(frame_duration - elapsed);
-        }
+        perf.log_if_due(&ctx.counters, ctx.audio.as_ref());
+        clock.tick();
     }
     // Session end: persist battery progress and a Continue point.
     // Best-effort — a failed write logs rather than blocking teardown.
@@ -376,12 +378,57 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
         match ctx.core.serialize() {
             Ok(Some(state)) => {
                 if let Err(e) = saves.write_state(AUTO_SLOT, &state, PlayPath::Native) {
-                    eprintln!("[harmony-native] auto save-state write failed: {e}");
+                    eprintln!("[rgp-native] auto save-state write failed: {e}");
                 }
             }
             Ok(None) => {} // core has no serialize support — SRAM-only
-            Err(e) => eprintln!("[harmony-native] auto save-state failed: {e}"),
+            Err(e) => eprintln!("[rgp-native] auto save-state failed: {e}"),
         }
+    }
+}
+
+/// Rolling window state for the periodic perf line: effective fps over the
+/// window plus ring fill and underrun/overrun deltas, so on-device timing
+/// verification is objective (W270 acceptance).
+struct PerfLog {
+    window_start: Instant,
+    frames: u64,
+    underruns: u64,
+    overruns: u64,
+}
+
+impl PerfLog {
+    fn new(counters: &PerfCounters) -> Self {
+        PerfLog {
+            window_start: Instant::now(),
+            frames: counters.frames_run.load(Ordering::Relaxed),
+            underruns: counters.underrun_samples.load(Ordering::Relaxed),
+            overruns: counters.overrun_samples.load(Ordering::Relaxed),
+        }
+    }
+
+    fn log_if_due(&mut self, counters: &PerfCounters, audio: Option<&CoreAudio>) {
+        let elapsed = self.window_start.elapsed();
+        if elapsed < PERF_LOG_INTERVAL {
+            return;
+        }
+        let frames = counters.frames_run.load(Ordering::Relaxed);
+        let underruns = counters.underrun_samples.load(Ordering::Relaxed);
+        let overruns = counters.overrun_samples.load(Ordering::Relaxed);
+        let fps = (frames - self.frames) as f64 / elapsed.as_secs_f64();
+        match audio {
+            Some(audio) => eprintln!(
+                "[rgp-native] perf: {fps:.2} fps effective, ring {:.0} ms, underrun +{}, overrun +{}",
+                audio.producer.fill_ms(audio.device_rate),
+                underruns - self.underruns,
+                overruns - self.overruns,
+            ),
+            None => eprintln!("[rgp-native] perf: {fps:.2} fps effective, audio off"),
+        }
+        self.window_start = Instant::now();
+        self.frames = frames;
+        self.underruns = underruns;
+        self.overruns = overruns;
     }
 }
 
@@ -405,9 +452,10 @@ fn save_state_now(ctx: &mut CoreLoop<'_>, slot: &str) -> AppResult<()> {
     let saves = ctx.saves.as_ref().ok_or_else(|| {
         AppError::Unsupported("save persistence is not configured for this session".into())
     })?;
-    let state = ctx.core.serialize()?.ok_or_else(|| {
-        AppError::Unsupported("this core does not support save states".into())
-    })?;
+    let state = ctx
+        .core
+        .serialize()?
+        .ok_or_else(|| AppError::Unsupported("this core does not support save states".into()))?;
     saves.write_state(slot, &state, PlayPath::Native)
 }
 
@@ -423,7 +471,9 @@ fn load_state_now(ctx: &mut CoreLoop<'_>, slot: &str) -> AppResult<()> {
 /// bytes (NES SRAM is ≤ 8 KiB) is cheaper than any wrong answer here.
 fn flush_sram_if_dirty(ctx: &CoreLoop<'_>, last_flushed: &mut Option<Vec<u8>>) {
     let Some(saves) = &ctx.saves else { return };
-    let Some(current) = ctx.core.sram() else { return };
+    let Some(current) = ctx.core.sram() else {
+        return;
+    };
     if last_flushed.as_ref() == Some(&current) {
         return;
     }
@@ -434,7 +484,7 @@ fn flush_sram_if_dirty(ctx: &CoreLoop<'_>, last_flushed: &mut Option<Vec<u8>>) {
     }
     match saves.write_sram(&current) {
         Ok(()) => *last_flushed = Some(current),
-        Err(e) => eprintln!("[harmony-native] SRAM flush failed: {e}"),
+        Err(e) => eprintln!("[rgp-native] SRAM flush failed: {e}"),
     }
 }
 
@@ -456,106 +506,60 @@ fn drain_environment(
 /// Latest-frame-wins: drains every queued frame but only converts and keeps
 /// the last one, so a momentarily slow consumer never builds up a backlog of
 /// stale frames (or pays the conversion cost for frames nobody will see).
+/// Conversion goes through `scratch`, which ping-pongs with the slot's
+/// previous buffer — zero allocation in steady state.
 fn drain_video(
     channels: &callbacks::CallbackChannels,
     latest_frame: &Mutex<FrameSlot>,
     pixel_format: &Mutex<PixelFormat>,
+    scratch: &mut Vec<u8>,
 ) {
     let mut newest = None;
     while let Ok(frame) = channels.video.try_recv() {
         newest = Some(frame);
     }
-    if let Some(frame) = newest {
-        let format = *pixel_format.lock().unwrap_or_else(|p| p.into_inner());
-        let rgba = to_rgba8(&frame, format);
-        let mut slot = latest_frame.lock().unwrap_or_else(|p| p.into_inner());
-        slot.seq = slot.seq.wrapping_add(1);
-        slot.frame = Some(rgba);
-    }
+    let Some(frame) = newest else { return };
+    let format = *pixel_format.lock().unwrap_or_else(|p| p.into_inner());
+    to_rgba8_into(&frame, format, scratch);
+    let mut slot = latest_frame.lock().unwrap_or_else(|p| p.into_inner());
+    // Recycle the displaced frame's allocation as the next scratch buffer.
+    let recycled = slot.frame.take().map(|f| f.data).unwrap_or_default();
+    slot.frame = Some(Rgba8Frame {
+        data: std::mem::replace(scratch, recycled),
+        width: frame.width,
+        height: frame.height,
+    });
+    slot.seq = slot.seq.wrapping_add(1);
 }
 
-fn drain_audio(channels: &callbacks::CallbackChannels, ring: &AudioRing) {
+/// Resamples each queued core batch to the device rate — with the DRC skew
+/// for the ring's current fill — and pushes it into the ring. Without an
+/// audio output, batches are drained and discarded (video-only session).
+fn drain_audio(
+    channels: &callbacks::CallbackChannels,
+    audio: &mut Option<CoreAudio>,
+    scratch: &mut Vec<f32>,
+) {
     while let Ok(AudioBatch { samples }) = channels.audio.try_recv() {
-        ring.push(&samples);
+        let Some(audio) = audio.as_mut() else {
+            continue;
+        };
+        let skew = audio.producer.skew();
+        audio.resampler.resample_into(&samples, skew, scratch);
+        audio.producer.push(scratch);
     }
-}
-
-/// Opens the default output device and feeds it from `ring` until `stop` is
-/// set. Lives entirely on this thread because `cpal::Stream` is neither
-/// `Send` nor `Sync` — it cannot be handed back to the caller.
-fn run_audio_output(ring: &Arc<AudioRing>, stop: &AtomicBool) -> AppResult<()> {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| AppError::Dependency("no default audio output device".into()))?;
-    let config = device
-        .default_output_config()
-        .map_err(|e| AppError::Dependency(format!("no usable output config: {e}")))?;
-
-    let stream = build_output_stream(&device, &config, ring)?;
-    stream
-        .play()
-        .map_err(|e| AppError::Dependency(format!("failed to start audio stream: {e}")))?;
-
-    while !stop.load(Ordering::Relaxed) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    // `stream` drops here, stopping playback before the thread exits.
-    Ok(())
-}
-
-fn build_output_stream(
-    device: &cpal::Device,
-    config: &cpal::SupportedStreamConfig,
-    ring: &Arc<AudioRing>,
-) -> AppResult<cpal::Stream> {
-    let err_fn = |e| eprintln!("native audio output stream error: {e}");
-    let stream_config = config.config();
-
-    // Owned clone so the realtime callback (which must be `'static`) holds
-    // its own reference independent of this function's borrow.
-    let ring = Arc::clone(ring);
-
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::I16 => device.build_output_stream(
-            &stream_config,
-            move |data: &mut [i16], _| {
-                ring.pop_into(data);
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::F32 => device.build_output_stream(
-            &stream_config,
-            move |data: &mut [f32], _| {
-                let mut scratch = vec![0i16; data.len()];
-                ring.pop_into(&mut scratch);
-                for (out, sample) in data.iter_mut().zip(scratch.iter()) {
-                    *out = f32::from(*sample) / f32::from(i16::MAX);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        other => {
-            return Err(AppError::Unsupported(format!(
-                "unsupported audio output sample format: {other:?}"
-            )))
-        }
-    };
-
-    stream.map_err(|e| AppError::Dependency(format!("failed to build audio stream: {e}")))
 }
 
 /// Manual, real-device verification harness for the v0.21 "Bedrock"
 /// stop-and-reassess point ("is native audio actually clean?" —
-/// release-planning-v0.21.md §3). Not run by `cargo test` (`#[ignore]`); run
-/// it explicitly once a core + ROM are available:
+/// release-planning-v0.21.md §3), kept meaningful for W270 (pacing/resampler
+/// rework) by-ear checks. Not run by `cargo test` (`#[ignore]`); run it
+/// explicitly once a core + ROM are available:
 ///
 /// ```text
 /// HARMONY_MANUAL_AUDIO_CORE=/path/to/fceumm_libretro.dylib \
 /// HARMONY_MANUAL_AUDIO_ROM=/path/to/game.nes \
-/// cargo test --release -p harmony manual_play_produces_audible_output -- --ignored --nocapture
+/// cargo test --release manual_play_produces_audible_output -- --ignored --nocapture
 /// ```
 #[cfg(test)]
 mod manual {
@@ -574,7 +578,7 @@ mod manual {
             NativeRuntime::start(&PathBuf::from(core_path), &PathBuf::from(rom_path), None)
                 .expect("native runtime failed to start");
 
-        println!("playing for 5s — listen for cold-start garble (#15)...");
+        println!("playing for 5s — listen for cold-start garble (#15) and speed/pitch (W270)...");
         std::thread::sleep(Duration::from_secs(5));
         let frame = runtime.latest_frame();
         println!(
@@ -584,77 +588,5 @@ mod manual {
                 .unwrap_or_else(|| "none".into())
         );
         drop(runtime);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ring_pops_in_fifo_order_oldest_first() {
-        let ring = AudioRing::new();
-        ring.push(&[1, 2, 3, 4]);
-        let mut out = [0i16; 4];
-        let copied = ring.pop_into(&mut out);
-        assert_eq!(copied, 4);
-        assert_eq!(out, [1, 2, 3, 4]);
-        assert_eq!(ring.len(), 0);
-    }
-
-    #[test]
-    fn ring_pads_shortfall_with_silence_on_underrun() {
-        let ring = AudioRing::new();
-        ring.push(&[7, 8]);
-        let mut out = [0i16; 4];
-        let copied = ring.pop_into(&mut out);
-        assert_eq!(copied, 2);
-        assert_eq!(out, [7, 8, 0, 0]);
-    }
-
-    #[test]
-    fn ring_drops_oldest_samples_when_pushed_past_capacity() {
-        let ring = AudioRing::new();
-        // Fill to capacity with a sentinel, then push one more sample — the
-        // very first sentinel value must be the one that got dropped.
-        let filler = vec![9i16; RING_CAPACITY_SAMPLES];
-        ring.push(&filler);
-        assert_eq!(ring.len(), RING_CAPACITY_SAMPLES);
-        ring.push(&[42]);
-        assert_eq!(ring.len(), RING_CAPACITY_SAMPLES);
-        let mut out = [0i16; 1];
-        ring.pop_into(&mut out);
-        assert_eq!(out, [9]); // the oldest sentinel, not 42 — front wasn't dropped twice
-    }
-
-    #[test]
-    fn gain_scales_popped_samples_and_clamps_to_unit_range() {
-        let ring = AudioRing::new();
-        ring.push(&[1000, -1000]);
-        ring.set_gain(0.5);
-        let mut out = [0i16; 2];
-        ring.pop_into(&mut out);
-        assert_eq!(out, [500, -500]);
-
-        ring.push(&[1000]);
-        ring.set_gain(7.5); // clamped to 1.0 — never amplifies
-        let mut out = [0i16; 1];
-        ring.pop_into(&mut out);
-        assert_eq!(out, [1000]);
-
-        ring.push(&[1000]);
-        ring.set_gain(-3.0); // clamped to 0.0 — full mute
-        let mut out = [0i16; 1];
-        ring.pop_into(&mut out);
-        assert_eq!(out, [0]);
-    }
-
-    #[test]
-    fn pop_into_an_empty_ring_returns_all_silence() {
-        let ring = AudioRing::new();
-        let mut out = [5i16; 3]; // pre-filled with a non-zero sentinel
-        let copied = ring.pop_into(&mut out);
-        assert_eq!(copied, 0);
-        assert_eq!(out, [0, 0, 0]);
     }
 }
