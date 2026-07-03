@@ -187,6 +187,31 @@ orchestration):
   glue-code hot spots), plus `[profile.dev] opt-level = 1` so dev-mode
   testing is representative of release behavior.
 
+**v0.27 (W274) — audio polish + observable telemetry.** The first W270
+playtest verdict was "mostly fine but slightly off", and the perf line
+turned out to be unreviewable: `eprintln!` goes to stderr, which macOS
+discards for Finder-launched apps — the session left no trace anywhere.
+Three refinements:
+
+1. **Resampler quality** — linear interpolation is audibly rough on NES
+   square/triangle waves (first-order roll-off + aliasing on exactly the
+   sustained tones where "slightly off" lives). Upgrade to 4-point
+   Catmull-Rom (cubic Hermite) interpolation with cross-batch history;
+   identity-ratio passthrough stays exact (the spline interpolates through
+   its control points), covered by tests.
+2. **Gentler rate control** — `DRC_GAIN` 0.01 → 0.005 (RetroArch's default
+   `d`); halves the worst-case pitch-skew slope while converging, keeping
+   any wobble on sustained notes below audibility.
+3. **Persisted perf telemetry** — the 10 s perf line additionally appends to
+   a session log file under the app's `logs/` dir (fresh file per session,
+   e.g. `logs/native-perf.log`), so a Finder-launched playtest is verifiable
+   after the fact. Same line format as stderr; failure to open the file
+   degrades to stderr-only, never a session error.
+4. *(Stretch, only if clean)* core-thread QoS elevation to
+   `QOS_CLASS_USER_INTERACTIVE` on macOS — reduces scheduler-induced tick
+   jitter under load; skip if it adds any unsafe surface beyond a single
+   documented libc call.
+
 ### 3. Frame delivery
 
 Two real options surfaced, both viable on Tauri 2 / macOS:

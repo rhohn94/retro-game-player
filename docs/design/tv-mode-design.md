@@ -271,6 +271,96 @@ bullet: test name / screenshot path / measured value._
       (+ the desktop `game-detail` route), is rebuild-aware (fails loudly on a
       stale `dist/`), and reports zero console/page errors on all TV surfaces.
 
+## v0.27 "Immersion" (W272/W273/W275) — takeover play experience, hover-attract, gap audit
+
+First real couch sessions on v0.26.x surfaced two takeover defects and one
+missing beat (all user-reported 2026-07-03), plus a standing request to
+re-audit the whole feature.
+
+### W272 — Takeover play experience (fullscreen + input ownership)
+
+**Defect 1 — the porthole.** `TvGameSurface` correctly fills the viewport,
+but the player inside still wears its desktop detail-page styling:
+`.rgp-player__frame` caps at `max-width: 760px` / `aspect-ratio: 4/3`
+(library.css) — a desktop card floating in a TV-sized black field.
+
+**Defect 2 — leaked controller input.** `InPagePlayer` claims the
+controller's exclusive slot while mounted; **`NativePlayer` never does** (the
+comment in TvGameSurface asserting otherwise is wrong). TvHome correctly
+releases its handler on launch, so with a native game running the BASE
+spatial engine is live over the still-mounted home: PS ✕ = `confirm` =
+"launch the focused tile" — pressing ✕ in-game swapped the running game.
+
+Fix contract:
+
+- **Fill presentation.** `PlaySwitch` (and both players) accept the takeover
+  surface's presentation: the player fills its container edge-to-edge
+  (`max-width: none`, no aspect box, canvas/iframe letterboxed by
+  `object-fit: contain` on black), TV-scale chrome only — the desktop
+  chip bar (`.rgp-player__bar`) is hidden on the TV surface; the overlay
+  (menu/Escape/controller ☰) is the sole in-game menu, styled at the
+  `--rgp-tv-*` scale when in TV mode.
+- **Input ownership.** Extract InPagePlayer's exclusive-handler pattern into
+  one shared hook (`src/features/play/`), adopted by BOTH players: while a
+  player is mounted foreground, it owns the exclusive slot — overlay closed:
+  `menu` opens the overlay, every other semantic action is swallowed (game
+  input reaches the core via the raw gamepad poll, not semantic actions);
+  overlay open: `nav_up`/`nav_down` move the selection, `confirm` activates,
+  `back`/`menu` close. Backgrounded/attract presentations do NOT hold the
+  slot (the page owns the controller). This also gives the native path
+  controller-driven overlay menus (previously keyboard-only).
+- The stale TvGameSurface comment is corrected to describe the real
+  contract.
+
+Acceptance: launching from a TV shelf fills the frame edge-to-edge on both
+player paths; with a native game running, every controller button either
+reaches the game or the overlay — none reaches the home underneath; the
+overlay is fully controller-drivable on the native path; desktop detail-page
+play is visually unchanged.
+
+### W273 — Hover-attract (5 s dwell boots a live preview)
+
+Dwelling on a shelf tile for 5 s (`--rgp-tv-attract-dwell-ms: 5000` — one
+constant, keyboard-focus and pointer-hover alike) boots that game as a
+**live full-bleed preview** behind the home: the hero backdrop layer hands
+off to real gameplay, dimmed under the existing scrim so rails stay legible,
+audio ducked to the W235 attract gain (0.3 × user volume — the boot sound is
+part of the vibe, quietly). Input never attaches: the preview is a spectator
+surface; the controller keeps navigating the home.
+
+- **Purity (hard requirement):** a preview must not leave a trace — no
+  library-life play-session record (no play count / recency / play-time), no
+  SRAM writes, no exit auto-save-state. The native session starts in a
+  preview mode that omits save wiring end-to-end (frontend skips
+  `usePlaySession`; the start command's preview flag passes `saves: None`).
+- **Scope v1: native-capable games only** (the purity guarantee is
+  structural there). EmulatorJS-only systems keep today's static art;
+  extending previews to the EJS path (needs save-suppression through the
+  iframe glue) is a recorded follow-up.
+- **Lifecycle:** the dwell timer resets whenever the focused/hovered tile
+  changes; moving away, launching anything, opening the exit-confirm, or
+  leaving the home tears the preview down (short crossfade, central
+  reduced-motion policy). At most one preview session ever exists; a real
+  launch always boots fresh (the boot screen is the retro beat, and the
+  preview session's core is torn down first).
+
+Acceptance: dwell 5 s on a native-capable tile → live gameplay fades in
+behind the home with ducked audio; play counts / Continue-playing / saves
+are byte-identical before and after a preview; input never leaks; moving
+focus tears it down within a frame's crossfade; external/EJS tiles never
+attempt a preview.
+
+### W275 — Gap audit (re-evaluate the whole feature)
+
+After W272/W273 land: a dedicated audit pass walks every §Acceptance bullet
+in this document plus the v0.27 contracts above against the real code, and
+exercises the interplay seams: exit-confirm vs takeover, pause-on-blur
+during TV play, W235 detail-page attract vs W273 TV attract, auto-TV-mode
+boot straight into takeover, focus restoration after exit, external-path
+controller handling, reduced-motion variants, keyboard-only parity. Small
+gaps are fixed in the audit branch; anything structural is recorded in §5
+follow-ups with a design note.
+
 ## Open questions
 
 - Per-console rail cap (all 20 systems would be noisy) — start with "systems
