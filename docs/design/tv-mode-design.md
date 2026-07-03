@@ -81,9 +81,39 @@ product is a library manager, not a living-room console.
   the spatial-focus registry; left/right moves within a rail, up/down across
   rails, with per-rail focus memory. `TvRail` sources: `list_recent`,
   `list_favorites`, recently-added (existing `added_at`), per-system queries.
+  - **Implementation note (W261):** the rail model + traversal are split into
+    pure, unit-tested helpers — `rails.ts` (`buildRails` ordering/hiding +
+    `railWindow` windowing math), `railNav.ts` (`resolveRailNav` row/column
+    traversal with the hero as the top row + `rememberFocus` per-rail memory),
+    and `systems.ts` (console labels + recency ordering). The base spatial
+    engine (`controller/spatial.ts`) is a geometric nearest-neighbour with no
+    notion of "rail" or "remembered column", so `TvHome` **installs an
+    exclusive controller handler** (`ControllerProvider.setExclusiveHandler`)
+    for its lifetime and drives focus through `resolveRailNav` instead — the
+    only way to honour per-rail focus memory and treat the hero as a
+    first-class row. `confirm` on a tile (or the hero) routes through one
+    `tvMode.launch(gameId)` seam (added to `TvModeContext`): it navigates to
+    `/game/:id` and leaves TV mode so the desktop router mounts the auto-booting
+    detail page — W265 replaces that seam's body with the shared-layout takeover
+    without touching any TV-home component. First mount seeds focus onto the
+    first tile of the first populated rail (the hero's play button otherwise
+    claims initial focus, since it registers first).
 - **Hero**: focused-game key art via the high-res tier
   ([metadata-art-design.md](metadata-art-design.md)); crossfade ≤300ms on
   focus settle (debounced ~150ms), gradient scrim for legibility.
+  - **Implementation note (W261):** `TvHero` resolves its own art URL via
+    `useGameArt(game, "snap", { surface: "hero", allowFetch: true })` and
+    renders the crossfading full-bleed layer itself (AnimatePresence keyed on
+    the URL, `DUR.base` fade), rather than delegating to `HeroBackdrop`'s
+    local-only lookup — so the hero's one-shot network fetch actually paints
+    (only the single featured hero fetches; the tiles stay local-only). The
+    featured game is the LAST **tile**-focused game, held even while focus sits
+    on the hero's own Play button, so moving up to Play never blanks the hero.
+    The hero art breaks out of the shell's 5% safe-area padding (negative
+    margins) so it bleeds to the frame edge while the copy stays title-safe;
+    retro-but-Aura flourishes (static scanline overlay + a breathing phosphor
+    glow) are token-driven (`tv.css`) and neutralised centrally under
+    reduced-motion.
 - **Transitions**: Framer Motion shared-layout takeover from tile →
   fullscreen player surface; player boot happens *under* the expanding tile
   art so the swap is invisible; exit reverses to the originating tile
