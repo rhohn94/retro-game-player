@@ -123,7 +123,7 @@ feature including attract: → sequenced.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.27 |
 |---|---|---|---|---|
-| `fix/w275-tv-gap-audit` (W275) | ☑ | ☐ | ☐ | ☐ |
+| `fix/w275-tv-gap-audit` (W275) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
