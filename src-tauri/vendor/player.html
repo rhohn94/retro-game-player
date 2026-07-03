@@ -38,6 +38,101 @@
     <div id="game"></div>
     <div id="diag"></div>
     <script>
+      // --- Audio cold-start handling (W276): warm-then-reset master-gain shim.
+      // A FRESH AudioContext PRODUCES ~2–3 s of garbled samples while the JIT
+      // warms, the core finishes init, and RetroArch's resampler converges. A
+      // bigger buffer does not help (the samples themselves are wrong). But an
+      // in-emulator RESET on an already-warm context is clean. So we
+      // WARM-THEN-RESET — hold audio muted (and the frame covered) while the
+      // emulator boots once to pay the cold-start cost, then reset it and
+      // reveal: the boot you see + hear replays from power-on on a now-warm
+      // pipeline, so it is clean AND the boot screen / jingle is preserved.
+      // The boot orchestration (next script) calls window.__harmonyRevealAudio()
+      // after the reset. This shim just routes all audio through a master gain
+      // held at 0 until that reveal. Every wrapper is defensive: any failure
+      // leaves native audio untouched.
+      (function () {
+        var Native = window.AudioContext || window.webkitAudioContext;
+        if (!Native) return;
+        var RAMP_S = 0.25; // brief ramp on reveal, to avoid a click
+        var origConnect = AudioNode.prototype.connect;
+        var origDisconnect = AudioNode.prototype.disconnect;
+        var masters = [];
+        var revealed = false;
+
+        function attachMaster(ctx) {
+          try {
+            var master = ctx.createGain();
+            // Muted until the warm-then-reset reveal; contexts created AFTER the
+            // reveal start audible.
+            master.gain.value = revealed ? 1 : 0;
+            origConnect.call(master, ctx.destination); // original connect, not rerouted
+            ctx.__harmonyMaster = master;
+            masters.push(master);
+          } catch (e) {
+            /* leave audio untouched if anything is unexpected */
+          }
+        }
+
+        // Called by the boot orchestration once the post-reset (warm) boot is
+        // running, to fade every master gain up to full.
+        window.__harmonyRevealAudio = function () {
+          revealed = true;
+          for (var i = 0; i < masters.length; i++) {
+            try {
+              var g = masters[i].gain;
+              var t = masters[i].context.currentTime;
+              g.cancelScheduledValues(t);
+              g.setValueAtTime(Math.max(g.value, 0.0001), t);
+              g.exponentialRampToValueAtTime(1, t + RAMP_S);
+              g.setValueAtTime(1, t + RAMP_S);
+            } catch (e) {
+              try {
+                masters[i].gain.value = 1;
+              } catch (e2) {}
+            }
+          }
+        };
+
+        AudioNode.prototype.connect = function (dest) {
+          var ctx = this.context;
+          if (ctx && ctx.__harmonyMaster && dest === ctx.destination) {
+            var rest = Array.prototype.slice.call(arguments, 1);
+            return origConnect.apply(this, [ctx.__harmonyMaster].concat(rest));
+          }
+          return origConnect.apply(this, arguments);
+        };
+        AudioNode.prototype.disconnect = function (dest) {
+          var ctx = this.context;
+          if (ctx && ctx.__harmonyMaster && dest === ctx.destination) {
+            try {
+              return origDisconnect.call(this, ctx.__harmonyMaster);
+            } catch (e) {
+              /* fall through */
+            }
+          }
+          return origDisconnect.apply(this, arguments);
+        };
+
+        function wrap(Ctor) {
+          function Patched() {
+            var ctx = arguments.length ? new Ctor(arguments[0]) : new Ctor();
+            attachMaster(ctx);
+            return ctx;
+          }
+          Patched.prototype = Ctor.prototype;
+          return Patched;
+        }
+        try {
+          if (window.AudioContext) window.AudioContext = wrap(window.AudioContext);
+          if (window.webkitAudioContext)
+            window.webkitAudioContext = wrap(window.webkitAudioContext);
+        } catch (e) {
+          /* keep native audio if wrapping fails */
+        }
+      })();
+    </script>
+    <script>
       (function () {
         var q = new URLSearchParams(location.search);
         var core = q.get("core") || "nes";
@@ -71,6 +166,105 @@
         s.src = "/emulatorjs/loader.js";
         document.body.appendChild(s);
 
+        // W276: the parent's pause/resume (v0.15 overlay, W243 pause-on-blur)
+        // is tracked here so the warm-then-reset block below can defer its
+        // reset while paused — the reveal must never present a paused,
+        // still-garbled frame. Set/cleared in the message bridge further down.
+        var paused = false;
+        var onWarmResume = null; // deferred warm reset, run on the next resume
+
+        // Warm-then-reset boot (W276; see the audio shim above): keep the frame
+        // covered and audio muted while the emulator boots once to warm the JIT
+        // + resampler, then RESET it and reveal — so the boot the user sees and
+        // hears replays clean from power-on. Tuning: WARMUP_MS = the mute+cover
+        // window; it must be ≥ how long the garble lasts on a cold boot.
+        (function () {
+          var WARMUP_MS = 3000; // ≥ cold-start garble duration
+          var MAX_WAIT_MS = 25000; // safety net: never stay muted/covered forever
+          var done = false;
+          var warmStarted = false;
+
+          // Cover the frame so the first (silent) warm boot isn't seen; the
+          // reset's clean boot is what the user actually watches. The id is the
+          // DOM marker the runtime smoke inspect can look for.
+          var cover = document.createElement("div");
+          cover.id = "warmup-cover";
+          cover.setAttribute(
+            "style",
+            "position:absolute;inset:0;background:#000;z-index:3;display:flex;" +
+              "align-items:center;justify-content:center;color:#888;" +
+              "font:12px -apple-system,system-ui,sans-serif;"
+          );
+          cover.textContent = "Warming up…";
+          document.body.appendChild(cover);
+
+          function reveal() {
+            if (done) return;
+            done = true;
+            try {
+              if (window.__harmonyRevealAudio) window.__harmonyRevealAudio();
+            } catch (e) {}
+            if (cover.parentNode) {
+              cover.style.transition = "opacity .25s";
+              cover.style.opacity = "0";
+              setTimeout(function () {
+                if (cover.parentNode) cover.parentNode.removeChild(cover);
+              }, 300);
+            }
+          }
+
+          function resetAndReveal() {
+            if (done) return; // the MAX_WAIT_MS net already revealed — never reset a live game
+            var em = window.EJS_emulator;
+            try {
+              if (em && em.gameManager && typeof em.gameManager.restart === "function") {
+                em.gameManager.restart();
+              } else if (em && typeof em.restart === "function") {
+                em.restart();
+              }
+            } catch (e) {
+              /* if the reset fails, reveal what we have rather than stay muted */
+            }
+            reveal();
+          }
+
+          function startWarmup() {
+            if (warmStarted) return;
+            warmStarted = true;
+            setTimeout(function () {
+              if (paused) {
+                // Paused mid-warm: defer until the parent resumes (the
+                // MAX_WAIT_MS reveal still applies unconditionally).
+                onWarmResume = resetAndReveal;
+                return;
+              }
+              resetAndReveal();
+            }, WARMUP_MS);
+          }
+
+          // EJS_emulator appears once the runtime instantiates (before it
+          // starts running). Prefer the one-shot "start" event; if that API
+          // isn't present, fall back to timing the warmup from when the
+          // instance appears.
+          var poll = setInterval(function () {
+            var em = window.EJS_emulator;
+            if (!em) return;
+            clearInterval(poll);
+            if (typeof em.on === "function") {
+              var fired = false;
+              em.on("start", function () {
+                if (fired) return; // ignore the post-reset "start"
+                fired = true;
+                startWarmup();
+              });
+            } else {
+              startWarmup();
+            }
+          }, 100);
+
+          setTimeout(reveal, MAX_WAIT_MS);
+        })();
+
         // Bridge for the Harmony in-game overlay (v0.15). The parent asks us to
         // pause/resume the emulator while its overlay is open (so the gamepad
         // doesn't drive the game behind the menu); we forward the in-iframe
@@ -99,9 +293,17 @@
           }
           if (!window.EJS_emulator) return;
           if (t === "harmony-pause" && typeof EJS_emulator.pause === "function") {
+            paused = true; // W276: the warm-then-reset block defers on this
             EJS_emulator.pause();
           } else if (t === "harmony-resume" && typeof EJS_emulator.play === "function") {
+            paused = false;
             EJS_emulator.play();
+            // W276: run a warm reset that was deferred while paused.
+            if (onWarmResume) {
+              var deferred = onWarmResume;
+              onWarmResume = null;
+              deferred();
+            }
           } else if (t === "harmony-fastforward" && gm()) {
             // W243: EmulatorJS's built-in fast-forward, toggled from the
             // Harmony overlay.
@@ -230,7 +432,12 @@
         var wireTimer = setInterval(function () {
           if (!window.EJS_emulator || typeof EJS_emulator.on !== "function") return;
           clearInterval(wireTimer);
+          var wired = false;
           EJS_emulator.on("start", function () {
+            // W276: the warm-then-reset boot may re-fire "start" after the
+            // reset — restore + flush interval + pending volume run once.
+            if (wired) return;
+            wired = true;
             restoreSram();
             setInterval(flushSram, SRAM_FLUSH_MS);
             // W243: apply a volume that arrived before the emulator existed.
