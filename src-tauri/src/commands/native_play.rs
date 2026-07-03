@@ -76,7 +76,12 @@ pub fn start_native_play(
         .and_then(|p| p.saves_dir())
         .map(|root| GameSaves::new(&root, &game.system, &rom_path))
         .ok();
-    let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves)?;
+    // Perf telemetry file (W274): best-effort — an unresolvable logs dir
+    // means the perf line stays stderr-only rather than failing the boot.
+    let perf_log_path = Paths::app_support()
+        .and_then(|p| p.native_perf_log_file())
+        .ok();
+    let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
     *lock(&session) = Some(runtime);
     Ok(())
 }

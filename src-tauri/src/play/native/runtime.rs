@@ -16,9 +16,10 @@ use super::callbacks::{self, AudioBatch, EnvironmentEvent, PixelFormat};
 use super::clock::FrameClock;
 use super::frame::{to_rgba8_into, Rgba8Frame};
 use super::host::LibretroCore;
+use super::perf_file::PerfLogFile;
 use crate::error::{AppError, AppResult};
 use crate::play::saves::{GameSaves, PlayPath, AUTO_SLOT};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -93,8 +94,15 @@ impl NativeRuntime {
     /// loaded before the first frame, SRAM changes flush periodically and on
     /// stop, and an auto save-state is written on stop (W230). If no usable
     /// audio output exists the session still runs, video-only, with the
-    /// core's audio discarded.
-    pub fn start(core_path: &Path, rom_path: &Path, saves: Option<GameSaves>) -> AppResult<Self> {
+    /// core's audio discarded. When `perf_log_path` is present, the periodic
+    /// perf line is also appended to that file (fresh per session, W274);
+    /// `None` or any file failure means stderr-only, never a session error.
+    pub fn start(
+        core_path: &Path,
+        rom_path: &Path,
+        saves: Option<GameSaves>,
+        perf_log_path: Option<PathBuf>,
+    ) -> AppResult<Self> {
         // Channels first: cores negotiate (e.g. SET_PIXEL_FORMAT) during
         // retro_init/retro_load_game, and events sent before install() would
         // be silently dropped.
@@ -126,6 +134,7 @@ impl NativeRuntime {
             let paused = Arc::clone(&paused);
             let counters = Arc::clone(&counters);
             std::thread::spawn(move || {
+                elevate_core_thread_qos();
                 run_core_loop(CoreLoop {
                     core,
                     channels,
@@ -133,6 +142,7 @@ impl NativeRuntime {
                     saves,
                     audio,
                     counters,
+                    perf_file: PerfLogFile::create(perf_log_path.as_deref()),
                     commands: command_rx,
                     latest_frame: &latest_frame,
                     pixel_format: &pixel_format,
@@ -213,6 +223,29 @@ impl Drop for NativeRuntime {
         }
     }
 }
+
+/// Elevates the calling thread (the core thread) to the user-interactive
+/// QoS class on macOS, reducing scheduler-induced tick jitter under load —
+/// the thread paces `retro_run` against real-time deadlines and feeds the
+/// realtime audio ring (W274 stretch). Best-effort: a non-zero return leaves
+/// the thread at default priority, which is exactly the pre-W274 behavior.
+#[cfg(target_os = "macos")]
+fn elevate_core_thread_qos() {
+    // SAFETY: pthread_set_qos_class_self_np takes two scalar arguments by
+    // value, touches no caller memory, and only adjusts the calling thread's
+    // scheduling class — there are no pointer/lifetime preconditions to
+    // uphold. Failure is reported via the return code, handled below.
+    let rc = unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    if rc != 0 {
+        eprintln!("[rgp-native] core-thread QoS elevation failed (rc {rc}); running at default priority");
+    }
+}
+
+/// No-op off macOS (QoS classes are a Darwin scheduler concept).
+#[cfg(not(target_os = "macos"))]
+fn elevate_core_thread_qos() {}
 
 /// Loads and initializes the core + ROM (+ saved SRAM), returning it with
 /// the fps and audio sample rate it reports.
@@ -309,6 +342,8 @@ struct CoreLoop<'a> {
     /// `None` = no usable audio output; batches are drained and discarded.
     audio: Option<CoreAudio>,
     counters: Arc<PerfCounters>,
+    /// Per-session file sink for the perf line (W274); disabled = stderr-only.
+    perf_file: PerfLogFile,
     commands: Receiver<CoreCommand>,
     latest_frame: &'a Mutex<FrameSlot>,
     pixel_format: &'a Mutex<PixelFormat>,
@@ -327,7 +362,11 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
     let mut clock = FrameClock::new(frame_duration);
     let mut last_flushed_sram: Option<Vec<u8>> = None;
     let mut last_flush_check = Instant::now();
-    let mut perf = PerfLog::new(&ctx.counters);
+    // The perf logger takes the session's file sink; the placeholder left in
+    // ctx is disabled (CoreLoop is used whole by the helpers below, so the
+    // field cannot be partially moved out).
+    let perf_file = std::mem::replace(&mut ctx.perf_file, PerfLogFile::disabled());
+    let mut perf = PerfLog::new(&ctx.counters, perf_file);
     // Reused across frames so steady-state conversion allocates nothing.
     let mut rgba_scratch: Vec<u8> = Vec::new();
     let mut resample_scratch: Vec<f32> = Vec::new();
@@ -389,21 +428,27 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
 
 /// Rolling window state for the periodic perf line: effective fps over the
 /// window plus ring fill and underrun/overrun deltas, so on-device timing
-/// verification is objective (W270 acceptance).
+/// verification is objective (W270 acceptance). Each line goes to stderr
+/// *and*, when configured, to the per-session log file — macOS discards
+/// stderr for Finder-launched apps, so the file is what makes a real
+/// playtest reviewable after the fact (W274).
 struct PerfLog {
     window_start: Instant,
     frames: u64,
     underruns: u64,
     overruns: u64,
+    /// Best-effort file sink; disabled means stderr-only, never an error.
+    file: PerfLogFile,
 }
 
 impl PerfLog {
-    fn new(counters: &PerfCounters) -> Self {
+    fn new(counters: &PerfCounters, file: PerfLogFile) -> Self {
         PerfLog {
             window_start: Instant::now(),
             frames: counters.frames_run.load(Ordering::Relaxed),
             underruns: counters.underrun_samples.load(Ordering::Relaxed),
             overruns: counters.overrun_samples.load(Ordering::Relaxed),
+            file,
         }
     }
 
@@ -416,15 +461,18 @@ impl PerfLog {
         let underruns = counters.underrun_samples.load(Ordering::Relaxed);
         let overruns = counters.overrun_samples.load(Ordering::Relaxed);
         let fps = (frames - self.frames) as f64 / elapsed.as_secs_f64();
-        match audio {
-            Some(audio) => eprintln!(
+        // Formatted once so the stderr and file copies are always identical.
+        let line = match audio {
+            Some(audio) => format!(
                 "[rgp-native] perf: {fps:.2} fps effective, ring {:.0} ms, underrun +{}, overrun +{}",
                 audio.producer.fill_ms(audio.device_rate),
                 underruns - self.underruns,
                 overruns - self.overruns,
             ),
-            None => eprintln!("[rgp-native] perf: {fps:.2} fps effective, audio off"),
-        }
+            None => format!("[rgp-native] perf: {fps:.2} fps effective, audio off"),
+        };
+        eprintln!("{line}");
+        self.file.append_line(&line);
         self.window_start = Instant::now();
         self.frames = frames;
         self.underruns = underruns;
@@ -574,9 +622,13 @@ mod manual {
         let rom_path = std::env::var("HARMONY_MANUAL_AUDIO_ROM")
             .expect("set HARMONY_MANUAL_AUDIO_ROM to a real .nes ROM path");
 
-        let runtime =
-            NativeRuntime::start(&PathBuf::from(core_path), &PathBuf::from(rom_path), None)
-                .expect("native runtime failed to start");
+        let runtime = NativeRuntime::start(
+            &PathBuf::from(core_path),
+            &PathBuf::from(rom_path),
+            None,
+            None,
+        )
+        .expect("native runtime failed to start");
 
         println!("playing for 5s — listen for cold-start garble (#15) and speed/pitch (W270)...");
         std::thread::sleep(Duration::from_secs(5));
