@@ -20,6 +20,7 @@ import {
 import type { DeviceFamily, SemanticAction } from "./actions";
 import { listBindings, type ControllerBinding } from "../../ipc/controllers";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { ExclusiveClaimStack, type ExclusiveOwnerKind } from "./exclusiveStack";
 import { nextFocus, navDirection, type FocusTarget } from "./spatial";
 import { useGamepadPoll } from "./useGamepadPoll";
 
@@ -46,13 +47,33 @@ export interface ControllerContextValue {
   /** Register screen-level handlers for non-focus actions (back/menu/quit). */
   setActionHandlers: (handlers: ActionHandlers) => void;
   /**
-   * Install an exclusive handler that receives EVERY semantic action and
-   * bypasses spatial nav + screen handlers entirely (pass `null` to release).
-   * Used by a modal/immersive surface (e.g. the in-page player overlay) that
-   * needs to own the controller while it is active — the gamepad belongs to the
-   * game, and the menu/overlay, not the page behind it.
+   * Claim the controller's exclusive slot: the handler receives EVERY semantic
+   * action and bypasses spatial nav + screen handlers entirely. Claims stack
+   * (v0.27 W275, exclusiveStack.ts): the LAST live claim wins, and the
+   * returned release (idempotent — safe as an effect cleanup) uncovers the
+   * claim beneath it rather than emptying the slot, so an unmounting/swapping
+   * owner can never open a no-owner window in which actions leak to the base
+   * engine. `kind` distinguishes UI surfaces (the TV home, the takeover
+   * fallback — default) from gameplay owners (a mounted player whose gamepad
+   * belongs to the game); see `gameplayClaimActive`.
    */
-  setExclusiveHandler: (handler: ((action: SemanticAction) => void) | null) => void;
+  claimExclusive: (
+    handler: (action: SemanticAction) => void,
+    kind?: ExclusiveOwnerKind,
+  ) => () => void;
+  /**
+   * True while any live exclusive claim is a GAMEPLAY owner. App-level
+   * affordances that must stay quiet during gameplay (the `menu` long-press
+   * TV-mode toggle reads its own raw gamepad poll, so the exclusive slot alone
+   * cannot gate it) key off this instead of guessing from the slot's state.
+   */
+  gameplayClaimActive: boolean;
+  /**
+   * The persisted per-family binding overrides (W267), exposed so secondary
+   * raw-gamepad consumers (useLongPress) resolve the SAME effective bindings
+   * as the main poll — a rebound `menu` must move the long-press with it.
+   */
+  bindingOverrides: readonly ControllerBinding[];
   /**
    * Re-fetch persisted binding overrides from the DB and apply them live. Call
    * after a rebind/reset (W267) so nav picks up the change immediately, with no
@@ -84,7 +105,10 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   const entriesRef = useRef<Map<string, FocusEntry>>(new Map());
   const focusedRef = useRef<string | null>(null);
   const handlersRef = useRef<ActionHandlers>({});
-  const exclusiveRef = useRef<((action: SemanticAction) => void) | null>(null);
+  // Layered exclusive-slot ownership (W275) — the rAF loop dispatches to the
+  // stack's TOP claim; the pure stack lives in a ref like the other loop state.
+  const exclusiveStackRef = useRef(new ExclusiveClaimStack<(action: SemanticAction) => void>());
+  const [gameplayClaimActive, setGameplayClaimActive] = useState(false);
   focusedRef.current = focusedId;
 
   const setFocus = useCallback((id: string | null) => setFocusedId(id), []);
@@ -104,9 +128,14 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
     handlersRef.current = h;
   }, []);
 
-  const setExclusiveHandler = useCallback(
-    (h: ((action: SemanticAction) => void) | null) => {
-      exclusiveRef.current = h;
+  const claimExclusive = useCallback(
+    (handler: (action: SemanticAction) => void, kind: ExclusiveOwnerKind = "ui") => {
+      const release = exclusiveStackRef.current.claim(handler, kind);
+      setGameplayClaimActive(exclusiveStackRef.current.hasGameplayClaim());
+      return () => {
+        release();
+        setGameplayClaimActive(exclusiveStackRef.current.hasGameplayClaim());
+      };
     },
     [],
   );
@@ -134,9 +163,11 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleAction = useCallback((action: SemanticAction) => {
-    // An exclusive owner (modal/immersive surface) swallows every action.
-    if (exclusiveRef.current) {
-      exclusiveRef.current(action);
+    // An exclusive owner (modal/immersive surface) swallows every action; the
+    // top of the claim stack is the current owner (W275).
+    const exclusive = exclusiveStackRef.current.top();
+    if (exclusive) {
+      exclusive(action);
       return;
     }
     const dir = navDirection(action);
@@ -163,10 +194,22 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
       register,
       family,
       setActionHandlers,
-      setExclusiveHandler,
+      claimExclusive,
+      gameplayClaimActive,
+      bindingOverrides: overrides,
       refreshBindings,
     }),
-    [focusedId, setFocus, register, family, setActionHandlers, setExclusiveHandler, refreshBindings],
+    [
+      focusedId,
+      setFocus,
+      register,
+      family,
+      setActionHandlers,
+      claimExclusive,
+      gameplayClaimActive,
+      overrides,
+      refreshBindings,
+    ],
   );
 
   return <ControllerContext.Provider value={value}>{children}</ControllerContext.Provider>;

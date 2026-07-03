@@ -74,8 +74,7 @@ function gameForFocus(rails: readonly TvRailModel[], focusId: string | null): Ga
 export function TvHome({ onExit }: { onExit: () => void }) {
   const { rails, loading } = useTvLibrary();
   const tvMode = useTvMode();
-  const { focusedId, setFocus } = useController();
-  const { setExclusiveHandler } = useController();
+  const { focusedId, setFocus, claimExclusive } = useController();
 
   // Per-rail focus memory lives in a ref (not state): the exclusive handler
   // reads + writes it every nav press and must see the latest value without a
@@ -239,18 +238,15 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     enabled: launched === null && !exitConfirm.confirming,
   });
 
-  // Install the home's exclusive handler only while NO game is taken over (W265).
-  // The exclusive slot is single-owner (ControllerProvider): while a game runs,
-  // its player (or the external surface) owns the slot, and the player's cleanup
-  // on exit clears it — so the home must re-assert ownership when the takeover
-  // ends. Gating this effect on `launched` does exactly that: it releases on
-  // launch and re-installs `handleAction` when the surface unmounts, without the
-  // home ever fighting the running game for the controller.
-  useEffect(() => {
-    if (launched) return;
-    setExclusiveHandler(handleAction);
-    return () => setExclusiveHandler(null);
-  }, [launched, setExclusiveHandler, handleAction]);
+  // Claim the home's exclusive handler for the LIFETIME of the mount. The
+  // exclusive slot is a layered claim stack (W275, ControllerProvider): while a
+  // game is taken over, the surface's fallback and then its player claim ABOVE
+  // this one, so the home receives nothing — and every release (player swap,
+  // surface unmount) uncovers the next claim down rather than emptying the
+  // slot. That closes the no-owner windows the old launched-gated install/
+  // release dance left open (actions leaking to the base spatial engine over
+  // the still-mounted home during takeover boot).
+  useEffect(() => claimExclusive(handleAction), [claimExclusive, handleAction]);
 
   return (
     <div className="rgp-tv-home">

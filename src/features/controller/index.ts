@@ -14,6 +14,8 @@ export {
 export type { GamepadPollOptions, MappingDegradationNotice } from "./useGamepadPoll";
 export { ControllerProvider, ControllerContext } from "./ControllerProvider";
 export type { ControllerContextValue, ActionHandlers } from "./ControllerProvider";
+export { ExclusiveClaimStack } from "./exclusiveStack";
+export type { ExclusiveOwnerKind } from "./exclusiveStack";
 export { useController, useFocusable } from "./hooks";
 export type { UseFocusableResult } from "./hooks";
 export { FocusRing, focusRingStyle } from "./FocusRing";
