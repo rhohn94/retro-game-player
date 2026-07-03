@@ -7,6 +7,25 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.27.1 — EJS audio-warmup hotfix (2026-07-03)
+
+Clean-sounding boots on the EmulatorJS path (every in-page system except
+natively-hosted NES, plus the NES fallback).
+
+- **No more garbled boot audio.** A fresh browser audio pipeline produces
+  ~2–3 seconds of mangled sound on every EmulatorJS boot. The player now
+  boots once silently behind a brief "Warming up…" cover to pay that
+  cold-start cost, then resets the emulator and reveals — so the boot you
+  see and hear replays clean from power-on, jingle intact (the
+  boot-with-sound retro vibe is preserved, never faded or muted).
+- Battery saves, the in-game overlay's pause, and your volume setting all
+  compose correctly with the warmup (save wiring runs exactly once; a pause
+  during the warm window defers the reveal; muted warmup wins over any
+  volume, then your volume applies unchanged).
+- Accepted trade-off: EmulatorJS boots take ~3 seconds longer, spent behind
+  the cover. (Forward-ported from the historical `fix/audio-warmup` branch's
+  final warm-then-reset approach.)
+
 ## v0.27 — Immersion (2026-07-03)
 
 Playing a game in TV mode now actually feels like a console — driven end to
