@@ -125,6 +125,10 @@
     --rgp-tv-hero-height: 42vh;
     --rgp-tv-hero-content-pad: 4vmin;
     --rgp-tv-hero-title-max: 22ch; /* keep long titles from spanning the frame */
+    /* Readable measure cap for 10-foot body copy (the get-core panel and any
+       future full-surface prose, W275) — long lines are the first thing to go
+       illegible at 3m. */
+    --rgp-tv-measure-max: 60ch;
 
     /* ---- retro-but-Aura hero flourishes (W261) ----
        Expressed through Aura tokens + a token-scoped opacity so they read as a
