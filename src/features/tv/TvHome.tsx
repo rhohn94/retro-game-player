@@ -36,6 +36,7 @@ import type { Game } from "../../ipc/library";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { DUR, EASE_OUT } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { useWindowFocus } from "../../hooks/useWindowFocus";
 import { NativePlayer, isNativePathEligible } from "../play";
 import { navDirection, useController } from "../controller";
 import type { SemanticAction } from "../controller";
@@ -237,10 +238,17 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     !failedPreviewIds.has(focusedTileGame.id)
       ? focusedTileGame
       : null;
+  // The dwell only counts — and a fired preview only lives — while the app
+  // window holds focus (W275): without this gate the timer kept running
+  // behind a Cmd+Tab and booted an audible preview while the app was
+  // backgrounded, which W243 pause-on-blur cannot catch (the blur predates
+  // the session's mount, so its blur listener never fires). Blurring tears a
+  // running preview down; refocusing re-dwells from zero.
+  const windowFocused = useWindowFocus();
   const previewGame = useAttractDwell({
     key: focusedId,
     game: dwellGame,
-    enabled: launched === null && !exitConfirm.confirming,
+    enabled: launched === null && !exitConfirm.confirming && windowFocused,
   });
 
   // Keyboard/DOM-focus parity across a takeover (W275). While a game is taken
