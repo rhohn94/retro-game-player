@@ -204,5 +204,22 @@
        intent rather than reaching for --rgp-dur-base directly. */
     --rgp-tv-focus-transition: transform var(--rgp-dur-base) var(--rgp-ease-out),
       box-shadow var(--rgp-dur-base) var(--rgp-ease-out);
+
+    /* ---- system menu (W278) ----
+       The Select/touchpad overlay panel (tv-mode-design.md §v0.28 → W278):
+       a fixed-width list docked to one side so it reads as a system-level
+       overlay rather than competing with the home's own hero/rail geometry
+       underneath. Sized off the existing overlay-panel floor (W272's in-game
+       overlay) rather than inventing a new width constant. */
+    --rgp-tv-menu-panel-width: var(--rgp-tv-overlay-panel-min);
+    --rgp-tv-menu-item-gap: var(--aura-space-2);
+    /* The uniform "10-foot scale-up" knob for embedded desktop screens (W278
+       "every page in TV mode"): one CSS zoom factor applied to the whole
+       embedded region rather than per-screen restyling (release-plan
+       contract). Desktop screens are legible up close (~50cm); this closes
+       part of that gap for the couch without a bespoke TV layout per screen —
+       a documented v1 approximation, not full 10-foot polish (follow-up,
+       tv-mode-design.md §Follow-ups). */
+    --rgp-tv-embed-scale: 1.4;
   }
 }
