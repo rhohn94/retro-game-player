@@ -220,8 +220,8 @@ zero results), so no framework-required scope is trimmed here.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.26 |
 |---|---|---|---|---|
-| `feat/w262-tv-focus` (W262) | ☑ | ☐ | ☐ | ☐ |
-| `feat/w265-tv-transitions` (W265) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w262-tv-focus` (W262) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w265-tv-transitions` (W265) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 6
 
@@ -249,5 +249,9 @@ zero results), so no framework-required scope is trimmed here.
   Consoles/Cores/Settings routes are keyboard-reachable but not yet in the
   spatial-nav registry (dedicated follow-up item); repo-wide `cargo fmt` drift
   pre-exists.
+- **Pass 5 follow-ups:** takeover-state visual-inspect capture deferred —
+  needs a mock cached-art tier + an external-play fixture game + a per-route
+  action hook in the harness (W265); keyboard-arrow rail navigation stays out
+  of scope per the #29 non-goal (no keyboard→SemanticAction bridge exists).
 - **W269 repo links:** README clone URL + issue links still say
   `rhohn94/harmony` until the GitHub repo rename at the push stage.
