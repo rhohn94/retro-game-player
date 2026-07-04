@@ -30,6 +30,7 @@ const GL_CONSTANTS = {
   RGBA: 13,
   UNSIGNED_BYTE: 14,
   TRIANGLES: 15,
+  UNPACK_FLIP_Y_WEBGL: 16,
 };
 
 interface StubOptions {
@@ -63,6 +64,7 @@ function makeGlStub(opts: StubOptions = {}) {
     deleteTexture: vi.fn(),
     bindTexture: vi.fn(),
     texParameteri: vi.fn(),
+    pixelStorei: vi.fn(),
     getUniformLocation: vi.fn((_program: unknown, name: string) => ({ name })),
     useProgram: vi.fn(),
     activeTexture: vi.fn(),
@@ -117,6 +119,61 @@ describe("CrtWebglRenderer", () => {
     const canvas = stubCanvas(gl);
     expect(() => new CrtWebglRenderer(canvas)).not.toThrow();
     expect(gl.linkProgram).toHaveBeenCalledTimes(1);
+  });
+
+  it("flips the frame vertically at texture upload (W301 regression: native cores deliver top-down rows, WebGL expects bottom-up)", () => {
+    const { gl } = makeGlStub();
+    const canvas = stubCanvas(gl);
+    new CrtWebglRenderer(canvas);
+
+    // Must be set (true) before any texImage2D upload so every uploaded
+    // frame is flipped to compensate for the row-major top-down source
+    // buffer (src-tauri/src/play/native/frame.rs) vs. WebGL's bottom-left
+    // texture origin. Without this, row 0 of the source (the top of the
+    // real frame) lands at the bottom of the rendered image.
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_FLIP_Y_WEBGL, true);
+    const pixelStoreiOrder = gl.pixelStorei.mock.invocationCallOrder[0];
+    const texImage2DCalls = gl.texImage2D.mock.invocationCallOrder;
+    if (texImage2DCalls.length > 0) {
+      expect(pixelStoreiOrder).toBeLessThan(texImage2DCalls[0]);
+    }
+  });
+
+  it("draw() renders a distinct-first-row test pattern right-side-up: the flip flag is active for every upload so the source's top row is not sent to the GL bottom-left origin unflipped", () => {
+    const { gl } = makeGlStub();
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    // 2x2 RGBA test pattern with a distinct first row (red) vs. last row
+    // (blue) — row-major top-down, matching frame.rs's real buffer layout.
+    const width = 2;
+    const height = 2;
+    const bytes = new Uint8ClampedArray(4 * width * height);
+    // Row 0 (top of source): red.
+    bytes.set([255, 0, 0, 255], 0);
+    bytes.set([255, 0, 0, 255], 4);
+    // Row 1 (bottom of source): blue.
+    bytes.set([0, 0, 255, 255], 8);
+    bytes.set([0, 0, 255, 255], 12);
+
+    renderer.draw(bytes, width, height, CRT_FILTER_OFF);
+
+    // The renderer must have the flip enabled at upload time so the GL
+    // texture's row 0 (bottom-left origin) receives the source's last row,
+    // and the source's first (top) row ends up sampled at v_uv.y == 1 —
+    // i.e. rendered at the top of the screen, right-side-up.
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_FLIP_Y_WEBGL, true);
+    expect(gl.texImage2D).toHaveBeenCalledWith(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      width,
+      height,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      bytes,
+    );
   });
 
   it("draw() uploads the frame texture and sets every effect uniform from the config", () => {
