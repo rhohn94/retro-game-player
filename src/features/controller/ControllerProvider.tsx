@@ -89,6 +89,17 @@ export interface ControllerContextValue {
    * overrides in place rather than throwing.
    */
   refreshBindings: () => Promise<void>;
+  /**
+   * Feed one semantic action through the SAME dispatch path
+   * `useGamepadPoll`'s rising-edge detection drives (W283,
+   * controller-input-design.md §Keyboard as an input method): exclusive-claim
+   * routing first, then spatial nav / confirm / screen handlers. Additive —
+   * this is how the keyboard bridge (`useKeyboardNav`) reaches every surface
+   * without a second, parallel routing implementation, and without the
+   * gamepad's own binding resolution/rising-edge logic (`resolveBindings`,
+   * `risingActions`) changing in any way.
+   */
+  dispatchAction: (action: SemanticAction) => void;
 }
 
 export const ControllerContext = createContext<ControllerContextValue | null>(null);
@@ -211,6 +222,7 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
       gameplayClaimActive,
       bindingOverrides: overrides,
       refreshBindings,
+      dispatchAction: handleAction,
     }),
     [
       focusedId,
@@ -223,6 +235,7 @@ export function ControllerProvider({ children }: { children: ReactNode }) {
       gameplayClaimActive,
       overrides,
       refreshBindings,
+      handleAction,
     ],
   );
 

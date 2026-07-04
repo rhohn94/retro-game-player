@@ -145,6 +145,8 @@ export function ConsolesPage() {
           <h2 className="rgp-consoles__gen">Generation {generation}</h2>
           <motion.div
             className="rgp-console-grid"
+            role="list"
+            aria-label={`Generation ${generation} consoles`}
             variants={listContainer}
             initial="hidden"
             animate="visible"

@@ -107,9 +107,13 @@ export function SettingsPage() {
       </header>
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Section nav — left column */}
+        {/* Section nav — left column. A tablist (switches which pane shows
+            within this same page), not real page navigation, so ARIA tab
+            roles give a screen reader the right semantics (W283). */}
         <nav
+          role="tablist"
           aria-label="Settings sections"
+          aria-orientation="vertical"
           style={{
             width: 160,
             padding: "12px 8px",
@@ -122,8 +126,11 @@ export function SettingsPage() {
           {SECTIONS.map((s) => (
             <button
               key={s.id}
+              id={`settings-tab-${s.id}`}
+              role="tab"
+              aria-selected={active === s.id}
+              aria-controls={`settings-panel-${s.id}`}
               tabIndex={0}
-              aria-current={active === s.id ? "page" : undefined}
               onClick={() => setActive(s.id)}
               style={{
                 textAlign: "left",
@@ -149,7 +156,13 @@ export function SettingsPage() {
         </nav>
 
         {/* Active section pane — right column */}
-        <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
+        <div
+          id={`settings-panel-${active}`}
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${active}`}
+          tabIndex={0}
+          style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}
+        >
           <SectionPane id={active} onNavigate={setActive} />
         </div>
       </div>

@@ -206,6 +206,8 @@ export function LibraryPage() {
 
         <motion.div
           className="rgp-grid"
+          role="list"
+          aria-label="Games"
           variants={listContainer}
           initial="hidden"
           animate="visible"
