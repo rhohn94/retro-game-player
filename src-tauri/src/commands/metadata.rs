@@ -46,7 +46,11 @@ pub async fn fetch_boxart(game_id: i64, db: State<'_, Db>) -> AppResult<String> 
             .map_err(|_| AppError::NotFound(format!("game {game_id} not found")))?
     };
 
-    let system = game.system.clone();
+    // libretro-thumbnails art is keyed by ROM system; a non-ROM game (v0.31
+    // W310) has no system to look up and gets a graceful miss, not an error.
+    let Some(system) = game.system.clone() else {
+        return Ok(String::new());
+    };
     let clean_name = game.clean_name.clone();
 
     let paths = Paths::app_support()?;
@@ -105,12 +109,17 @@ pub async fn fetch_game_art(
             .map_err(|_| AppError::NotFound(format!("game {game_id} not found")))?
     };
 
+    // Same system-keyed CDN constraint as `fetch_boxart`: a non-ROM game has
+    // no system, so this is a graceful miss (v0.31 W310).
+    let Some(system) = game.system.clone() else {
+        return Ok(String::new());
+    };
     let paths = Paths::app_support()?;
     let result = fetch_tier(
         db_ref,
         &paths,
         game_id,
-        &game.system,
+        &system,
         &game.clean_name,
         art_tier,
     )
@@ -164,8 +173,11 @@ pub async fn enrich_game_metadata(game_id: i64, db: State<'_, Db>) -> AppResult<
 
     // Cover art — fetch_with_fallback persists the art and updates games.art_path
     // on a hit. Swallow Unsupported (system without a CDN folder) and network
-    // errors so enrichment never fails over missing art.
-    let _ = fetch_with_fallback(db_ref, &paths, game_id, &system, &clean_name).await;
+    // errors so enrichment never fails over missing art. A non-ROM game
+    // (v0.31 W310) has no system, so this step is simply skipped for it.
+    if let Some(system) = system.as_deref() {
+        let _ = fetch_with_fallback(db_ref, &paths, game_id, system, &clean_name).await;
+    }
 
     // Wikipedia description (best-effort).
     if let Ok(Some(summary)) = wikipedia::fetch_summary(&clean_name, "video game").await {

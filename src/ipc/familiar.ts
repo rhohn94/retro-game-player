@@ -25,8 +25,10 @@ export interface FamiliarProbe {
 // surfaces exactly one `Game` once that module lands.
 interface Game {
   id: number;
-  path: string;
-  system: string;
+  // Nullable for non-ROM sources (v0.31 W310) — mirrors the canonical `Game`
+  // DTO in `library.ts`.
+  path: string | null;
+  system: string | null;
   crc32: string | null;
   md5: string | null;
   cleanName: string;

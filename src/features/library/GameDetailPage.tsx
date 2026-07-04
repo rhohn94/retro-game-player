@@ -163,7 +163,7 @@ export function GameDetailPage() {
         <div ref={playSlotRef}>
           <PlaySwitch
             gameId={game.id}
-            system={game.system}
+            system={game.system ?? ""}
             gameName={game.cleanName}
             presentation={presentation}
           />
@@ -243,8 +243,8 @@ export function GameDetailPage() {
             )}
 
             <div className="rgp-detail__meta">
-              <MetaRow label="Path" value={game.path} />
-              <MetaRow label="System" value={game.system} />
+              <MetaRow label="Path" value={game.path ?? "—"} />
+              <MetaRow label="System" value={game.system ?? "—"} />
               <MetaRow label="CRC32" value={game.crc32 ?? "—"} />
               <MetaRow label="MD5" value={game.md5 ?? "—"} />
               <MetaRow label="Size" value={formatSize(game.sizeBytes)} />

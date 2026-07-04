@@ -76,10 +76,14 @@ pub async fn list_consoles(db: State<'_, Db>) -> AppResult<Vec<ConsoleDto>> {
     let lib = LibraryRepo::new(&db);
     let meta = ConsoleMetaRepo::new(&db);
 
-    // One pass over the library to tally owned games per system.
+    // One pass over the library to tally owned games per system. Non-ROM
+    // rows (v0.31 W310) have no `system` and are not part of a console's
+    // owned count.
     let mut owned: HashMap<String, i64> = HashMap::new();
     for g in lib.list_games(None)? {
-        *owned.entry(g.system).or_insert(0) += 1;
+        if let Some(system) = g.system {
+            *owned.entry(system).or_insert(0) += 1;
+        }
     }
 
     let mut out = Vec::with_capacity(catalog::all().len());

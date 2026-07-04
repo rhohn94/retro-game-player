@@ -14,6 +14,15 @@ use rusqlite::Connection;
 struct Migration {
     version: i64,
     sql: &'static str,
+    /// Whether this migration rebuilds a table that other tables reference
+    /// via `ON DELETE CASCADE` (the standard SQLite 12-step `ALTER TABLE`
+    /// pattern — see 012_romless_games.sql). `PRAGMA foreign_keys` can only
+    /// be changed OUTSIDE an active transaction (SQLite silently ignores the
+    /// pragma mid-transaction), so the runner toggles it around such a
+    /// migration's transaction rather than relying on the migration's own
+    /// SQL to do so — otherwise `DROP TABLE` on the rebuilt table cascades
+    /// and silently deletes every referencing row (e.g. `art_cache`).
+    requires_fk_off: bool,
 }
 
 /// The ordered migration set shipped with this build. Append new entries with
@@ -22,46 +31,62 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
         sql: include_str!("migrations/001_init.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 2,
         sql: include_str!("migrations/002_game_metadata.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 3,
         sql: include_str!("migrations/003_seed_search_providers.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 4,
         sql: include_str!("migrations/004_search_provider_kind.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 5,
         sql: include_str!("migrations/005_game_description_and_rom_providers.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 6,
         sql: include_str!("migrations/006_console_meta.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 7,
         sql: include_str!("migrations/007_search_provider_direct_download.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 8,
         sql: include_str!("migrations/008_search_provider_compose_filters.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 9,
         sql: include_str!("migrations/009_seed_legal_search_providers.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 10,
         sql: include_str!("migrations/010_library_life.sql"),
+        requires_fk_off: false,
     },
     Migration {
         version: 11,
         sql: include_str!("migrations/011_repair_renamed_app_paths.sql"),
+        requires_fk_off: false,
+    },
+    Migration {
+        version: 12,
+        sql: include_str!("migrations/012_romless_games.sql"),
+        requires_fk_off: true,
     },
 ];
 
@@ -78,15 +103,32 @@ fn set_version(conn: &Connection, version: i64) -> AppResult<()> {
         .map_err(|e| AppError::Db(e.to_string()))
 }
 
+/// Set `PRAGMA foreign_keys`. Must be called OUTSIDE an active transaction —
+/// SQLite silently ignores this pragma mid-transaction, which is exactly why
+/// [`run`] toggles it here rather than inside a migration's own SQL.
+fn set_foreign_keys(conn: &Connection, on: bool) -> AppResult<()> {
+    conn.pragma_update(None, "foreign_keys", on)
+        .map_err(|e| AppError::Db(e.to_string()))
+}
+
 /// Apply every pending migration in order. Idempotent: migrations at or below
 /// the stored `user_version` are skipped, so a second call does nothing and the
 /// version is unchanged. Each migration runs in its own transaction so a failure
 /// leaves the database at the last good version.
+///
+/// A migration that rebuilds a cascade-referenced table
+/// ([`Migration::requires_fk_off`]) has FK enforcement turned off for the
+/// duration of its transaction and restored immediately after — both
+/// OUTSIDE the transaction itself, since `PRAGMA foreign_keys` is a no-op
+/// once a transaction is open.
 pub fn run(conn: &mut Connection) -> AppResult<()> {
     let mut version = current_version(conn)?;
     for migration in MIGRATIONS {
         if migration.version <= version {
             continue;
+        }
+        if migration.requires_fk_off {
+            set_foreign_keys(conn, false)?;
         }
         let tx = conn
             .transaction()
@@ -94,6 +136,9 @@ pub fn run(conn: &mut Connection) -> AppResult<()> {
         tx.execute_batch(migration.sql)
             .map_err(|e| AppError::Db(e.to_string()))?;
         tx.commit().map_err(|e| AppError::Db(e.to_string()))?;
+        if migration.requires_fk_off {
+            set_foreign_keys(conn, true)?;
+        }
         set_version(conn, migration.version)?;
         version = migration.version;
     }
@@ -478,6 +523,170 @@ mod tests {
             Some(format!("{NEW_ROOT}/art-cache/boxart/1.png")),
             "a second pass must not rewrite an already-repaired path",
         );
+    }
+
+    // --- v0.31 W310: ROM-less library model (migration 012) ---
+
+    /// Acceptance: "migration applies to a v0.30 DB". v0.30 shipped through
+    /// migration 011, so seed exactly that shape (with a real ROM row), then
+    /// apply the rest and confirm 012 lands cleanly.
+    #[test]
+    fn migration_012_applies_to_a_v0_30_shaped_db() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version <= 11) {
+            conn.execute_batch(migration.sql).expect("pre-012 migrate");
+        }
+        set_version(&conn, 11).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/old.nes', 'nes', 'Old Game', 1, 4096, 100)",
+            [],
+        )
+        .unwrap();
+
+        run(&mut conn).expect("apply migration 012 on a v0.30-shaped db");
+
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(games)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for c in ["source", "launch_descriptor", "external_id"] {
+            assert!(cols.iter().any(|x| x == c), "missing column {c}");
+        }
+    }
+
+    /// Acceptance: "and is idempotent" — re-running the full migration set a
+    /// second time on an already-migrated database must not error or change
+    /// the version.
+    #[test]
+    fn migration_012_is_idempotent() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("first migrate");
+        run(&mut conn).expect("second migrate must not error");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+    }
+
+    /// Acceptance: "ROM rows untouched" — a pre-existing row's data (and its
+    /// pre-v0.31 identity columns) must survive the migration byte-for-byte,
+    /// and it must be tagged `source = 'rom'` by the additive default.
+    #[test]
+    fn migration_012_leaves_existing_rom_rows_untouched() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version <= 11) {
+            conn.execute_batch(migration.sql).expect("pre-012 migrate");
+        }
+        set_version(&conn, 11).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, crc32, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES \
+             (1, '/roms/old.nes', 'nes', 'deadbeef', 'Old Game', 1, 4096, 100)",
+            [],
+        )
+        .unwrap();
+
+        run(&mut conn).expect("apply migration 012");
+
+        let (folder_id, path, system, crc32, clean_name, source, launch_descriptor, external_id): (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT folder_id, path, system, crc32, clean_name, source, \
+                 launch_descriptor, external_id FROM games WHERE path = '/roms/old.nes'",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(folder_id, 1);
+        assert_eq!(path, "/roms/old.nes");
+        assert_eq!(system, "nes");
+        assert_eq!(crc32, "deadbeef");
+        assert_eq!(clean_name, "Old Game");
+        assert_eq!(source, "rom", "pre-existing rows default to source='rom'");
+        assert_eq!(launch_descriptor, None);
+        assert_eq!(external_id, None);
+    }
+
+    /// Acceptance: "either-rom-or-descriptor CHECK invariant enforced" — a
+    /// row with neither a rom identity (`path` + `system`) nor a
+    /// `launch_descriptor` must be rejected by the schema itself.
+    #[test]
+    fn migration_012_check_rejects_a_row_with_neither_identity() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let result = conn.execute(
+            "INSERT INTO games (clean_name, added_at) VALUES ('Bad Row', 0)",
+            [],
+        );
+        assert!(
+            result.is_err(),
+            "a row with no rom identity and no launch_descriptor must violate the CHECK"
+        );
+    }
+
+    /// A non-ROM row (launch_descriptor set, no path/system) is the whole
+    /// point of W310 — it must be accepted.
+    #[test]
+    fn migration_012_check_accepts_a_launch_descriptor_only_row() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Portal 2', 0, 'steam', '{\"kind\":\"steam\",\"appid\":\"620\"}', '620')",
+            [],
+        )
+        .expect("a launch_descriptor-only row must be accepted");
+    }
+
+    /// `(source, external_id)` uniqueness (the re-scan dedup key) is
+    /// enforced by the schema, not just by application code.
+    #[test]
+    fn migration_012_enforces_source_external_id_uniqueness() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Portal 2', 0, 'steam', '{}', '620')",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Portal 2 Dup', 0, 'steam', '{}', '620')",
+            [],
+        );
+        assert!(dup.is_err(), "duplicate (source, external_id) must be rejected");
     }
 
     #[test]

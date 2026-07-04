@@ -55,7 +55,9 @@ export function TvHero({ game, onLaunch, artHandedOff = false }: TvHeroProps) {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
 
-  const systemLabel = game ? tvSystemLabel(game.system) : "";
+  // A non-ROM game (v0.31 W310) has no `system`; a source-badge treatment
+  // lands in W315, so for now it simply shows no system label.
+  const systemLabel = game?.system ? tvSystemLabel(game.system) : "";
   const metaLine = game ? heroMetaLine(systemLabel, game.year) : "";
   const playTime = game ? formatPlayTime(game.totalPlayTimeMs) : null;
   const lastPlayed = game ? formatLastPlayed(game.lastPlayedAt, Date.now()) : null;

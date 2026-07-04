@@ -123,7 +123,8 @@ export function TvGameSurface({ game, originRect, onExited }: TvGameSurfaceProps
   // player doesn't blank the moment exit begins).
   const playerVisible = isPlayerUncovered(state) || state.phase === "collapsing";
   const coverVisible = isCoverVisible(state);
-  const isExternal = !canPlayInPage(game.system);
+  // A non-ROM game (v0.31 W310, no `system`) always plays externally.
+  const isExternal = !game.system || !canPlayInPage(game.system);
 
   // Reveal the live player as soon as its surface exists. In-page/native mount a
   // player synchronously, so a microtask-deferred reveal is enough to let the
@@ -223,7 +224,7 @@ export function TvGameSurface({ game, originRect, onExited }: TvGameSurfaceProps
         ) : (
           <PlaySwitch
             gameId={game.id}
-            system={game.system}
+            system={game.system ?? ""}
             gameName={game.cleanName}
             presentation="takeover"
             onExit={requestExit}

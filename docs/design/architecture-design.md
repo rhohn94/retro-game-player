@@ -379,9 +379,9 @@ CREATE TABLE IF NOT EXISTS content_folders (
 
 CREATE TABLE IF NOT EXISTS games (
   id          INTEGER PRIMARY KEY,
-  folder_id   INTEGER NOT NULL REFERENCES content_folders(id) ON DELETE CASCADE,
-  path        TEXT    NOT NULL UNIQUE,
-  system      TEXT    NOT NULL,            -- 'nes' | 'snes' | 'n64'
+  folder_id   INTEGER REFERENCES content_folders(id) ON DELETE CASCADE,
+  path        TEXT,                        -- ROM path; NULL for non-ROM sources
+  system      TEXT,                        -- 'nes' | 'snes' | 'n64'; NULL for non-ROM sources
   crc32       TEXT,                        -- header-stripped, lowercase hex
   md5         TEXT,
   clean_name  TEXT    NOT NULL,            -- No-Intro title or filename fallback
@@ -389,11 +389,24 @@ CREATE TABLE IF NOT EXISTS games (
   core_hint   TEXT,                        -- suggested core_id for this system
   art_path    TEXT,                        -- cached boxart on disk (NULL until fetched)
   size_bytes  INTEGER NOT NULL DEFAULT 0,
-  added_at    INTEGER NOT NULL
+  added_at    INTEGER NOT NULL,
+  -- v0.31 W310 "Frontier" — non-retro library rows (migration 012):
+  source            TEXT NOT NULL DEFAULT 'rom'
+                       CHECK (source IN ('rom', 'steam', 'app', 'manual')),
+  launch_descriptor TEXT,                  -- JSON launch descriptor; NULL for 'rom' rows
+  external_id       TEXT,                  -- e.g. a Steam appid; NULL for 'rom' rows
+  CHECK ((path IS NOT NULL AND system IS NOT NULL) OR launch_descriptor IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_games_system ON games(system);
 CREATE INDEX IF NOT EXISTS idx_games_crc32  ON games(crc32);
 CREATE INDEX IF NOT EXISTS idx_games_folder ON games(folder_id);
+-- `path` is unique only among rows that have one (non-ROM rows are NULL).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_path_unique
+  ON games(path) WHERE path IS NOT NULL;
+-- Re-scans dedupe on (source, external_id); NULL external_id rows (all 'rom'
+-- rows) are excluded from the uniqueness check by the partial WHERE.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_source_external_id
+  ON games(source, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS cores (
   id             INTEGER PRIMARY KEY,
@@ -447,6 +460,16 @@ tier) for fast grid reads; `art_cache` holds the full per-tier cache the blur
 pipeline (W10) and fallback logic (W8) consult. FKs cascade so removing a folder
 or game cleans its rows. The persistence layer (W3) wraps each table in a repo
 with CRUD + unit tests — see [persistence-design.md](persistence-design.md).
+
+`games.source` (v0.31 W310, see
+[non-retro-library-design.md](non-retro-library-design.md)) generalizes a row
+beyond ROM files: `rom` rows keep the pre-v0.31 identity (`path` + `system`
+required, `folder_id` set); `steam` / `app` / `manual` rows instead carry a
+`launch_descriptor` (JSON) and typically an `external_id` (e.g. a Steam
+appid), with `folder_id`, `path`, and `system` all `NULL`. The CHECK
+constraint enforces every row has *either* a ROM identity *or* a launch
+descriptor; re-scans upsert on `(source, external_id)` so they never
+duplicate a row.
 
 ---
 

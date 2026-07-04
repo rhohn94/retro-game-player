@@ -76,8 +76,11 @@ export function buildRails(sources: RailSources): TvRailModel[] {
   }
 
   // Group games by system, then emit one rail per system in recency order.
+  // Non-ROM games (v0.31 W310) have no `system` and are excluded from the
+  // per-system rails entirely — a "Desktop" rail treatment lands in W315.
   const bySystem = new Map<string, Game[]>();
   for (const game of games) {
+    if (!game.system) continue;
     const list = bySystem.get(game.system);
     if (list) list.push(game);
     else bySystem.set(game.system, [game]);
