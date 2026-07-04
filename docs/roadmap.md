@@ -236,7 +236,27 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.30 — Passport (implementation complete — pending release)
+## v0.31 — Frontier (in flight)
+
+**Theme:** Non-retro games join the library — Horizon H1, first slice.
+
+- **ROM-less library rows** — nullable rom identity, `source` +
+  `launch_descriptor` columns (W310).
+- **Launcher abstraction** — `open -a` / `steam://` / custom-exec descriptors
+  generalizing the RetroArch-only external play path, app-focus play
+  sessions (W311).
+- **Pluggable game sources** — Steam appmanifest scan (W312), `/Applications`
+  heuristics + manual entries (W313).
+- **Steam CDN art** on shelves and TV (W314); **first-class non-retro UI**
+  across shelves/detail/TV (W315).
+- Docs-hygiene rider [#41](https://github.com/rhohn94/retro-game-player/issues/41) (W316).
+
+Design: [`non-retro-library-design.md`](design/non-retro-library-design.md).
+Plan: [`release-planning-v0.31.md`](release-planning/release-planning-v0.31.md).
+
+---
+
+## v0.30 — Passport (released — see version-history.md)
 
 **Theme:** Ready for hands that aren't the developer's.
 
