@@ -2,7 +2,7 @@
 
 > Built-in, links-only search providers, and a multi-facet filtering experience
 > over the library (console, year, developer, publisher, title, popular aliases).
-> Ticket [#4](https://github.com/rhohn94/harmony/issues/4).
+> Ticket [#4](https://github.com/rhohn94/retro-game-player/issues/4).
 
 ---
 

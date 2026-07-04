@@ -49,6 +49,7 @@
 | [direct-download-design.md](direct-download-design.md) | v0.24 (planned, #30): wiring the v0.16 per-provider `direct_download` opt-in into a user-clicked download → staging → import → play loop with strict safeguards |
 | [boot-latency-spike.md](boot-latency-spike.md) | v0.24 W242 (#14, research-only): findings on cutting the in-page boot floor — warm-emulator/ROM-swap = no-go (no API, silent-audio gate), decompressed-core caching = go (follow-up #31) |
 | [notarization-distribution-design.md](notarization-distribution-design.md) | v0.30 "Passport" W300: Developer-ID signing + hardened runtime + entitlements (JIT, unsigned-dylib loading for native cores, network client/server), `notarytool` submission/staple flow wired into `recipe.py package`, keychain-profile credential story, automated `spctl -a -t open` Gatekeeper check, honest gap table (no real Developer-ID creds / clean Mac in this environment) |
+| [non-retro-library-design.md](non-retro-library-design.md) | v0.31 "Frontier" W310–W315 (Horizon H1, first slice): ROM-less library rows (nullable rom identity, `source` + JSON `launch_descriptor` columns), pluggable `GameSource` scanners (Steam appmanifests, `/Applications` heuristics + confirm gate, manual entries), launch-descriptor dispatch generalizing the RetroArch-only external play path (`open -a` / `steam://` / custom exec), app-focus play-session tracking, Steam CDN art |
 | *(add rows as docs are created)* | |
 
 ### UX tier (`docs/design/ux/`)

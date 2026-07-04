@@ -96,7 +96,9 @@ pub fn import_file(
         return Ok(ImportOutcome {
             game_id: existing.id,
             system,
-            stored_path: existing.path,
+            // A crc32/system hash match is only ever a `rom` row (v0.31
+            // W310), which always has `path` set.
+            stored_path: existing.path.unwrap_or_default(),
             already_present: true,
         });
     }
@@ -124,9 +126,9 @@ pub fn import_file(
     }
 
     let new_game = NewGame {
-        folder_id,
-        path: stored_str.clone(),
-        system: system.clone(),
+        folder_id: Some(folder_id),
+        path: Some(stored_str.clone()),
+        system: Some(system.clone()),
         crc32: Some(hashes.crc32),
         md5: Some(hashes.md5),
         clean_name: outcome.clean_name,
@@ -139,6 +141,9 @@ pub fn import_file(
         developer: None,
         publisher: None,
         aliases: None,
+        source: crate::db::repo::library::GameSource::Rom,
+        launch_descriptor: None,
+        external_id: None,
     };
     match repo.add_game(&new_game) {
         Ok(game_id) => Ok(ImportOutcome {
@@ -275,7 +280,7 @@ mod tests {
         // Registered in the library with the right core hint.
         let repo = LibraryRepo::new(&db);
         let g = repo.get_game(out.game_id).unwrap();
-        assert_eq!(g.system, "snes");
+        assert_eq!(g.system.as_deref(), Some("snes"));
         assert_eq!(g.core_hint.as_deref(), Some("snes9x"));
         assert_eq!(g.clean_name, "Zelda");
         // The Games dir was registered as a content folder.

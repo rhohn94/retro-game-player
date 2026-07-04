@@ -2,7 +2,7 @@
 
 > Discovery (browse), search, and download for emulator cores — built on the
 > existing, real download/verify/install path. Ticket
-> [#5](https://github.com/rhohn94/harmony/issues/5).
+> [#5](https://github.com/rhohn94/retro-game-player/issues/5).
 
 ---
 

@@ -262,4 +262,4 @@ zero results), so no framework-required scope is trimmed here.
   post-install check (headless capture exercises the degradation path by
   construction — no loopback player server under mock IPC).
 - **W269 repo links:** README clone URL + issue links still say
-  `rhohn94/harmony` until the GitHub repo rename at the push stage.
+  `rhohn94/retro-game-player` until the GitHub repo rename at the push stage.

@@ -32,9 +32,9 @@ running Windows games on macOS easy, with RGP as the friendly frontend.
 Neither ring is scheduled yet — see [Horizon](#horizon--the-universal-frontend-ambition-unscheduled)
 below; the retro north star stays the near-term priority.
 Gap analysis of record: issues
-[#16](https://github.com/rhohn94/harmony/issues/16)–[#29](https://github.com/rhohn94/harmony/issues/29)
+[#16](https://github.com/rhohn94/retro-game-player/issues/16)–[#29](https://github.com/rhohn94/retro-game-player/issues/29)
 (filed 2026-07-01) plus the standing TV epic
-[#8](https://github.com/rhohn94/harmony/issues/8).
+[#8](https://github.com/rhohn94/retro-game-player/issues/8).
 
 ---
 
@@ -47,18 +47,18 @@ save states, on any play path — and play-path failures degrade silently.
 - **Save states + SRAM/battery saves** on both the in-page and native paths,
   stored on disk under app-support; slot save/load in the in-game overlay; a
   "Continue" affordance on the detail page
-  ([#16](https://github.com/rhohn94/harmony/issues/16)).
+  ([#16](https://github.com/rhohn94/retro-game-player/issues/16)).
 - **Native-play closeout:** land/remove the in-flight crash-investigation
   diagnostics, run the real-device audio/load-time verification deferred from
   v0.21, and decide the default
-  ([#18](https://github.com/rhohn94/harmony/issues/18)).
+  ([#18](https://github.com/rhohn94/retro-game-player/issues/18)).
 - **Honest degradation:** visible in-app notice when a play path falls back
   (loopback bind failure, native-init failure, missing RetroArch)
-  ([#19](https://github.com/rhohn94/harmony/issues/19)).
+  ([#19](https://github.com/rhohn94/retro-game-player/issues/19)).
 - **Docs tell the truth:** refresh the v0.1-era README, populate
   `version-history.md`, and decide the license question
-  ([#25](https://github.com/rhohn94/harmony/issues/25),
-  [#26](https://github.com/rhohn94/harmony/issues/26) — decision + mechanical).
+  ([#25](https://github.com/rhohn94/retro-game-player/issues/25),
+  [#26](https://github.com/rhohn94/retro-game-player/issues/26) — decision + mechanical).
 
 **Non-goals:** rewind, shaders, new cores.
 
@@ -76,11 +76,11 @@ RetroArch the user must install.
 
 - **In-page cores for the catalog:** bundle or on-demand-fetch EmulatorJS cores
   for the high-value systems (SNES, Genesis, N64, PS1, Atari 2600, …), with
-  RetroArch fallback intact ([#17](https://github.com/rhohn94/harmony/issues/17)).
+  RetroArch fallback intact ([#17](https://github.com/rhohn94/retro-game-player/issues/17)).
 - **Boot-latency spike:** warm-emulator ROM swap + decompressed-core cache
-  ([#14](https://github.com/rhohn94/harmony/issues/14)).
+  ([#14](https://github.com/rhohn94/retro-game-player/issues/14)).
 - **Player conveniences:** rewind / fast-forward / volume / pause-on-blur in
-  the overlay ([#22](https://github.com/rhohn94/harmony/issues/22)).
+  the overlay ([#22](https://github.com/rhohn94/retro-game-player/issues/22)).
 - **Direct download (user-requested):** wire the v0.16 per-vendor
   `direct_download` seam into a real, user-initiated download → import → play
   loop — off for every provider until the user enables it per vendor; streams
@@ -113,24 +113,24 @@ against a real OpenSearch provider (Wikipedia).
 ## v0.26 — Theater (released — see version-history.md)
 
 **Theme:** The couch release, user-directed (2026-07-02): the **entire 10-foot
-TV epic** ([#8](https://github.com/rhohn94/harmony/issues/8)) lands in one
+TV epic** ([#8](https://github.com/rhohn94/retro-game-player/issues/8)) lands in one
 pass — absorbing the formerly-planned v0.27 Theater and v0.28 Marquee — plus
 controller completion and the product rename to **Retro Game Player**.
 
 - **TV mode (leanback):** TV-safe margins + 10-foot type scale
-  ([#9](https://github.com/rhohn94/harmony/issues/9)), cover-art shelves with
-  key-art hero ([#10](https://github.com/rhohn94/harmony/issues/10)),
+  ([#9](https://github.com/rhohn94/retro-game-player/issues/9)), cover-art shelves with
+  key-art hero ([#10](https://github.com/rhohn94/retro-game-player/issues/10)),
   distance-legible focus + snap navigation
-  ([#11](https://github.com/rhohn94/harmony/issues/11)), full-bleed
-  ([#12](https://github.com/rhohn94/harmony/issues/12)) high-resolution
-  ([#13](https://github.com/rhohn94/harmony/issues/13)) artwork, seamless
+  ([#11](https://github.com/rhohn94/retro-game-player/issues/11)), full-bleed
+  ([#12](https://github.com/rhohn94/retro-game-player/issues/12)) high-resolution
+  ([#13](https://github.com/rhohn94/retro-game-player/issues/13)) artwork, seamless
   game entry/exit transitions, optional auto-enter at startup.
 - **Library-life data foundation** (subset of
-  [#21](https://github.com/rhohn94/harmony/issues/21)): favorites, recently
+  [#21](https://github.com/rhohn94/retro-game-player/issues/21)): favorites, recently
   played, play-time tracking across all three play paths (collections stay
   deferred).
 - **Controller completion:** press-to-rebind remapping UI
-  ([#20](https://github.com/rhohn94/harmony/issues/20)) and an
+  ([#20](https://github.com/rhohn94/retro-game-player/issues/20)) and an
   Xbox / PS4 (DualShock 4) / PS5 (DualSense) macOS compatibility audit.
 - **Rename:** Harmony → **Retro Game Player** (configs, identifier with
   app-data migration, UI strings, docs, CSS token codemod; GitHub repo
@@ -200,7 +200,7 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
 - **State-of-the-art, highly configurable CRT filter** — scanlines, screen
   curvature, color bleed, and related shader-style effects, with presets and
   per-parameter tuning, on both play paths where feasible
-  ([#23](https://github.com/rhohn94/harmony/issues/23)).
+  ([#23](https://github.com/rhohn94/retro-game-player/issues/23)).
 - **Emulation performance tooling (user directive, 2026-07-03):** an optional
   in-play FPS counter; profiling tools that record emulation performance
   (frame timing / audio ring health / core hot spots) to an easily-accessible
@@ -214,9 +214,9 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
   option schemas are discovered/persisted (native cores vs. RetroArch-managed
   cores likely need different plumbing).
 - **Keyboard accessibility:** focus-visible + full keyboard operability
-  ([#29](https://github.com/rhohn94/harmony/issues/29)).
+  ([#29](https://github.com/rhohn94/retro-game-player/issues/29)).
 - **Play-path integration tests** so a broken player fails CI, not manual QA
-  ([#28](https://github.com/rhohn94/harmony/issues/28)).
+  ([#28](https://github.com/rhohn94/retro-game-player/issues/28)).
 
 Plan: [`release-planning-v0.29.md`](release-planning/release-planning-v0.29.md).
 
@@ -236,14 +236,34 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.30 — Passport (implementation complete — pending release)
+## v0.31 — Frontier (implementation complete — pending release)
+
+**Theme:** Non-retro games join the library — Horizon H1, first slice.
+
+- **ROM-less library rows** — nullable rom identity, `source` +
+  `launch_descriptor` columns (W310).
+- **Launcher abstraction** — `open -a` / `steam://` / custom-exec descriptors
+  generalizing the RetroArch-only external play path, app-focus play
+  sessions (W311).
+- **Pluggable game sources** — Steam appmanifest scan (W312), `/Applications`
+  heuristics + manual entries (W313).
+- **Steam CDN art** on shelves and TV (W314); **first-class non-retro UI**
+  across shelves/detail/TV (W315).
+- Docs-hygiene rider [#41](https://github.com/rhohn94/retro-game-player/issues/41) (W316).
+
+Design: [`non-retro-library-design.md`](design/non-retro-library-design.md).
+Plan: [`release-planning-v0.31.md`](release-planning/release-planning-v0.31.md).
+
+---
+
+## v0.30 — Passport (released — see version-history.md)
 
 **Theme:** Ready for hands that aren't the developer's.
 
 - **Notarized, stapled Developer-ID DMG** that launches clean on a fresh Mac
-  ([#27](https://github.com/rhohn94/harmony/issues/27)).
+  ([#27](https://github.com/rhohn94/retro-game-player/issues/27)).
 - License follow-through if not already closed in v0.23
-  ([#26](https://github.com/rhohn94/harmony/issues/26)) — already closed in
+  ([#26](https://github.com/rhohn94/retro-game-player/issues/26)) — already closed in
   v0.23; not part of v0.30 scope.
 
 Plan: [`release-planning-v0.30.md`](release-planning/release-planning-v0.30.md).
@@ -424,7 +444,7 @@ tokens rather than ad-hoc CSS.
 - **Guard:** `scripts/token-adoption.test.mjs` fails the build if a colour
   literal or bare hex returns; verified rendering unchanged vs v0.2.
 
-Ticket [#1](https://github.com/rhohn94/harmony/issues/1) · Plan:
+Ticket [#1](https://github.com/rhohn94/retro-game-player/issues/1) · Plan:
 [`release-planning-v0.3.md`](release-planning-v0.3.md).
 
 ---
@@ -444,7 +464,7 @@ motion-token source, centrally honouring `prefers-reduced-motion`.
   reducedMotion="user">` + the global CSS media query — guarded by
   `scripts/motion.test.mjs`.
 
-Ticket [#2](https://github.com/rhohn94/harmony/issues/2) · Plan:
+Ticket [#2](https://github.com/rhohn94/retro-game-player/issues/2) · Plan:
 [`release-planning-v0.4.md`](release-planning-v0.4.md).
 
 ---
@@ -463,7 +483,7 @@ empty library has a one-click path to a real, scannable folder.
 - **Verify:** `scripts/inspect-empty-states.mjs` screenshots the empty-state
   affordance (the standard inspect uses populated fixtures).
 
-Ticket [#3](https://github.com/rhohn94/harmony/issues/3) · Plan:
+Ticket [#3](https://github.com/rhohn94/retro-game-player/issues/3) · Plan:
 [`release-planning-v0.5.md`](release-planning-v0.5.md) · Design:
 [`games-directory-design.md`](design/games-directory-design.md).
 
@@ -482,7 +502,7 @@ experience.
   pills, title/alias search, year/developer/publisher selects) combining facets
   with AND and **hiding facets with no values** (graceful degradation).
 
-Ticket [#4](https://github.com/rhohn94/harmony/issues/4) · Plan:
+Ticket [#4](https://github.com/rhohn94/retro-game-player/issues/4) · Plan:
 [`release-planning-v0.6.md`](release-planning-v0.6.md) · Design:
 [`library-filtering-design.md`](design/library-filtering-design.md).
 
@@ -502,7 +522,7 @@ the existing real download/verify/install path.
 - The download itself was already real (buildbot fetch → arm64 verify → atomic
   write → persist); v0.7 makes it discoverable and searchable.
 
-Ticket [#5](https://github.com/rhohn94/harmony/issues/5) · Plan:
+Ticket [#5](https://github.com/rhohn94/retro-game-player/issues/5) · Plan:
 [`release-planning-v0.7.md`](release-planning-v0.7.md) · Design:
 [`core-discovery-design.md`](design/core-discovery-design.md).
 
@@ -523,8 +543,8 @@ Library stayed empty and it looked like nothing happened.
 Plan: [`release-planning-v0.8.md`](release-planning-v0.8.md).
 
 **Backlog (filed, not started):** searching for game downloads
-([#6](https://github.com/rhohn94/harmony/issues/6)) and expanding the console
-list to gens 1–6 ([#7](https://github.com/rhohn94/harmony/issues/7)).
+([#6](https://github.com/rhohn94/retro-game-player/issues/6)) and expanding the console
+list to gens 1–6 ([#7](https://github.com/rhohn94/retro-game-player/issues/7)).
 
 ---
 
@@ -573,7 +593,7 @@ cover the classic era.
 - **Frontend:** no change needed — the Cores screen and library console filter
   derive systems from the data and pick up the new consoles automatically.
 
-Closes [#7](https://github.com/rhohn94/harmony/issues/7) · Plan:
+Closes [#7](https://github.com/rhohn94/retro-game-player/issues/7) · Plan:
 [`release-planning-v0.10.md`](release-planning-v0.10.md) · Design:
 [`console-catalog-design.md`](design/console-catalog-design.md).
 
@@ -595,7 +615,7 @@ the search screen and a game's detail page, strictly links-only.
 - **Find downloads for a title:** the game detail page jumps to a pre-filled,
   auto-run search for the game's title.
 
-Closes [#6](https://github.com/rhohn94/harmony/issues/6) · Plan:
+Closes [#6](https://github.com/rhohn94/retro-game-player/issues/6) · Plan:
 [`release-planning-v0.11.md`](release-planning-v0.11.md) · Design:
 [`download-search-design.md`](design/download-search-design.md).
 
@@ -647,7 +667,7 @@ Plan: [`release-planning-v0.13.md`](release-planning-v0.13.md).
 
 **Theme:** Host the `fceumm` NES core natively (FFI via `libloading`) instead
 of in EmulatorJS/WASM, to fix the Web Audio cold-start audio garble
-([#15](https://github.com/rhohn94/harmony/issues/15)) and cut load time at the
+([#15](https://github.com/rhohn94/retro-game-player/issues/15)) and cut load time at the
 root. Ships behind a flag; EmulatorJS stays the path for every other system
 and as the automatic fallback if native init fails.
 
@@ -857,12 +877,12 @@ Plan: [`release-planning-v0.14.md`](release-planning-v0.14.md).
 ## Backlog
 
 Beyond the v0.23–v0.29 arc (unscheduled; former backlog rows now live as
-scheduled tickets — enrichment → [#24](https://github.com/rhohn94/harmony/issues/24),
-controller-binding UI → [#20](https://github.com/rhohn94/harmony/issues/20),
-collections/favorites/play-time → [#21](https://github.com/rhohn94/harmony/issues/21),
-notarized DMG (T2) → [#27](https://github.com/rhohn94/harmony/issues/27)):
+scheduled tickets — enrichment → [#24](https://github.com/rhohn94/retro-game-player/issues/24),
+controller-binding UI → [#20](https://github.com/rhohn94/retro-game-player/issues/20),
+collections/favorites/play-time → [#21](https://github.com/rhohn94/retro-game-player/issues/21),
+notarized DMG (T2) → [#27](https://github.com/rhohn94/retro-game-player/issues/27)):
 
-- **Metadata enrichment** ([#24](https://github.com/rhohn94/harmony/issues/24)):
+- **Metadata enrichment** ([#24](https://github.com/rhohn94/retro-game-player/issues/24)):
   ScreenScraper (user API key) + Familiar AI fuzzy matching / dump
   disambiguation; candidate for v0.30.
 - **Native hosting beyond NES:** SNES/Genesis/N64 cores on the v0.21 FFI layer;

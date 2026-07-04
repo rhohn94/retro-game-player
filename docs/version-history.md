@@ -7,6 +7,37 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.31 — Frontier (2026-07-04)
+
+Non-retro games join the library — the first slice of the universal-frontend
+ambition (Horizon H1). Your Steam library, game-category apps, and anything
+you add by hand now live on the same shelves, detail pages, and TV rails as
+your ROMs, and launch with the same click.
+
+- **Steam library scan.** One click in Settings → Game sources reads your
+  local Steam install manifests (no network, no login) and adds every
+  installed Steam game to the library, with box art pulled from Steam's
+  public CDN. Re-scans update rather than duplicate.
+- **App scan with a confirm gate.** RGP shortlists game-category apps from
+  `/Applications` and adds only what you approve — no library flooding. App
+  entries get their bundle icon as art.
+- **Manual entries.** A name plus an app or executable is enough to put any
+  game on the shelf.
+- **One launch flow for everything.** A new launch-descriptor engine starts
+  Steam titles via `steam://`, apps via `open -a`, and custom executables
+  directly — same detail page, same TV takeover, with play time tracked by
+  watching the app's lifetime.
+- **First-class non-retro UI.** A "Desktop" library filter and TV rail,
+  source badges (Steam / App / Manual) in place of console badges, and
+  detail pages that show "Launches via Steam / macOS" instead of
+  emulator-only affordances.
+- **Under the hood:** the games table now supports ROM-less rows (nullable
+  ROM identity + a JSON launch descriptor, guarded by a DB CHECK
+  invariant), and a latent migration-runner bug that could have dropped
+  cached art during table rebuilds was found and fixed.
+- **Docs hygiene** (#41): repo-rename remnants (`harmony` URLs) cleaned up,
+  duplicated spike doc deduplicated, release-planning layout documented.
+
 ## v0.30 — Passport (2026-07-04)
 
 Ready for hands that aren't the developer's — the first steps toward a

@@ -10,6 +10,7 @@ import {
   systemRailId,
   tileFocusId,
   RAIL_CONTINUE,
+  RAIL_DESKTOP,
   RAIL_FAVORITES,
   RAIL_RECENT,
   RECENTLY_ADDED_LIMIT,
@@ -40,6 +41,9 @@ function game(id: number, over: Partial<Game> = {}): Game {
     lastPlayedAt: null,
     playCount: 0,
     totalPlayTimeMs: 0,
+    source: "rom",
+    launchDescriptor: null,
+    externalId: null,
     ...over,
   };
 }
@@ -101,6 +105,25 @@ describe("buildRails (v0.26 W261)", () => {
     expect(systemRailIds).toContain(systemRailId("nes"));
     expect(systemRailIds).toContain(systemRailId("snes"));
     expect(systemRailIds).toContain(systemRailId("genesis"));
+  });
+
+  it("groups every non-retro row into a trailing Desktop rail, newest first (v0.31 W315)", () => {
+    const games = [
+      game(1, { system: "nes" }),
+      game(2, { system: null, source: "steam", addedAt: 300 }),
+      game(3, { system: null, source: "app", addedAt: 400 }),
+    ];
+    const rails = buildRails({ games, recentlyPlayed: [], favorites: [] });
+    const desktop = rails.find((r) => r.id === RAIL_DESKTOP);
+    expect(desktop).toBeDefined();
+    expect(rails[rails.length - 1].id).toBe(RAIL_DESKTOP); // trails every other rail
+    expect(desktop!.games.map((g) => g.id)).toEqual([3, 2]); // newest addedAt first
+  });
+
+  it("omits the Desktop rail entirely when every row is a ROM (v0.31 W315)", () => {
+    const games = [game(1, { system: "nes" })];
+    const rails = buildRails({ games, recentlyPlayed: [], favorites: [] });
+    expect(rails.some((r) => r.id === RAIL_DESKTOP)).toBe(false);
   });
 });
 

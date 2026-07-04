@@ -111,7 +111,7 @@ impl ArtCacheRepo<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::repo::library::{LibraryRepo, NewContentFolder, NewGame};
+    use crate::db::repo::library::{GameSource, LibraryRepo, NewContentFolder, NewGame};
     use crate::error::AppError;
 
     fn seed_game(db: &Db) -> i64 {
@@ -124,9 +124,9 @@ mod tests {
             })
             .unwrap();
         lib.add_game(&NewGame {
-            folder_id: fid,
-            path: "/roms/a.nes".into(),
-            system: "nes".into(),
+            folder_id: Some(fid),
+            path: Some("/roms/a.nes".into()),
+            system: Some("nes".into()),
             crc32: None,
             md5: None,
             clean_name: "A".into(),
@@ -139,6 +139,9 @@ mod tests {
             developer: None,
             publisher: None,
             aliases: None,
+            source: GameSource::Rom,
+            launch_descriptor: None,
+            external_id: None,
         })
         .unwrap()
     }

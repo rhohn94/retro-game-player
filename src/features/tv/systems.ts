@@ -55,10 +55,14 @@ export function orderSystemsByRecency(games: readonly Game[]): string[] {
   const bestPlayed = new Map<string, number>();
   const firstSeen = new Map<string, number>();
   games.forEach((game, index) => {
-    if (!firstSeen.has(game.system)) firstSeen.set(game.system, index);
+    // Non-ROM games (v0.31 W310) have no `system` and contribute no console
+    // rail here — a "Desktop" rail treatment lands in W315.
+    if (!game.system) return;
+    const system = game.system;
+    if (!firstSeen.has(system)) firstSeen.set(system, index);
     const played = game.lastPlayedAt ?? 0;
-    const prev = bestPlayed.get(game.system) ?? 0;
-    if (played > prev) bestPlayed.set(game.system, played);
+    const prev = bestPlayed.get(system) ?? 0;
+    if (played > prev) bestPlayed.set(system, played);
   });
 
   return [...firstSeen.keys()].sort((a, b) => {
