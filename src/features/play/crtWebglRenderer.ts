@@ -89,6 +89,15 @@ export class CrtWebglRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+    // libretro/fceumm (and native cores generally) deliver RGBA8888 frames
+    // row-major top-down (row 0 = top; src-tauri/src/play/native/frame.rs),
+    // but WebGL's texture coordinate origin is bottom-left. Flipping at the
+    // texture-upload boundary compensates for that without touching any
+    // downstream UV math (barrel warp / scanlines / vignette in crtShader.ts
+    // all keep operating on a "right-side-up" v_uv space). Regression: W301
+    // (issue #37) — native NES gameplay rendered upside down without this.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
     this.uniforms = Object.fromEntries(
       CRT_UNIFORM_NAMES.map((name) => [name, gl.getUniformLocation(this.program, name)]),
     ) as Record<CrtUniformName, WebGLUniformLocation | null>;
