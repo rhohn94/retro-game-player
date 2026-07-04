@@ -209,7 +209,7 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29 |
 |---|---|---|---|---|
 | `feat/w280-crt-filter` (W280) | ☑ | ☑ | ☑ | ☑ |
-| `feat/w281-perf-tooling` (W281) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w281-perf-tooling` (W281) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -267,3 +267,24 @@ post-W280/W281/W282 play surface rather than going stale immediately.
   EJS path) requires patching the vendored EmulatorJS `player.html` runtime
   — an explicit, already-recorded v0.29 non-goal (see §4), not a new
   follow-up.
+
+**Pass 2 (W281):**
+
+- Filed [#36](https://github.com/rhohn94/retro-game-player/issues/36) —
+  unbounded `logs/ejs-perf.log` growth/read cost, and tightening the new
+  `harmony-perf-stats` `postMessage`'s wildcard target origin (consistent
+  with two pre-existing sends in the same vendored file, not a new
+  weakening) — both low priority.
+- On-device verification that both perf logs actually populate from a real
+  play session (native audio/GPU, EmulatorJS WASM boot) is not reachable in
+  this implementation environment; the read→render path is proven via
+  real-shaped mock data instead. Same honest-gap pattern as #35.
+- The EJS FPS signal is capped at display-refresh (rAF) cadence, not
+  EmulatorJS's true internal tick rate — an inherent property of the
+  safest available signal, not a bug; documented in
+  `performance-tooling-design.md`, no issue filed.
+- W280 shipped a latent gap (missing `get_crt_filter` mock-IPC fixture)
+  that would have silently failed the smoke gate for any route mounting a
+  player or the CRT pane — caught and fixed in passing by the W281 agent
+  (one-line additive fixture in `scripts/mock-ipc.mjs`), not filed
+  separately since it's already resolved.
