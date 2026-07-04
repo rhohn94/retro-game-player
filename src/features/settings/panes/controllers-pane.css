@@ -24,6 +24,11 @@
   background: var(--aura-surface-3);
 }
 
+/* The ring itself comes from the central rule (theme/focus-visible.css) for
+   real keyboard `:focus-visible`; `.rgp-remap-row--focused` is the CONTROLLER
+   virtual-focus indicator (useFocusable's isFocused, no native DOM focus
+   guarantee), so it draws the same ring explicitly here rather than relying
+   on `:focus-visible` (which native controller-only focus doesn't trigger). */
 .rgp-remap-row:focus-visible,
 .rgp-remap-row.rgp-remap-row--focused {
   outline: var(--rgp-focus-ring);

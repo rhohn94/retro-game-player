@@ -22,14 +22,8 @@
     color: var(--aura-on-surface);
   }
 
-  /* Visible focus ring for every focusable library control (W13; W14 drives it). */
-  .rgp-tile:focus-visible,
-  .rgp-tab:focus-visible,
-  .rgp-detail__row:focus-visible,
-  .rgp-detail__favorite:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
-  }
+  /* Visible focus ring for every focusable library control comes from the
+     central rule (theme/focus-visible.css) — no per-component rule needed. */
 
   /* ---- hero backdrop (pre-blurred bitmap, NO css filter) ---- */
   .rgp-hero-backdrop {
@@ -176,9 +170,8 @@
     font: inherit;
     transition: border-color var(--rgp-dur-fast) var(--rgp-ease-out);
   }
+  /* Extra border-color on focus (the ring itself comes from the central rule). */
   .rgp-filters__search:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
     border-color: var(--aura-primary);
   }
   .rgp-facet {
@@ -198,10 +191,6 @@
     color: var(--aura-on-surface);
     font: inherit;
     cursor: pointer;
-  }
-  .rgp-facet__select:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
   }
 
   /* gallery grid */
@@ -460,10 +449,6 @@
     color: var(--aura-on-surface);
     cursor: pointer;
     font: inherit;
-  }
-  .rgp-player__fs:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
   }
 
   /* v0.21 "Bedrock" W214 — native libretro core player: a <canvas> instead of

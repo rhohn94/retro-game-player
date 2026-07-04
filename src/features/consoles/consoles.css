@@ -57,10 +57,6 @@
     cursor: pointer;
     border-radius: var(--rgp-radius-card);
   }
-  .rgp-console-tile:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
-  }
   .rgp-console-tile__card {
     display: flex;
     flex-direction: column;
@@ -256,11 +252,6 @@
   .rgp-catalog__row:hover,
   .rgp-catalog__row:focus-visible {
     background: var(--aura-surface-raised);
-    outline: none;
-  }
-  .rgp-catalog__row:focus-visible {
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
   }
   .rgp-catalog__name {
     flex: 1;

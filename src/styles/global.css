@@ -51,7 +51,5 @@ body,
   color: var(--aura-on-surface-muted);
 }
 
-.rgp-input:focus-visible {
-  outline: var(--rgp-focus-ring);
-  outline-offset: 2px;
-}
+/* The focus ring itself comes from the central rule (theme/focus-visible.css)
+   — every native <input> gets it for free; no per-component rule needed. */

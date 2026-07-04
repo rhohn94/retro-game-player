@@ -384,6 +384,132 @@ follow-up (see below) rather than fixed here, since it spans many files outside
 this work item's file ownership and risks colliding with sibling W267's
 Settings/Controllers-pane work.
 
+## 7. Keyboard as an input method (W283)
+
+Full keyboard-only operability is additive to (not a replacement for) the
+gamepad model above: a user with no controller must be able to reach and
+operate every screen, including TV mode (the system menu + embedded desktop
+screens, v0.28 W278) and the gameplay menu overlay (v0.28 W279's hold/chord
+affordance opens it from a gamepad; the keyboard reaches it via `Escape`, same
+as before this work item — see below).
+
+### 7.1 Two keyboard paths, by design
+
+Two independent things already made most surfaces keyboard-reachable before
+this work item, both worth naming explicitly since W283 only fills the
+remaining gap:
+
+1. **Native Tab order.** Every focusable control in this app is a real
+   `<button>`, `<a>`, `<input>`, `<select>`, or an element carrying
+   `tabIndex={0}` — never a `<div onClick>` with no keyboard path. Tab/
+   Shift-Tab already reached almost everything, and Enter/Space already
+   activate a focused native `<button>` for free (browser default behaviour,
+   nothing to build).
+2. **The semantic-action dispatch.** `ControllerProvider`'s exclusive-claim
+   stack + spatial-nav engine (§3) already gives every SEMANTIC action
+   (`nav_*`/`confirm`/`back`/`menu`/`quit`) one shared, correct routing table
+   regardless of physical input source — but until W283 the ONLY thing that
+   fed it was the gamepad poll (`useGamepadPoll`). TV mode's home/rails/hero
+   (`TvHome`), the system menu (`TvSystemMenu`), and embedded screens
+   (`TvEmbeddedScreen`) are driven entirely through this dispatch with no
+   native Tab-order fallback of their own — so a keyboard-only user could
+   reach nothing in TV mode at all before this work item.
+
+### 7.2 The keyboard bridge (`useKeyboardNav`, `keyboardMap.ts`)
+
+W283 closes gap 2 with one small ADDITIVE bridge, not a second dispatch
+implementation:
+
+```ts
+// src/features/controller/keyboardMap.ts — pure, unit-tested
+export function keyToSemanticAction(key: string): SemanticAction | null;
+export function isNativeControlTarget(target): boolean; // input/textarea/select/contenteditable
+export function isControlGuardExempt(key: string): boolean; // true only for Escape
+
+// src/features/controller/useKeyboardNav.ts — the DOM listener
+export function useKeyboardNav(opts: { dispatchAction; enabled? }): void;
+```
+
+Fixed layout (not configurable, not persisted, and NOT read from
+`resolveBindings`/`controller_bindings` — a keyboard user gets one familiar
+layout independent of any gamepad family/rebind state):
+
+| Key | Semantic action |
+|---|---|
+| `ArrowUp` / `ArrowDown` / `ArrowLeft` / `ArrowRight` | `nav_up` / `nav_down` / `nav_left` / `nav_right` |
+| `Enter`, `Space` | `confirm` |
+| `Escape` | `back` |
+
+`menu`/`quit` have no dedicated key — every destination those actions gate
+(the TV system menu, dialogs) already has an on-screen Tab/Enter-reachable
+control (TvShell's ☰ Menu / Exit buttons, a dialog's own Cancel button), so a
+second bespoke key would add nothing a keyboard user can't already do.
+
+`ControllerProvider` exposes the exact function `useGamepadPoll`'s rising-edge
+detector calls as `dispatchAction` on the context (`ControllerContextValue`) —
+`useKeyboardNav` calls the SAME function, so the keyboard path automatically
+gets the exclusive-claim stack, spatial nav, and screen-level action handlers
+for free, with zero duplicated routing logic. Mounted once in `App.tsx`'s
+`Root` (covers both `Shell` and `TvShell`, so it needs no per-screen wiring —
+the same "one shared dispatch, every screen just works" property the gamepad
+poll already had).
+
+### 7.3 Guardrails against double-firing
+
+Four deliberate checks in `useKeyboardNav` keep the bridge from stepping on
+existing keyboard handling elsewhere in the app:
+
+- **`e.defaultPrevented`** — a screen with its own local keyboard handling
+  (e.g. `CoresPage`/`SystemList`'s ArrowLeft/Right column switch, a dialog's
+  own Escape handler) already called `preventDefault()` on the SAME key by
+  the time it reaches the window-level bridge; respecting that avoids a
+  second, redundant semantic dispatch for a key a screen already fully owns.
+- **Native control targets** — `isNativeControlTarget` skips arrows/Enter/
+  Space while the event target is an `<input>`/`<textarea>`/`<select>`/
+  contenteditable region, so normal text-cursor movement, native `<select>`
+  arrow-cycling, and checkbox/radio Space-toggle are never hijacked.
+  `Escape` is exempt from this guard (`isControlGuardExempt`) — closing an
+  overlay/dialog must work regardless of which field inside it has focus,
+  matching every existing per-dialog `onKeyDown` Escape handler already in
+  this codebase (`CreateGamesFolderDialog`, `ProviderDialog`).
+- **Native activation targets, `confirm` only** — `isNativeActivationTarget`
+  skips dispatching `confirm` (Enter/Space) while the event target is itself
+  a real `<button>`/`<a>`/`<summary>` (or an element carrying an activatable
+  ARIA role: `button`/`link`/`menuitem`/`tab`), letting the browser's own
+  click-on-Enter/Space fire instead. This matters well beyond avoiding one
+  redundant call: MOST of this app's buttons (`CoresPage`, `SettingsPage`'s
+  section tabs, every dialog's Cancel/Save button) never registered with the
+  spatial-nav focus registry (`useFocusable`) — dispatching `confirm` through
+  the semantic layer for one of those would look up whatever the
+  CONTROLLER-focus registry separately thinks is focused (a stale id from a
+  different screen, or nothing), not the button the user is actually looking
+  at. Only `confirm` needs this check — arrows/Escape have no browser default
+  to conflict with on a plain button.
+- **`gameplayClaimActive` gates the whole bridge off** — `App.tsx` disables
+  `useKeyboardNav` entirely while a player owns the gameplay exclusive claim
+  (the same signal `useTvModeControllerToggle`/`useTvSystemMenuTrigger`
+  already gate on). `NativePlayer`/`InPagePlayer` install their OWN complete
+  keyboard handling for game input + the overlay while mounted (arrows/Enter
+  move overlay selection, Escape opens/closes it) — this work item does not
+  touch either file; running both listeners in parallel would double-fire
+  overlay selection moves, so the global bridge steps aside entirely for the
+  whole gameplay session instead.
+
+### 7.4 Known pre-existing quirk (not introduced by W283)
+
+A dialog that does not claim the controller's exclusive slot (e.g.
+`CreateGamesFolderDialog`, `ProviderDialog`) has no screen-level `back`
+handler installed while open, so a dispatched `back` action falls through to
+`ShellControllerBindings`' global `back: () => navigate(-1)` — this was
+already true for a GAMEPAD `back` press before W283 (both dialogs lacked an
+exclusive claim already); the keyboard bridge's Escape key inherits the exact
+same pre-existing behaviour rather than special-casing keyboard differently
+from gamepad. Each dialog's own `onKeyDown` Escape handler still closes it
+correctly in the same keystroke; the extra `navigate(-1)` is a latent,
+unrelated quirk worth its own follow-up (give these dialogs an exclusive `ui`
+claim, matching every other overlay in the app) rather than something to fix
+as a side effect of this accessibility pass.
+
 ## Follow-ups (W268)
 
 - Register Consoles/Cores/Settings' remaining interactive elements
@@ -396,3 +522,12 @@ Settings/Controllers-pane work.
 - Live-hardware verification of the DualSense/DualShock 4 product-id sniff and
   the non-standard-mapping fallback on real 8BitDo/older-firmware pads (the
   spike note in §1 applies equally here — no gamepad hardware in CI).
+
+## Follow-ups (W283)
+
+- Give `CreateGamesFolderDialog`/`ProviderDialog` an exclusive `ui` claim (like
+  every other overlay in the app) so `back`/Escape can't fall through to the
+  shell's `navigate(-1)` while either is open (§7.4).
+- `TvRail`'s windowed tile row has no `role="list"` — deferred (not required
+  by the W283 acceptance criteria) since the windowed spacer `div`s need
+  auditing for correct `aria-hidden` interaction with a real list role first.

@@ -16,6 +16,7 @@ import "@aura/css/aura.css";
 import "./aura-theme.css";
 import "./motion.css";
 import "./tv.css";
+import "./focus-visible.css";
 
 import {
   createContext,
