@@ -86,10 +86,26 @@ impl<'a> ArtCacheService<'a> {
         tier_key: &str,
         bytes: &[u8],
     ) -> AppResult<String> {
+        self.store_with_extension(game_id, system, sanitized_name, tier_key, bytes, "png")
+    }
+
+    /// Same as [`Self::store`] but lets the caller pick the on-disk file
+    /// extension (v0.31 W314 — Steam CDN art is served as `.jpg`, unlike the
+    /// libretro-thumbnails PNGs). The `art_cache` row/priority machinery is
+    /// identical regardless of extension; only the filename changes.
+    pub fn store_with_extension(
+        &self,
+        game_id: i64,
+        system: &str,
+        sanitized_name: &str,
+        tier_key: &str,
+        bytes: &[u8],
+        extension: &str,
+    ) -> AppResult<String> {
         let art_dir = self.paths.art_cache_dir()?.join(system);
         std::fs::create_dir_all(&art_dir)?;
 
-        let filename = format!("{}_{}.png", sanitized_name, tier_key);
+        let filename = format!("{}_{}.{}", sanitized_name, tier_key, extension);
         let on_disk: PathBuf = art_dir.join(&filename);
         std::fs::write(&on_disk, bytes)?;
 

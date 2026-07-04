@@ -1,17 +1,28 @@
-//! Game-source IPC adapters (v0.31 W312/W313 "Frontier"). Thin
-//! `#[tauri::command]` wrappers over the `core::sources` scanners and
-//! `LibraryRepo::upsert_game_by_source`. See
-//! `docs/design/non-retro-library-design.md` §Game sources and §UI.
+//! Game-source IPC adapters (v0.31 W312/W313 "Frontier"; art acquisition
+//! W314). Thin `#[tauri::command]` wrappers over the `core::sources`
+//! scanners and `LibraryRepo::upsert_game_by_source`. See
+//! `docs/design/non-retro-library-design.md` §Game sources, §UI, and
+//! §Art & metadata.
 //!
 //! Command contract:
 //! - `scan_steam_source` — scan + upsert Steam installs, return counts (W312).
 //! - `scan_app_source` — enumerate the app shortlist; creates no rows (W313).
 //! - `confirm_app_entries` — upsert the user-confirmed subset of a shortlist.
 //! - `add_manual_entry` — the manual-entry escape hatch (name + app/exec target).
+//!
+//! After each upsert, `upsert_discovered` best-effort-fetches art for the row
+//! (Steam CDN for `steam` rows keyed on appid; `.app` bundle-icon render for
+//! `app`/`manual` rows backed by a bundle) via `core::metadata::steam_art` /
+//! `core::metadata::bundle_icon` — reusing the existing `art_cache` pipeline
+//! (W314). Art failures never fail the scan/confirm command itself.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::config::paths::Paths;
+use crate::core::metadata::bundle_icon::fetch_bundle_icon_art;
+use crate::core::metadata::name_sanitizer::sanitize;
+use crate::core::metadata::steam_art::fetch_steam_art;
 use crate::core::sources::app_scan::AppScanner;
 use crate::core::sources::steam::SteamScanner;
 use crate::core::sources::{DiscoveredGame, GameSourceScanner};
@@ -65,10 +76,43 @@ fn now_epoch_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// Best-effort art acquisition for a just-upserted game (W314). Never
+/// propagates an error — a CDN miss, an offline network, or an unresolvable
+/// bundle icon all degrade silently to "no art fetched", leaving the
+/// existing placeholder art path in place. `art_hint` is the scanner-supplied
+/// hint (`DiscoveredGame::art_hint`): a Steam appid for `steam` rows, or an
+/// app-bundle path for `app`/`manual` rows.
+async fn acquire_art_best_effort(db: &Db, game_id: i64, source: GameSource, art_hint: Option<&str>) {
+    // ROM art goes through the libretro-thumbnails pipeline
+    // (`core::metadata::fallback`), not this non-retro path — bail before
+    // resolving Paths so a `rom` row never touches the app-support dir here.
+    if source == GameSource::Rom {
+        return;
+    }
+    let Some(hint) = art_hint else { return };
+    let Ok(paths) = Paths::app_support() else {
+        return;
+    };
+
+    match source {
+        GameSource::Steam => {
+            let _ = fetch_steam_art(db, &paths, game_id, hint).await;
+        }
+        GameSource::App | GameSource::Manual => {
+            let sanitized_name = sanitize(hint);
+            let _ = fetch_bundle_icon_art(db, &paths, game_id, hint, &sanitized_name);
+        }
+        GameSource::Rom => unreachable!("returned above"),
+    }
+}
+
 /// Upsert every game a scanner discovered, returning the discovered/added/
 /// updated counts. Shared by every source-scan command so each one stays a
-/// one-line adapter.
-fn upsert_discovered(repo: &LibraryRepo, discovered: Vec<DiscoveredGame>) -> AppResult<SourceScanReportDto> {
+/// one-line adapter. Best-effort-fetches art for each upserted row (W314).
+async fn upsert_discovered(
+    repo: &LibraryRepo<'_>,
+    discovered: Vec<DiscoveredGame>,
+) -> AppResult<SourceScanReportDto> {
     let now = now_epoch_secs();
     let mut added = 0usize;
     let mut updated = 0usize;
@@ -86,6 +130,8 @@ fn upsert_discovered(repo: &LibraryRepo, discovered: Vec<DiscoveredGame>) -> App
             None => false,
         };
 
+        let source = game.source;
+        let art_hint = game.art_hint.clone();
         let new_game = NewGame {
             folder_id: None,
             path: None,
@@ -106,7 +152,8 @@ fn upsert_discovered(repo: &LibraryRepo, discovered: Vec<DiscoveredGame>) -> App
             launch_descriptor: Some(game.launch_descriptor.to_string()),
             external_id: game.external_id,
         };
-        repo.upsert_game_by_source(&new_game)?;
+        let game_id = repo.upsert_game_by_source(&new_game)?;
+        acquire_art_best_effort(repo.db(), game_id, source, art_hint.as_deref()).await;
 
         if already_existed {
             updated += 1;
@@ -131,7 +178,7 @@ pub async fn scan_steam_source(db: State<'_, Db>) -> AppResult<SourceScanReportD
     let repo = LibraryRepo::new(&db);
     let scanner = SteamScanner::default_location();
     let discovered = scanner.scan()?;
-    upsert_discovered(&repo, discovered)
+    upsert_discovered(&repo, discovered).await
 }
 
 /// Build the `NewGame` a non-ROM source upserts — every non-ROM field besides
@@ -192,6 +239,7 @@ pub async fn confirm_app_entries(
                 "app-scan entry is missing an external id".to_string(),
             ));
         }
+        let art_hint = entry.art_hint.clone();
         let game = new_game_for_source(
             entry.name,
             GameSource::App,
@@ -199,7 +247,9 @@ pub async fn confirm_app_entries(
             entry.launch_descriptor,
             entry.art_hint,
         )?;
-        ids.push(repo.upsert_game_by_source(&game)?);
+        let game_id = repo.upsert_game_by_source(&game)?;
+        acquire_art_best_effort(repo.db(), game_id, GameSource::App, art_hint.as_deref()).await;
+        ids.push(game_id);
     }
     Ok(ids)
 }
@@ -267,9 +317,11 @@ pub async fn add_manual_entry(
         GameSource::Manual,
         Some(external_id),
         descriptor,
-        art_hint,
+        art_hint.clone(),
     )?;
-    repo.upsert_game_by_source(&game)
+    let game_id = repo.upsert_game_by_source(&game)?;
+    acquire_art_best_effort(repo.db(), game_id, GameSource::Manual, art_hint.as_deref()).await;
+    Ok(game_id)
 }
 
 #[cfg(test)]
@@ -327,5 +379,30 @@ mod tests {
     fn shortlist_entry_with_external_id_passes_the_gate() {
         let entry = discovered("Has Id Game", Some("com.example.hasid"));
         assert!(entry.external_id.is_some());
+    }
+
+    // --- acquire_art_best_effort (W314) ---
+
+    /// A `rom` row never goes through this non-retro art path (it uses
+    /// `core::metadata::fallback` instead) — this must be a pure no-op, not
+    /// an error, even with a hint present.
+    #[test]
+    fn acquire_art_best_effort_is_noop_for_rom_source() {
+        let db = Db::open_in_memory().unwrap();
+        // No panic / no error possible: acquire_art_best_effort returns ().
+        tauri::async_runtime::block_on(acquire_art_best_effort(
+            &db,
+            1,
+            GameSource::Rom,
+            Some("irrelevant-hint"),
+        ));
+    }
+
+    /// A missing art hint (scanner didn't supply one) must short-circuit
+    /// before touching the network or filesystem at all.
+    #[test]
+    fn acquire_art_best_effort_is_noop_when_hint_absent() {
+        let db = Db::open_in_memory().unwrap();
+        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Steam, None));
     }
 }
