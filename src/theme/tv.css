@@ -116,6 +116,20 @@
        sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
     --rgp-tv-long-press-ms: 600ms;
 
+    /* ---- gameplay hold-to-open-menu (v0.28 W279) ----
+       A SEPARATE, unrelated threshold from --rgp-tv-long-press-ms above: how
+       long Start must be held ALONE (no chord) while a game is playing before
+       the in-game overlay opens (controller-input-design.md §Gameplay menu
+       trigger — a bare Start press must reach the game only, since every game
+       needs Start for its own play; a chord — Start+Select together — opens
+       it immediately without waiting for this timer). Mirrored in JS as
+       MENU_HOLD_MS (src/features/play/useGameplayMenuTrigger.ts) — the same
+       dual-source pattern as --rgp-tv-long-press-ms, since a CSS custom
+       property can't be read by the rAF poll loop. Do not conflate the two:
+       this gates the GAMEPLAY overlay; --rgp-tv-long-press-ms gates the
+       TV-mode-toggle long-press outside gameplay. */
+    --rgp-tv-menu-hold-ms: 5000ms;
+
     /* ---- hover-attract dwell (W273) ----
        How long focus/hover must settle on ONE shelf tile before the live
        preview boots behind the home (tv-mode-design.md §v0.27 → W273:
