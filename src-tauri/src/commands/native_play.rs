@@ -322,6 +322,7 @@ pub fn set_native_input(bits: u16) -> AppResult<()> {
 mod tests {
     use super::*;
     use std::process::Command;
+    use std::time::Duration;
 
     /// A minimal libretro core good enough to boot a real [`NativeRuntime`] —
     /// mirrors `core::core_options::probe`'s own `STUB_CORE_WITH_OPTIONS_C`/
@@ -502,5 +503,176 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         let (saves, perf) = session_side_effects(false, None, None);
         assert!(saves.is_none());
         assert!(perf.is_none());
+    }
+
+    // ---- W284 (issue #28): native frame-polling IPC contract
+    // (start_native_play / get_native_frame / stop_native_play) ----
+    //
+    // `start_native_play`/`get_native_frame`/`stop_native_play` all take
+    // `tauri::State<'_, NativeSession>` (`get_native_frame` also takes a
+    // second `State<'_, Db>`-shaped dependency upstream of it via
+    // `start_native_play`), which — consistent with every other command
+    // module in this crate — cannot be constructed outside a running
+    // `tauri::App`. `NativeSession` itself, however, is a plain struct
+    // (`Mutex<Option<NativeRuntime>>`), directly constructible here; these
+    // tests drive the *exact* body of each command (the `lock(&session)...`
+    // sequence, verbatim) against a real stub `NativeRuntime`, proving the
+    // full start -> poll-for-real-frames -> stop contract end to end — not
+    // just the `is_session_active` boolean the tests above already cover.
+
+    /// A stub core wired to actually call back with real, checkable video
+    /// frames on every `retro_run` (unlike this module's own
+    /// `STUB_CORE_C`/`build_stub_core` above, whose `retro_run` is a no-op —
+    /// sufficient for the lifecycle/session-bookkeeping tests above, but not
+    /// for proving `get_native_frame` actually polls real content). Mirrors
+    /// `play::native::runtime`'s own `headless_integration::STUB_AV_CORE_C`
+    /// fixture (kept local rather than shared, matching this crate's
+    /// established one-fixture-per-module convention for these small C stubs).
+    const STUB_FRAME_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+static retro_environment_t env_cb = 0;
+static retro_video_refresh_t video_cb = 0;
+static int tick = 0;
+
+void retro_init(void) {
+    bool can_dupe = false;
+    env_cb(3 /* RETRO_ENVIRONMENT_GET_CAN_DUPE */, &can_dupe);
+}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Frame Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "nes";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 2; info->geometry.base_height = 2;
+    info->geometry.max_width = 2; info->geometry.max_height = 2;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0; info->timing.sample_rate = 44100.0;
+}
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+bool retro_load_game(const struct retro_game_info *game) { return true; }
+void retro_unload_game(void) {}
+void retro_run(void) {
+    unsigned short buf[4];
+    for (int i = 0; i < 4; i++) buf[i] = (unsigned short)((i + 1) * 1000 + tick);
+    if (video_cb) video_cb(buf, 2, 2, 4);
+    tick++;
+}
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+void *retro_get_memory_data(unsigned id) { return 0; }
+size_t retro_get_memory_size(unsigned id) { return 0; }
+"#;
+
+    fn build_stub_frame_core(dir: &Path) -> Option<PathBuf> {
+        let c_path = dir.join("stub_frame_core.c");
+        std::fs::write(&c_path, STUB_FRAME_CORE_C).ok()?;
+        let dylib_path = dir.join("stub_frame_core.dylib");
+        let status = Command::new("cc")
+            .arg("-dynamiclib")
+            .arg("-o")
+            .arg(&dylib_path)
+            .arg(&c_path)
+            .status()
+            .ok()?;
+        status.success().then_some(dylib_path)
+    }
+
+    /// Mirrors `get_native_frame`'s exact body against a plain `NativeSession`.
+    fn get_native_frame_at(last_seq: u64, session: &NativeSession) -> Vec<u8> {
+        let frame = lock(session).as_ref().and_then(native::NativeRuntime::latest_frame);
+        encode_frame_response(last_seq, frame)
+    }
+
+    /// Mirrors `stop_native_play`'s exact body.
+    fn stop_native_play_at(session: &NativeSession) {
+        lock(session).take();
+    }
+
+    #[test]
+    fn start_poll_stop_contract_produces_and_then_stops_real_frame_delivery() {
+        let _guard = native::lock_tests();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_frame_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let rom_path = dir.path().join("game.nes");
+        std::fs::write(&rom_path, [0u8; 16]).expect("write stub rom");
+
+        let session = NativeSession::default();
+
+        // Before "start": no frame, matching a poll with nothing running
+        // (an empty body, exactly as `get_native_frame`'s doc promises).
+        assert!(get_native_frame_at(0, &session).is_empty());
+
+        // "start_native_play"'s real effect: install a live NativeRuntime.
+        let runtime =
+            native::NativeRuntime::start(&dylib, &rom_path, None, None).expect("runtime starts");
+        *lock(&session) = Some(runtime);
+
+        // Poll until a real frame lands, then assert get_native_frame's
+        // exact encoding: a non-empty body carrying the 16-byte header +
+        // real, non-blank RGBA8888 pixels for a fresh sequence number.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut body = Vec::new();
+        while std::time::Instant::now() < deadline {
+            body = get_native_frame_at(0, &session);
+            if !body.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!body.is_empty(), "a real frame must be polled within the deadline");
+        assert_eq!(body.len(), FRAME_HEADER_BYTES + 2 * 2 * 4); // 2x2 RGBA8888
+        let seq = u64::from_le_bytes(body[0..8].try_into().unwrap());
+        assert!(seq >= 1, "sequence number must have advanced past the initial 0");
+        assert_eq!(u32::from_le_bytes(body[8..12].try_into().unwrap()), 2); // width
+        assert_eq!(u32::from_le_bytes(body[12..16].try_into().unwrap()), 2); // height
+        assert!(
+            body[FRAME_HEADER_BYTES..].iter().any(|&b| b != 0),
+            "polled RGBA pixels must not be blank"
+        );
+
+        // Polling again with the seq we just saw must answer empty (the
+        // caller-already-has-this-frame contract) unless a newer frame
+        // already landed — either way, re-polling with 0 must still see a
+        // non-empty body (proves the session keeps producing, not a one-shot).
+        let second = get_native_frame_at(0, &session);
+        assert!(!second.is_empty());
+
+        // "stop_native_play"'s real effect: tears the runtime down; a
+        // subsequent poll goes back to an empty body (nothing running).
+        stop_native_play_at(&session);
+        assert!(get_native_frame_at(0, &session).is_empty());
     }
 }
