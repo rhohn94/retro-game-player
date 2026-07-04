@@ -137,6 +137,24 @@
     font-size: var(--rgp-tv-font-body);
   }
 
+  /* The W279 hold-to-open-menu indicator at the 10-foot scale: bigger ring +
+     safe-area inset so it reads from the couch and clears the fullscreen
+     frame edge, same "re-dress the shared component" pattern as the overlay
+     rules above. */
+  .rgp-player--takeover .rgp-hold-indicator {
+    top: var(--rgp-tv-safe-area);
+    right: var(--rgp-tv-safe-area);
+    padding: var(--aura-space-3);
+    gap: var(--aura-space-2);
+  }
+  .rgp-player--takeover .rgp-hold-indicator__ring {
+    width: 4rem;
+    height: 4rem;
+  }
+  .rgp-player--takeover .rgp-hold-indicator__label {
+    font-size: var(--rgp-tv-font-body);
+  }
+
   /* The expanding/collapsing cover-art layer. Positioned absolutely; its
      top/left/width/height are animated by Framer between the tile rect and the
      full viewport, so those are intentionally NOT set here. Background art is
