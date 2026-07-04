@@ -61,6 +61,10 @@ pub struct AppConfig {
     /// shared verbatim by both play paths (native WebGL2 shader, EJS CSS
     /// approximation).
     pub crt_filter: CrtFilterConfig,
+    /// Show the optional on-screen FPS counter on both play paths (v0.29
+    /// W281, performance-tooling-design.md). Off by default — an opt-in
+    /// diagnostic overlay, not a surprise addition to the play surface.
+    pub show_fps_counter: bool,
 }
 
 impl Default for AppConfig {
@@ -76,6 +80,7 @@ impl Default for AppConfig {
             pause_on_blur: true,
             auto_tv_mode: false,
             crt_filter: CrtFilterConfig::default(),
+            show_fps_counter: false,
         }
     }
 }
@@ -225,6 +230,20 @@ mod tests {
         assert!(cfg.pause_on_blur);
         assert!(!cfg.auto_tv_mode); // TV mode is opt-in (v0.26 W260)
         assert_eq!(cfg.crt_filter, CrtFilterConfig::default()); // off by default (v0.29 W280)
+        assert!(!cfg.show_fps_counter); // opt-in diagnostic overlay (v0.29 W281)
+    }
+
+    #[test]
+    fn show_fps_counter_round_trips() {
+        let (paths, tmp) = temp_paths("show-fps-counter");
+        let cfg = AppConfig {
+            show_fps_counter: true,
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert!(loaded.show_fps_counter);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

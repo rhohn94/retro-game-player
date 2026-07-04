@@ -17,6 +17,7 @@ use super::clock::FrameClock;
 use super::frame::{to_rgba8_into, Rgba8Frame};
 use super::host::LibretroCore;
 use super::perf_file::PerfLogFile;
+use super::perf_stats::FrameTimeWindow;
 use crate::error::{AppError, AppResult};
 use crate::play::saves::{GameSaves, PlayPath, AUTO_SLOT};
 use std::path::{Path, PathBuf};
@@ -371,6 +372,13 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
     let mut rgba_scratch: Vec<u8> = Vec::new();
     let mut resample_scratch: Vec<f32> = Vec::new();
     let mut was_paused = false;
+    // v0.29 W281 (performance-tooling-design.md): wall-clock timestamp of the
+    // previous iteration's start, so each new iteration's tick-to-tick delta
+    // can be recorded as one frame-time sample. `None` for the very first
+    // tick (no prior iteration to measure from) and reset across a
+    // pause/resume (a resumed session's first tick spans the pause, which is
+    // not a real frame-time regression).
+    let mut last_tick_start: Option<Instant> = None;
     while !ctx.stop.load(Ordering::Relaxed) {
         if ctx.paused.load(Ordering::Relaxed) {
             // Frozen behind the overlay: no frames tick, but save/load
@@ -380,12 +388,18 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
             was_paused = true;
             continue;
         }
+        let tick_start = Instant::now();
         if was_paused {
             // Resume from "now" — replaying the deadlines missed while
             // paused would burst the core to catch up.
             clock.resync();
             was_paused = false;
+            last_tick_start = None; // the pause gap itself is not a frame-time sample
         }
+        if let Some(previous) = last_tick_start {
+            perf.record_frame_time(tick_start.duration_since(previous));
+        }
+        last_tick_start = Some(tick_start);
         if ctx.core.run_frame().is_err() {
             // A bug (run before load_game), not a runtime fault a retry can
             // fix — stop rather than spin.
@@ -400,6 +414,7 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
             ctx.latest_frame,
             ctx.pixel_format,
             &mut rgba_scratch,
+            &ctx.counters,
         );
         drain_audio(&ctx.channels, &mut ctx.audio, &mut resample_scratch);
         handle_commands(&mut ctx);
@@ -432,11 +447,21 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
 /// *and*, when configured, to the per-session log file — macOS discards
 /// stderr for Finder-launched apps, so the file is what makes a real
 /// playtest reviewable after the fact (W274).
+///
+/// v0.29 W281 (performance-tooling-design.md) adds frame-time percentiles
+/// (p50/p95/p99) and a dropped-video-frame delta as fields APPENDED to the
+/// end of the existing line — the pre-existing prefix
+/// (`[rgp-native] perf: {fps} fps effective, ...`) is byte-for-byte unchanged,
+/// so any existing consumer/test that only reads that prefix keeps working.
 struct PerfLog {
     window_start: Instant,
     frames: u64,
     underruns: u64,
     overruns: u64,
+    dropped_video_frames: u64,
+    /// Per-frame tick durations recorded since the last emitted line —
+    /// reduced to p50/p95/p99 and cleared each time the line fires.
+    frame_times: FrameTimeWindow,
     /// Best-effort file sink; disabled means stderr-only, never an error.
     file: PerfLogFile,
 }
@@ -448,8 +473,17 @@ impl PerfLog {
             frames: counters.frames_run.load(Ordering::Relaxed),
             underruns: counters.underrun_samples.load(Ordering::Relaxed),
             overruns: counters.overrun_samples.load(Ordering::Relaxed),
+            dropped_video_frames: counters.dropped_video_frames.load(Ordering::Relaxed),
+            frame_times: FrameTimeWindow::default(),
             file,
         }
+    }
+
+    /// Records one core-tick's wall-clock duration toward this window's
+    /// frame-time percentiles. Called once per tick from `run_core_loop`
+    /// (never on the realtime audio path).
+    fn record_frame_time(&mut self, sample: Duration) {
+        self.frame_times.push(sample);
     }
 
     fn log_if_due(&mut self, counters: &PerfCounters, audio: Option<&CoreAudio>) {
@@ -460,9 +494,12 @@ impl PerfLog {
         let frames = counters.frames_run.load(Ordering::Relaxed);
         let underruns = counters.underrun_samples.load(Ordering::Relaxed);
         let overruns = counters.overrun_samples.load(Ordering::Relaxed);
+        let dropped_video_frames = counters.dropped_video_frames.load(Ordering::Relaxed);
         let fps = (frames - self.frames) as f64 / elapsed.as_secs_f64();
         // Formatted once so the stderr and file copies are always identical.
-        let line = match audio {
+        // The pre-existing prefix is untouched; percentiles + dropped-frame
+        // count are appended after it (additive-only format, W281).
+        let mut line = match audio {
             Some(audio) => format!(
                 "[rgp-native] perf: {fps:.2} fps effective, ring {:.0} ms, underrun +{}, overrun +{}",
                 audio.producer.fill_ms(audio.device_rate),
@@ -471,12 +508,27 @@ impl PerfLog {
             ),
             None => format!("[rgp-native] perf: {fps:.2} fps effective, audio off"),
         };
+        match self.frame_times.percentiles_ms() {
+            Some(p) => {
+                line.push_str(&format!(
+                    ", frame-time p50/p95/p99 {:.1}/{:.1}/{:.1} ms",
+                    p.p50, p.p95, p.p99
+                ));
+            }
+            None => line.push_str(", frame-time n/a"),
+        }
+        line.push_str(&format!(
+            ", dropped-video +{}",
+            dropped_video_frames - self.dropped_video_frames
+        ));
         eprintln!("{line}");
         self.file.append_line(&line);
         self.window_start = Instant::now();
         self.frames = frames;
         self.underruns = underruns;
         self.overruns = overruns;
+        self.dropped_video_frames = dropped_video_frames;
+        self.frame_times.reset();
     }
 }
 
@@ -561,16 +613,29 @@ fn drain_environment(
 /// the last one, so a momentarily slow consumer never builds up a backlog of
 /// stale frames (or pays the conversion cost for frames nobody will see).
 /// Conversion goes through `scratch`, which ping-pongs with the slot's
-/// previous buffer — zero allocation in steady state.
+/// previous buffer — zero allocation in steady state. Every frame drained but
+/// NOT kept (a newer one replaced it before anyone painted it) bumps
+/// `counters.dropped_video_frames` (v0.29 W281) — this is the core outpacing
+/// the frontend's poll cadence, not a decode/paint failure.
 fn drain_video(
     channels: &callbacks::CallbackChannels,
     latest_frame: &Mutex<FrameSlot>,
     pixel_format: &Mutex<PixelFormat>,
     scratch: &mut Vec<u8>,
+    counters: &PerfCounters,
 ) {
     let mut newest = None;
+    let mut discarded = 0u64;
     while let Ok(frame) = channels.video.try_recv() {
+        if newest.is_some() {
+            discarded += 1;
+        }
         newest = Some(frame);
+    }
+    if discarded > 0 {
+        counters
+            .dropped_video_frames
+            .fetch_add(discarded, Ordering::Relaxed);
     }
     let Some(frame) = newest else { return };
     let format = *pixel_format.lock().unwrap_or_else(|p| p.into_inner());
@@ -601,6 +666,147 @@ fn drain_audio(
         let skew = audio.producer.skew();
         audio.resampler.resample_into(&samples, skew, scratch);
         audio.producer.push(scratch);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::play::native::callbacks::{AudioBatch, CallbackChannels, EnvironmentEvent, VideoFrame};
+    use std::sync::mpsc;
+
+    /// Builds a standalone `CallbackChannels` (plain mpsc, no process-global
+    /// singleton) so `drain_video`/`drain_audio` are testable in isolation —
+    /// `callbacks::install()` is a process-wide singleton other tests in this
+    /// crate also touch, so tests here construct the struct directly instead.
+    fn test_channels() -> (
+        std::sync::mpsc::Sender<VideoFrame>,
+        std::sync::mpsc::Sender<AudioBatch>,
+        CallbackChannels,
+    ) {
+        let (video_tx, video_rx) = mpsc::channel();
+        let (audio_tx, audio_rx) = mpsc::channel();
+        let (_env_tx, env_rx) = mpsc::channel::<EnvironmentEvent>();
+        (
+            video_tx,
+            audio_tx,
+            CallbackChannels {
+                video: video_rx,
+                audio: audio_rx,
+                environment: env_rx,
+            },
+        )
+    }
+
+    fn one_pixel_frame() -> VideoFrame {
+        // RGB565 (2 bytes/pixel) is the smallest well-formed payload
+        // `to_rgba8_into` accepts alongside `PixelFormat::Rgb565`.
+        VideoFrame {
+            data: vec![0xFF, 0xFF],
+            width: 1,
+            height: 1,
+            pitch: 2,
+        }
+    }
+
+    #[test]
+    fn drain_video_keeps_only_the_newest_queued_frame() {
+        let (video_tx, _audio_tx, channels) = test_channels();
+        let latest_frame = Mutex::new(FrameSlot::default());
+        let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let counters = PerfCounters::default();
+        let mut scratch = Vec::new();
+
+        video_tx.send(one_pixel_frame()).expect("send 1");
+        video_tx.send(one_pixel_frame()).expect("send 2");
+        video_tx.send(one_pixel_frame()).expect("send 3");
+
+        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+
+        // 3 queued, 1 kept — the other 2 counted as dropped.
+        assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 2);
+        let slot = latest_frame.lock().unwrap();
+        assert_eq!(slot.seq, 1);
+        assert!(slot.frame.is_some());
+    }
+
+    #[test]
+    fn drain_video_with_a_single_queued_frame_drops_nothing() {
+        let (video_tx, _audio_tx, channels) = test_channels();
+        let latest_frame = Mutex::new(FrameSlot::default());
+        let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let counters = PerfCounters::default();
+        let mut scratch = Vec::new();
+
+        video_tx.send(one_pixel_frame()).expect("send");
+        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+
+        assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn drain_video_with_no_queued_frame_is_a_no_op() {
+        let (_video_tx, _audio_tx, channels) = test_channels();
+        let latest_frame = Mutex::new(FrameSlot::default());
+        let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let counters = PerfCounters::default();
+        let mut scratch = Vec::new();
+
+        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+
+        assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 0);
+        assert!(latest_frame.lock().unwrap().frame.is_none());
+    }
+
+    /// The additive-format contract (W281 acceptance): the pre-existing
+    /// prefix a hypothetical existing consumer might match on
+    /// (`[rgp-native] perf: {fps} fps effective, ...`) must still appear
+    /// verbatim, with the new percentile/dropped-frame fields appended after
+    /// it — never replacing or reordering the original fields.
+    #[test]
+    fn perf_log_line_is_additive_over_the_pre_w281_format() {
+        let counters = PerfCounters::default();
+        let mut perf = PerfLog::new(&counters, PerfLogFile::disabled());
+        perf.record_frame_time(Duration::from_millis(16));
+        perf.record_frame_time(Duration::from_millis(17));
+        counters.frames_run.fetch_add(120, Ordering::Relaxed);
+        counters.dropped_video_frames.fetch_add(3, Ordering::Relaxed);
+        perf.window_start = Instant::now() - PERF_LOG_INTERVAL;
+
+        // audio == None exercises the pre-W281 "audio off" branch verbatim.
+        perf.log_if_due(&counters, None);
+
+        // log_if_due doesn't return the line, so re-derive deterministically
+        // via the file sink to assert on its exact text.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("native-perf.log");
+        let mut perf = PerfLog::new(&counters, PerfLogFile::create(Some(&path)));
+        perf.record_frame_time(Duration::from_millis(16));
+        perf.window_start = Instant::now() - PERF_LOG_INTERVAL;
+        perf.log_if_due(&counters, None);
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            content.starts_with("[rgp-native] perf: "),
+            "prefix changed: {content}"
+        );
+        assert!(content.contains("fps effective, audio off"));
+        assert!(content.contains("frame-time p50/p95/p99"));
+        assert!(content.contains("dropped-video +"));
+    }
+
+    #[test]
+    fn perf_log_reports_frame_time_na_when_no_samples_recorded() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("native-perf.log");
+        let counters = PerfCounters::default();
+        let mut perf = PerfLog::new(&counters, PerfLogFile::create(Some(&path)));
+        perf.window_start = Instant::now() - PERF_LOG_INTERVAL;
+
+        perf.log_if_due(&counters, None);
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(content.contains("frame-time n/a"));
     }
 }
 

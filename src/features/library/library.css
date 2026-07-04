@@ -708,4 +708,22 @@
     color: var(--aura-on-surface-muted);
     white-space: nowrap;
   }
+
+  /* Optional on-screen FPS counter (v0.29 W281, performance-tooling-design.md):
+     a small always-legible readout, anchored opposite the hold-indicator so
+     the two never overlap. Purely a diagnostic overlay — no motion, so there
+     is nothing for the reduced-motion policy to need to zero out here. */
+  .rgp-fps-counter {
+    position: absolute;
+    top: var(--aura-space-4);
+    left: var(--aura-space-4);
+    z-index: 1050;
+    padding: var(--aura-space-1) var(--aura-space-2);
+    border-radius: var(--aura-radius-sm);
+    background: color-mix(in srgb, var(--aura-surface) 72%, transparent);
+    color: var(--aura-on-surface);
+    font: 12px/1.4 ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+  }
 }

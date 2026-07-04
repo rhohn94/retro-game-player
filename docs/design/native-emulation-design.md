@@ -1,6 +1,6 @@
 # Native emulation — host a libretro core directly, NES-first behind a flag
 
-> **Up:** [↑ Design docs](README.md)
+> **Up:** [↑ Design docs](README.md) · **Sib:** [performance-tooling-design.md](performance-tooling-design.md)
 
 ## Motivation
 
@@ -216,6 +216,11 @@ Three refinements:
    once); failure to open or write the file degrades silently to
    stderr-only, never a session error, and all file I/O stays on the core
    thread — never the realtime audio path.
+   **v0.29 (W281) additive extension:** the same line gained appended
+   frame-time p50/p95/p99 and a dropped-video-frame delta — the original
+   prefix is unchanged, so this remains a pure format addition. Full detail,
+   the EJS-path sibling log, the on-screen FPS counter, and the Settings →
+   Performance GUI panel: [performance-tooling-design.md](performance-tooling-design.md).
 4. **Core-thread QoS elevation** (stretch — landed) — the core thread
    raises itself to `QOS_CLASS_USER_INTERACTIVE` at start via a single
    documented `libc::pthread_set_qos_class_self_np` call, cfg-gated to

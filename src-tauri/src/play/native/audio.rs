@@ -81,6 +81,12 @@ pub struct PerfCounters {
     pub underrun_samples: AtomicU64,
     /// Samples dropped because the ring was full when the core pushed.
     pub overrun_samples: AtomicU64,
+    /// Queued video frames discarded, still-unpainted, because a newer one
+    /// arrived before the core thread's latest-frame-wins slot was drained
+    /// (v0.29 W281, performance-tooling-design.md) — the core produced faster
+    /// than the frontend polled, not a rendering defect. Written by
+    /// `runtime.rs`'s `drain_video`; read by the periodic perf log.
+    pub dropped_video_frames: AtomicU64,
 }
 
 /// The output gain shared between the IPC layer (`set_native_volume` →

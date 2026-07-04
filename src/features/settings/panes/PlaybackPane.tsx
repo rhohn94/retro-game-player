@@ -1,5 +1,6 @@
 // PlaybackPane — the Settings "Playback" section (v0.21 "Bedrock", W215;
-// pause-on-blur preference added by v0.24 W243).
+// pause-on-blur preference added by v0.24 W243; FPS counter toggle added by
+// v0.29 W281, performance-tooling-design.md).
 
 import { useState, useEffect } from "react";
 import { AuraButton } from "@aura/react";
@@ -7,12 +8,14 @@ import { AuraButton } from "@aura/react";
 import { getNativePlayEnabled, setNativePlayEnabled } from "../../../ipc/native-play";
 import { getPlayerPrefs, setPlayerPrefs } from "../../../ipc/player-prefs";
 import type { PlayerPrefs } from "../../../ipc/player-prefs";
+import { useShowFpsCounterState } from "../../play/useShowFpsCounter";
 
 export function PlaybackPane() {
   const [nativeEnabled, setNativeEnabledState] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prefs, setPrefsState] = useState<PlayerPrefs | null>(null);
+  const fpsCounter = useShowFpsCounterState();
 
   useEffect(() => {
     getNativePlayEnabled()
@@ -89,6 +92,21 @@ export function PlaybackPane() {
           onClick={() => { void handleBlurToggle(); }}
         >
           {prefs?.pauseOnBlur ? "Pause on blur: on" : "Pause on blur: off"}
+        </AuraButton>
+      </div>
+
+      <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+        Show a small on-screen FPS counter while playing. Applies to both play
+        paths; see Settings → Performance for logged history from past
+        sessions.
+      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <AuraButton
+          tabIndex={0}
+          variant={fpsCounter.enabled ? "secondary" : "ghost"}
+          onClick={() => fpsCounter.setEnabled(!fpsCounter.enabled)}
+        >
+          {fpsCounter.enabled ? "FPS counter: on" : "FPS counter: off"}
         </AuraButton>
       </div>
     </div>
