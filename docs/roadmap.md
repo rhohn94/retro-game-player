@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.31 — Frontier (in flight)
+## v0.31 — Frontier (implementation complete — pending release)
 
 **Theme:** Non-retro games join the library — Horizon H1, first slice.
 
