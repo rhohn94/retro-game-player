@@ -57,6 +57,10 @@ pub struct AppConfig {
     /// fresh launch instead of the desktop library (v0.26 W260,
     /// tv-mode-design.md §Auto-enter). Off by default — TV mode is opt-in.
     pub auto_tv_mode: bool,
+    /// CRT presentation filter config (v0.29 W280, crt-filter-design.md),
+    /// shared verbatim by both play paths (native WebGL2 shader, EJS CSS
+    /// approximation).
+    pub crt_filter: CrtFilterConfig,
 }
 
 impl Default for AppConfig {
@@ -71,6 +75,97 @@ impl Default for AppConfig {
             player_volume: 1.0,
             pause_on_blur: true,
             auto_tv_mode: false,
+            crt_filter: CrtFilterConfig::default(),
+        }
+    }
+}
+
+/// One named CRT-filter preset — a fixed quadruple of effect intensities
+/// (crt-filter-design.md's four named presets: Off / Classic CRT / Arcade
+/// Cabinet / Sharp). Kept as plain `u8` constants rather than a lookup table
+/// so the mapping is visible at a glance and trivially unit-testable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrtPreset {
+    Off,
+    Classic,
+    Arcade,
+    Sharp,
+}
+
+impl CrtPreset {
+    /// The four intensities (scanlines, curvature, color bleed, vignette)
+    /// this preset resolves to, each already clamped into [0, 100].
+    pub fn intensities(self) -> (u8, u8, u8, u8) {
+        match self {
+            // Every effect off — an escape hatch back to the plain image.
+            CrtPreset::Off => (0, 0, 0, 0),
+            // A believable consumer CRT: visible scanlines and a little
+            // color bleed and vignette, mild curvature (a TV, not a fishbowl).
+            CrtPreset::Classic => (55, 25, 35, 30),
+            // A stronger, more theatrical arcade-cabinet monitor: heavier
+            // curvature and vignette, bold scanlines.
+            CrtPreset::Arcade => (70, 55, 45, 55),
+            // A light, "just enough to read as CRT" look — mostly scanlines,
+            // negligible curvature/bleed/vignette.
+            CrtPreset::Sharp => (20, 0, 10, 10),
+        }
+    }
+}
+
+/// CRT presentation-filter configuration (v0.29 W280, crt-filter-design.md).
+/// One shared shape consumed identically by the native WebGL2 pipeline
+/// (`NativePlayer.tsx`) and the EJS CSS approximation (`InPagePlayer.tsx`) —
+/// per-effect intensity is [0, 100]; `preset` records the last-applied named
+/// preset (or `None` once the user free-tweaks a slider away from it) purely
+/// so the settings panel can highlight which preset (if any) is active.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CrtFilterConfig {
+    /// Scanline intensity [0, 100].
+    pub scanlines: u8,
+    /// Barrel/curvature warp intensity [0, 100].
+    pub curvature: u8,
+    /// RGB channel-offset color-bleed intensity [0, 100].
+    pub color_bleed: u8,
+    /// Vignette darkening intensity [0, 100].
+    pub vignette: u8,
+    /// The named preset this config currently matches, if any (`None` once a
+    /// slider has been dragged away from every preset's exact quadruple).
+    pub preset: Option<CrtPreset>,
+}
+
+impl Default for CrtFilterConfig {
+    /// Ships with the filter off — an opt-in presentation layer, not a
+    /// surprise default (mirrors `auto_tv_mode`'s off-by-default posture).
+    fn default() -> Self {
+        Self::from_preset(CrtPreset::Off)
+    }
+}
+
+impl CrtFilterConfig {
+    /// Builds a config from one of the four named presets.
+    pub fn from_preset(preset: CrtPreset) -> Self {
+        let (scanlines, curvature, color_bleed, vignette) = preset.intensities();
+        Self {
+            scanlines,
+            curvature,
+            color_bleed,
+            vignette,
+            preset: Some(preset),
+        }
+    }
+
+    /// Clamps every intensity into [0, 100] — the IPC boundary shouldn't
+    /// trust a slider value verbatim any more than `player_prefs` trusts a
+    /// raw volume float.
+    pub fn clamped(self) -> Self {
+        Self {
+            scanlines: self.scanlines.min(100),
+            curvature: self.curvature.min(100),
+            color_bleed: self.color_bleed.min(100),
+            vignette: self.vignette.min(100),
+            preset: self.preset,
         }
     }
 }
@@ -129,6 +224,7 @@ mod tests {
         assert_eq!(cfg.player_volume, 1.0);
         assert!(cfg.pause_on_blur);
         assert!(!cfg.auto_tv_mode); // TV mode is opt-in (v0.26 W260)
+        assert_eq!(cfg.crt_filter, CrtFilterConfig::default()); // off by default (v0.29 W280)
     }
 
     #[test]
@@ -216,6 +312,74 @@ mod tests {
         let cfg = AppConfig::load_or_init(&paths).expect("init");
         assert_eq!(cfg, AppConfig::default());
         assert!(paths.app_config_file().unwrap().exists());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn crt_filter_round_trips() {
+        let (paths, tmp) = temp_paths("crt-filter");
+        let cfg = AppConfig {
+            crt_filter: CrtFilterConfig::from_preset(CrtPreset::Arcade),
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert_eq!(loaded.crt_filter, CrtFilterConfig::from_preset(CrtPreset::Arcade));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn crt_filter_off_preset_is_all_zero() {
+        assert_eq!(CrtPreset::Off.intensities(), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn crt_filter_default_is_off_preset() {
+        let cfg = CrtFilterConfig::default();
+        assert_eq!(cfg.preset, Some(CrtPreset::Off));
+        assert_eq!(cfg.scanlines, 0);
+        assert_eq!(cfg.curvature, 0);
+        assert_eq!(cfg.color_bleed, 0);
+        assert_eq!(cfg.vignette, 0);
+    }
+
+    #[test]
+    fn crt_filter_every_preset_intensity_is_in_bounds() {
+        for preset in [
+            CrtPreset::Off,
+            CrtPreset::Classic,
+            CrtPreset::Arcade,
+            CrtPreset::Sharp,
+        ] {
+            let (s, c, b, v) = preset.intensities();
+            for value in [s, c, b, v] {
+                assert!(value <= 100, "{preset:?} intensity {value} out of [0,100]");
+            }
+        }
+    }
+
+    #[test]
+    fn crt_filter_clamped_caps_out_of_range_intensities() {
+        let cfg = CrtFilterConfig {
+            scanlines: 255,
+            curvature: 101,
+            color_bleed: 100,
+            vignette: 0,
+            preset: None,
+        }
+        .clamped();
+        assert_eq!(cfg.scanlines, 100);
+        assert_eq!(cfg.curvature, 100);
+        assert_eq!(cfg.color_bleed, 100);
+        assert_eq!(cfg.vignette, 0);
+    }
+
+    #[test]
+    fn crt_filter_missing_field_in_partial_file_defaults_to_off() {
+        let (paths, tmp) = temp_paths("crt-filter-partial");
+        std::fs::write(paths.app_config_file().unwrap(), br#"{"retroarch_path":"/x"}"#).unwrap();
+        let cfg = AppConfig::load(&paths).expect("load");
+        assert_eq!(cfg.crt_filter, CrtFilterConfig::default());
         std::fs::remove_dir_all(&tmp).ok();
     }
 
