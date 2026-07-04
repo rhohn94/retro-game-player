@@ -202,7 +202,7 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29 |
 |---|---|---|---|---|
 | `feat/w282-core-options` (W282) | ☑ | ☑ | ☑ | ☑ |
-| `feat/w283-keyboard-a11y` (W283) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w283-keyboard-a11y` (W283) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -219,4 +219,34 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 
 ### Follow-ups discovered during implementation
 
-- None yet.
+**Pass 1 (W282, W283):**
+
+- **Fixed before merge (not a follow-up):** W282's pre-merge review found a
+  real, ordinary-usage race between the core-options probe and a live
+  `NativeRuntime` session (both `start_native_play`'s seeding probe and
+  `list_core_options` could interleave with a still-live/dying session's FFI
+  callbacks). Closed by a hotfix commit on the same branch before merge —
+  `start_native_play` now holds the `NativeSession` mutex across teardown +
+  seed + install, and `list_core_options` refuses with `AppError::Conflict`
+  while a session is active. See `core-options-design.md`'s "Post-W282
+  hotfix" note.
+- **Fixed before merge:** `role="list"` on the Consoles/Library grids
+  (added by W283) had no matching `role="listitem"` on `ConsoleCard`/
+  `GameTile` — fixed inline (2-line addition) rather than deferred, since it
+  was a real screen-reader regression introduced by this same release.
+- Filed [#33](https://github.com/rhohn94/retro-game-player/issues/33) —
+  core-options probe robustness (settings-key escaping, `retro_load_game`-
+  declared options) — low priority, not reachable with today's single
+  native core.
+- Filed [#34](https://github.com/rhohn94/retro-game-player/issues/34) —
+  keyboard a11y follow-ups (`TvSystemMenu` DOM-focus sync,
+  `useKeyboardNav.ts` test coverage, dialog exclusive-claim gap, `TvRail`
+  `role="list"` audit) — low priority.
+- `start_native_play` now costs one extra ROM-less core load per game boot
+  (the W282 seeding probe) — negligible for `fceumm` today; worth profiling
+  if the native-hosted core catalog broadens (tracked by
+  `native-emulation-design.md`'s own existing follow-up, not a new issue).
+- Registering the remaining Consoles/Cores/Settings interactive elements
+  with `useFocusable` for direct spatial-nav reach is a pre-existing W268
+  follow-up (already tracked); Tab/Enter/Escape already reach them today via
+  W283's keyboard bridge.
