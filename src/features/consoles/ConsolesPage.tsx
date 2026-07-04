@@ -32,6 +32,7 @@ function ConsoleCard({
     <motion.button
       variants={listItem}
       type="button"
+      role="listitem"
       className="rgp-console-tile"
       onClick={() => onOpen(c.key)}
       aria-label={`${c.name} (${c.manufacturer}, ${c.year})`}
@@ -145,6 +146,8 @@ export function ConsolesPage() {
           <h2 className="rgp-consoles__gen">Generation {generation}</h2>
           <motion.div
             className="rgp-console-grid"
+            role="list"
+            aria-label={`Generation ${generation} consoles`}
             variants={listContainer}
             initial="hidden"
             animate="visible"

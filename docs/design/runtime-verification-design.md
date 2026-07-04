@@ -131,3 +131,134 @@ the Harmony shell (HeroBackdrop vibrancy over the routed first screen) plus the
 rendered DOM and `report.json`. `pnpm build` and `pnpm typecheck` stay green.
 The script is dependency-light (`playwright-core` + Node stdlib) and the static
 fallback guarantees a green smoke even where no browser is installed.
+
+## v0.29 (W284) — play-path + play-adjacent IPC integration coverage (#28)
+
+**Why.** The visual-inspection CLI above proves the *served UI shell* renders;
+it says nothing about whether an actual game boots, produces frames, or plays
+audio. Before W284 the three play paths (EmulatorJS loopback, native libretro
+hosting, RetroArch launch) and the growing play-adjacent IPC surface (55+
+commands by v0.29, including three new command groups added earlier in this
+same release — CRT filter config, performance-tooling logs, per-core options)
+had zero integration-level coverage: every existing test exercised either pure
+domain logic or the HTTP router function directly, never the real public
+entrypoints (`play::server::start`, `play::native::NativeRuntime::start`) a
+production boot actually calls. A broken player or a broken IPC command could
+ship with every gate green — exactly the v0.1 "shipped blank" failure mode
+this design doc exists to close, just one layer deeper (served UI vs. the
+play surface underneath it).
+
+**What changed.** No new test framework or crate-root `tests/` directory —
+this crate's established convention is `#[cfg(test)] mod tests` inline in the
+same file as the code under test (see `play/server.rs`, `play/native/host.rs`,
+`core/core_options/probe.rs` pre-W284), so the new coverage below follows that
+convention exactly, landing in the same files:
+
+1. **Loopback play-server integration** (`play/server.rs`,
+   `start_boots_a_real_server_serving_player_html_rom_and_healthz`). Boots the
+   server through its real public entrypoint (`play::server::start`, the exact
+   function `lib.rs` setup calls) rather than the private `serve_loop` test
+   helper every pre-existing route test in that file uses — binds a real
+   ephemeral `127.0.0.1` port, then makes real HTTP requests over it and
+   asserts on status codes and body content for `/player.html`, `/rom/<id>`,
+   and `/healthz`. The pre-existing route-table tests (still present,
+   unchanged) continue to cover the fuller path/edge-case matrix at the
+   `handle_request` level; this new test is the "does the actual thing you'd
+   run in production even bind and answer" proof above them.
+
+2. **Native-path smoke** (`play/native/runtime.rs`,
+   `mod headless_integration`). A synthetic stub libretro core — compiled at
+   test time via `cc`, the exact convention `host.rs`'s `build_stub_core` and
+   `core/core_options/probe.rs`'s `build_stub_core` already established (never
+   a bundled/copyrighted ROM) — that deterministically emits a non-uniform,
+   non-zero 4×4 RGB565 frame and a non-silent interleaved-stereo audio batch
+   on every `retro_run` tick. Two tests:
+   - `a_real_run_frame_tick_produces_genuine_video_and_audio_content` drives
+     the raw FFI lifecycle directly (`LibretroCore::load` →
+     `set_environment` → `init` → wire callbacks → `load_game` →
+     `run_frame`) and asserts the real `callbacks::CallbackChannels` receives
+     genuinely varying, non-blank video bytes and genuinely non-silent audio
+     samples — hardware-independent (no `cpal`/audio-device dependency), so
+     fully deterministic in headless CI.
+   - `native_runtime_start_produces_polling_real_frames` drives the actual
+     public `NativeRuntime::start` entrypoint end-to-end (the same
+     constructor `commands::native_play::start_native_play` calls in
+     production) and polls `latest_frame()` until a real, non-blank RGBA8888
+     frame lands, then asserts the sequence number keeps advancing on a
+     second poll — proving continuous production, not a single static frame.
+
+3. **Play-adjacent IPC command-surface contract tests**, one file per command
+   module, each following this crate's pre-existing convention (test the
+   real function/domain logic a `#[tauri::command]` thinly wraps, since
+   `tauri::State<'_, T>` has no public test constructor — confirmed against
+   the vendored `tauri` 2.11 source; every existing command module in this
+   crate, e.g. `commands::cores`, already avoids constructing `State` in
+   tests for the same reason):
+   - **Native frame polling** (`commands/native_play.rs`,
+     `start_poll_stop_contract_produces_and_then_stops_real_frame_delivery`):
+     a second, frame-producing stub core drives the literal body sequence of
+     `start_native_play` → `get_native_frame` → `stop_native_play` against a
+     plain `NativeSession`, asserting an empty poll before start, a real
+     non-empty framed response with correct header/dimensions/non-blank
+     pixels while running, and an empty poll again after stop.
+   - **CRT config get/set** (`commands/crt_filter.rs`, `ipc_contract`-style
+     tests reproducing `get_crt_filter`/`set_crt_filter`'s exact bodies
+     against an isolated `Paths::with_root`): fresh-install default,
+     set-then-get round trip, out-of-range clamping, and preset persistence —
+     all through a real `AppConfig::load`/`save` file round trip, not just
+     the in-memory DTO conversion the pre-existing tests covered.
+   - **Perf-log read** (`commands/perf_tools.rs`): reproduces
+     `read_native_perf_log`/`read_ejs_perf_log`/`report_ejs_perf_stats`'s
+     exact bodies against an isolated `Paths::with_root` — a fresh install
+     reads back empty (not an error), a reported EJS stat round-trips through
+     a real file read, the two logs are genuinely separate files, and a line
+     shaped exactly like `play::native::runtime`'s own `[rgp-native]` output
+     is read back correctly by the same resolved path the native runtime
+     writes to.
+   - **Core-options get/set/list** (`commands/core_options.rs`,
+     `mod ipc_contract`): a real stub core (declaring one option via
+     `RETRO_ENVIRONMENT_SET_VARIABLES`) probed through
+     `core_options::probe_declared_options` and resolved through
+     `resolve_session_variables`/`get_persisted_value`/`set_persisted_value`
+     against a real `Db::open_in_memory()` — covers the unset-falls-back-to-
+     core-default path, the persisted-value-wins-on-a-second-probe path, and
+     the exact `CoreOptionDto` mapping `list_core_options` serializes to the
+     frontend.
+
+**Regression-catching spot-check (proving these aren't decorative).**
+`play::native::runtime`'s `drain_video` stamps a new sequence number every
+time a frame is converted into the shared slot — the exact signal the
+frontend's poller (and `get_native_frame`) relies on to know "a new frame
+arrived." The line `slot.seq = slot.seq.wrapping_add(1);` was temporarily
+commented out (simulating a realistic regression: the poller would then
+believe no new frame ever arrived, even though frames were still being
+produced) and `cargo test` re-run: both
+`native_runtime_start_produces_polling_real_frames` (asserts the sequence
+number advances across two polls) and `start_poll_stop_contract_produces_and
+_then_stops_real_frame_delivery` (asserts `seq >= 1` on the first polled
+frame) failed immediately with clear assertion messages naming the stalled
+sequence number. The line was then restored and the full suite re-verified
+green. This is the acceptance criterion "a broken player fails CI, not manual
+QA" demonstrated directly, not merely asserted.
+
+**Wiring into `recipe.py smoke`.** Not needed: `.claude/recipes.json`'s `test`
+target already runs `cargo test --manifest-path src-tauri/Cargo.toml`, and the
+new coverage above is ordinary `#[cfg(test)]` code in the same crate — no new
+feature flag, binary, or separate invocation. It runs automatically every time
+`recipe.py test` (and therefore every gate sequence in `CLAUDE.md`) runs. The
+`smoke` target's own scope (served-UI-surface verification via
+`scripts/visual-inspect.mjs`) is deliberately unchanged — play-path/IPC
+integration coverage lives in `test`, not `smoke`, matching where each kind of
+verification already belonged before this work.
+
+**What's still not covered (recorded, not hidden).** The external-RetroArch
+launch path (`emulation-launch-design.md`) has no integration coverage here —
+it shells out to an external process Harmony doesn't control, which is a
+materially different (and already separately scoped) verification problem
+from the two paths Harmony hosts directly; out of scope for #28's proposed
+scope, which named only the loopback server and the native host. Real audio
+*hardware* output (a live `cpal`/CoreAudio device stream) remains unverified
+in CI by construction — the native-path audio assertions above stop at "the
+core produced real, non-silent samples," which is the correct, deterministic
+boundary for CI; a real device stream is exactly the `#[ignore]`d
+`manual_play_produces_audible_output` harness's job (unchanged by this work).

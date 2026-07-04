@@ -193,7 +193,7 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
 
 ---
 
-## v0.29 — Craft (planned)
+## v0.29 — Craft (released — see version-history.md)
 
 **Theme:** Authentic retro presentation and engineering depth.
 
@@ -217,6 +217,8 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
   ([#29](https://github.com/rhohn94/harmony/issues/29)).
 - **Play-path integration tests** so a broken player fails CI, not manual QA
   ([#28](https://github.com/rhohn94/harmony/issues/28)).
+
+Plan: [`release-planning-v0.29.md`](release-planning/release-planning-v0.29.md).
 
 ---
 

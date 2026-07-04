@@ -119,6 +119,64 @@ const ROUTES = [
   { name: "cores", hash: "#/cores", expect: "Cores" },
   { name: "search", hash: "#/search", expect: "Search" },
   { name: "settings", hash: "#/settings", expect: "Settings" },
+  // v0.29 W281 — the Settings → Performance panel (performance-tooling-design.md).
+  // Driven the same way as the TV system-menu routes below: click the real tab
+  // button (`settings-tab-performance`, SettingsPage.tsx's section list) rather
+  // than deep-linking, so this exercises the actual tab-switch seam.
+  //
+  // A genuinely POPULATED panel needs a real play session (native audio/GPU or
+  // an EmulatorJS WASM boot) that this headless, no-display CI harness cannot
+  // produce — the same honest limitation W280 recorded for its on-device perf
+  // trace (release-planning-v0.29.md §5, issue #35). This route instead proves
+  // the strongest CI-safe claim available: `mockOverrides` returns REAL-SHAPED
+  // log entries (the exact DTO the backend's `read_native_perf_log`/
+  // `read_ejs_perf_log` would return from an actual on-disk log), so the
+  // assertion is "the panel renders real entries when the backend has them",
+  // isolating the read→render path from the separately-flagged on-device
+  // capture gap.
+  {
+    name: "settings-performance",
+    hash: "#/settings",
+    mockOverrides: {
+      read_native_perf_log: {
+        lines: [
+          "[rgp-native] perf: 59.87 fps effective, ring 82 ms, underrun +0, overrun +0, frame-time p50/p95/p99 16.2/17.0/18.5 ms, dropped-video +0",
+          "[rgp-native] perf: 60.01 fps effective, ring 79 ms, underrun +0, overrun +0, frame-time p50/p95/p99 16.1/16.9/17.4 ms, dropped-video +1",
+        ],
+        fpsSeries: [59.87, 60.01],
+      },
+      read_ejs_perf_log: {
+        lines: ["[rgp-ejs] perf: game 1 — 58.42 fps, 17.1 ms/frame mean"],
+        fpsSeries: [58.42],
+      },
+    },
+    actions: async (page) => {
+      try {
+        await page.waitForSelector("#settings-tab-performance", { timeout: 4000 });
+        await page.click("#settings-tab-performance");
+        await page.waitForSelector("#settings-panel-performance", { timeout: 4000 });
+        await page.waitForFunction(
+          () => document.body.innerText.includes("rgp-native"),
+          { timeout: 4000 },
+        );
+        const shot = join(OUT_DIR, "settings-performance.png");
+        await page.screenshot({ path: shot, fullPage: false });
+        const marker = await page.evaluate(() => {
+          const panel = document.getElementById("settings-panel-performance");
+          const rows = Array.from(document.querySelectorAll(".rgp-perf-pane__row")).map(
+            (el) => el.textContent,
+          );
+          return { hasPanel: !!panel, rowCount: rows.length, rows };
+        });
+        if (!marker.hasPanel || marker.rowCount === 0) {
+          return { ok: false, skipReason: "performance panel did not render populated rows" };
+        }
+        return { ok: true, marker, shotOverride: shot };
+      } catch (err) {
+        return { ok: false, skipReason: `settings-performance drive failed: ${err && err.message}` };
+      }
+    },
+  },
   // The desktop game-detail route (W26A closes the §5 follow-up: /game/:id was
   // missing from the walk). The mock `get_game` returns SMB3, so its clean name
   // is the durable rendered marker — it appears in the detail `<h1>` regardless

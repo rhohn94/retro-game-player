@@ -39,6 +39,12 @@ pub const RUN_FILE_NAME: &str = "run.json";
 /// `[rgp-native] perf:` line is also persisted here, fresh each session).
 pub const NATIVE_PERF_LOG_FILE_NAME: &str = "native-perf.log";
 
+/// Sibling EJS-path perf telemetry filename under `logs/` (§4.1; v0.29 W281,
+/// performance-tooling-design.md) — a coarser cousin of
+/// [`NATIVE_PERF_LOG_FILE_NAME`] fed by `player.html`'s `postMessage` stat
+/// reports (FPS + coarse frame-time) rather than a Rust-side runtime loop.
+pub const EJS_PERF_LOG_FILE_NAME: &str = "ejs-perf.log";
+
 /// Deployed-apps subtree under the deployed root (§4.2).
 const DEPLOYED_APP_DIR: &str = "harmony";
 
@@ -122,6 +128,15 @@ impl Paths {
     /// logger at session start.
     pub fn native_perf_log_file(&self) -> AppResult<PathBuf> {
         Ok(self.logs_dir()?.join(NATIVE_PERF_LOG_FILE_NAME))
+    }
+
+    /// The sibling EJS-path perf log (`logs/ejs-perf.log`, v0.29 W281); its
+    /// parent `logs/` dir is ensured. Appended to (never truncated) by the
+    /// `report_ejs_perf_stats` IPC command as periodic reports arrive —
+    /// unlike the native log there is no single "session start" moment to
+    /// truncate on, since the EJS path has no Rust-side runtime loop.
+    pub fn ejs_perf_log_file(&self) -> AppResult<PathBuf> {
+        Ok(self.logs_dir()?.join(EJS_PERF_LOG_FILE_NAME))
     }
 
     /// `saves/` dir (created) — battery SRAM + save states, one subdir per
@@ -234,6 +249,11 @@ mod tests {
         assert_eq!(perf.file_name().unwrap(), NATIVE_PERF_LOG_FILE_NAME);
         assert!(perf.parent().unwrap().ends_with("logs"));
         assert!(perf.parent().unwrap().is_dir());
+
+        let ejs_perf = paths.ejs_perf_log_file().unwrap();
+        assert_eq!(ejs_perf.file_name().unwrap(), EJS_PERF_LOG_FILE_NAME);
+        assert!(ejs_perf.parent().unwrap().ends_with("logs"));
+        assert!(ejs_perf.parent().unwrap().is_dir());
 
         std::fs::remove_dir_all(&tmp).ok();
     }

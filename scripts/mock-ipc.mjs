@@ -86,6 +86,18 @@ export const MOCK_FIXTURES = {
     { id: 3, system: "snes", coreId: "snes9x", installedPath: "/cores/snes9x_libretro.dylib", version: "1.62", lastModified: NOW, active: true, available: true },
   ],
 
+  // --- Core options (src/ipc/core-options.ts, v0.29 W282) — a representative
+  // declared option list for the native-hosted NES core, one of each control
+  // archetype (bool / range / enum) so CoreOptionsPane renders every row kind
+  // headlessly.
+  list_core_options: [
+    { key: "fceumm_sprite_limit", description: "Sprite Limit", choices: ["enabled", "disabled"], value: "enabled" },
+    { key: "fceumm_region", description: "Region", choices: ["auto", "ntsc", "pal"], value: "auto" },
+    { key: "fceumm_overclock", description: "Overclocking", choices: ["0", "1", "2"], value: "0" },
+  ],
+  get_core_option: null,
+  set_core_option: null,
+
   // --- Search (src/ipc/search.ts) — the built-in providers seeded by migration 003 ---
   list_providers: [
     { id: 1, name: "MobyGames", urlTemplate: "https://www.mobygames.com/search/?q={query}", enabled: true, kind: "reference", directDownload: false, composeFilters: false },
@@ -288,6 +300,22 @@ export const MOCK_FIXTURES = {
   // keeps the desktop default of `false`.
   get_auto_tv_mode: false,
   set_auto_tv_mode: null,
+  // v0.29 W280 — CRT filter config (crt-filter-design.md). useCrtFilter is read
+  // by BOTH players (mounted on game-detail/takeover routes) and CrtFilterPane,
+  // so this fixture must exist for any route that can mount a player — missing
+  // it was a pre-existing gap (predates this file's W281 additions) that
+  // surfaced once a route actually drove a settings-panel interaction deep
+  // enough to hit it. Off preset (every intensity 0) mirrors the real default.
+  get_crt_filter: { scanlines: 0, curvature: 0, colorBleed: 0, vignette: 0, preset: "off" },
+  set_crt_filter: null,
+  // v0.29 W281 — emulation performance tooling (performance-tooling-design.md).
+  // A fresh install has no logged sessions yet, so both reads return an empty
+  // series — the panel's own empty-state hint covers that headlessly.
+  get_show_fps_counter: false,
+  set_show_fps_counter: null,
+  report_ejs_perf_stats: null,
+  read_native_perf_log: { lines: [], fpsSeries: [] },
+  read_ejs_perf_log: { lines: [], fpsSeries: [] },
 };
 
 /** Build the page-init script string that installs the mock IPC global before

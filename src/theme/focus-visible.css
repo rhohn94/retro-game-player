@@ -1,0 +1,50 @@
+/*
+ * Global focus-visible treatment (W283, controller-input-design.md §Keyboard
+ * as an input method; interaction-wiring-design.md §Focus-visible styling
+ * contract). ONE central rule for the app's keyboard focus ring, replacing
+ * the same three-line `outline: var(--rgp-focus-ring); outline-offset:
+ * var(--rgp-focus-ring-offset);` declaration that was previously copy-pasted
+ * per-component across consoles.css/cores.css/library.css/tv-shell.css/
+ * controllers-pane.css (the exact "per-component ad-hoc rules" this work item
+ * replaces — css.md's DRY/no-duplicated-declaration-blocks standard).
+ *
+ * `:focus-visible` (not bare `:focus`) so a MOUSE click never shows the ring —
+ * only real keyboard/assistive-tech focus does, matching the browser's own
+ * heuristic for "was this focus likely intentional keyboard navigation".
+ * Applies to every native focusable element/role by default so a NEW
+ * component gets the ring for free with no CSS of its own; a component only
+ * needs its own rule when it ALSO changes something beyond the outline itself
+ * (e.g. TvSystemMenu's focused-row background swap, TvTile's card lift) —
+ * those additive rules stay local, they just no longer repeat the ring
+ * declaration.
+ *
+ * Token-only (no literals): consumes the existing `--rgp-focus-ring`/
+ * `--rgp-focus-ring-offset` tokens declared once in aura-theme.css — the same
+ * tokens FocusRing.tsx (the controller-focus visual for non-native
+ * "virtual focus" surfaces) already reads, so keyboard focus and controller
+ * focus always render as the identical ring.
+ */
+
+@layer rgp-theme {
+  :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex],
+    [role="button"],
+    [role="option"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="link"],
+    aura-button,
+    aura-select
+  ):focus-visible {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
+  }
+}
