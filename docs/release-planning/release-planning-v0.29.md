@@ -215,7 +215,7 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29 |
 |---|---|---|---|---|
-| `fix/w284-play-path-integration-tests` (W284) | ☐ | ☐ | ☐ | ☐ |
+| `fix/w284-play-path-integration-tests` (W284) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -288,3 +288,21 @@ post-W280/W281/W282 play surface rather than going stale immediately.
   player or the CRT pane — caught and fixed in passing by the W281 agent
   (one-line additive fixture in `scripts/mock-ipc.mjs`), not filed
   separately since it's already resolved.
+
+**Pass 3 (W284) — final work item:**
+
+- Fixed inline before ticking the ledger: `commands/core_options.rs`'s new
+  test module hardcoded the `"fceumm"` core-id literal instead of
+  `native::NATIVE_CORE_ID` — harmless today, but would silently keep
+  passing against a stale string if the constant ever changes. Swapped to
+  the symbolic constant (8 call sites).
+- Three near-identical synthetic stub-libretro-core C fixtures now exist
+  across `runtime.rs`, `native_play.rs`, and (from W282) `core_options.rs`
+  — matches this crate's existing one-fixture-per-module precedent
+  (`host.rs`, `probe.rs` already did the same), so not a new pattern, but
+  worth a future consolidation into a shared test-only helper rather than
+  a fourth copy next time. No issue filed — too minor, noted for
+  continuity only.
+
+**All four v0.29 work items (W280–W284) are merged, reviewed, and gated
+green. Proceeding to release.**
