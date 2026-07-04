@@ -201,7 +201,7 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29 |
 |---|---|---|---|---|
-| `feat/w282-core-options` (W282) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w282-core-options` (W282) | ☑ | ☑ | ☑ | ☑ |
 | `feat/w283-keyboard-a11y` (W283) | ☐ | ☐ | ☐ | ☐ |
 
 ### Pass 2
