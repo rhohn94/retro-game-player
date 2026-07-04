@@ -13,3 +13,4 @@ pub mod vibrancy; // W10 — pre-blurred hero pipeline + cache
 pub mod familiar; // W12 — Familiar soft-dependency enrichment client
 pub mod console; // v0.12 — console catalog (static metadata + bundled title lists + media)
 pub mod core_options; // W282 — native-hosted core option probe + persistence
+pub mod sources; // W312/W313 — pluggable game-source scanners (Steam/app) + shared contract

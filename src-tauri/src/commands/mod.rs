@@ -29,6 +29,7 @@ pub mod app_config; // v0.26 W260 — general AppConfig IPC (auto_tv_mode)
 pub mod core_options; // v0.29 W282 — per-core libretro option GUI backend
 pub mod crt_filter; // v0.29 W280 — CRT presentation filter config (get/set)
 pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI panel reads
+pub mod sources; // v0.31 W313 — app scanner + manual entries (Steam scan: W312)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -148,6 +149,10 @@ macro_rules! register_commands {
             $crate::commands::perf_tools::report_ejs_perf_stats,
             $crate::commands::perf_tools::read_native_perf_log,
             $crate::commands::perf_tools::read_ejs_perf_log,
+            // Game sources: app scan + manual entry (v0.31 W313)
+            $crate::commands::sources::scan_app_source,
+            $crate::commands::sources::confirm_app_entries,
+            $crate::commands::sources::add_manual_entry,
         ])
     };
 }
