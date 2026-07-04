@@ -395,6 +395,26 @@ impl LibraryRepo<'_> {
         })
     }
 
+    /// Fetch a game by its `(source, external_id)` dedup key, or `None` if no
+    /// such row exists yet (v0.31 W312). Lets a source-scan IPC command tell
+    /// whether an upsert inserted a fresh row or refreshed an existing one,
+    /// without re-listing the whole table per discovered game.
+    pub fn get_game_by_source_external_id(
+        &self,
+        source: GameSource,
+        external_id: &str,
+    ) -> AppResult<Option<Game>> {
+        self.db.with_conn(|c| {
+            c.query_row(
+                "SELECT * FROM games WHERE source = ?1 AND external_id = ?2",
+                params![source.as_db_str(), external_id],
+                map_game,
+            )
+            .optional()
+            .map_err(map_sqlite)
+        })
+    }
+
     /// Fetch a game by id (NotFound if absent).
     pub fn get_game(&self, id: i64) -> AppResult<Game> {
         self.db.with_conn(|c| {
