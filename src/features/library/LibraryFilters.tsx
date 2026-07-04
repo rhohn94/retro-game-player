@@ -9,6 +9,7 @@
 import { AuraButton } from "@aura/react";
 import {
   ALL_SYSTEMS,
+  DESKTOP_SYSTEM,
   EMPTY_CRITERIA,
   hasActiveFilters,
   type Facets,
@@ -54,7 +55,9 @@ function FacetSelect({
 
 export function LibraryFilters({ facets, criteria, onChange }: LibraryFiltersProps) {
   const set = (patch: Partial<FilterCriteria>) => onChange({ ...criteria, ...patch });
-  const systems = [ALL_SYSTEMS, ...facets.systems];
+  // The "Desktop" tab (v0.31 W315) only appears once a non-retro row exists,
+  // and trails the real consoles so it reads as an addition, not a takeover.
+  const systems = [ALL_SYSTEMS, ...facets.systems, ...(facets.hasDesktop ? [DESKTOP_SYSTEM] : [])];
 
   return (
     <div className="rgp-filters">
