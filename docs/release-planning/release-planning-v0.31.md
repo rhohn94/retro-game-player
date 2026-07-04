@@ -122,10 +122,10 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.31 |
 |---|---|---|---|---|
-| `feat/w311-launcher-descriptors` (W311) | ☑ | ☐ | ☐ | ☐ |
-| `feat/w312-steam-source` (W312) | ☑ | ☐ | ☐ | ☐ |
-| `feat/w313-app-manual-sources` (W313) | ☑ | ☐ | ☐ | ☐ |
-| `docs/w316-docs-hygiene` (W316) | n/a | ☐ | ☐ | ☐ |
+| `feat/w311-launcher-descriptors` (W311) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w312-steam-source` (W312) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w313-app-manual-sources` (W313) | ☑ | ☑ | ☑ | ☑ |
+| `docs/w316-docs-hygiene` (W316) | n/a | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -150,3 +150,20 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 - Reviewer (W310, non-blocking): `src/ipc/familiar.ts` local `Game` mirror lacks
   the new source/launchDescriptor/externalId fields — reconcile when the
   canonical DTO consolidation lands.
+- **Merge note (Pass 2):** W312/W313 conflicted exactly on the predicted shared
+  files (`core/sources/mod.rs`, `commands/{mod,sources}.rs`, `ipc/sources.ts`);
+  resolved as additive unions. `GameSourcesPane.tsx` had consumed W313's stub
+  Steam type; fixed to the real `SourceScanReport` counts during resolution.
+- Reviewer (Pass 2, non-blocking): Steam appid flows unvalidated from `.acf`
+  into the `steam://rungameid/` URL — no injection risk (single argv element to
+  `open`), but add a numeric-only guard at parse time in `steam.rs`.
+- Reviewer (Pass 2, non-blocking): `gameSourcesGating.test.ts` re-implements the
+  pane's gating helpers instead of importing them — extract shared pure helpers
+  from `GameSourcesPane.tsx` so the test exercises the real logic.
+- Reviewer (Pass 2, non-blocking): `confirm_app_entries` stores the
+  client-supplied launch descriptor verbatim (same trust level as
+  `add_manual_entry`, not a new surface); defense-in-depth option is re-deriving
+  the descriptor server-side from the bundle path.
+- Reviewer (Pass 2, informational): app-launch play sessions can undercount if
+  `pgrep` polls before the app starts or the process name differs from the
+  bundle stem — documented accepted tradeoff, not a leak.
