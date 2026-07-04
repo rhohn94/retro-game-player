@@ -48,6 +48,7 @@
 | [save-persistence-design.md](save-persistence-design.md) | v0.23 "Continuity": battery SRAM + 4-slot save states on both play paths — shared RetroArch-convention disk layout (`saves/<system>/<stem>.*`), native serialize/SRAM FFI, EmulatorJS loopback save bridge, overlay slot picker + Continue affordance |
 | [direct-download-design.md](direct-download-design.md) | v0.24 (planned, #30): wiring the v0.16 per-provider `direct_download` opt-in into a user-clicked download → staging → import → play loop with strict safeguards |
 | [boot-latency-spike.md](boot-latency-spike.md) | v0.24 W242 (#14, research-only): findings on cutting the in-page boot floor — warm-emulator/ROM-swap = no-go (no API, silent-audio gate), decompressed-core caching = go (follow-up #31) |
+| [notarization-distribution-design.md](notarization-distribution-design.md) | v0.30 "Passport" W300: Developer-ID signing + hardened runtime + entitlements (JIT, unsigned-dylib loading for native cores, network client/server), `notarytool` submission/staple flow wired into `recipe.py package`, keychain-profile credential story, automated `spctl -a -t open` Gatekeeper check, honest gap table (no real Developer-ID creds / clean Mac in this environment) |
 | *(add rows as docs are created)* | |
 
 ### UX tier (`docs/design/ux/`)

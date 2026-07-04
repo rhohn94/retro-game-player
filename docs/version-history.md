@@ -7,6 +7,21 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.30 — Passport (2026-07-04)
+
+Ready for hands that aren't the developer's — the first steps toward a
+Gatekeeper-clean install for anyone, not just the dev machine.
+
+- **Developer-ID signing + notarization plumbing.** The release build path
+  now applies Developer-ID code signing, hardened runtime, and app
+  entitlements, and wires Apple notarization + stapling into the release
+  script, with an automated Gatekeeper (`spctl`) verification step. This
+  release ships the wiring and documentation; a real signed/notarized DMG
+  still requires a maintainer to supply an actual Apple Developer-ID
+  certificate and notarization credentials (see
+  `docs/design/notarization-distribution-design.md` for the full
+  credential-setup story and honest gap list).
+
 ## v0.29.1 — Native NES flip-fix hotfix (2026-07-04)
 
 Native NES gameplay renders right-side-up again.
