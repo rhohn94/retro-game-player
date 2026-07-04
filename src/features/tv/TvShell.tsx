@@ -2,23 +2,35 @@
 // desktop sidebar+content tree (v0.26 W260 foundation; W261 fills the outlet
 // with the real TV home). TvShell owns the CHROME (full-bleed backdrop,
 // 5%-overscan safe-area frame, section-label header, pointer exit affordance)
-// and renders its `children` — the real `<TvHome/>` from `Root` — into a marked
-// outlet region.
+// and renders its `children` — the real `<TvHome/>` (or, since v0.28 W278, an
+// embedded desktop screen — see `Root` in App.tsx) from `Root` — into a
+// marked outlet region.
 //
 // Controller `back` + the "press Back again to exit" confirm gesture are owned
 // by the mounted home content (TvHome installs the controller's EXCLUSIVE
 // handler and drives its own two-press exit-confirm via useTvExitConfirm), NOT
 // by this shell: an exclusive handler takes priority over any screen-level
 // `setActionHandlers`, so a `back` handler here would be dead while a home is
-// mounted. TvShell therefore keeps only the POINTER exit affordance (the visible
-// button); the controller-driven confirm lives with whoever owns the exclusive
-// handler. The shell still renders a placeholder when given no children so the
-// foundation stands alone.
+// mounted. TvShell therefore keeps only the POINTER exit + (since W278) POINTER
+// menu affordances (the visible buttons); the controller-driven confirm/menu
+// gestures live with whoever owns the exclusive handler at the time (TvHome,
+// an embedded screen, or — while open — TvSystemMenu itself, which claims
+// above them). The shell still renders a placeholder when given no children so
+// the foundation stands alone.
+//
+// v0.28 W278: TvShell also mounts `<TvSystemMenu/>` (gated on
+// `tvMode.menuOpen`) above the outlet — the menu is a shell-level chrome
+// concern (like the exit button), not owned by whatever `children` happens to
+// be showing, so it survives a TvHome <-> embedded-screen swap underneath it.
 
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { type ReactNode } from "react";
 import { HeroBackdrop } from "../library/HeroBackdrop";
 import { DUR, EASE_OUT } from "../../lib/motion";
+import { useTvMode } from "./TvModeContext";
+// TvSystemMenu imports its own stylesheet (tv-system-menu.css); the ☰ Menu
+// pointer button's styling lives in tv-shell.css alongside the exit button.
+import { TvSystemMenu } from "./TvSystemMenu";
 import "./tv-shell.css";
 
 /** Shell-level crossfade for TV mode's entry/exit (tv-mode-design.md: crossfade
@@ -62,6 +74,7 @@ export function TvShell({
   children?: ReactNode;
   onExit: () => void;
 }) {
+  const tvMode = useTvMode();
   return (
     <motion.div
       className="rgp-tv-shell"
@@ -76,15 +89,26 @@ export function TvShell({
           <span className="rgp-tv-shell__label">Retro Game Player</span>
         </header>
         <main className="rgp-tv-shell__outlet">{children ?? <TvHomePlaceholder />}</main>
-        <button
-          type="button"
-          className="rgp-tv-shell__exit"
-          onClick={onExit}
-          aria-label="Exit TV mode"
-        >
-          ⤢ Exit TV mode (Cmd+T)
-        </button>
+        <div className="rgp-tv-shell__chrome-buttons">
+          <button
+            type="button"
+            className="rgp-tv-shell__menu"
+            onClick={tvMode.openMenu}
+            aria-label="Open TV menu"
+          >
+            ☰ Menu
+          </button>
+          <button
+            type="button"
+            className="rgp-tv-shell__exit"
+            onClick={onExit}
+            aria-label="Exit TV mode"
+          >
+            ⤢ Exit TV mode (Cmd+T)
+          </button>
+        </div>
       </div>
+      <AnimatePresence>{tvMode.menuOpen && <TvSystemMenu />}</AnimatePresence>
     </motion.div>
   );
 }

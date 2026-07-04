@@ -7,6 +7,27 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.28 — Living Room (2026-07-03)
+
+TV mode refined by a real couch playtest — the shelves fit right, every
+screen is reachable, and the controller no longer fights the game you're
+playing.
+
+- **A smaller banner, tiles that are never chopped.** The hero band is
+  shorter, and shelf tiles now size themselves to the screen so at least 5
+  are always fully visible and never clipped top or bottom — shelves may
+  draw over the lower edge of the banner instead of leaving a gap.
+- **Every screen, from the couch.** Press Select (or the PlayStation
+  touchpad) outside of gameplay to open a system menu — TV Home, Consoles,
+  Search, Cores, and Settings are all one press away, rendered at 10-foot
+  scale without leaving TV mode or fullscreen. Exiting TV mode always
+  returns you to the screen you started from.
+- **Start is yours again during gameplay.** A single Start press now reaches
+  the game only — no more accidental menu pop-ups while playing. Open the
+  in-game overlay with Start+Select together, or by holding Start alone for
+  5 seconds (a small on-screen ring shows the hold building so you know it's
+  about to open).
+
 ## v0.27.1 — EJS audio-warmup hotfix (2026-07-03)
 
 Clean-sounding boots on the EmulatorJS path (every in-page system except

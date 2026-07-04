@@ -36,8 +36,24 @@
     flex-direction: column;
     /* Positioned so the rails paint ABOVE the W273 attract-preview layer
        (positioned elements at the same z level paint in DOM order; the
-       preview renders first). No z-index needed — DOM order carries it. */
+       preview renders first) AND above the hero's lower band once the
+       negative margin below pulls this region up over it — both `TvHero`
+       and this element are `position: relative` with the default z-index,
+       so later DOM order (rails render after the hero) is what wins the
+       overlap; no z-index needed. */
     position: relative;
+    /* v0.28 W277 (user directive: "okay to draw them on top of the banner"):
+       pull the rails region up to overlap the hero's lower band. The bare
+       focused TILE is already fully unclipped at the tuned 26vh hero height
+       with zero overlap (generous headroom — tv-mode-design.md §v0.28 walks
+       the 1920×1080 budget), so this isn't load-bearing for "unchopped" —
+       it's the authorized visual move that reunites the shorter hero with
+       the first shelf instead of leaving a gap between them. The overlap
+       token (tv.css) is tuned conservatively so it only ever draws over the
+       hero's ART/scrim in the dead band below the copy — the copy itself
+       (title/subtitle/chips/play, flex align-items: flex-end) stays clear,
+       see `.rgp-tv-hero__content`'s own comment for the margin math. */
+    margin-top: calc(-1 * var(--rgp-tv-rail-overlap));
     /* Each rail row carries its own vertical padding (to clear the focus
        scale/glow), so the inter-rail gap here is modest — space-2 keeps the
        shelves rhythmically close without the doubled whitespace a full
@@ -222,6 +238,20 @@
     /* Pad the copy in from the frame edge by the safe-area inset too, so text
        stays in the title-safe zone even though the art bleeds past it. */
     padding-left: calc(var(--rgp-tv-safe-area) + var(--rgp-tv-hero-content-pad));
+    /* v0.28 W277: this bottom pad (unchanged in shape, just the smaller
+       --rgp-tv-hero-content-pad input) already keeps the copy's bottom edge
+       `--rgp-tv-hero-content-pad + space-2` above the hero's own bottom edge
+       — comfortably more than `--rgp-tv-rail-overlap` (tv.css) at the tuned
+       26vh hero height, so the rails region overlapping the hero by that
+       amount only ever draws over the hero's ART/scrim in the dead band
+       below the copy, never over the title/subtitle/chips/play button
+       itself (verified against the 1920×1080 + 1512×982 geometry in
+       tv-mode-design.md §v0.28). Growing the overlap token further would
+       need this padding revisited too — the two are coupled by the geometry,
+       not by a calc() reference, because tying padding-bottom directly to
+       the overlap would out-grow the hero's own height budget (the hero has
+       almost no slack left once its copy stack + this pad already nearly
+       fill 26vh). */
     padding-bottom: calc(var(--rgp-tv-hero-content-pad) + var(--aura-space-2));
     max-width: 60%;
   }
@@ -315,6 +345,24 @@
   .rgp-tv-rail__row {
     display: flex;
     gap: var(--rgp-tv-rail-gap);
+    /* v0.28 W277 (user directive: "shrink them so at least 5 games are
+       visible at a time"): the live tile width is the SMALLER of the
+       320px cap and the width that fits exactly 5 tiles + 4 gaps across the
+       row's available content width (viewport minus the fixed insets this
+       row itself pads with below: safe-area + focus-clearance on each side).
+       Below the cap this closes an exact 5-tiles-visible budget by
+       construction — width*5 + gap*4 == available width, so a 6th tile is
+       fully off the visible edge rather than fractionally clipped in. Above
+       the cap (very wide/high viewports) the tile simply stays at its
+       original 320×440 size and more than 5 fit. `--rgp-tv-tile-width` is
+       redeclared here (not in tv.css) because the formula needs 100vw, which
+       only makes sense scoped to this row, not as a global default. */
+    --rgp-tv-tile-width: min(
+      var(--rgp-tv-tile-width-cap),
+      calc(
+        (100vw - 2 * (var(--rgp-tv-safe-area) + var(--rgp-tv-focus-clearance)) - 4 * var(--rgp-tv-rail-gap)) / 5
+      )
+    );
     /* NOTE: setting overflow-x without overflow-y computes the Y axis to
        `auto` too (CSS overflow spec) — this box IS a vertical overflow
        boundary for its own content, which is exactly why the focused tile's
@@ -395,7 +443,16 @@
   .rgp-tv-tile__frame {
     position: relative;
     width: var(--rgp-tv-tile-width);
-    height: var(--rgp-tv-tile-height);
+    /* Height tracks the responsive width via the 320:440 aspect (W277) rather
+       than a second independently-sized token, so the "box" proportion holds
+       at every viewport without a live tile-height var feeding back into the
+       focus-clearance calc (tv.css circularity note). Uses the UNITLESS
+       aspect tokens, not the px caps: `aspect-ratio` needs a bare `<ratio>`
+       (e.g. `320 / 440`) — feeding it `320px / 440px` is invalid CSS and
+       silently resolves to `auto`, which is exactly the bug a real-browser
+       measurement caught here (the frame fell back to sizing from its
+       content instead of the intended aspect). */
+    aspect-ratio: var(--rgp-tv-tile-aspect-w) / var(--rgp-tv-tile-aspect-h);
     border-radius: var(--rgp-tv-radius-tile);
     overflow: hidden;
     background: var(--aura-shelf-alpha);

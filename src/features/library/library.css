@@ -422,6 +422,7 @@
 
   /* ---- in-page WASM player (v0.15) — an <iframe> on the loopback play origin ---- */
   .rgp-player {
+    position: relative; /* anchors the W279 hold indicator over the frame */
     display: flex;
     flex-direction: column;
     gap: var(--aura-space-2);
@@ -674,5 +675,52 @@
     min-width: 4ch;
     text-align: right;
     color: var(--aura-on-surface-muted);
+  }
+
+  /* Gameplay hold-to-open-menu indicator (v0.28 W279, controller-input-design.md
+     §Gameplay menu trigger): a small ring that builds while Start is held
+     alone toward the 5s threshold, so the user sees holding will open the
+     menu before it fires. Anchored over the running game, out of the way of
+     the desktop chip bar. The fill itself has no CSS transition/animation
+     (MenuHoldIndicator.tsx recomputes stroke-dashoffset every tick from live
+     progress) — only the container's show/hide fade rides a token duration,
+     which the app's central reduced-motion policy (motion.css) already
+     collapses to instant, giving reduced-motion users a plain appear/
+     disappear with no extra rule needed here. */
+  .rgp-hold-indicator {
+    position: absolute;
+    top: var(--aura-space-4);
+    right: var(--aura-space-4);
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--aura-space-1);
+    padding: var(--aura-space-2);
+    border-radius: var(--aura-radius-full);
+    background: color-mix(in srgb, var(--aura-surface) 72%, transparent);
+    pointer-events: none;
+    transition: opacity var(--rgp-dur-fast) var(--rgp-ease-out);
+  }
+  .rgp-hold-indicator__ring {
+    width: 2.5rem;
+    height: 2.5rem;
+    transform: rotate(-90deg); /* start the fill at 12 o'clock */
+  }
+  .rgp-hold-indicator__track {
+    fill: none;
+    stroke: var(--aura-border);
+    stroke-width: 3;
+  }
+  .rgp-hold-indicator__fill {
+    fill: none;
+    stroke: var(--aura-primary);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+  .rgp-hold-indicator__label {
+    font-size: 10px;
+    color: var(--aura-on-surface-muted);
+    white-space: nowrap;
   }
 }

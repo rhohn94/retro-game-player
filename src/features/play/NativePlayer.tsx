@@ -44,6 +44,7 @@ import {
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
@@ -98,6 +99,10 @@ export function NativePlayer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
+  // v0.28 W279: live progress (0..1) toward the hold-to-open-menu threshold —
+  // drives MenuHoldIndicator below; reported by useExclusiveControllerScope's
+  // raw-poll trigger, reset to 0 on release/chord/open.
+  const [holdProgress, setHoldProgress] = useState(0);
 
   // W273: a preview session is a no-trace spectator session end-to-end —
   // `preview` gates the backend save wiring (below) and the play-session
@@ -244,6 +249,7 @@ export function NativePlayer({
     setSelection,
     openOverlay,
     closeOverlay,
+    onHoldProgress: setHoldProgress,
   });
 
   useEffect(() => {
@@ -396,6 +402,7 @@ export function NativePlayer({
       <div className="rgp-player__frame">
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
+      {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
       {!preview && (
         <div className="rgp-player__bar">
           {continueTarget && (
