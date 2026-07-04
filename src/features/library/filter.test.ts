@@ -1,6 +1,7 @@
 // Unit tests for the pure library-filtering logic (v0.6 W62).
 import { describe, it, expect } from "vitest";
 import {
+  DESKTOP_SYSTEM,
   EMPTY_CRITERIA,
   facetValues,
   filterGames,
@@ -62,6 +63,15 @@ describe("facetValues", () => {
     expect(f.developers).toEqual([]);
     expect(f.publishers).toEqual([]);
   });
+
+  it("reports hasDesktop false when every row is a ROM (v0.31 W315)", () => {
+    expect(facetValues(GAMES).hasDesktop).toBe(false);
+  });
+
+  it("reports hasDesktop true once a non-rom row is present (v0.31 W315)", () => {
+    const withSteam = [...GAMES, game({ id: 6, system: null, source: "steam", cleanName: "Portal 2" })];
+    expect(facetValues(withSteam).hasDesktop).toBe(true);
+  });
 });
 
 describe("filterGames", () => {
@@ -92,6 +102,14 @@ describe("filterGames", () => {
   it("combines facets with AND", () => {
     const c: FilterCriteria = { ...EMPTY_CRITERIA, system: "snes", query: "super" };
     expect(filterGames(GAMES, c).map((g) => g.id)).toEqual([3]); // Super Metroid only
+  });
+
+  it("the Desktop tab shows only non-rom rows, hiding every ROM (v0.31 W315)", () => {
+    const steamGame = game({ id: 6, system: null, source: "steam", cleanName: "Portal 2" });
+    const appGame = game({ id: 7, system: null, source: "app", cleanName: "Chess.app" });
+    const withDesktop = [...GAMES, steamGame, appGame];
+    const c: FilterCriteria = { ...EMPTY_CRITERIA, system: DESKTOP_SYSTEM };
+    expect(filterGames(withDesktop, c).map((g) => g.id)).toEqual([6, 7]);
   });
 });
 

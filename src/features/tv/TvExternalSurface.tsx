@@ -1,10 +1,11 @@
-// TvExternalSurface — the takeover surface for EXTERNAL (RetroArch-only) systems
-// inside TV mode (v0.26 W265, tv-mode-design.md §Design "Transitions": "external
-// RetroArch gets the takeover to a branded 'Running in RetroArch' TV surface with
-// a Return affordance"). Systems with no in-page/native player can't run inside
-// the app, so — matching the desktop external path's honesty — the takeover lands
-// on a branded panel that says the game is running in RetroArch (a separate
-// window) and offers a big, 10-foot Return control back to the home.
+// TvExternalSurface — the takeover surface for EXTERNAL (no in-page/native
+// player) games inside TV mode (v0.26 W265, tv-mode-design.md §Design
+// "Transitions": "external RetroArch gets the takeover to a branded 'Running
+// in RetroArch' TV surface with a Return affordance"). v0.31 W315 generalizes
+// this to every externally-launched game, not just RetroArch: a non-retro row
+// (Steam/App/Manual, W310) is external by definition (no in-page play is a
+// scope non-goal), so the branded copy names the actual launch target
+// (`launchesViaLabel`) rather than hardcoding RetroArch.
 //
 // It spawns the external launch itself (on mount, exactly once) so the takeover
 // is a single seam: confirm on the tile → takeover expands → this surface fires
@@ -14,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Game } from "../../ipc/library";
 import { useFocusable } from "../controller";
+import { launchesViaLabel } from "../library/sourceBadge";
 import "./tv-external-surface.css";
 
 /** The external launch's progression, surfaced honestly on the panel. */
@@ -62,12 +64,17 @@ export function TvExternalSurface({ game, onReturn, launch }: TvExternalSurfaceP
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
 
+  // The branded target name: "RetroArch" for a ROM row, or the game's actual
+  // launch target (Steam / macOS) for a non-retro row — `launchesViaLabel`
+  // already returns "Launches via <X>"; strip the prefix for inline use here.
+  const target = launchesViaLabel(game.source).replace(/^Launches via /, "");
+
   const statusLine =
     launchState === "launching"
-      ? "Launching in RetroArch…"
+      ? `Launching in ${target}…`
       : launchState === "running"
-        ? "Running in RetroArch"
-        : "RetroArch could not start";
+        ? `Running in ${target}`
+        : `${target} could not start`;
 
   return (
     <div className="rgp-tv-external" data-testid="tv-external-surface" data-state={launchState}>
@@ -79,8 +86,8 @@ export function TvExternalSurface({ game, onReturn, launch }: TvExternalSurfaceP
         </p>
         <p className="rgp-tv-external__hint">
           {launchState === "failed"
-            ? "Check that RetroArch is installed and a core is configured for this system."
-            : "This game plays in a separate RetroArch window. Return here when you're done."}
+            ? `Check that ${target} is installed and available.`
+            : `This game plays in a separate ${target} window. Return here when you're done.`}
         </p>
         <button
           ref={ref}

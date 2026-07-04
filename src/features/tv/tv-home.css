@@ -500,6 +500,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Non-retro (Steam/App/Manual) tiles pair the caption with a small source
+     badge instead of a console badge (v0.31 W315 — non-retro-library-design.md
+     §UI). */
+  .rgp-tv-tile__source-badge {
+    display: inline-block;
+    margin-left: var(--aura-space-2);
+    padding: 1px var(--aura-space-2);
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    font-size: 0.7em;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
 
   /* Focus treatment — the whole point of a 10-foot UI. The focused tile pops
      forward (scale), gains a thick high-contrast ring, and a phosphor glow, all
