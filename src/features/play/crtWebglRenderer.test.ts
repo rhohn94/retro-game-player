@@ -6,6 +6,12 @@
 // per-frame uniform values, disposal) without asserting on pixels — real
 // pixel-level verification is a manual/on-device concern
 // (crt-filter-design.md's acceptance criteria).
+//
+// The `UNPACK_FLIP_Y_WEBGL` regression tests below are the one exception:
+// the stub's `pixelStorei`/`texImage2D` actually model that pixel-store
+// parameter's well-defined row-reversal semantics (WebGL2 spec, Pixel
+// Storage Parameters) so the tests can assert on the resulting row order
+// itself, not just that a call occurred.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CrtWebglRenderer, CrtWebglUnavailableError } from "./crtWebglRenderer";
@@ -38,11 +44,37 @@ interface StubOptions {
   linkFails?: boolean;
 }
 
+/** Reverses the row order of an RGBA8888 buffer — the well-defined transform
+ * `UNPACK_FLIP_Y_WEBGL=true` applies at pixel unpack time per the WebGL2
+ * spec (Pixel Storage Parameters): row `y` of the source becomes row
+ * `height-1-y` of the unpacked result. Used by the stub below to actually
+ * model flip semantics instead of merely recording that a flag was set. */
+function flipRows(bytes: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
+  const rowBytes = width * 4;
+  const flipped = new Uint8ClampedArray(bytes.length);
+  for (let y = 0; y < height; y++) {
+    const srcStart = y * rowBytes;
+    const destStart = (height - 1 - y) * rowBytes;
+    flipped.set(bytes.subarray(srcStart, srcStart + rowBytes), destStart);
+  }
+  return flipped;
+}
+
 /** Builds a fake WebGL2RenderingContext recording every call the renderer
- * makes, resolving getUniformLocation to a distinct sentinel per name. */
+ * makes, resolving getUniformLocation to a distinct sentinel per name.
+ *
+ * `pixelStorei`/`texImage2D` model real `UNPACK_FLIP_Y_WEBGL` semantics (not
+ * just call recording): `unpackFlipY` defaults to `false` per the WebGL2
+ * spec, `pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, v)` updates it, and `texImage2D`
+ * applies `flipRows` to the incoming pixel buffer whenever the flag is active
+ * at upload time — mirroring what a real driver does to the source bytes
+ * before they land in the texture. The (possibly flipped) result is stored on
+ * `gl._lastUploadedPixels` so tests can assert on actual row order rather
+ * than just on the raw (pre-transform) call arguments. */
 function makeGlStub(opts: StubOptions = {}) {
   const uniformValues: Record<string, unknown> = {};
   let shaderCounter = 0;
+  const flipState = { unpackFlipY: false };
 
   const gl = {
     ...GL_CONSTANTS,
@@ -64,11 +96,29 @@ function makeGlStub(opts: StubOptions = {}) {
     deleteTexture: vi.fn(),
     bindTexture: vi.fn(),
     texParameteri: vi.fn(),
-    pixelStorei: vi.fn(),
+    pixelStorei: vi.fn((pname: number, value: boolean) => {
+      if (pname === GL_CONSTANTS.UNPACK_FLIP_Y_WEBGL) flipState.unpackFlipY = value;
+    }),
     getUniformLocation: vi.fn((_program: unknown, name: string) => ({ name })),
     useProgram: vi.fn(),
     activeTexture: vi.fn(),
-    texImage2D: vi.fn(),
+    texImage2D: vi.fn(
+      (
+        _target: number,
+        _level: number,
+        _internalFormat: number,
+        width: number,
+        height: number,
+        _border: number,
+        _format: number,
+        _type: number,
+        pixels?: Uint8ClampedArray,
+      ) => {
+        if (pixels) {
+          gl._lastUploadedPixels = flipState.unpackFlipY ? flipRows(pixels, width, height) : pixels.slice();
+        }
+      },
+    ),
     uniform1i: vi.fn((loc: { name: string } | null, v: number) => {
       if (loc) uniformValues[loc.name] = v;
     }),
@@ -81,6 +131,10 @@ function makeGlStub(opts: StubOptions = {}) {
     bindVertexArray: vi.fn(),
     drawArrays: vi.fn(),
     viewport: vi.fn(),
+    /** Set by the `texImage2D` stub above to the (possibly flipped) buffer
+     * that "reached the GPU" — the actual post-transform row order, for
+     * tests to inspect directly instead of just checking a call happened. */
+    _lastUploadedPixels: undefined as Uint8ClampedArray | undefined,
   };
 
   return { gl, uniformValues };
@@ -139,7 +193,7 @@ describe("CrtWebglRenderer", () => {
     }
   });
 
-  it("draw() renders a distinct-first-row test pattern right-side-up: the flip flag is active for every upload so the source's top row is not sent to the GL bottom-left origin unflipped", () => {
+  it("draw() actually reverses source row order at upload time, so a top-red/bottom-blue source lands GPU-side as top-blue/bottom-red (i.e. right-side-up once WebGL's bottom-left texture origin is accounted for)", () => {
     const { gl } = makeGlStub();
     const canvas = stubCanvas(gl);
     const renderer = new CrtWebglRenderer(canvas);
@@ -149,20 +203,22 @@ describe("CrtWebglRenderer", () => {
     const width = 2;
     const height = 2;
     const bytes = new Uint8ClampedArray(4 * width * height);
+    const RED = [255, 0, 0, 255];
+    const BLUE = [0, 0, 255, 255];
     // Row 0 (top of source): red.
-    bytes.set([255, 0, 0, 255], 0);
-    bytes.set([255, 0, 0, 255], 4);
+    bytes.set(RED, 0);
+    bytes.set(RED, 4);
     // Row 1 (bottom of source): blue.
-    bytes.set([0, 0, 255, 255], 8);
-    bytes.set([0, 0, 255, 255], 12);
+    bytes.set(BLUE, 8);
+    bytes.set(BLUE, 12);
 
     renderer.draw(bytes, width, height, CRT_FILTER_OFF);
 
-    // The renderer must have the flip enabled at upload time so the GL
-    // texture's row 0 (bottom-left origin) receives the source's last row,
-    // and the source's first (top) row ends up sampled at v_uv.y == 1 —
-    // i.e. rendered at the top of the screen, right-side-up.
+    // The flip must be enabled at upload time...
     expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_FLIP_Y_WEBGL, true);
+    // ...and texImage2D is still invoked with the renderer's own unmodified
+    // source buffer (the renderer itself never reorders bytes — it delegates
+    // that to the GL unpack step via the pixelStorei flag).
     expect(gl.texImage2D).toHaveBeenCalledWith(
       gl.TEXTURE_2D,
       0,
@@ -174,6 +230,23 @@ describe("CrtWebglRenderer", () => {
       gl.UNSIGNED_BYTE,
       bytes,
     );
+
+    // The load-bearing assertion: inspect what the stub's simulated "GPU
+    // unpack" step actually produced. UNPACK_FLIP_Y_WEBGL=true reverses row
+    // order at unpack time, so the source's row 0 (red, top) must now sit at
+    // the LAST row slot, and the source's row 1 (blue, bottom) at the FIRST
+    // row slot. Combined with WebGL's bottom-left texture origin (texture
+    // row 0 == bottom of screen), this is exactly what makes the red row
+    // render at the top of the screen and the blue row at the bottom —
+    // right-side-up. If the fix were reverted (flip flag false or omitted),
+    // `_lastUploadedPixels` would equal the unflipped source, and this
+    // assertion would fail.
+    const uploaded = gl._lastUploadedPixels;
+    expect(uploaded).toBeDefined();
+    expect(Array.from(uploaded!.subarray(0, 4))).toEqual(BLUE);
+    expect(Array.from(uploaded!.subarray(4, 8))).toEqual(BLUE);
+    expect(Array.from(uploaded!.subarray(8, 12))).toEqual(RED);
+    expect(Array.from(uploaded!.subarray(12, 16))).toEqual(RED);
   });
 
   it("draw() uploads the frame texture and sets every effect uniform from the config", () => {
