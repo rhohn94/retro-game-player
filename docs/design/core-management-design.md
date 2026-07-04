@@ -1,6 +1,11 @@
 # Core Management — Harmony v0.1 (W5)
 
 > **Up:** [↑ Design docs](README.md) · [↑ Architecture master contract](architecture-design.md)
+> **See also:** [core-options-design.md](core-options-design.md) — per-core
+> libretro *option* GUI (v0.29 W282), for the native FFI-hosted core model
+> only. Distinct from this doc's install/update/active-core management: this
+> doc owns *which core* runs a system; core-options-design.md owns *how that
+> core is configured* once it's active.
 
 > **Status:** implementation detail beneath the master contract. The IPC command
 > surface (§2.2), the `cores` table (§3), the `AppError` contract (§2), and the

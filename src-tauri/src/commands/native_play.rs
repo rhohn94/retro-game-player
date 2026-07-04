@@ -5,6 +5,7 @@
 //! the native hosting path; see docs/design/native-emulation-design.md §3/§4.
 
 use crate::config::{paths::Paths, AppConfig};
+use crate::core::core_options;
 use crate::db::repo::library::LibraryRepo;
 use crate::db::repo::Repository;
 use crate::db::Db;
@@ -66,6 +67,28 @@ fn session_side_effects(
     }
 }
 
+/// Probes `core_path`'s declared options (W282) and seeds each one's
+/// effective value (persisted, or the core's own default) into the
+/// process-global store [`native::environment`]'s `GET_VARIABLE` handler
+/// reads from. Best-effort: a probe failure (e.g. a core that crashes on a
+/// bare `retro_init`) or a persistence read error is logged and otherwise
+/// ignored — a session must still be able to boot without its options
+/// screen ever having been opened.
+fn seed_persisted_core_variables(db: &Db, system: &str, core_id: &str, core_path: &Path) {
+    match core_options::resolve_effective_options(db, system, core_id, core_path) {
+        Ok(options) => {
+            let values = options.into_iter().map(|o| (o.key, o.value)).collect();
+            native::set_core_variables(values);
+        }
+        Err(e) => {
+            eprintln!(
+                "[rgp-native] core-options probe failed for {core_id} ({system}), \
+                 booting with the core's own defaults: {e}"
+            );
+        }
+    }
+}
+
 /// Starts a native session for `game_id`, replacing any session already
 /// running. Resolves the installed `fceumm` core path (W213) and the game's
 /// ROM path (the library row), then spawns the runtime (W212).
@@ -98,6 +121,13 @@ pub fn start_native_play(
     }
     let core_path = native::resolve_native_core_path(&db)?;
     let rom_path = PathBuf::from(&game.path);
+    // W282 (core-options-design.md): seed this session's declared option
+    // values — persisted value if any, else the core's own declared default
+    // — before the real boot below, so a core's GET_VARIABLE queries during
+    // its own retro_init see exactly what the Cores screen has saved. A
+    // core with no declared options (or a probe failure) seeds nothing,
+    // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
+    seed_persisted_core_variables(&db, &game.system, native::NATIVE_CORE_ID, &core_path);
     // Save persistence (W230): best-effort — an unavailable saves dir means
     // the session plays without persistence rather than failing to boot.
     let saves = Paths::app_support()

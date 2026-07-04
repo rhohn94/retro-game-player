@@ -546,6 +546,12 @@ fn drain_environment(
             EnvironmentEvent::PixelFormat(format) => {
                 *pixel_format.lock().unwrap_or_else(|p| p.into_inner()) = format;
             }
+            // The declared option list only matters to the core-options IPC
+            // surface (W282), which reads it via a dedicated headless probe
+            // (`core::core_options::list_declared_options`) — not the live
+            // play session, whose values were already seeded into
+            // `callbacks::set_core_variables` before this core booted.
+            EnvironmentEvent::VariablesDeclared(_) => {}
             EnvironmentEvent::Shutdown => stop.store(true, Ordering::Relaxed),
         }
     }

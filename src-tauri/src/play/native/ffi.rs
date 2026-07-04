@@ -47,6 +47,17 @@ pub const RETRO_ENVIRONMENT_GET_CAN_DUPE: u32 = 3;
 pub const RETRO_ENVIRONMENT_SET_MESSAGE: u32 = 6;
 pub const RETRO_ENVIRONMENT_SHUTDOWN: u32 = 7;
 pub const RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: u32 = 10;
+pub const RETRO_ENVIRONMENT_GET_VARIABLE: u32 = 15;
+pub const RETRO_ENVIRONMENT_SET_VARIABLES: u32 = 16;
+
+/// `retro_variable` (a single core-declared option query/answer pair).
+/// Field order/types must match `libretro.h` exactly — this crosses the FFI
+/// boundary the same way [`RawSymbols`] does.
+#[repr(C)]
+pub struct RetroVariable {
+    pub key: *const c_char,
+    pub value: *const c_char,
+}
 
 #[repr(C)]
 pub struct RetroSystemInfo {
