@@ -257,4 +257,110 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    // ---- W284 (issue #28): read_native_perf_log / read_ejs_perf_log /
+    // report_ejs_perf_stats IPC contract ----
+    //
+    // Like `get_crt_filter`/`set_crt_filter` (`commands::crt_filter`'s own
+    // W284 tests), these three commands resolve `Paths::app_support()`
+    // internally rather than taking an injectable root, so calling the real
+    // `#[tauri::command]` fns here would touch the developer machine's real
+    // app-support dir. These tests instead exercise each command's *exact*
+    // body against an isolated `Paths::with_root`, proving the real
+    // resolve-path -> read/write-file round trip the commands perform (not
+    // just the path-taking helpers `tail_lines`/`read_perf_log_entries`
+    // above already cover in isolation).
+
+    fn temp_paths(tag: &str) -> (crate::config::paths::Paths, std::path::PathBuf) {
+        let tmp = std::env::temp_dir().join(format!("rgp-perf-tools-cmd-{tag}-{}", std::process::id()));
+        let p = crate::config::paths::Paths::with_root(tmp.join(crate::config::paths::BUNDLE_ID))
+            .expect("root");
+        (p, tmp)
+    }
+
+    /// Mirrors `report_ejs_perf_stats`'s exact body against an isolated root.
+    fn report_ejs_perf_stats_at(
+        paths: &crate::config::paths::Paths,
+        report: EjsPerfReport,
+    ) -> AppResult<()> {
+        let path = paths.ejs_perf_log_file()?;
+        append_line(&path, &format_ejs_perf_line(&report))
+    }
+
+    /// Mirrors `read_native_perf_log`'s exact body against an isolated root.
+    fn read_native_perf_log_at(paths: &crate::config::paths::Paths) -> AppResult<PerfLogEntries> {
+        read_perf_log_entries(&paths.native_perf_log_file()?)
+    }
+
+    /// Mirrors `read_ejs_perf_log`'s exact body against an isolated root.
+    fn read_ejs_perf_log_at(paths: &crate::config::paths::Paths) -> AppResult<PerfLogEntries> {
+        read_perf_log_entries(&paths.ejs_perf_log_file()?)
+    }
+
+    #[test]
+    fn read_native_perf_log_on_a_fresh_install_is_empty_not_an_error() {
+        let (paths, tmp) = temp_paths("native-fresh");
+        let entries = read_native_perf_log_at(&paths).expect("read");
+        assert!(entries.lines.is_empty());
+        assert!(entries.fps_series.is_empty());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn report_ejs_perf_stats_then_read_ejs_perf_log_round_trips_a_real_report() {
+        let (paths, tmp) = temp_paths("ejs-round-trip");
+        report_ejs_perf_stats_at(
+            &paths,
+            EjsPerfReport {
+                game_id: 7,
+                fps: 59.5,
+                frame_time_ms: 16.8,
+            },
+        )
+        .expect("report 1");
+        report_ejs_perf_stats_at(
+            &paths,
+            EjsPerfReport {
+                game_id: 7,
+                fps: 60.0,
+                frame_time_ms: 16.6,
+            },
+        )
+        .expect("report 2");
+
+        let entries = read_ejs_perf_log_at(&paths).expect("read");
+        assert_eq!(entries.lines.len(), 2);
+        assert!(entries.lines[0].contains("game 7"));
+        assert_eq!(entries.fps_series, vec![Some(59.5), Some(60.0)]);
+
+        // The two logs are genuinely separate files — reading the native log
+        // through the same isolated root must not see the EJS report.
+        let native_entries = read_native_perf_log_at(&paths).expect("read native");
+        assert!(native_entries.lines.is_empty());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn read_native_perf_log_reflects_a_line_at_the_same_path_the_native_runtime_writes_to() {
+        // `native_perf_log_file()` is the same resolved path
+        // `play::native::runtime`'s `PerfLogFile` sink writes its
+        // `[rgp-native]` lines to (see that module's own perf-line tests);
+        // writing one here (matching its documented line shape) proves the
+        // GUI-facing read command genuinely reads back from that same path,
+        // not a hard-coded/mismatched one.
+        let (paths, tmp) = temp_paths("native-real-line");
+        let path = paths.native_perf_log_file().expect("path");
+        append_line(
+            &path,
+            "[rgp-native] perf: 59.87 fps effective, ring 82 ms, underrun +0, overrun +0, \
+             frame-time p50/p95/p99 16.2/17.0/18.5 ms, dropped-video +0",
+        )
+        .expect("append");
+
+        let entries = read_native_perf_log_at(&paths).expect("read");
+        assert_eq!(entries.lines.len(), 1);
+        assert_eq!(entries.fps_series, vec![Some(59.87)]);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
