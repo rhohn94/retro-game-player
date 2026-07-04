@@ -1,0 +1,83 @@
+/*
+ * TvSystemMenu (v0.28 W278) — the Select/touchpad system-menu overlay.
+ * Consumes ONLY the `--rgp-tv-*` tokens (theme/tv.css) plus the existing Aura
+ * brand/motion tokens; no literals (token-adoption guard,
+ * scripts/token-adoption.test.mjs). Declared in the same `rgp-theme` layer as
+ * every other app override (styles/layer-order.css). Motion is Framer-driven
+ * off `dialogPop` (src/lib/motion.ts), so it is neutralised centrally under
+ * prefers-reduced-motion with no per-component media query here.
+ */
+
+@layer rgp-theme {
+  .rgp-tv-system-menu {
+    position: fixed;
+    top: var(--rgp-tv-safe-area);
+    right: var(--rgp-tv-safe-area);
+    bottom: var(--rgp-tv-safe-area);
+    width: var(--rgp-tv-menu-panel-width);
+    z-index: 10; /* above the home's rails/preview layer and the shell header. */
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-4);
+    padding: var(--aura-space-5);
+    border-radius: var(--rgp-tv-radius-tile);
+    background: var(--aura-panel-alpha);
+    border: 1px solid var(--aura-border);
+    box-shadow: var(--rgp-tv-focus-glow);
+  }
+
+  .rgp-tv-system-menu__label {
+    margin: 0;
+    font-size: var(--rgp-tv-font-label);
+    font-weight: 700;
+    letter-spacing: var(--rgp-tv-label-tracking);
+    text-transform: uppercase;
+    color: var(--rgp-tv-label-color);
+  }
+
+  .rgp-tv-system-menu__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--rgp-tv-menu-item-gap);
+  }
+
+  .rgp-tv-system-menu__item {
+    width: 100%;
+    text-align: left;
+    padding: var(--aura-space-3) var(--aura-space-4);
+    border-radius: var(--rgp-tv-radius-tile);
+    border: 1px solid transparent;
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface);
+    font-size: var(--rgp-tv-font-body);
+    cursor: pointer;
+    transition: var(--rgp-tv-focus-transition);
+  }
+
+  .rgp-tv-system-menu__item[data-focused="true"],
+  .rgp-tv-system-menu__item:hover,
+  .rgp-tv-system-menu__item:focus-visible {
+    background: var(--aura-primary);
+    color: var(--aura-on-primary);
+    border-color: var(--aura-primary);
+    outline: none;
+    transform: scale(var(--rgp-tv-focus-scale));
+  }
+
+  /* ── embedded desktop-screen region (W278 "every page in TV mode") ──────
+     A uniform 10-foot scale-up wrapper (one knob, not per-screen restyling —
+     release-plan contract): CSS zoom keeps layout math (rects the base
+     spatial engine reads via getBoundingClientRect, scroll-into-view, etc.)
+     working in scaled coordinates, unlike a `transform: scale()` overlay
+     (which would leave hit-testing/layout in unscaled space). Desktop screens
+     stay visually + functionally unchanged; only the whole region is bigger. */
+  .rgp-tv-embed {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    zoom: var(--rgp-tv-embed-scale);
+  }
+}

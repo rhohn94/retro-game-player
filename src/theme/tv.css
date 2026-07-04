@@ -4,9 +4,11 @@
  *
  * A leanback surface is read from ~3m instead of ~50cm, so nothing from the
  * desktop scale is reused directly: type is stepped up ×1.6-2.0, tiles are
- * bigger (320x440, a touch taller than the desktop 3:4 tile so cover art reads
- * as a "box" at distance), and the whole shell sits inside a 5% overscan
- * safe-area inset so content never runs under a TV's bezel/scan cutoff.
+ * bigger (320x440 CAP, a touch taller than the desktop 3:4 tile so cover art
+ * reads as a "box" at distance — v0.28 W277 made the live width responsive so
+ * ≥5 fit per row, capped at that same 320×440), and the whole shell sits
+ * inside a 5% overscan safe-area inset so content never runs under a TV's
+ * bezel/scan cutoff.
  *
  * Declared in the SAME `rgp-theme` cascade layer as the rest of the app's
  * overrides (styles/layer-order.css) — TV mode does not need its own layer,
@@ -31,9 +33,25 @@
     --rgp-tv-font-title: 2.25rem; /* 36px — tile/rail item title, ×2.0 over --rgp-font-hero-title (26px, rounded) */
     --rgp-tv-font-hero-title: 3.5rem; /* 56px — the hero region's game title, ×~1.9 over --rgp-detail-title (30px) */
 
-    /* ---- tile + rail geometry ---- */
-    --rgp-tv-tile-width: 320px;
-    --rgp-tv-tile-height: 440px;
+    /* ---- tile + rail geometry (v0.28 W277: responsive, ≥5 tiles/row) ----
+       320×440 is now a CEILING, not a fixed pair: `--rgp-tv-tile-width-cap` /
+       `--rgp-tv-tile-height-cap` hold the original values as a documented
+       conservative constant that OTHER tokens (focus clearance below) derive
+       from, while the live `--rgp-tv-tile-width` shrinks to fit ≥5 tiles per
+       row on the current viewport (tv-home.css `.rgp-tv-rail__row` computes
+       it — see that file for the formula + the circularity note). */
+    --rgp-tv-tile-width-cap: 320px;
+    --rgp-tv-tile-height-cap: 440px;
+    /* Unitless mirrors of the cap pair, for the ONE consumer that needs a
+       `<ratio>` rather than a `<length>`: CSS `aspect-ratio` requires bare
+       numbers (`320 / 440`), not lengths (`320px / 440px` is invalid and
+       silently resolves to `auto` — caught by measuring the rendered tile
+       frame in a real browser, not just reading the CSS). Kept beside the
+       px caps, not computed from them (CSS has no unit-stripping function),
+       so a future re-tune of the cap must update both in the same place. */
+    --rgp-tv-tile-aspect-w: 320;
+    --rgp-tv-tile-aspect-h: 440;
+    --rgp-tv-tile-width: var(--rgp-tv-tile-width-cap);
     --rgp-tv-rail-gap: 2rem; /* 32px between tiles in a rail */
     --rgp-tv-rail-row-gap: 3rem; /* 48px between stacked rails */
     --rgp-tv-radius-tile: 1rem; /* 16px — chunkier than the desktop card radius */
@@ -71,9 +89,20 @@
        a little headroom. Reusing --rgp-tv-safe-area here would UNDER-clear on
        small viewports (5vmin can fall below the growth+glow budget), which is
        exactly how the top-edge clip happened — so this is its own token,
-       sized off the focus geometry instead of the frame's overscan inset. */
+       sized off the focus geometry instead of the frame's overscan inset.
+       v0.28 W277 circularity note: this now derives from the fixed
+       `--rgp-tv-tile-height-cap` (320×440's height), NOT the live
+       `--rgp-tv-tile-height` — tile width became viewport-derived (below) to
+       fit ≥5 tiles/row, and width's own formula subtracts this clearance from
+       the available viewport width. Deriving clearance from a live tile
+       height that itself derives (via aspect-ratio) from that same width
+       would create a var() cycle (width → height → clearance → width). The
+       cap is a documented conservative constant instead: it over-clears
+       slightly once the tile shrinks below 320×440 (a smaller focused tile
+       needs less real clearance than this), which is the safe direction to
+       be wrong in — tiles stay unclipped, never tight. */
     --rgp-tv-focus-clearance: calc(
-      (var(--rgp-tv-tile-height) * (var(--rgp-tv-focus-scale) - 1) / 2) +
+      (var(--rgp-tv-tile-height-cap) * (var(--rgp-tv-focus-scale) - 1) / 2) +
         var(--rgp-tv-focus-glow-radius) + var(--rgp-tv-focus-ring-width)
     );
 
@@ -86,6 +115,20 @@
        millisecond number is intentionally duplicated in the two single
        sources the way DUR/EASE already mirror motion.css <-> motion.ts. */
     --rgp-tv-long-press-ms: 600ms;
+
+    /* ---- gameplay hold-to-open-menu (v0.28 W279) ----
+       A SEPARATE, unrelated threshold from --rgp-tv-long-press-ms above: how
+       long Start must be held ALONE (no chord) while a game is playing before
+       the in-game overlay opens (controller-input-design.md §Gameplay menu
+       trigger — a bare Start press must reach the game only, since every game
+       needs Start for its own play; a chord — Start+Select together — opens
+       it immediately without waiting for this timer). Mirrored in JS as
+       MENU_HOLD_MS (src/features/play/useGameplayMenuTrigger.ts) — the same
+       dual-source pattern as --rgp-tv-long-press-ms, since a CSS custom
+       property can't be read by the rAF poll loop. Do not conflate the two:
+       this gates the GAMEPLAY overlay; --rgp-tv-long-press-ms gates the
+       TV-mode-toggle long-press outside gameplay. */
+    --rgp-tv-menu-hold-ms: 5000ms;
 
     /* ---- hover-attract dwell (W273) ----
        How long focus/hover must settle on ONE shelf tile before the live
@@ -117,13 +160,41 @@
        (typography rides the existing --rgp-tv-font-* ramp above). */
     --rgp-tv-overlay-panel-min: 400px;
 
-    /* ---- hero region (W261) ----
-       The key-art hero occupies the top band of the home; ~45% of the viewport
-       (tv-mode-design.md §Design "Hero": "~45% viewport height"). vh (not vmin)
-       so it tracks the TV's aspect. The content padding steps the copy in from
-       the hero's left edge for a cinematic gutter at 10 feet. */
-    --rgp-tv-hero-height: 42vh;
-    --rgp-tv-hero-content-pad: 4vmin;
+    /* ---- hero region (W261; cut down in v0.28 W277) ----
+       The key-art hero occupies the top band of the home. vh (not vmin) so it
+       tracks the TV's aspect. The content padding steps the copy in from the
+       hero's left edge for a cinematic gutter at 10 feet.
+       v0.28 W277 (user directive: "the banner is too big, cut it down"):
+       dropped from 42vh to 26vh — measured against the hero copy stack
+       (title + subtitle + chips + play button) at 1920×1080, 26vh (280.8px)
+       clears the ~247px stack with a ~34px margin once the content pad below
+       is also stepped down; at a 1512×982 laptop viewport the margin is a
+       tighter but still-positive ~12px (font metrics are px, not vh-based, so
+       they don't shrink with the smaller viewport). The rails region now
+       overlaps the hero's lower band (tv-home.css `.rgp-tv-home__rails`
+       negative margin) so the vertical budget closes at 1080p — the user
+       explicitly authorized drawing tiles over the banner. */
+    --rgp-tv-hero-height: 26vh;
+    /* Stepped down from 4vmin to 3vmin (W277) to buy back margin under the
+       shorter hero — the copy stack fits 26vh only with this tighter pad. */
+    --rgp-tv-hero-content-pad: 3vmin;
+    /* v0.28 W277: how far the rails region is pulled UP to overlap the hero's
+       lower band (tv-home.css `.rgp-tv-home__rails` negative margin) — the
+       user explicitly authorized "draw tiles on top of the banner", and this
+       is what visually reunites the shorter hero with the first shelf rather
+       than leaving a gap. A rem value (not vh/vmin): a fixed chrome offset,
+       not a proportional-to-viewport band. Tuned to 2rem deliberately
+       conservative — at the 26vh hero height the copy stack (title/
+       subtitle/chips/play) already fills the band closely (tv-home.css
+       `.rgp-tv-hero__content`'s comment walks the math), so this stays
+       comfortably inside the hero's existing bottom padding: only the art/
+       scrim in the dead band below the copy is ever drawn over, never the
+       copy itself. The bare TILE (not the whole row) is already fully
+       unclipped at 26vh with NO overlap at all (the tile-height budget has
+       generous headroom, tv-mode-design.md §v0.28) — this token exists for
+       the authorized visual overlap, not to force-fit an otherwise-clipped
+       tile. */
+    --rgp-tv-rail-overlap: 2rem;
     --rgp-tv-hero-title-max: 22ch; /* keep long titles from spanning the frame */
     /* Readable measure cap for 10-foot body copy (the get-core panel and any
        future full-surface prose, W275) — long lines are the first thing to go
@@ -147,5 +218,22 @@
        intent rather than reaching for --rgp-dur-base directly. */
     --rgp-tv-focus-transition: transform var(--rgp-dur-base) var(--rgp-ease-out),
       box-shadow var(--rgp-dur-base) var(--rgp-ease-out);
+
+    /* ---- system menu (W278) ----
+       The Select/touchpad overlay panel (tv-mode-design.md §v0.28 → W278):
+       a fixed-width list docked to one side so it reads as a system-level
+       overlay rather than competing with the home's own hero/rail geometry
+       underneath. Sized off the existing overlay-panel floor (W272's in-game
+       overlay) rather than inventing a new width constant. */
+    --rgp-tv-menu-panel-width: var(--rgp-tv-overlay-panel-min);
+    --rgp-tv-menu-item-gap: var(--aura-space-2);
+    /* The uniform "10-foot scale-up" knob for embedded desktop screens (W278
+       "every page in TV mode"): one CSS zoom factor applied to the whole
+       embedded region rather than per-screen restyling (release-plan
+       contract). Desktop screens are legible up close (~50cm); this closes
+       part of that gap for the couch without a bespoke TV layout per screen —
+       a documented v1 approximation, not full 10-foot polish (follow-up,
+       tv-mode-design.md §Follow-ups). */
+    --rgp-tv-embed-scale: 1.4;
   }
 }

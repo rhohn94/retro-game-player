@@ -154,10 +154,42 @@ no-trace), native-audio polish + persisted perf telemetry, and a full
 
 (The version numbers v0.27/v0.28 were originally absorbed into v0.26
 Theater — the former v0.27 "Theater" and v0.28 "Marquee" scopes shipped
-there; this v0.27 is a new scope. v0.28 stays retired; next planned versions
-remain v0.29 Craft and v0.30 Passport.)
+there; this v0.27 is a new scope. v0.28 was un-retired for a new scope too —
+see below; next planned versions remain v0.29 Craft and v0.30 Passport.)
 
 Plan: [`release-planning-v0.27.md`](release-planning/release-planning-v0.27.md).
+
+---
+
+## v0.27.1 — EJS audio-warmup hotfix (released — see version-history.md)
+
+**Theme:** Forward-port the abandoned `fix/audio-warmup` branch's
+warm-then-reset cold-start fix onto the current EmulatorJS host page (user
+directive, 2026-07-03) — EmulatorJS remains the primary in-page path for 7
+systems plus the NES fallback, and every boot there still garbled audio for
+~2–3s.
+
+Plan: [`release-planning-v0.27.1.md`](release-planning/release-planning-v0.27.1.md).
+
+---
+
+## v0.28 — Living Room (released — see version-history.md)
+
+**Theme:** The whole app from the couch, and a controller that doesn't fight
+the games it's playing — three user directives from the same 2026-07-03
+couch playtest that drove v0.27. Shrunk the TV hero band and made shelf
+tiles responsive so ≥5 are always fully visible and never chopped (rails may
+draw over the banner); added a Select/PlayStation-touchpad system menu so
+every screen (Consoles, Search, Cores, Settings) is reachable without
+leaving TV mode; and stopped the in-game overlay from eating a bare Start
+press — it now opens only via a Start+Select chord or a 5s solo hold (with a
+building progress-ring indicator), so every game's own use of Start works
+unmodified.
+
+(v0.28 was previously noted "stays retired" after its original "Marquee"
+scope shipped inside v0.26 Theater — same reuse precedent as v0.27 above.)
+
+Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
 
 ---
 
@@ -165,8 +197,22 @@ Plan: [`release-planning-v0.27.md`](release-planning/release-planning-v0.27.md).
 
 **Theme:** Authentic retro presentation and engineering depth.
 
-- **CRT / scanline display filters** (presets, both paths where feasible)
+- **State-of-the-art, highly configurable CRT filter** — scanlines, screen
+  curvature, color bleed, and related shader-style effects, with presets and
+  per-parameter tuning, on both play paths where feasible
   ([#23](https://github.com/rhohn94/harmony/issues/23)).
+- **Emulation performance tooling (user directive, 2026-07-03):** an optional
+  in-play FPS counter; profiling tools that record emulation performance
+  (frame timing / audio ring health / core hot spots) to an easily-accessible
+  file, reviewable both externally and from an in-app GUI panel. Builds on
+  the native path's existing `logs/native-perf.log` (W270/W274) — extends
+  that telemetry to be richer and to cover the EJS path too, plus surfaces it
+  in the UI instead of a plain-text file only.
+- **Per-core settings GUI (user directive, 2026-07-03):** a screen for
+  adjusting libretro core options per-console/per-core (today set only via
+  each core's own defaults) — needs a design pass on how core-specific
+  option schemas are discovered/persisted (native cores vs. RetroArch-managed
+  cores likely need different plumbing).
 - **Keyboard accessibility:** focus-visible + full keyboard operability
   ([#29](https://github.com/rhohn94/harmony/issues/29)).
 - **Play-path integration tests** so a broken player fails CI, not manual QA

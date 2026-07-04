@@ -77,6 +77,149 @@ to one move. `risingActions()` reports buttons newly pressed this frame
 (rising-edge), so one physical press fires exactly one action regardless of poll
 rate; the polling hook rate-limits held-stick repeats (`STICK_REPEAT_MS`).
 
+### 2.4 Auxiliary (per-family, additive) bindings — W278
+
+`BindingMap` is deliberately **one-button-per-action**: `resolveBindings` /
+`risingActions` assume a single physical button fires a given semantic action,
+which is the right shape for confirm/back/nav/menu/quit everywhere else in the
+app. The v0.28 "Living Room" TV system menu (tv-mode-design.md §v0.28 → W278)
+needed a SECOND physical button to also open it — the PlayStation touchpad
+click — without turning every action's binding into an array just to
+accommodate one extra button on one family.
+
+The fix is a small, separate, additive lookup in `actions.ts`, deliberately
+**not** folded into `resolveBindings`/`risingActions`:
+
+```ts
+export const STANDARD_BUTTON = {
+  // ...
+  touchpad: 17, // PlayStation touchpad click (DualShock 4 / DualSense)
+} as const;
+
+const AUX_BINDINGS: Partial<Record<DeviceFamily, Partial<Record<SemanticAction, number>>>> = {
+  playstation: { quit: STANDARD_BUTTON.touchpad },
+};
+
+export function defaultAuxBinding(family: DeviceFamily, action: SemanticAction): number | null;
+```
+
+`defaultAuxBinding(family, action)` returns the extra button index for that
+family/action pair, or `null` when there is none — today only
+`playstation`/`quit` has an entry. Consumers that need "does EITHER the
+primary or the aux button fire this action" check both explicitly (see
+`useMenuTrigger.isMenuTriggerPressed`, controller feature) rather than the aux
+table changing `resolveBindings`'s return shape. This keeps three existing
+contracts completely undisturbed:
+
+- **`quit`'s primary binding** stays Select (`STANDARD_BUTTON.select`) for
+  every family, in `resolveBindings`/`defaultBindings` — unaffected by W278.
+- **`risingActions`/the main `useGamepadPoll` dispatch** are untouched — the
+  aux table is not read there at all, so `nativeInput.ts`'s "quit" mapping and
+  every other `quit` consumer see no change.
+- **Persisted rebind overrides keyed `"quit"`** (`controller_bindings` DB rows)
+  keep resolving through `resolveBindings` exactly as before; the aux
+  touchpad binding is independent of any override on the primary binding (a
+  user who rebinds `quit` off Select does not lose the PS touchpad's ability
+  to open the TV menu, and vice versa — they are two separate paths to the
+  same action, not one binding with an override).
+
+The TV menu's own trigger is a raw-poll rising-edge hook
+(`src/features/controller/useMenuTrigger.ts`) mirroring `useLongPress`'s shape
+(own small rAF loop reading `navigator.getGamepads()` + the same
+`resolveBindings`/`detectFamily` helpers) rather than routing through
+`ControllerProvider`'s dispatch — so it fires regardless of who currently
+holds the exclusive claim stack. `isMenuTriggerPressed(pad, family,
+overrides)` is the pure, unit-tested "is the trigger down this tick" check
+(both the primary Select binding and, for PlayStation, the aux touchpad
+button); see tv-mode-design.md §v0.28 → W278 for the TV-feature-level gating
+policy (`useTvSystemMenuTrigger`) that wraps it.
+
+### 2.5 Gameplay menu trigger — Start+Select chord / 5s hold (W279)
+
+**The defect this replaces.** Through v0.28 W278, `useExclusiveControllerScope`
+/`routeScopedAction` (src/features/play/) opened the in-game overlay on a bare
+`menu` semantic action — a single Start press. Independently,
+`nativeInput.ts`'s `computeJoypadBits` maps that SAME physical button straight
+into the NES core's `START` joypad bit on every poll tick, regardless of
+overlay state. So one Start press did double duty: it reached the running
+game **and** popped the app's own overlay in the same frame — any game that
+itself uses Start for pause/menu could never be played without fighting the
+launcher's menu (user directive, 2026-07-03).
+
+**The fix.** `routeScopedAction`'s bare-`menu` branch is removed: while the
+overlay is closed, **every** semantic action is swallowed (Start reaches the
+core only, exactly like every other joypad button — `nativeInput.ts` is
+intentionally unchanged). The overlay is now summoned by a dedicated,
+gameplay-only raw-poll hook, additive to (not a replacement for) the semantic
+dispatch:
+
+```ts
+// src/features/play/useGameplayMenuTrigger.ts
+export const MENU_HOLD_MS = 5000; // its OWN constant — see the callout below
+
+export function useGameplayMenuTrigger(opts: {
+  onOpen: () => void;
+  onProgress?: (progress: number) => void; // 0..1, drives the hold indicator
+  overrides?: ReadonlyArray<{ deviceFamily: string; action: string; button: string }>;
+  enabled?: boolean;
+}): void;
+```
+
+Two additive ways to summon the overlay (the user's "or" ships as **both**,
+not a choice made for them):
+
+1. **Chord:** Start + Select held together in the same poll tick fires
+   `onOpen` once, immediately, on the rising edge of "both down".
+2. **Hold:** Start held **alone** (Select not also down — a chord in
+   progress never also counts toward the hold) for `MENU_HOLD_MS` fires
+   `onOpen` once; releasing before the threshold cancels silently (no
+   overlay, no partial-open) and the hook re-arms for the next press.
+
+Mirrors `useLongPress`/`useMenuTrigger`'s shape exactly: its own small rAF
+loop reading `navigator.getGamepads()` directly plus the same
+`resolveBindings`/`detectFamily` pure helpers, independent of the
+exclusive-claim dispatch. `useExclusiveControllerScope` wires it up alongside
+the claim lifecycle, enabled exactly while that scope owns the slot and the
+overlay is closed — so it is naturally gameplay-only and naturally shared by
+both play paths (InPagePlayer, NativePlayer) with no per-player duplication.
+
+**Two distinct hold-threshold constants — do not conflate them:**
+
+| Constant | Value | File | Gates |
+|---|---|---|---|
+| `LONG_PRESS_MS` | 600 ms | `controller/useLongPress.ts` | The TV-mode toggle long-press, **outside** gameplay (`useTvModeControllerToggle`, gated `!gameplayClaimActive`) |
+| `MENU_HOLD_MS` | 5000 ms | `play/useGameplayMenuTrigger.ts` | The in-game overlay hold-open gesture, **only while** gameplay owns the exclusive claim |
+
+Both mirror a CSS custom property for anything that needs to *show* the
+threshold (`--rgp-tv-long-press-ms` / `--rgp-tv-menu-hold-ms` in
+`theme/tv.css`) — the same dual-source pattern as `DUR`/`EASE` mirroring
+`motion.ts` ↔ `motion.css`, since a CSS custom property can't be read by a
+rAF loop. They are unrelated on purpose: one is a quick TV-shell toggle
+outside any game, the other is a deliberately slow (5 s) gameplay-only
+threshold chosen so it never fires by accident during normal play.
+
+**Hold indicator.** `MenuHoldIndicator` (`src/features/play/`) renders a
+small progress ring while `onProgress` reports > 0 — built from the live
+held-duration, not a CSS animation, so there is nothing for the fill itself
+to need to know about reduced motion. The container's show/hide rides the
+existing `--rgp-dur-fast` token transition, which the app's central
+reduced-motion rule (`theme/motion.css`) already zeroes to instant — so
+reduced-motion users get a plain, static appear/disappear with no
+per-component media query, per the established "one central rule, no
+component opts out itself" policy. Styled at the desktop scale in
+`library.css` (`.rgp-hold-indicator*`) and re-dressed at the `--rgp-tv-*`
+10-foot scale for the TV takeover in `tv-game-surface.css`
+(`.rgp-player--takeover .rgp-hold-indicator*`), the same "shared component,
+scoped override" pattern the in-game overlay itself already uses.
+
+**Scope note.** This is a **gameplay-only** rebind — it lives entirely in
+`useExclusiveControllerScope`/`useGameplayMenuTrigger` and does not touch
+W278's TV-system-menu trigger (`useMenuTrigger`/`useTvSystemMenuTrigger`,
+gated on `!gameplayClaimActive`, "outside of games"). The two menus stay on
+structurally distinct, non-conflicting gestures by construction: one
+requires holding the gameplay exclusive claim, the other requires its
+absence, so there is no cross-gating between them to get wrong.
+
 ## 3. Spatial focus engine (`spatial.ts`, `ControllerProvider.tsx`, `hooks.ts`)
 
 A dependency-free geometric nearest-neighbour core (implemented in-repo rather
@@ -209,6 +352,13 @@ name with no hex tag. `detectPlayStationModel` further distinguishes DualShock
 - `2dc8-6001-8BitDo SN30 Pro`
 - `Pro Controller`
 - `Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)`
+
+**PlayStation touchpad (W278, TV system menu).** `STANDARD_BUTTON.touchpad`
+(index 17) is a DualShock 4 / DualSense-only aux binding for `quit`, layered on
+top of the table above rather than a new column: PlayStation pads open the TV
+system menu (v0.28 "Living Room") with EITHER Select (like every other family)
+OR a touchpad click — see §2.4 for the aux-binding mechanism. No other
+recognised family reports a button at index 17.
 
 **Non-standard mapping fallback.** `classifyMapping` (`actions.ts`) flags any
 pad whose `Gamepad.mapping !== "standard"` (empty string, or any other

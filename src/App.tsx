@@ -19,6 +19,7 @@ import { ControllerProvider, HintBar, useController, useFocusable } from "./feat
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
 import {
+  TvEmbeddedScreen,
   TvGameSurface,
   TvHome,
   TvModeProvider,
@@ -26,6 +27,7 @@ import {
   useAutoTvModeOnStartup,
   useTvMode,
   useTvModeControllerToggle,
+  useTvSystemMenuTrigger,
 } from "./features/tv";
 
 // Shell geometry (sidebar width, drag-strip height, the native traffic-light
@@ -347,15 +349,25 @@ function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   useTvModeAccelerator();
   useAutoTvModeOnStartup(tvMode);
   useTvModeControllerToggle();
+  useTvSystemMenuTrigger();
 
   return (
     <AnimatePresence mode="wait">
       {tvMode.active ? (
         <TvShell key="tv" onExit={tvMode.exit}>
-          {/* The home stays mounted behind the game takeover (W265) so its
-              per-rail focus memory + scroll position survive an exit — the
-              surface is an overlay, not a swap. */}
-          <TvHome onExit={tvMode.exit} />
+          {/* v0.28 W278 "every page in TV mode": the outlet shows EITHER the
+              home OR an embedded desktop screen, never both — unlike the game
+              takeover below (an overlay that keeps the home mounted so its
+              focus memory survives), an embedded screen fully REPLACES the
+              home; TvHome unmounting releases its exclusive claim
+              automatically (ControllerProvider's claim-stack release-on-
+              unmount), so the embedded screen's own base-spatial-nav
+              registrations just take over. */}
+          {tvMode.embeddedPath !== null ? (
+            <TvEmbeddedScreen key={tvMode.embeddedPath} />
+          ) : (
+            <TvHome onExit={tvMode.exit} />
+          )}
           {tvMode.launched && (
             <TvGameSurface
               key={tvMode.launched.game.id}

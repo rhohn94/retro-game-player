@@ -59,6 +59,10 @@ export const STANDARD_BUTTON = {
   dpadDown: 13,
   dpadLeft: 14,
   dpadRight: 15,
+  /** PlayStation touchpad click (DualShock 4 / DualSense only) — standard-
+   * mapping index 17 (W278, controller-input-design.md §Aux bindings). No
+   * other recognised family reports a button at this index today. */
+  touchpad: 17,
 } as const;
 
 /** A binding map: semantic action -> the standard-mapping button index that fires it. */
@@ -229,6 +233,38 @@ export function buttonNameToIndex(button: string): number | null {
   }
   const n = Number(button);
   return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+// ── Auxiliary (per-family, additive) bindings (W278, controller-input-design.md
+// §Aux bindings) ──────────────────────────────────────────────────────────────
+//
+// `BindingMap` is one-button-per-action by design (`resolveBindings`,
+// `risingActions`) — the right shape for confirm/back/nav/menu/quit, where a
+// single physical button always maps to a single semantic action. The TV
+// system-menu trigger needs a SECOND physical button to ALSO fire `quit`
+// (PlayStation's touchpad click), without disturbing that one-button contract
+// for every other consumer (`nativeInput.ts`'s "quit" mapping, `risingActions`,
+// persisted `"quit"` rebind overrides all keep working exactly as before, since
+// the primary `BindingMap` entry for `quit` is untouched). Rather than turning
+// an action's binding into an array everywhere, the aux table is a small,
+// separate, opt-in lookup only the new raw-poll trigger hook consults; it is
+// deliberately NOT folded into `resolveBindings`/`risingActions`, so nothing
+// else in the app needs to change shape to accommodate one extra button on one
+// family. `defaultAuxBinding` is a plain family->action->button table (no
+// per-family confirm/back-style branching needed since only one aux entry
+// exists today); it grows the same way DPAD_BINDINGS/CONFIRM_BACK would if a
+// second aux binding is ever needed.
+const AUX_BINDINGS: Partial<Record<DeviceFamily, Partial<Record<SemanticAction, number>>>> = {
+  playstation: { quit: STANDARD_BUTTON.touchpad },
+};
+
+/**
+ * The auxiliary button index bound to `action` for `family` (in addition to
+ * its primary `resolveBindings` binding), or null when the family has no aux
+ * binding for that action. Pure and family-scoped, mirroring `defaultBindings`.
+ */
+export function defaultAuxBinding(family: DeviceFamily, action: SemanticAction): number | null {
+  return AUX_BINDINGS[family]?.[action] ?? null;
 }
 
 // Analog-stick deadzone: below this magnitude a stick axis reports no direction,

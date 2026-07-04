@@ -9,14 +9,29 @@
 // fallback, or the page) instead of emptying the slot.
 //
 // Routing contract (pure `routeScopedAction`, unit-tested without hardware):
-//   - overlay closed: `menu` summons the overlay; EVERY other semantic action
-//     is swallowed. Game input reaches the core via the raw gamepad poll
-//     (native) or EmulatorJS's own internal pipeline (in-page) — never via
-//     semantic actions.
+//   - overlay closed: EVERY semantic action is swallowed — including `menu`
+//     (v0.28 W279: a bare Start press used to open the overlay here, but
+//     every game needs Start for its own play, so `menu`'s bare press no
+//     longer summons anything; see useGameplayMenuTrigger.ts for the two
+//     gestures that now do). Game input reaches the core via the raw gamepad
+//     poll (native) or EmulatorJS's own internal pipeline (in-page) — never
+//     via semantic actions.
 //   - overlay open: nav_up/nav_down move the selection (wrapping), confirm
-//     activates the selected item, back/menu close (resume).
+//     activates the selected item, back/menu close (resume) — `menu` still
+//     CLOSES an already-open overlay (symmetric with `back`); only the
+//     "summon it from closed" branch was removed.
 //   - backgrounded (attract) presentations never hold the slot — the page
 //     owns the controller (see presentation.ts).
+//
+// v0.28 W279: the overlay now opens via a SEPARATE raw-poll gesture
+// (`useGameplayMenuTrigger`, this directory) instead of the semantic `menu`
+// action — Start+Select chorded, or Start held alone for `MENU_HOLD_MS`.
+// Like `useLongPress`/`useMenuTrigger` this trigger polls the raw gamepad
+// directly (independent of the exclusive-claim dispatch), so it is wired up
+// here alongside the claim lifecycle rather than through `routeScopedAction`;
+// it is enabled exactly while this scope owns the slot and the overlay is
+// closed (opening while already open is a no-op the trigger doesn't need to
+// know about — reopening does nothing).
 //
 // The rAF-driven dispatch itself lives in ControllerProvider/useGamepadPoll;
 // this hook only owns the claim/release lifecycle and the routing, matching
@@ -27,6 +42,7 @@ import { useController } from "../controller";
 import type { SemanticAction } from "../controller/actions";
 import type { OverlayItem } from "./PlayerOverlay";
 import { presentationOwnsController, type PlayerPresentation } from "./presentation";
+import { useGameplayMenuTrigger } from "./useGameplayMenuTrigger";
 
 /** One routed outcome of a semantic action inside the player's scope — plain
  * data so the whole routing table is unit-testable without React. */
@@ -50,7 +66,11 @@ export interface ScopeRouteState {
  */
 export function routeScopedAction(action: SemanticAction, state: ScopeRouteState): ScopeCommand {
   if (!state.overlayOpen) {
-    return action === "menu" ? { kind: "open-overlay" } : { kind: "swallow" };
+    // v0.28 W279: a bare `menu` (Start) press no longer summons the overlay —
+    // every semantic action is swallowed while closed, full stop. The overlay
+    // now opens only via the raw-poll chord/hold gesture in
+    // useGameplayMenuTrigger.ts, wired up alongside the claim below.
+    return { kind: "swallow" };
   }
   const n = state.itemCount;
   if (action === "nav_up" && n > 0) {
@@ -79,6 +99,11 @@ export interface ExclusiveControllerScope {
   setSelection: (index: number) => void;
   openOverlay: () => void;
   closeOverlay: () => void;
+  /** Live progress (0..1) toward the W279 hold-open threshold, reported every
+   * tick Start is held alone toward `MENU_HOLD_MS`; back to 0 on release, on
+   * the chord superseding it, or once it fires. Drives the hold indicator;
+   * omit if the player renders none. */
+  onHoldProgress?: (progress: number) => void;
 }
 
 /**
@@ -88,7 +113,7 @@ export interface ExclusiveControllerScope {
  * hook so input ownership can never diverge between the play paths again.
  */
 export function useExclusiveControllerScope(scope: ExclusiveControllerScope): void {
-  const { claimExclusive } = useController();
+  const { claimExclusive, bindingOverrides } = useController();
 
   // Live mirror (the useOverlayMenu cfg pattern): the handler is installed
   // once per ownership span and reads current values at action time.
@@ -131,4 +156,17 @@ export function useExclusiveControllerScope(scope: ExclusiveControllerScope): vo
     // owner's claim.
     return claimExclusive(handler, "gameplay");
   }, [owns, claimExclusive]);
+
+  // v0.28 W279: the overlay-open gesture itself — Start+Select chord or a
+  // solo Start hold to MENU_HOLD_MS — independent of the semantic dispatch
+  // above (same raw-poll pattern as useLongPress/useMenuTrigger). Enabled
+  // exactly while this scope owns the slot AND the overlay is closed
+  // (re-triggering while already open would be a no-op anyway, and the
+  // overlay's own controller routing above owns everything once it's open).
+  useGameplayMenuTrigger({
+    onOpen: () => scopeRef.current.openOverlay(),
+    onProgress: (progress) => scopeRef.current.onHoldProgress?.(progress),
+    overrides: bindingOverrides,
+    enabled: owns && !scope.overlayOpen,
+  });
 }

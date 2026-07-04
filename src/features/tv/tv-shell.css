@@ -84,11 +84,30 @@
     line-height: 1.5;
   }
 
-  /* ---- exit affordance ---- */
-  .rgp-tv-shell__exit {
+  /* ---- chrome-level pointer affordances (exit + W278 menu) ----
+     A single positioned group anchors both buttons to the same safe-area
+     corner as a flex row, so their relative placement comes from normal flex
+     gap (a themeable spacing token) instead of a hand-measured absolute
+     offset between two independently positioned elements. `z-index: 2` (above
+     `.rgp-tv-shell__header`'s `1`): an absolutely-positioned element with no
+     explicit z-index stacks at its implicit level (0) among its siblings, so
+     without this the header — a later, higher-z-index positioned sibling in
+     the same `.rgp-tv-shell__frame` stacking context — visually sits ON TOP
+     of these buttons and intercepts their pointer events even though they are
+     visually placed over the header's row (caught by an actual click timing
+     out in scripts/visual-inspect.mjs's tv-system-menu route, not just by
+     reading the CSS). */
+  .rgp-tv-shell__chrome-buttons {
     position: absolute;
     top: var(--rgp-tv-safe-area);
     right: var(--rgp-tv-safe-area);
+    z-index: 2;
+    display: flex;
+    gap: var(--aura-space-3);
+  }
+
+  .rgp-tv-shell__menu,
+  .rgp-tv-shell__exit {
     padding: var(--aura-space-2) var(--aura-space-4);
     border-radius: var(--rgp-tv-radius-tile);
     border: 1px solid var(--aura-border);
@@ -98,6 +117,8 @@
     cursor: pointer;
     transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
   }
+  .rgp-tv-shell__menu:hover,
+  .rgp-tv-shell__menu:focus-visible,
   .rgp-tv-shell__exit:hover,
   .rgp-tv-shell__exit:focus-visible {
     background: var(--aura-primary);

@@ -23,3 +23,5 @@ export { HintBar, MOVE_HINT } from "./HintBar";
 export type { Hint, HintBarProps } from "./HintBar";
 export { useLongPress, longPressElapsed, LONG_PRESS_MS } from "./useLongPress";
 export type { LongPressOptions } from "./useLongPress";
+export { useMenuTrigger, isMenuTriggerPressed } from "./useMenuTrigger";
+export type { MenuTriggerOptions, MinimalGamepadButtons } from "./useMenuTrigger";
