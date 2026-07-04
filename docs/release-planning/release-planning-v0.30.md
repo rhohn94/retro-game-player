@@ -17,7 +17,7 @@
 
 Investigation at planning time found the roadmap's second named v0.30 item —
 license/GPL compliance follow-through (issue
-[#26](https://github.com/rhohn94/harmony/issues/26)) — **already shipped in
+[#26](https://github.com/rhohn94/retro-game-player/issues/26)) — **already shipped in
 v0.23**: `LICENSE`, `THIRD-PARTY-NOTICES.md`, `package.json`, and
 `src-tauri/Cargo.toml` already declare `GPL-3.0-only`, and the UnRAR blob is
 already removed. So v0.30's real scope is the one remaining item: notarized

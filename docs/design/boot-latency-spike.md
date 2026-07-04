@@ -113,5 +113,5 @@ serve-pre-extracted variant can be evaluated with real multi-core data.
 | A. Warm emulator + ROM swap | **No-go** | No swap API; state leakage; hidden-iframe boots are silent (trusted-gesture gate) — conflicts with the auto-boot-with-sound requirement. Native hosting is the sanctioned instant-boot lever. |
 | B. Decompressed-core caching | **Go** (decompress half only) | Single-seam patch or Rust-side pre-extraction; saves the per-boot 7z Worker. Compiled-Module caching is unsupported on WKWebView — dropped. |
 
-Follow-up ticket: [#31](https://github.com/rhohn94/harmony/issues/31)
+Follow-up ticket: [#31](https://github.com/rhohn94/retro-game-player/issues/31)
 (decompressed-core caching, page-patch vs. serve-pre-extracted decision).

@@ -13,6 +13,18 @@ here and follow links down.
 - [grimoire/](grimoire/README.md) — Agent-only operational docs: organization, playbooks
 - [coding-standards/](coding-standards/README.md) — Per-language coding standards
 
+## Developer workflow
+
+**Release-planning docs are intentionally split across two locations.**
+`docs/release-planning/release-planning-v0.23.md` onward live under
+`docs/release-planning/`; `docs/release-planning-v0.1.md` through
+`docs/release-planning-v0.22.md` remain as flat top-level files. This is a
+deliberate, documented decision, not an oversight: those older filenames are
+path-locked and enforced by `release-plan-guard.sh` per the exception recorded
+in `docs/grimoire/docs-organization-design.md`, so they are not moved. All
+inbound links (this file, `roadmap.md`, `version-history.md`) already point at
+the correct location for each plan's era.
+
 ## Reference docs
 
 - [quickstart.md](quickstart.md) — Getting started with Grimoire

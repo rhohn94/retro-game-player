@@ -14,7 +14,7 @@ structural to running a WASM emulator inside a webview, not configuration bugs:
    page-scoped (survives an in-emulator restart, returns on a full page re-init).
    Four mitigations were tried and abandoned (mask, big buffer, warm-then-reset,
    pre-warm-then-adopt) — see
-   [issue #15](https://github.com/rhohn94/harmony/issues/15) for the full
+   [issue #15](https://github.com/rhohn94/retro-game-player/issues/15) for the full
    post-mortem. None fix the *cause*; they all fight the *output* of a cold Web
    Audio context.
 2. **Slow, non-tunable first boot.** EmulatorJS re-runs 7z core decompression and
@@ -283,7 +283,7 @@ architecture — it keeps serving every other system.
 
 - A native `fceumm` NES core loads, runs, and plays a ROM with **no Web Audio
   cold-start garble** (audio is clean from the first frame — the defect
-  [#15](https://github.com/rhohn94/harmony/issues/15) targets).
+  [#15](https://github.com/rhohn94/retro-game-player/issues/15) targets).
 - First-boot-to-playable time is visibly faster than the EmulatorJS path for
   the same ROM (no WASM compile/decompress step).
 - Falls back to the existing EmulatorJS player automatically if the native

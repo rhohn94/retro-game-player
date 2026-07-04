@@ -7,7 +7,7 @@
 The north star is the couch: pick up a controller, browse a beautiful
 art-forward library from ten feet away, and be playing seconds later. Today the
 app is a desktop-density GUI — small type, mouse-first sidebar, 132px tiles.
-TV mode closes epic [#8](https://github.com/rhohn94/harmony/issues/8)
+TV mode closes epic [#8](https://github.com/rhohn94/retro-game-player/issues/8)
 (#9–#13) in one release: a dedicated leanback presentation layer that is
 distance-legible, controller-first, art-forward, and seamless in and out of
 games. It is the identity feature of a *retro game player* — without it the

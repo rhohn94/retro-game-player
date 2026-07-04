@@ -180,7 +180,7 @@ returned zero).
   API in EmulatorJS 4.2.3, cross-game state leakage, and hidden-iframe boots
   are silent (WKWebView trusted-gesture gate) which violates
   auto-boot-with-sound. Technique B (decompressed-core caching) = go, filed
-  as [#31](https://github.com/rhohn94/harmony/issues/31) for v0.25+ so the
+  as [#31](https://github.com/rhohn94/retro-game-player/issues/31) for v0.25+ so the
   serve-pre-extracted variant can be weighed against W241's disk cache.
 - **W242 drive-by:** docs/design/README.md was missing index rows for the
   v0.23 design docs (save-persistence, direct-download) — added.

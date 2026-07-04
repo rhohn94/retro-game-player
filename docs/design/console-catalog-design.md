@@ -8,7 +8,7 @@
 Expand Harmony's default console coverage from the original three (NES, SNES,
 N64) to **all home consoles of generations 1–6**, so discovery, scanning, the
 core catalog, and the library console filter span the classic era
-([#7](https://github.com/rhohn94/harmony/issues/7)).
+([#7](https://github.com/rhohn94/retro-game-player/issues/7)).
 
 ## 2. Two sources of truth (kept decoupled)
 
