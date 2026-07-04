@@ -320,10 +320,10 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         #[test]
         fn set_then_get_core_option_round_trips_through_a_real_db() {
             let db = memory_db();
-            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, "fceumm", "fceumm_region", "pal")
+            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, "fceumm_region", "pal")
                 .expect("set");
             let got =
-                core_options::get_persisted_value(&db, native::NATIVE_SYSTEM, "fceumm", "fceumm_region")
+                core_options::get_persisted_value(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, "fceumm_region")
                     .expect("get");
             assert_eq!(got, Some("pal".to_string()));
         }
@@ -334,7 +334,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         #[test]
         fn get_core_option_on_an_unset_key_is_none_not_an_error() {
             let db = memory_db();
-            let got = core_options::get_persisted_value(&db, native::NATIVE_SYSTEM, "fceumm", "never_set")
+            let got = core_options::get_persisted_value(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, "never_set")
                 .expect("get must not error");
             assert!(got.is_none());
         }
@@ -359,17 +359,17 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
             let declared = core_options::probe_declared_options(&dylib).expect("probe");
             assert_eq!(declared.len(), 1);
             let values =
-                resolve_session_variables(&db, native::NATIVE_SYSTEM, "fceumm", &declared).expect("resolve");
+                resolve_session_variables(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, &declared).expect("resolve");
             assert_eq!(values.get("stub_region"), Some(&"ntsc".to_string()));
 
             // Persist a value (as `set_core_option` would), then re-probe +
             // re-resolve (as `list_core_options` would on the next call) —
             // the persisted value must now win over the core's default.
-            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, "fceumm", "stub_region", "pal")
+            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, "stub_region", "pal")
                 .expect("set");
             let declared_again = core_options::probe_declared_options(&dylib).expect("re-probe");
             let values_again =
-                resolve_session_variables(&db, native::NATIVE_SYSTEM, "fceumm", &declared_again)
+                resolve_session_variables(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, &declared_again)
                     .expect("resolve again");
             assert_eq!(values_again.get("stub_region"), Some(&"pal".to_string()));
         }
@@ -387,12 +387,12 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
                 return;
             };
             let db = memory_db();
-            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, "fceumm", "stub_region", "pal")
+            core_options::set_persisted_value(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, "stub_region", "pal")
                 .expect("set");
 
             let declared = core_options::probe_declared_options(&dylib).expect("probe");
             let values =
-                resolve_session_variables(&db, native::NATIVE_SYSTEM, "fceumm", &declared).expect("resolve");
+                resolve_session_variables(&db, native::NATIVE_SYSTEM, native::NATIVE_CORE_ID, &declared).expect("resolve");
             let options: Vec<CoreOptionDto> = declared
                 .into_iter()
                 .map(|var| {
