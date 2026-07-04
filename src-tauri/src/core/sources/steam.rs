@@ -133,8 +133,14 @@ fn parse_appmanifest(text: &str) -> Option<AppManifest> {
         }
     }
 
+    // A Steam appid is always a decimal number. Rejecting anything else here
+    // is a security boundary, not cosmetics: the appid becomes an art-cache
+    // FILENAME component and a CDN URL segment downstream, so a crafted
+    // manifest (e.g. `"appid" "../../x"`) must never survive the parse.
+    let appid = appid.filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))?;
+
     Some(AppManifest {
-        appid: appid?,
+        appid,
         name: name?,
         installdir,
     })
@@ -196,6 +202,25 @@ mod tests {
         assert_eq!(games[0].external_id.as_deref(), Some("400"));
         assert_eq!(games[1].name, "Portal 2");
         assert_eq!(games[1].external_id.as_deref(), Some("620"));
+    }
+
+    /// The appid guard is a security boundary (the appid becomes an art-cache
+    /// filename component and a CDN URL segment downstream): manifests whose
+    /// appid is not purely numeric — e.g. a crafted `"../../x"` traversal
+    /// payload — must be dropped at parse time like any other malformed file.
+    #[test]
+    fn rejects_manifests_with_non_numeric_appids() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_manifest(tmp.path(), "appmanifest_620.acf", "620", "Portal 2", "Portal 2");
+        write_manifest(tmp.path(), "appmanifest_evil.acf", "../../x", "Evil", "Evil");
+        write_manifest(tmp.path(), "appmanifest_blank.acf", "", "Blank", "Blank");
+        write_manifest(tmp.path(), "appmanifest_alpha.acf", "12a4", "Alpha", "Alpha");
+
+        let scanner = SteamScanner::new(tmp.path());
+        let games = scanner.scan().unwrap();
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].external_id.as_deref(), Some("620"));
     }
 
     #[test]
