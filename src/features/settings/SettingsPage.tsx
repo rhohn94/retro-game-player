@@ -6,16 +6,21 @@
 // spatial-nav engine can move between them. Each section reads/writes via its
 // domain IPC wrapper — no raw `invoke` calls here.
 //
-// Sections: Folders | Cores | Controllers | Providers | Familiar | Playback |
-// Appearance | RetroArch — each implemented in ./panes/, this file is the
-// two-column shell + SectionPane switch.
+// Sections: Folders | Cores | Core Options | Controllers | Providers |
+// Familiar | Playback | Appearance | RetroArch — each implemented in
+// ./panes/, this file is the two-column shell + SectionPane switch.
 // (Controllers hosts the full press-to-rebind editor — W267,
-// controller-input-design.md §Remapping UI.)
+// controller-input-design.md §Remapping UI. Core Options — v0.29 W282,
+// core-options-design.md — lists the active native-hosted core's declared
+// libretro options; it renders an explanatory note rather than controls when
+// no native-hosted core applies, so the section itself is always listed but
+// never a broken entry point.)
 
 import { useState } from "react";
 
 import { FoldersPane } from "./panes/FoldersPane";
 import { CoresPane } from "./panes/CoresPane";
+import { CoreOptionsPane } from "./panes/CoreOptionsPane";
 import { ControllersPane } from "./panes/ControllersPane";
 import { ProvidersPane } from "./panes/ProvidersPane";
 import { FamiliarPane } from "./panes/FamiliarPane";
@@ -28,6 +33,7 @@ import { RetroArchPane } from "./panes/RetroArchPane";
 type SectionId =
   | "folders"
   | "cores"
+  | "core-options"
   | "controllers"
   | "providers"
   | "familiar"
@@ -43,6 +49,7 @@ interface Section {
 const SECTIONS: Section[] = [
   { id: "folders", label: "Folders" },
   { id: "cores", label: "Cores" },
+  { id: "core-options", label: "Core Options" },
   { id: "controllers", label: "Controllers" },
   { id: "providers", label: "Providers" },
   { id: "familiar", label: "Familiar" },
@@ -52,12 +59,14 @@ const SECTIONS: Section[] = [
 ];
 
 /** Render the active section pane. */
-function SectionPane({ id }: { id: SectionId }) {
+function SectionPane({ id, onNavigate }: { id: SectionId; onNavigate: (id: SectionId) => void }) {
   switch (id) {
     case "folders":
       return <FoldersPane />;
     case "cores":
-      return <CoresPane />;
+      return <CoresPane onOpenCoreOptions={() => onNavigate("core-options")} />;
+    case "core-options":
+      return <CoreOptionsPane />;
     case "controllers":
       return <ControllersPane />;
     case "providers":
@@ -141,7 +150,7 @@ export function SettingsPage() {
 
         {/* Active section pane — right column */}
         <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
-          <SectionPane id={active} />
+          <SectionPane id={active} onNavigate={setActive} />
         </div>
       </div>
     </section>

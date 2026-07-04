@@ -86,6 +86,18 @@ export const MOCK_FIXTURES = {
     { id: 3, system: "snes", coreId: "snes9x", installedPath: "/cores/snes9x_libretro.dylib", version: "1.62", lastModified: NOW, active: true, available: true },
   ],
 
+  // --- Core options (src/ipc/core-options.ts, v0.29 W282) — a representative
+  // declared option list for the native-hosted NES core, one of each control
+  // archetype (bool / range / enum) so CoreOptionsPane renders every row kind
+  // headlessly.
+  list_core_options: [
+    { key: "fceumm_sprite_limit", description: "Sprite Limit", choices: ["enabled", "disabled"], value: "enabled" },
+    { key: "fceumm_region", description: "Region", choices: ["auto", "ntsc", "pal"], value: "auto" },
+    { key: "fceumm_overclock", description: "Overclocking", choices: ["0", "1", "2"], value: "0" },
+  ],
+  get_core_option: null,
+  set_core_option: null,
+
   // --- Search (src/ipc/search.ts) — the built-in providers seeded by migration 003 ---
   list_providers: [
     { id: 1, name: "MobyGames", urlTemplate: "https://www.mobygames.com/search/?q={query}", enabled: true, kind: "reference", directDownload: false, composeFilters: false },

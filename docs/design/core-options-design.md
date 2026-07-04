@@ -2,7 +2,7 @@
 
 > **Up:** [↑ Design docs](README.md) · **Sib:** [core-management-design.md](core-management-design.md), [core-discovery-design.md](core-discovery-design.md)
 
-> **Status:** design-first (blocks implementation). Owns v0.29 **W282**.
+> **Status:** implemented (W282, v0.29 "Craft"). Owns v0.29 **W282**.
 
 ## Motivation
 
@@ -74,3 +74,133 @@ different, larger integration problem than "add a GUI," and is out of scope.
   the same way the existing fixed-subset callbacks are) and the persistence
   round-trip; all gates + `recipe.py smoke` green; `core-management-design.md`
   gains a cross-reference to this doc.
+
+## Implementation notes (W282)
+
+### `callbacks.rs`: `GET_VARIABLE` / `SET_VARIABLES`
+
+- `RETRO_ENVIRONMENT_SET_VARIABLES` (id `16`) decodes the core's
+  null-terminated `retro_variable` array into `CoreVariable { key,
+  description, choices }`, parsing each `retro_variable.value` string
+  (`"Description; default|choice1|choice2|..."`) via a small pure helper
+  (`parse_variable_value`) and forwarding the whole list as one
+  `EnvironmentEvent::VariablesDeclared(Vec<CoreVariable>)` — mirroring how
+  `SET_PIXEL_FORMAT` already forwards through the same channel. A malformed
+  entry (no `;` separator, or zero choices after it) is skipped rather than
+  failing the whole declaration. `choices[0]` is always the core's own
+  declared default (`CoreVariable::default_value`).
+- `RETRO_ENVIRONMENT_GET_VARIABLE` (id `15`) reads a process-global
+  `CORE_VARIABLES: Mutex<Option<HashMap<String, String>>>`, seeded by the new
+  `set_core_variables` before a core boots. A query for an unknown key, or a
+  query before anything has been seeded, reports unhandled (`false`) —
+  exactly what a real frontend does for a variable it doesn't recognize.
+  `uninstall` clears the seeded map so a stray query after a session ends
+  never answers with a prior session's values.
+- The `retro_variable.value` answer pointer needs same-process backing
+  storage that outlives the callback return; a single-slot
+  `GET_VARIABLE_ANSWER: Mutex<Option<CString>>` holds the most recent answer
+  (replaced each query — libretro cores read the pointer immediately, never
+  across frames, so nothing needs to accumulate).
+
+### Headless declared-options probe (`core::core_options::probe`)
+
+The declared option list only exists as the *side effect* of a real
+`retro_init` call — there's no separate "ask the core its schema" libretro
+entrypoint. `list_core_options` therefore needs a real (but ROM-less) boot to
+learn what a core declares: `probe_declared_options` drives `LibretroCore`
+through `load` → `set_environment` → `init` (never `load_game`), captures the
+`VariablesDeclared` event off the environment channel with a bounded
+(500 ms) wait, then unloads. This is the same process-global callback
+plumbing (`install`/`environment`/`uninstall`) a live play session uses, so a
+`PROBE_LOCK` serializes concurrent probe calls; the test suites for both
+`callbacks.rs` and `probe.rs` additionally share one `lock_tests()` guard
+(exposed `pub(crate)` from `callbacks.rs`) since both drive the same
+process-global FFI state and would otherwise race under `cargo test`'s
+parallel test execution.
+
+**Post-W282 hotfix — probe-vs-live-session race.** `PROBE_LOCK` only ever
+serialized concurrent *probe* calls against each other; it did not serialize
+against a live `NativeRuntime` session, and two ordinary-usage paths could
+reach the probe while one was still running: `start_native_play` called the
+seeding probe before tearing down whatever prior session (e.g. a TV
+hover-attract preview) was still live, and `list_core_options` had no session
+check at all, so opening Settings → Core Options while a preview session was
+up raced it directly. Either way, the probe's `install()`/`uninstall()` and
+the live session's core thread fought over the same process-global callback
+sinks (`play::native::callbacks`), which are looked up fresh on every FFI
+call — the live session's calls could get silently rerouted into the probe's
+short-lived channels, and the probe's `uninstall()` would zero state the
+live session still needed. Closed by refusing to probe at all while a
+session is live, rather than trying to interleave safely with one:
+`list_core_options` (`commands::core_options`) now checks
+`native_play::is_session_active` first and returns `AppError::Conflict`
+instead of probing when a session is active, and `start_native_play`
+(`commands::native_play`) now holds the `NativeSession` mutex continuously
+across dropping the old runtime, seeding, and installing the new one, so the
+old runtime's `Drop` (which joins its threads) fully completes — and
+releases the sinks — before the seeding probe ever runs. `PROBE_LOCK` itself
+is unchanged and keeps its original, narrower job (serializing two
+concurrent probes); the "no live session" guarantee now lives entirely at
+the call sites.
+
+### Persistence (`core::core_options::persistence`)
+
+Reuses the existing generic `settings` key/value table (no new table, no
+migration) — the `(system, core, option_key)` triple is encoded into one
+namespaced key, `core_option::<system>::<core>::<option_key>`, and the value
+is JSON-scalar-encoded the same way every other settings row is. `settings.rs`
+itself is untouched.
+
+### Effective-value resolution and session seeding
+
+`core::core_options::resolve_effective_options` (used by `list_core_options`)
+and `resolve_session_variables` (used by `start_native_play`) both apply the
+same fallback: the persisted value for `(system, core, key)` if one exists,
+else the core's own declared default (`CoreVariable::default_value`) — never
+a blank or crashing value, satisfying the acceptance criterion directly.
+`start_native_play` (in `commands::native_play`) probes the core's declared
+options and seeds the resolved values via `set_core_variables` *before* the
+real session boots, so the core's own `GET_VARIABLE` queries during its
+`retro_init` see exactly what's persisted. This costs one extra (ROM-less)
+core load per game start; a probe failure degrades to booting with no seeded
+variables (the pre-W282 behavior — `GET_VARIABLE` simply reports unhandled)
+rather than blocking the session.
+
+### IPC surface
+
+| Command | Args | Returns |
+|---|---|---|
+| `list_core_options` | `{ system }` | `CoreOptionDto[]` |
+| `get_core_option` | `{ system, optionKey }` | `string \| null` |
+| `set_core_option` | `{ system, optionKey, value }` | `void` |
+
+Every command rejects (`AppError::Unsupported`) for any `system` other than
+`play::native::NATIVE_SYSTEM` — the single gate that keeps RetroArch-external
+and EmulatorJS systems from ever reaching the probe or the persisted-value
+lookup, satisfying "no core-options entry point" for those systems at the
+backend layer (the frontend also never mounts a native-only entry point for
+them, belt-and-suspenders). `list_core_options` additionally rejects with
+`AppError::Conflict` while a native play session (including a TV-preview
+session) is active — see "Post-W282 hotfix" above — which the frontend
+distinguishes from "no options" (an empty `Vec`) rather than treating both
+as the same, empty state.
+
+### Frontend
+
+`src/features/settings/panes/CoreOptionsPane.tsx` is a new Settings section
+(`SettingsPage.tsx`'s section list), always listed but rendering an
+explanatory note (not controls) when `useCoreOptions` resolves `unsupported`
+— i.e., whenever there's no active native-hosted core to configure yet.
+`CoresPane.tsx` also gained a "Configure options" button on the native
+system's row specifically (`NATIVE_SYSTEM` from `features/play/nativePath`),
+satisfying "reachable from the Cores area, alongside `CoresPane.tsx`"
+literally, as well as via the Settings nav.
+
+The three control archetypes are chosen by a small pure classifier
+(`features/core-options/controlKind.ts`, unit-tested): a recognized two-way
+pair (`enabled`/`disabled`, `on`/`off`, `true`/`false`, `yes`/`no`) renders a
+toggle button; an all-numeric choice list renders a `type="range"` slider
+snapped to the sorted discrete choice values; everything else (including a
+single-choice option) renders a `<select>` — always correct for any declared
+choice list, so no combination of core-declared options can produce a blank
+or crashing control.
