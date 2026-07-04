@@ -2,8 +2,17 @@
 // (v0.21 "Bedrock") instead of EmulatorJS. The Rust backend owns the entire
 // emulation loop and the audio device (play::native::NativeRuntime); this
 // component starts/stops that session, paints whatever frame it last
-// produced onto a <canvas> via `putImageData`, and pushes keyboard/gamepad
-// state into the core's input (W216 — see nativeInput.ts).
+// produced onto a <canvas>, and pushes keyboard/gamepad state into the
+// core's input (W216 — see nativeInput.ts).
+//
+// v0.29 W280 (crt-filter-design.md): the paint step draws through a WebGL2
+// pipeline (CrtWebglRenderer) instead of Canvas2D `putImageData` — each
+// polled frame uploads as a texture and is drawn through a combined
+// scanline/curvature/color-bleed/vignette fragment shader, parameterized by
+// the shared CRT filter config (useCrtFilter). If WebGL2 is unavailable on
+// this canvas, painting falls back to plain `putImageData` (no filter, but
+// never a blank screen — same "never a dead end" posture as the EJS
+// automatic fallback elsewhere in this app).
 //
 // v0.23 W232: the shared in-game overlay (PlayerOverlay) works here too —
 // Escape or ☰ opens Resume / Save state / Load state / Exit; opening pauses
@@ -44,6 +53,8 @@ import {
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { CrtWebglRenderer } from "./crtWebglRenderer";
+import { useCrtFilter } from "./useCrtFilter";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
@@ -109,6 +120,13 @@ export function NativePlayer({
   // record; `spectator` (background OR preview) gates input + the audio duck.
   const preview = presentation === "preview";
   const spectator = presentationIsSpectator(presentation);
+
+  // v0.29 W280: the shared CRT filter config — read-only here (the settings
+  // panel owns writes). The frame-painting effect below reads it via a ref
+  // so a slider drag never re-subscribes the whole polling effect.
+  const { config: crtConfig } = useCrtFilter();
+  const crtConfigRef = useRef(crtConfig);
+  crtConfigRef.current = crtConfig;
 
   // Library-life play-session tracking (v0.26 W264): brackets the native
   // session's start/stop lifetime (the effect below re-subscribes per
@@ -331,6 +349,15 @@ export function NativePlayer({
       }
     };
 
+    // v0.29 W280: paint through the WebGL2 CRT pipeline, built lazily against
+    // whatever <canvas> the ref holds by the first frame. If WebGL2 is
+    // unavailable on this canvas (old GPU/driver, context budget exhausted),
+    // fall back to the pre-W280 plain `putImageData` paint — a missing
+    // filter is a graceful degradation, never a blank screen. Tried at most
+    // once per mount; a construction failure doesn't retry every frame.
+    let renderer: CrtWebglRenderer | null = null;
+    let webglAttempted = false;
+
     // Raw-bytes frame polling (W239). The rAF tick is scheduled up-front so a
     // slow IPC round trip degrades to a skipped paint, never a halved frame
     // rate; the in-flight guard keeps at most one request crossing the
@@ -352,7 +379,23 @@ export function NativePlayer({
           lastSeq = frame.seq;
           if (canvas.width !== frame.width) canvas.width = frame.width;
           if (canvas.height !== frame.height) canvas.height = frame.height;
-          canvas.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
+
+          if (!webglAttempted) {
+            webglAttempted = true;
+            try {
+              renderer = new CrtWebglRenderer(canvas);
+            } catch {
+              // Construction failure (CrtWebglUnavailableError, a compile/link
+              // error) — `renderer` stays null, so the branch below degrades
+              // to the plain 2D paint for the rest of this mount rather than
+              // retrying (and logging) every single frame.
+            }
+          }
+          if (renderer) {
+            renderer.draw(frame.bytes, frame.width, frame.height, crtConfigRef.current);
+          } else {
+            canvas.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
+          }
         })
         .catch(() => {
           /* a poll failing isn't fatal — try again next tick */
@@ -385,6 +428,7 @@ export function NativePlayer({
       window.removeEventListener("focus", onFocus);
       void setNativeInput(0).catch(() => undefined); // release all buttons before tearing down
       void stopNativePlay();
+      renderer?.dispose(); // free the GL texture/VAO/program before the canvas unmounts
     };
     // Intentionally re-subscribes per gameId/preview only (open/close
     // callbacks are stable): flipping into or out of "preview" must reboot

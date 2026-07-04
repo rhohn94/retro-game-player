@@ -27,6 +27,7 @@ pub mod downloads; // v0.24 W244 — direct download (#30)
 pub mod play_stats; // v0.26 W264 — favorites, recently-played, play-time (#21 subset)
 pub mod app_config; // v0.26 W260 — general AppConfig IPC (auto_tv_mode)
 pub mod core_options; // v0.29 W282 — per-core libretro option GUI backend
+pub mod crt_filter; // v0.29 W280 — CRT presentation filter config (get/set)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -137,6 +138,9 @@ macro_rules! register_commands {
             $crate::commands::core_options::list_core_options,
             $crate::commands::core_options::get_core_option,
             $crate::commands::core_options::set_core_option,
+            // CRT presentation filter config (v0.29 W280)
+            $crate::commands::crt_filter::get_crt_filter,
+            $crate::commands::crt_filter::set_crt_filter,
         ])
     };
 }

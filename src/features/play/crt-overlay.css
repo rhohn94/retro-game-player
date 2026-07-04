@@ -1,0 +1,74 @@
+/*
+ * CRT CSS overlay (v0.29 W280, crt-filter-design.md) — the EJS-path
+ * approximation of the native path's WebGL2 shader. Parent-side CSS only,
+ * layered over the existing iframe wrapper; the vendored player.html
+ * internals are never touched (design doc's explicit decision).
+ *
+ * Consumes ONLY the --rgp-crt-* custom properties (set inline per-frame by
+ * CrtCssOverlay.tsx from crtCssMapping.ts) plus the existing --rgp-* / Aura
+ * motion tokens; no literals (token-adoption guard,
+ * scripts/token-adoption.test.mjs). Declared in the same rgp-theme layer as
+ * the rest of the app's feature styles.
+ */
+
+@layer rgp-theme {
+  /* Perspective context lives on the frame itself so the child's 3D tilt has
+     something to project into (the "curvature illusion" — a real per-pixel
+     barrel warp isn't reachable from the parent, crt-filter-design.md). */
+  .rgp-crt-frame {
+    perspective: 800px;
+  }
+
+  .rgp-crt-tilt {
+    width: 100%;
+    height: 100%;
+    transform: rotateX(var(--rgp-crt-curvature-tilt, 0deg));
+    border-radius: var(--rgp-crt-curvature-radius, 0px);
+    overflow: hidden;
+    /* Color-bleed approximation: a touch of blur + saturation boost reads as
+       analog softness/phosphor bloom without a true per-channel offset. */
+    filter: blur(var(--rgp-crt-bleed-blur, 0px)) saturate(var(--rgp-crt-bleed-saturate, 100%));
+    transition:
+      transform var(--rgp-dur-base) var(--rgp-ease-standard),
+      border-radius var(--rgp-dur-base) var(--rgp-ease-standard),
+      filter var(--rgp-dur-base) var(--rgp-ease-standard);
+  }
+
+  /* Also matches the settings-panel preview's stand-in <img> (CrtFilterPreview.tsx) —
+     both element types fill the tilt wrapper identically. */
+  .rgp-crt-tilt > iframe,
+  .rgp-crt-tilt > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  /* Scanlines: a repeating gradient overlay, static (no motion of its own —
+     crt-filter-design.md acceptance). Pointer-events none so it never steals
+     iframe focus/clicks. */
+  .rgp-crt-scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgb(0 0 0 / var(--rgp-crt-scanline-opacity, 0)) 0px,
+      rgb(0 0 0 / var(--rgp-crt-scanline-opacity, 0)) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  /* Vignette: a radial darkening toward the corners. */
+  .rgp-crt-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 55%,
+      rgb(0 0 0 / var(--rgp-crt-vignette-opacity, 0)) 100%
+    );
+  }
+}

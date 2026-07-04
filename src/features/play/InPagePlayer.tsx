@@ -29,6 +29,8 @@ import { getPlayOrigin } from "../../ipc/play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
+import { CrtCssOverlay } from "./CrtCssOverlay";
+import { useCrtFilter } from "./useCrtFilter";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { PlayerOverlay } from "./PlayerOverlay";
 import {
@@ -95,6 +97,11 @@ export function InPagePlayer({
   // successfully loaded — matching the design doc's "in-page (mount/unmount)"
   // hook point.
   usePlaySession(gameId);
+
+  // v0.29 W280 (crt-filter-design.md): the same shared CRT filter config the
+  // native path's WebGL2 shader reads, applied here as the CSS-only
+  // approximation (CrtCssOverlay) — one settings surface, both play paths.
+  const { config: crtConfig } = useCrtFilter();
 
   // null = resolving the play origin; "" = server unavailable; else the origin.
   const [origin, setOrigin] = useState<string | null>(null);
@@ -413,13 +420,16 @@ export function InPagePlayer({
 
   return (
     <div className={playerShellClass(presentation, immersive)}>
-      <iframe
-        ref={iframeRef}
-        className="rgp-player__frame"
-        src={src}
-        title={`Play ${gameName}`}
-        allow="autoplay; fullscreen; gamepad"
-      />
+      <div className="rgp-player__frame">
+        <CrtCssOverlay config={crtConfig}>
+          <iframe
+            ref={iframeRef}
+            src={src}
+            title={`Play ${gameName}`}
+            allow="autoplay; fullscreen; gamepad"
+          />
+        </CrtCssOverlay>
+      </div>
 
       {!overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
 
