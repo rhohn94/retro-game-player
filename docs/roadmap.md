@@ -193,7 +193,7 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
 
 ---
 
-## v0.29 — Craft (planned)
+## v0.29 — Craft (released — see version-history.md)
 
 **Theme:** Authentic retro presentation and engineering depth.
 

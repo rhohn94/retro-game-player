@@ -7,6 +7,32 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.29 — Craft (2026-07-03)
+
+Authentic retro presentation and engineering depth — a configurable CRT
+look, per-core tuning, a performance dashboard, and full keyboard
+operability.
+
+- **A state-of-the-art, highly configurable CRT filter.** Scanlines,
+  screen curvature, color bleed, and a vignette, each independently
+  adjustable, with four presets (Off, Classic CRT, Arcade Cabinet, Sharp)
+  and a live before/after preview in Settings. Renders through a real
+  WebGL shader on the native play path, and a close CSS-based
+  approximation on the EmulatorJS path.
+- **Per-core settings.** A new Settings → Core Options screen lists and
+  lets you tune the active native-hosted core's own options, persisted
+  across restarts.
+- **An optional FPS counter and a performance dashboard.** Toggle a live
+  FPS readout during play, and review recent session performance (frame
+  timing, dropped frames, and more) from a new Settings → Performance
+  panel.
+- **Keyboard accessibility.** The entire app — including TV mode's system
+  menu and the in-game menu — is now fully operable from a keyboard alone,
+  with a visible focus indicator throughout.
+- **Hardened test coverage** for both play paths and their IPC surface, so
+  a broken player fails automated checks rather than surfacing only in
+  manual play.
+
 ## v0.28 — Living Room (2026-07-03)
 
 TV mode refined by a real couch playtest — the shelves fit right, every
