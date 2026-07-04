@@ -272,13 +272,13 @@ class ReleaseOrchestrator:
         self.runner = CommandRunner(dry_run=dry_run)
 
     def run(self, *, skip_build: bool = False) -> int:
-        if not skip_build:
-            TauriBuildStep(self.config, self.runner).run()
-
-        app_path = _find_first(APP_GLOB)
-        dmg_path = _find_first(DMG_GLOB)
-
         try:
+            if not skip_build:
+                TauriBuildStep(self.config, self.runner).run()
+
+            app_path = _find_first(APP_GLOB)
+            dmg_path = _find_first(DMG_GLOB)
+
             CodesignVerifyStep(self.config, self.runner).run(app_path)
             notarized = NotarizeStep(self.config, self.runner).run(dmg_path)
             StapleStep(self.runner).run(dmg_path, notarized=notarized)
@@ -388,12 +388,34 @@ def _self_test() -> int:
         and SPCTL_CONTEXT in runner5.invocations[0],
     )
 
+    # A failed build must surface via the same "[release] ERROR: ..." +
+    # return-1 path as codesign/notarize/staple failures, not as an
+    # uncaught exception — TauriBuildStep.run() is invoked from inside
+    # ReleaseOrchestrator.run()'s try/except.
+    class _FailingBuildStep:
+        def run(self) -> None:
+            raise ReleaseSigningError("pnpm tauri build failed (exit 1)")
+
+    orchestrator = ReleaseOrchestrator(empty)
+    real_tauri_build_step = TauriBuildStep
+
+    def _raise_build_failure(config: SigningConfig, runner: CommandRunner) -> "_FailingBuildStep":
+        return _FailingBuildStep()
+
+    globals_ref = sys.modules[__name__]
+    globals_ref.TauriBuildStep = _raise_build_failure  # type: ignore[assignment]
+    try:
+        build_failure_rc = orchestrator.run(skip_build=False)
+    finally:
+        globals_ref.TauriBuildStep = real_tauri_build_step  # type: ignore[assignment]
+    check("build failure returns exit code 1, not an uncaught exception", build_failure_rc == 1)
+
     if failures:
         print("[self-test] FAILED:", file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
         return 1
-    print(f"[self-test] all {5 + 8} checks passed.", file=sys.stderr)
+    print(f"[self-test] all {5 + 8 + 1} checks passed.", file=sys.stderr)
     return 0
 
 
