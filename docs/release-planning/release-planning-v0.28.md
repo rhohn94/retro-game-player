@@ -229,7 +229,7 @@ doesn't modify it, but sequencing after avoids any merge friction) plus
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.28 |
 |---|---|---|---|---|
-| `feat/w278-tv-system-menu` (W278) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w278-tv-system-menu` (W278) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
