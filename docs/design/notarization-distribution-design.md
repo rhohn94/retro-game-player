@@ -30,7 +30,7 @@ Fixing this needs three cooperating pieces:
 - `src-tauri/tauri.conf.json` `bundle.macOS` signing configuration.
 - A new hardened-runtime entitlements plist.
 - A release wrapper script that signs, notarizes, staples, and verifies the
-  DMG, wired into the `recipe.py release` target.
+  DMG, wired into the `recipe.py package` target.
 - Credential/secrets handling story (env vars / keychain profile) for
   `notarytool`.
 - An automated Gatekeeper-acceptance check (`spctl -a -t open --context
@@ -79,7 +79,7 @@ to know Tauri's internal variable names.
 Local development (no CI): a developer with a real Developer-ID certificate
 already installed in their login keychain sets `RGP_SIGNING_IDENTITY` to
 their identity string (`security find-identity -v -p codesigning` lists
-candidates) and `RGP_APPLE_TEAM_ID`, then runs `recipe.py release` — the
+candidates) and `RGP_APPLE_TEAM_ID`, then runs `recipe.py package` — the
 existing keychain is used directly, no `.p12` import needed.
 
 CI (future): a `.p12` export + `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD`
@@ -141,7 +141,7 @@ conditional edits to the checked-in config are needed.
 New file: `scripts/release_sign_notarize.py` (stdlib-only Python, matching
 the existing `scripts/` scripting convention used by
 [sync_deps.py](../../.claude/skills/grm-sync-deps/sync_deps.py)). Invoked by
-the new `recipe.py release` target. Steps, each individually conditional and
+the new `recipe.py package` target. Steps, each individually conditional and
 loud about why it's skipped:
 
 1. **Build.** Runs `pnpm tauri build` (optionally with `APPLE_SIGNING_IDENTITY`
@@ -205,18 +205,19 @@ DMG would be blocked, so the release step surfaces the failure the same way
 a fresh-Mac user would hit it — without needing an actual second Mac to
 observe it. This is what the acceptance criterion's "automated `spctl`
 check added to the release verification step" means in this codebase: it's
-part of `recipe.py release`, not a separate manual step.
+part of `recipe.py package`, not a separate manual step.
 
 ### 7. What's real plumbing vs. what's unverifiable here
 
 | Claim | Status in this environment |
 |---|---|
-| `tauri.conf.json` bundle config accepts `macOS.entitlements` / `hardenedRuntime` / `signingIdentity` | Verified — Tauri v2 bundler schema, build succeeds with these keys present and `signingIdentity: null` (ad-hoc). |
+| `tauri.conf.json` bundle config accepts `macOS.entitlements` / `hardenedRuntime` / `signingIdentity` | Verified — Tauri v2 bundler schema; `cargo check`, `cargo build --release`, and the app-bundling step all succeed with these keys present and `signingIdentity: null` (ad-hoc). |
 | Entitlements plist is well-formed and merged into the signed binary | Verified structurally (valid plist, `plutil -lint` clean); **cannot** verify the merged binary's actual entitlements without a real signing identity to sign with. |
-| Wrapper script's conditional skip logic (no identity/profile → clean unsigned build) | Verified — this is exactly the path exercised in this sandbox and by `pnpm tauri build` / `recipe.py release` in CI-less dev. |
-| Wrapper script's sign / notarize / staple code paths | **Not exercised end-to-end** — no real Developer-ID identity or Apple ID credentials exist in this environment. Code paths are written against the documented `codesign`/`notarytool`/`stapler` CLI contracts and unit-tested for command construction, but never run against Apple's live notarization service. |
-| `spctl -a -t open --context context:primary-signature` on an unsigned DMG | Verified — reports rejection as expected, proving the check itself runs and reports correctly. |
-| `spctl` verification on a real notarized+stapled DMG, on a clean secondary Mac with no prior Gatekeeper overrides | **Not verifiable here** — needs a real Developer-ID cert, a real notarization submission, and a genuinely clean machine (this dev machine's Gatekeeper state is not clean/naive). Tracked as a follow-up. |
+| Wrapper script's conditional skip logic (no identity/profile → clean unsigned build) | Verified via `--self-test` (13 assertions, stdlib-only, no network) — see `scripts/release_sign_notarize.py`. |
+| Wrapper script's sign / notarize / staple code paths | **Not exercised end-to-end** — no real Developer-ID identity or Apple ID credentials exist in this environment. Code paths are written against the documented `codesign`/`notarytool`/`stapler` CLI contracts and unit-tested for command construction (`--self-test`), but never run against Apple's live notarization service. |
+| `pnpm tauri build` / `recipe.py package` produces a `.dmg` file at all, in this sandbox | **Blocked, pre-existing, unrelated to this feature.** `create-dmg`'s Finder-window-styling step fails with `execution error: Not authorized to send Apple events to Finder. (-1743)` — this sandbox denies AppleScript/Apple-events automation. Reproduced identically on the unmodified `version/0.30` baseline (confirmed via `git stash` + rerun), so it is an environment limitation, not a regression from this branch. `cargo build --release` and app-bundling (the `.app` itself) both complete successfully; only the final `hdiutil`+AppleScript DMG-styling step is blocked here. |
+| `spctl -a -t open --context context:primary-signature` invocation itself (command construction + wiring into the release script) | Verified via `--self-test` — asserts the exact `spctl` argv is built and would run against whatever DMG path is found. **Not run against a real produced DMG file** in this environment, because DMG bundling itself doesn't complete here (see row above). |
+| `spctl` verification on a real notarized+stapled DMG, on a clean secondary Mac with no prior Gatekeeper overrides | **Not verifiable here** — needs a real Developer-ID cert, a real notarization submission, a machine that can actually produce a DMG, and a genuinely clean machine (this dev machine's Gatekeeper state is not clean/naive either). Tracked as a follow-up. |
 
 ## Acceptance
 
@@ -230,7 +231,7 @@ part of `recipe.py release`, not a separate manual step.
   entitlement is present.
 - [x] `scripts/release_sign_notarize.py` implements build → sign-verify →
   notarize → staple → spctl-verify, each step individually conditional and
-  loud when skipped, wired into `recipe.py release`.
+  loud when skipped, wired into `recipe.py package`.
 - [x] The credential-setup story (`notarytool store-credentials`, the two
   `RGP_*`/one profile-name env vars) is documented above and in the
   release-doc checklist.
@@ -256,12 +257,17 @@ part of `recipe.py release`, not a separate manual step.
 - **Human step, post-merge:** enroll in the Apple Developer Program,
   provision a real Developer-ID Application certificate, run
   `xcrun notarytool store-credentials` with real credentials, and execute
-  one real `recipe.py release` end-to-end to confirm the sign→notarize→
+  one real `recipe.py package` end-to-end to confirm the sign→notarize→
   staple chain against Apple's live service.
 - **Human step, post-merge:** verify the resulting stapled DMG installs and
   launches cleanly on a genuinely clean secondary Mac (no prior overrides,
   fresh user account), confirming Gatekeeper accepts it with zero manual
   override — the acceptance bar this whole feature exists to satisfy.
+- **Human/environment step:** on a machine that can grant Apple-events/
+  Finder-automation permission (System Settings → Privacy & Security →
+  Automation), confirm `pnpm tauri build` / `recipe.py package` actually
+  produces a `.dmg` file — this sandboxed agent environment cannot (see §7);
+  this is pre-existing and independent of this feature's own changes.
 - Consider CI-runner secrets wiring (`.p12` import, API-key `notarytool`
   form) once this project gains a CI pipeline.
 - Consider Developer-ID Installer / `.pkg` signing if a `.pkg` bundle target

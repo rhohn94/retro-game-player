@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Developer-ID signed release build
+  (W300 "Passport"). Applied by tauri-bundler via the `bundle.macOS.entitlements`
+  key in tauri.conf.json when `bundle.macOS.hardenedRuntime` is enabled.
+
+  Each entitlement re-opens exactly one thing the hardened runtime locks down
+  by default that this app legitimately needs; see
+  docs/design/notarization-distribution-design.md §2 for the full rationale
+  per entry. Do not add entitlements speculatively — each one widens the
+  app's default sandboxing away from Apple's hardened-runtime defaults and
+  must be justified in that doc.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- The in-page player embeds EmulatorJS (WASM) in the webview; WASM
+         execution needs JIT / executable memory that isn't itself signed.
+         See docs/design/in-page-play-design.md. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Native emulation dlopen's third-party libretro core .dylibs (e.g.
+         fceumm) via hand-rolled libloading FFI. Those cores are not signed
+         by our Team ID, so default library validation would refuse to load
+         them. See docs/design/native-emulation-design.md. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Outbound HTTP for metadata/cover-art enrichment and ROM-provider
+         browsing. See docs/design/library-import-design.md and
+         docs/design/console-browse-design.md. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- The loopback http://127.0.0.1 play server (tiny_http) the in-page
+         player embeds as an iframe origin. See
+         docs/design/in-page-play-design.md. -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+  </dict>
+</plist>
