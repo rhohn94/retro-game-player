@@ -46,6 +46,16 @@ fn lock(session: &NativeSession) -> std::sync::MutexGuard<'_, Option<native::Nat
     session.0.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// True while a `NativeRuntime` session is held in `session` — i.e. a game is
+/// actually booted/running (a preview session counts too; both hold a real
+/// `NativeRuntime`). Lets a caller outside this module (`commands::core_options`,
+/// W282 race fix) refuse work that would otherwise install the same
+/// process-global FFI callback sinks (`play::native::callbacks`) a live
+/// session already owns, without exposing the `NativeSession` internals.
+pub(crate) fn is_session_active(session: &NativeSession) -> bool {
+    lock(session).is_some()
+}
+
 /// Resolves the session's side-effect wiring (v0.27 W273): a PREVIEW session
 /// (the TV hover-attract spectator surface) must leave no trace, so it drops
 /// both the save wiring — `saves: None` structurally disables the SRAM load/
@@ -121,13 +131,6 @@ pub fn start_native_play(
     }
     let core_path = native::resolve_native_core_path(&db)?;
     let rom_path = PathBuf::from(&game.path);
-    // W282 (core-options-design.md): seed this session's declared option
-    // values — persisted value if any, else the core's own declared default
-    // — before the real boot below, so a core's GET_VARIABLE queries during
-    // its own retro_init see exactly what the Cores screen has saved. A
-    // core with no declared options (or a probe failure) seeds nothing,
-    // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
-    seed_persisted_core_variables(&db, &game.system, native::NATIVE_CORE_ID, &core_path);
     // Save persistence (W230): best-effort — an unavailable saves dir means
     // the session plays without persistence rather than failing to boot.
     let saves = Paths::app_support()
@@ -141,8 +144,40 @@ pub fn start_native_play(
         .ok();
     let (saves, perf_log_path) =
         session_side_effects(preview.unwrap_or(false), saves, perf_log_path);
+    // Concurrency fix (post-W282 hotfix): hold the NativeSession mutex for
+    // the whole teardown-seed-install sequence below, not just the final
+    // assignment. Previously the old session stayed alive (and its core
+    // thread kept calling the process-global callbacks in `play::native::
+    // callbacks` — see that module's doc) until the very end of this
+    // function, while `seed_persisted_core_variables`'s probe ran in between
+    // and called the SAME process-global `native::install`/`native::
+    // uninstall` the old session's still-running core thread was using. That
+    // let a dying session's FFI calls get silently rerouted into the probe's
+    // short-lived channels, and let the probe's `uninstall()` zero state a
+    // live session still needed. Dropping the old runtime *before* seeding —
+    // while still holding this same guard — means its `Drop` (which joins
+    // both its threads to completion) has fully released the callback sinks
+    // before the probe ever calls `native::install()`, and no other caller
+    // (e.g. `list_core_options`) can observe a "no session" gap and start its
+    // own probe in the window between teardown and the new session's install.
+    //
+    // Lock-ordering note: this acquires `NativeSession`'s mutex first, then
+    // (transitively, inside `seed_persisted_core_variables` /
+    // `NativeRuntime::start`) `core_options::probe`'s own `PROBE_LOCK`.
+    // Never acquire them in the reverse order (`PROBE_LOCK` then
+    // `NativeSession`) elsewhere, or this introduces a deadlock.
+    let mut guard = lock(&session);
+    // Drop+join the old runtime (if any) before probing.
+    guard.take();
+    // W282 (core-options-design.md): seed this session's declared option
+    // values — persisted value if any, else the core's own declared default
+    // — before the real boot below, so a core's GET_VARIABLE queries during
+    // its own retro_init see exactly what the Cores screen has saved. A
+    // core with no declared options (or a probe failure) seeds nothing,
+    // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
+    seed_persisted_core_variables(&db, &game.system, native::NATIVE_CORE_ID, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
-    *lock(&session) = Some(runtime);
+    *guard = Some(runtime);
     Ok(())
 }
 
@@ -286,6 +321,116 @@ pub fn set_native_input(bits: u16) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    /// A minimal libretro core good enough to boot a real [`NativeRuntime`] —
+    /// mirrors `core::core_options::probe`'s own `STUB_CORE_WITH_OPTIONS_C`/
+    /// `build_stub_core` test fixture (kept local rather than shared — a
+    /// tiny, self-contained duplicate is simpler than threading a shared
+    /// fixture across crate modules for one field's worth of divergence).
+    /// Declares no options and accepts any ROM path unconditionally.
+    const STUB_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+static retro_environment_t env_cb = 0;
+
+void retro_init(void) {}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Session Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "nes";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 256; info->geometry.base_height = 240;
+    info->geometry.max_width = 256; info->geometry.max_height = 240;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0; info->timing.sample_rate = 44100.0;
+}
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) {}
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+bool retro_load_game(const struct retro_game_info *game) { return true; }
+void retro_unload_game(void) {}
+void retro_run(void) {}
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+void *retro_get_memory_data(unsigned id) { return 0; }
+size_t retro_get_memory_size(unsigned id) { return 0; }
+"#;
+
+    fn build_stub_core(dir: &Path) -> Option<PathBuf> {
+        let c_path = dir.join("stub_session_core.c");
+        std::fs::write(&c_path, STUB_CORE_C).ok()?;
+        let dylib_path = dir.join("stub_session_core.dylib");
+        let status = Command::new("cc")
+            .arg("-dynamiclib")
+            .arg("-o")
+            .arg(&dylib_path)
+            .arg(&c_path)
+            .status()
+            .ok()?;
+        status.success().then_some(dylib_path)
+    }
+
+    #[test]
+    fn is_session_active_is_false_with_no_session_running() {
+        let session = NativeSession::default();
+        assert!(!is_session_active(&session));
+    }
+
+    #[test]
+    fn is_session_active_is_true_once_a_real_runtime_is_installed() {
+        // Drives a real (stub) NativeRuntime through the same process-global
+        // FFI callback state `core::core_options::probe`'s tests and
+        // `play::native::callbacks`'s own tests share — take that lock so
+        // this never races them under `cargo test`'s parallel execution.
+        let _guard = native::lock_tests();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let rom_path = dir.path().join("stub.nes");
+        std::fs::write(&rom_path, [0u8; 16]).expect("write stub rom");
+
+        let session = NativeSession::default();
+        assert!(!is_session_active(&session));
+
+        let runtime = native::NativeRuntime::start(&dylib, &rom_path, None, None)
+            .expect("stub runtime starts");
+        *lock(&session) = Some(runtime);
+        assert!(is_session_active(&session));
+
+        // Tear down explicitly (joins both threads) before the guard drops,
+        // so a later test's install() never races this session's shutdown.
+        lock(&session).take();
+        assert!(!is_session_active(&session));
+    }
 
     fn frame(seq: u64) -> Option<(u64, Rgba8Frame)> {
         Some((

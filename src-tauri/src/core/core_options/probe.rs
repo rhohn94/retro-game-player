@@ -5,9 +5,31 @@
 //! `set_environment` → `init` — then tears the core back down without ever
 //! loading a ROM. This is the only place outside a real play session that
 //! drives [`LibretroCore`]'s lifecycle, and it reuses the same process-global
-//! callback plumbing ([`callbacks`]) a live session does; [`probe_declared_options`]
-//! takes the process-wide callback lock for its duration so it can never
-//! observe (or corrupt) a concurrent play session's environment events.
+//! callback plumbing ([`callbacks`]) a live session does.
+//!
+//! [`probe_declared_options`] itself only ever serializes against *other
+//! probe* calls via [`PROBE_LOCK`] — it has no way to know, on its own,
+//! whether a live [`crate::play::native::NativeRuntime`] session is using
+//! the same process-global sinks right now. A live session's core thread
+//! calls `environment`/`video_refresh`/`audio_sample_batch` continuously,
+//! and those callbacks look up the sinks fresh on every call
+//! ([`callbacks`]'s module doc) — so a probe's `install()`/`uninstall()`
+//! running concurrently with a live session would silently reroute the
+//! session's calls into the probe's short-lived channels and then rip the
+//! sinks out from under it. This actually happened in ordinary usage (not a
+//! contrived edge case): `start_native_play` probing while replacing a
+//! still-live prior session, and `list_core_options` probing while a
+//! TV-preview session was up. Both call sites now close the gap themselves
+//! before this module is ever reached: `commands::native_play::
+//! start_native_play` tears down (drops+joins) any prior session *while
+//! holding the `NativeSession` mutex*, before it ever calls the seeding
+//! probe, and `commands::core_options::list_core_options` checks
+//! `native_play::is_session_active` and refuses to probe at all
+//! (`AppError::Conflict`) while a session is live. This module's contract is
+//! therefore: **a probe call is only ever safe to make when the caller has
+//! already established no `NativeRuntime` session exists** — `PROBE_LOCK`
+//! only ever needed to protect against two concurrent probes, and that
+//! remains its sole job.
 
 use crate::error::AppResult;
 use crate::play::native::{self, CoreVariable, EnvironmentEvent, LibretroCore};
@@ -24,12 +46,14 @@ const DECLARE_TIMEOUT: Duration = Duration::from_millis(500);
 /// Serializes concurrent probe calls with each other — both would otherwise
 /// drive the same process-global callback state ([`native::install`]/
 /// [`native::uninstall`]) at once, which is inherently single-session by FFI
-/// necessity (see `play::native::callbacks`'s module doc). This does **not**
-/// serialize against a live [`crate::play::native::NativeRuntime`] play
-/// session — Harmony only ever probes between sessions in practice (the
-/// Cores/Settings screens vs. an active game), never concurrently with one;
-/// broadening this lock to cover session start/stop too is tracked as a
-/// follow-up if that assumption ever changes.
+/// necessity (see `play::native::callbacks`'s module doc). This intentionally
+/// does **not** serialize against a live [`crate::play::native::NativeRuntime`]
+/// play session — that guarantee now lives at the call sites (see this
+/// module's doc comment above): both `commands::native_play::start_native_play`
+/// and `commands::core_options::list_core_options` establish "no session is
+/// live" *before* ever reaching `probe_declared_options`, so by the time this
+/// lock is taken a concurrent live session is already ruled out by
+/// construction, not by anything this lock does.
 static PROBE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Loads `core_path` far enough to capture its declared option list, then

@@ -118,6 +118,31 @@ plumbing (`install`/`environment`/`uninstall`) a live play session uses, so a
 process-global FFI state and would otherwise race under `cargo test`'s
 parallel test execution.
 
+**Post-W282 hotfix — probe-vs-live-session race.** `PROBE_LOCK` only ever
+serialized concurrent *probe* calls against each other; it did not serialize
+against a live `NativeRuntime` session, and two ordinary-usage paths could
+reach the probe while one was still running: `start_native_play` called the
+seeding probe before tearing down whatever prior session (e.g. a TV
+hover-attract preview) was still live, and `list_core_options` had no session
+check at all, so opening Settings → Core Options while a preview session was
+up raced it directly. Either way, the probe's `install()`/`uninstall()` and
+the live session's core thread fought over the same process-global callback
+sinks (`play::native::callbacks`), which are looked up fresh on every FFI
+call — the live session's calls could get silently rerouted into the probe's
+short-lived channels, and the probe's `uninstall()` would zero state the
+live session still needed. Closed by refusing to probe at all while a
+session is live, rather than trying to interleave safely with one:
+`list_core_options` (`commands::core_options`) now checks
+`native_play::is_session_active` first and returns `AppError::Conflict`
+instead of probing when a session is active, and `start_native_play`
+(`commands::native_play`) now holds the `NativeSession` mutex continuously
+across dropping the old runtime, seeding, and installing the new one, so the
+old runtime's `Drop` (which joins its threads) fully completes — and
+releases the sinks — before the seeding probe ever runs. `PROBE_LOCK` itself
+is unchanged and keeps its original, narrower job (serializing two
+concurrent probes); the "no live session" guarantee now lives entirely at
+the call sites.
+
 ### Persistence (`core::core_options::persistence`)
 
 Reuses the existing generic `settings` key/value table (no new table, no
@@ -154,7 +179,11 @@ Every command rejects (`AppError::Unsupported`) for any `system` other than
 and EmulatorJS systems from ever reaching the probe or the persisted-value
 lookup, satisfying "no core-options entry point" for those systems at the
 backend layer (the frontend also never mounts a native-only entry point for
-them, belt-and-suspenders).
+them, belt-and-suspenders). `list_core_options` additionally rejects with
+`AppError::Conflict` while a native play session (including a TV-preview
+session) is active — see "Post-W282 hotfix" above — which the frontend
+distinguishes from "no options" (an empty `Vec`) rather than treating both
+as the same, empty state.
 
 ### Frontend
 

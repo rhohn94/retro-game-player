@@ -6,6 +6,7 @@
 //! (currently `fceumm` NES); RetroArch-external and EmulatorJS cores have no
 //! commands here by design (they never call `resolve_native_core_path`).
 
+use crate::commands::native_play::{is_session_active, NativeSession};
 use crate::core::core_options;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
@@ -60,9 +61,28 @@ where
 /// `commands::cores`'s pattern: the blocking closure touches no `Db`, and the
 /// persisted-value resolution runs back on the async body afterward, where
 /// the `State<Db>` borrow is held.
+///
+/// Concurrency (post-W282 hotfix): the probe drives the same process-global
+/// FFI callback sinks (`play::native::callbacks`) a live
+/// [`native::NativeRuntime`] session uses, and `core::core_options::probe`'s
+/// own lock only guards against a second concurrent probe — not a live
+/// session (see that module's doc). So before ever calling the probe, this
+/// command checks [`is_session_active`] and refuses outright
+/// (`AppError::Conflict`) while a session — including a TV-preview session —
+/// is running, rather than risk the probe's `install()`/`uninstall()` racing
+/// that session's core thread. This is a deliberate empty-vs-error
+/// distinction: an empty `Vec` means "this core declares no options" (a
+/// legitimate, successful answer), while `Conflict` means "can't check right
+/// now — a game is running," and the frontend must be able to tell the two
+/// apart rather than silently showing zero options while a session is live.
 #[tauri::command]
-pub async fn list_core_options(db: tauri::State<'_, Db>, system: String) -> AppResult<Vec<CoreOptionDto>> {
+pub async fn list_core_options(
+    db: tauri::State<'_, Db>,
+    session: tauri::State<'_, NativeSession>,
+    system: String,
+) -> AppResult<Vec<CoreOptionDto>> {
     require_native_system(&system)?;
+    reject_if_session_active(is_session_active(&session))?;
     let core_path = native::resolve_native_core_path(&db)?;
     let declared = off_thread(move || core_options::probe_declared_options(&core_path)).await?;
     let values = core_options::resolve_session_variables(&db, &system, native::NATIVE_CORE_ID, &declared)?;
@@ -109,6 +129,23 @@ pub async fn set_core_option(
     core_options::set_persisted_value(db.inner(), &system, native::NATIVE_CORE_ID, &option_key, &value)
 }
 
+/// Rejects with `AppError::Conflict` when `active` (a native play session,
+/// including a TV-preview session, is currently running) — the pure decision
+/// half of the [`list_core_options`] session guard (post-W282 hotfix), kept
+/// separate from the `tauri::State` plumbing so it's unit-testable the same
+/// way [`require_native_system`] is, without needing a real `NativeSession`/
+/// `NativeRuntime` in every call site that wants to check the outcome.
+fn reject_if_session_active(active: bool) -> AppResult<()> {
+    if active {
+        Err(AppError::Conflict(
+            "a native play session is currently running — stop it before checking core options"
+                .into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// Rejects any system other than the one native-FFI-hosted system Harmony
 /// currently supports — the single gate every command in this module shares,
 /// so RetroArch-external/EmulatorJS systems never reach the probe or the
@@ -128,6 +165,25 @@ fn require_native_system(system: &str) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- reject_if_session_active (post-W282 hotfix: probe-vs-live-session race) ----
+    // The `bool` here stands in for `is_session_active(&session)`'s real
+    // answer; `commands::native_play`'s own test suite
+    // (`is_session_active_is_true_once_a_real_runtime_is_installed`) covers
+    // that a genuinely live `NativeRuntime` makes that function report
+    // `true` — this suite covers what `list_core_options` then *does* with
+    // that answer.
+
+    #[test]
+    fn reject_if_session_active_passes_through_when_no_session_is_running() {
+        assert!(reject_if_session_active(false).is_ok());
+    }
+
+    #[test]
+    fn reject_if_session_active_returns_conflict_when_a_session_is_running() {
+        let err = reject_if_session_active(true).expect_err("active session must be rejected");
+        assert!(matches!(err, AppError::Conflict(_)));
+    }
 
     #[test]
     fn require_native_system_accepts_the_native_system() {
