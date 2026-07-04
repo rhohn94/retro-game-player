@@ -208,7 +208,7 @@ post-W280/W281/W282 play surface rather than going stale immediately.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29 |
 |---|---|---|---|---|
-| `feat/w280-crt-filter` (W280) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w280-crt-filter` (W280) | ☑ | ☑ | ☑ | ☑ |
 | `feat/w281-perf-tooling` (W281) | ☐ | ☐ | ☐ | ☐ |
 
 ### Pass 3
@@ -250,3 +250,20 @@ post-W280/W281/W282 play surface rather than going stale immediately.
   with `useFocusable` for direct spatial-nav reach is a pre-existing W268
   follow-up (already tracked); Tab/Enter/Escape already reach them today via
   W283's keyboard bridge.
+
+**Pass 2 (W280):**
+
+- W280's shader-cost budget (<10% avg frame time) was justified
+  analytically, not measured on-device (no reachable fceumm session in the
+  implementation environment) — a clearly-flagged, reasonable environment
+  constraint, not overclaimed. Filed
+  [#35](https://github.com/rhohn94/retro-game-player/issues/35) to replace
+  it with a real `native-perf.log` before/after trace once available.
+- The CRT settings-panel preview's EJS side stands in a plain `<img>`
+  rather than a real iframe — self-acknowledged low-risk (the CSS overlay
+  is iframe-content-agnostic by construction); no issue filed, noted here
+  for continuity.
+- Closing the native/EJS CRT fidelity gap (a true per-pixel shader on the
+  EJS path) requires patching the vendored EmulatorJS `player.html` runtime
+  — an explicit, already-recorded v0.29 non-goal (see §4), not a new
+  follow-up.
