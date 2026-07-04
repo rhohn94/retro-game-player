@@ -222,6 +222,20 @@ Plan: [`release-planning-v0.29.md`](release-planning/release-planning-v0.29.md).
 
 ---
 
+## v0.29.1 — Native NES flip-fix hotfix (released — see version-history.md)
+
+**Theme:** Fix a confirmed v0.29 regression — user-reported 2026-07-04: native
+NES gameplay rendered vertically flipped. Root cause: W280's WebGL2 CRT-filter
+renderer uploaded frames without compensating for the native core's top-down
+buffer vs. WebGL's texture-origin convention.
+
+- **Native NES rendering right-side-up again**, at every CRT preset including
+  Off ([#37](https://github.com/rhohn94/retro-game-player/issues/37)).
+
+Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.md).
+
+---
+
 ## v0.30 — Passport (planned)
 
 **Theme:** Ready for hands that aren't the developer's.
