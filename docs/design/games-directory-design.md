@@ -2,7 +2,7 @@
 
 > Lets Harmony offer to create a games directory for the user, so an empty
 > library has a one-click path to a real, scannable folder. Ticket
-> [#3](https://github.com/rhohn94/harmony/issues/3).
+> [#3](https://github.com/rhohn94/retro-game-player/issues/3).
 
 ---
 

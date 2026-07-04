@@ -41,8 +41,10 @@ impl From<ContentFolder> for ContentFolderDto {
 #[serde(rename_all = "camelCase")]
 pub struct GameDto {
     pub id: i64,
-    pub path: String,
-    pub system: String,
+    /// ROM path; `None` for non-ROM sources (v0.31 W310).
+    pub path: Option<String>,
+    /// Emulated system; `None` for non-ROM sources (v0.31 W310).
+    pub system: Option<String>,
     pub crc32: Option<String>,
     pub md5: Option<String>,
     pub clean_name: String,
@@ -70,6 +72,14 @@ pub struct GameDto {
     /// Cumulative server-measured play time, in milliseconds (v0.26 "library
     /// life", W264).
     pub total_play_time_ms: i64,
+    /// Game source: `"rom"` (default) or a non-retro source (v0.31 W310).
+    pub source: &'static str,
+    /// JSON launch descriptor for non-`rom` sources; `null` for `rom` rows
+    /// (v0.31 W310).
+    pub launch_descriptor: Option<String>,
+    /// Source-scoped external identifier (e.g. a Steam appid); `null` for
+    /// `rom` rows (v0.31 W310).
+    pub external_id: Option<String>,
 }
 
 impl From<Game> for GameDto {
@@ -103,6 +113,9 @@ impl From<Game> for GameDto {
             last_played_at: g.last_played_at,
             play_count: g.play_count,
             total_play_time_ms: g.total_play_time_ms,
+            source: g.source.as_db_str(),
+            launch_descriptor: g.launch_descriptor,
+            external_id: g.external_id,
         }
     }
 }
@@ -385,14 +398,14 @@ pub async fn import_games(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::repo::library::Game;
+    use crate::db::repo::library::{Game, GameSource};
 
     fn sample_game() -> Game {
         Game {
             id: 1,
-            folder_id: 1,
-            path: "/roms/a.nes".to_string(),
-            system: "nes".to_string(),
+            folder_id: Some(1),
+            path: Some("/roms/a.nes".to_string()),
+            system: Some("nes".to_string()),
             crc32: None,
             md5: None,
             clean_name: "A".to_string(),
@@ -411,6 +424,9 @@ mod tests {
             last_played_at: Some(1_700_000_000),
             play_count: 3,
             total_play_time_ms: 42_000,
+            source: GameSource::Rom,
+            launch_descriptor: None,
+            external_id: None,
         }
     }
 

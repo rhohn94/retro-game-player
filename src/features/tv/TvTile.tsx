@@ -10,6 +10,12 @@
 // `data-focused`) so the next pass (W262) can polish scale/ring/glow purely in
 // CSS without touching this component. This file establishes the hooks; the
 // token-driven baseline focus visuals live in tv-home.css.
+//
+// v0.31 W315: a non-retro row (Steam/App/Manual, W310) has no console — its
+// placeholder shows the source badge (Steam/App/Manual) instead of the clean
+// name twice over, and its caption gains a small source badge so it reads as
+// first-class alongside a console tile in the same "Recently added"/favorites
+// rail (non-retro-library-design.md §UI).
 
 import { AuraCard } from "@aura/react";
 import { motion } from "framer-motion";
@@ -18,6 +24,7 @@ import type { Game } from "../../ipc/library";
 import { listItem } from "../../lib/motion";
 import { useFocusable } from "../controller";
 import { useGameArt } from "../library/useGameArt";
+import { isNonRetro, sourceBadgeLabel } from "../library/sourceBadge";
 import { tileFocusId, type RailId } from "./rails";
 
 export interface TvTileProps {
@@ -46,6 +53,9 @@ export function TvTile({ game, railId, onLaunch }: TvTileProps) {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
 
+  const nonRetro = isNonRetro(game);
+  const badge = nonRetro ? sourceBadgeLabel(game.source) : game.system;
+
   // Pointer focus/hover claims controller focus (so the spatial ring can't
   // linger on a gamepad's stale position, and the hero follows the pointer).
   return (
@@ -58,7 +68,7 @@ export function TvTile({ game, railId, onLaunch }: TvTileProps) {
       onFocus={focus}
       onMouseEnter={focus}
       onClick={() => onLaunch(game)}
-      aria-label={`${game.cleanName} (${game.system})`}
+      aria-label={`${game.cleanName} (${badge})`}
     >
       <AuraCard class="rgp-tv-tile__card">
         <div className="rgp-tv-tile__frame">
@@ -73,7 +83,10 @@ export function TvTile({ game, railId, onLaunch }: TvTileProps) {
             </span>
           )}
         </div>
-        <span className="rgp-tv-tile__caption">{game.cleanName}</span>
+        <span className="rgp-tv-tile__caption">
+          {game.cleanName}
+          {nonRetro && <span className="rgp-tv-tile__source-badge">{badge}</span>}
+        </span>
       </AuraCard>
     </motion.button>
   );

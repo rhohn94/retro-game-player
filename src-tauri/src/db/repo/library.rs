@@ -17,13 +17,55 @@ pub struct ContentFolder {
     pub added_at: i64,
 }
 
+/// A game's source (`games.source`, v0.31 W310 "Frontier" — see
+/// `docs/design/non-retro-library-design.md`). `Rom` is the pre-v0.31 default;
+/// the other three are non-retro library rows that launch externally via a
+/// `launch_descriptor` rather than through a ROM + core.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameSource {
+    #[default]
+    Rom,
+    Steam,
+    App,
+    Manual,
+}
+
+impl GameSource {
+    /// The stored SQLite TEXT value (must match the migration's CHECK list).
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            GameSource::Rom => "rom",
+            GameSource::Steam => "steam",
+            GameSource::App => "app",
+            GameSource::Manual => "manual",
+        }
+    }
+
+    /// Parse a stored `games.source` value. Any value outside the CHECK-
+    /// enforced set indicates on-disk corruption or a build/schema mismatch —
+    /// callers should treat it as an internal error, not silently default.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "rom" => Some(GameSource::Rom),
+            "steam" => Some(GameSource::Steam),
+            "app" => Some(GameSource::App),
+            "manual" => Some(GameSource::Manual),
+            _ => None,
+        }
+    }
+}
+
 /// A game/ROM entry (`games` row).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Game {
     pub id: i64,
-    pub folder_id: i64,
-    pub path: String,
-    pub system: String,
+    /// Owning content folder; `None` for non-ROM sources (v0.31 W310).
+    pub folder_id: Option<i64>,
+    /// ROM path; `None` for non-ROM sources (v0.31 W310).
+    pub path: Option<String>,
+    /// Emulated system; `None` for non-ROM sources (v0.31 W310).
+    pub system: Option<String>,
     pub crc32: Option<String>,
     pub md5: Option<String>,
     pub clean_name: String,
@@ -54,6 +96,14 @@ pub struct Game {
     /// Cumulative server-measured play time, in milliseconds (v0.26 "library
     /// life", W264).
     pub total_play_time_ms: i64,
+    /// Game source: `rom` (default) or a non-retro source (v0.31 W310).
+    pub source: GameSource,
+    /// JSON launch descriptor for non-`rom` sources; `None` for `rom` rows
+    /// (v0.31 W310, see `docs/design/non-retro-library-design.md`).
+    pub launch_descriptor: Option<String>,
+    /// Source-scoped external identifier (e.g. a Steam appid); `None` for
+    /// `rom` rows (v0.31 W310). Unique per `source` where present.
+    pub external_id: Option<String>,
 }
 
 /// New-folder input (no id; assigned by SQLite).
@@ -65,9 +115,12 @@ pub struct NewContentFolder {
 
 /// New-game input (no id; assigned by SQLite).
 pub struct NewGame {
-    pub folder_id: i64,
-    pub path: String,
-    pub system: String,
+    /// Owning content folder; `None` for non-ROM sources (v0.31 W310).
+    pub folder_id: Option<i64>,
+    /// ROM path; `None` for non-ROM sources (v0.31 W310).
+    pub path: Option<String>,
+    /// Emulated system; `None` for non-ROM sources (v0.31 W310).
+    pub system: Option<String>,
     pub crc32: Option<String>,
     pub md5: Option<String>,
     pub clean_name: String,
@@ -81,6 +134,13 @@ pub struct NewGame {
     pub developer: Option<String>,
     pub publisher: Option<String>,
     pub aliases: Option<String>,
+    /// Game source; defaults to [`GameSource::Rom`] (v0.31 W310).
+    pub source: GameSource,
+    /// JSON launch descriptor; required (non-`None`) for non-`rom` sources
+    /// (v0.31 W310).
+    pub launch_descriptor: Option<String>,
+    /// Source-scoped external identifier, e.g. a Steam appid (v0.31 W310).
+    pub external_id: Option<String>,
 }
 
 /// Repository over the library tables.
@@ -130,6 +190,18 @@ fn map_game(row: &Row) -> rusqlite::Result<Game> {
         last_played_at: row.get("last_played_at")?,
         play_count: row.get("play_count")?,
         total_play_time_ms: row.get("total_play_time_ms")?,
+        source: {
+            let raw: String = row.get("source")?;
+            GameSource::from_db_str(&raw).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    format!("unrecognized games.source value: {raw}").into(),
+                )
+            })?
+        },
+        launch_descriptor: row.get("launch_descriptor")?,
+        external_id: row.get("external_id")?,
     })
 }
 
@@ -220,8 +292,10 @@ impl LibraryRepo<'_> {
             c.execute(
                 "INSERT INTO games (folder_id, path, system, crc32, md5, clean_name, \
                  dat_matched, core_hint, art_path, size_bytes, added_at, \
-                 year, developer, publisher, aliases) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                 year, developer, publisher, aliases, source, launch_descriptor, \
+                 external_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
+                 ?16, ?17, ?18)",
                 params![
                     game.folder_id,
                     game.path,
@@ -238,10 +312,106 @@ impl LibraryRepo<'_> {
                     game.developer,
                     game.publisher,
                     game.aliases,
+                    game.source.as_db_str(),
+                    game.launch_descriptor,
+                    game.external_id,
                 ],
             )
             .map_err(map_sqlite)?;
             Ok(c.last_insert_rowid())
+        })
+    }
+
+    /// Source-aware upsert keyed on `(source, external_id)` (v0.31 W310): a
+    /// non-`rom` re-scan (Steam / app / manual) must never create a duplicate
+    /// row for a title it has already registered. Requires `external_id`
+    /// (the dedup key) — `rom` rows keep using [`Self::add_game`] /
+    /// [`Self::find_game_by_hash`], which dedupe on content hash instead.
+    /// Returns the existing row's id (updated in place) or a freshly
+    /// inserted id.
+    pub fn upsert_game_by_source(&self, game: &NewGame) -> AppResult<i64> {
+        let external_id = game.external_id.as_deref().ok_or_else(|| {
+            crate::error::AppError::Validation(
+                "upsert_game_by_source requires external_id".to_string(),
+            )
+        })?;
+        self.db.with_conn(|c| {
+            let existing: Option<i64> = c
+                .query_row(
+                    "SELECT id FROM games WHERE source = ?1 AND external_id = ?2",
+                    params![game.source.as_db_str(), external_id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(map_sqlite)?;
+
+            if let Some(id) = existing {
+                c.execute(
+                    "UPDATE games SET clean_name = ?1, art_path = ?2, size_bytes = ?3, \
+                     launch_descriptor = ?4, core_hint = ?5 WHERE id = ?6",
+                    params![
+                        game.clean_name,
+                        game.art_path,
+                        game.size_bytes,
+                        game.launch_descriptor,
+                        game.core_hint,
+                        id,
+                    ],
+                )
+                .map_err(map_sqlite)?;
+                Ok(id)
+            } else {
+                c.execute(
+                    "INSERT INTO games (folder_id, path, system, crc32, md5, clean_name, \
+                     dat_matched, core_hint, art_path, size_bytes, added_at, \
+                     year, developer, publisher, aliases, source, launch_descriptor, \
+                     external_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
+                     ?16, ?17, ?18)",
+                    params![
+                        game.folder_id,
+                        game.path,
+                        game.system,
+                        game.crc32,
+                        game.md5,
+                        game.clean_name,
+                        game.dat_matched as i64,
+                        game.core_hint,
+                        game.art_path,
+                        game.size_bytes,
+                        game.added_at,
+                        game.year,
+                        game.developer,
+                        game.publisher,
+                        game.aliases,
+                        game.source.as_db_str(),
+                        game.launch_descriptor,
+                        game.external_id,
+                    ],
+                )
+                .map_err(map_sqlite)?;
+                Ok(c.last_insert_rowid())
+            }
+        })
+    }
+
+    /// Fetch a game by its `(source, external_id)` dedup key, or `None` if no
+    /// such row exists yet (v0.31 W312). Lets a source-scan IPC command tell
+    /// whether an upsert inserted a fresh row or refreshed an existing one,
+    /// without re-listing the whole table per discovered game.
+    pub fn get_game_by_source_external_id(
+        &self,
+        source: GameSource,
+        external_id: &str,
+    ) -> AppResult<Option<Game>> {
+        self.db.with_conn(|c| {
+            c.query_row(
+                "SELECT * FROM games WHERE source = ?1 AND external_id = ?2",
+                params![source.as_db_str(), external_id],
+                map_game,
+            )
+            .optional()
+            .map_err(map_sqlite)
         })
     }
 
@@ -458,9 +628,9 @@ mod tests {
 
     fn game(folder_id: i64, path: &str) -> NewGame {
         NewGame {
-            folder_id,
-            path: path.to_string(),
-            system: "nes".to_string(),
+            folder_id: Some(folder_id),
+            path: Some(path.to_string()),
+            system: Some("nes".to_string()),
             crc32: Some("deadbeef".to_string()),
             md5: None,
             clean_name: "Super Game".to_string(),
@@ -473,6 +643,35 @@ mod tests {
             developer: None,
             publisher: None,
             aliases: None,
+            source: GameSource::Rom,
+            launch_descriptor: None,
+            external_id: None,
+        }
+    }
+
+    /// A non-ROM `NewGame` (v0.31 W310): no folder/path/system, but a
+    /// launch descriptor and an external id, so it satisfies the CHECK
+    /// invariant and can dedupe via `(source, external_id)`.
+    fn non_rom_game(source: GameSource, external_id: &str, clean_name: &str) -> NewGame {
+        NewGame {
+            folder_id: None,
+            path: None,
+            system: None,
+            crc32: None,
+            md5: None,
+            clean_name: clean_name.to_string(),
+            dat_matched: false,
+            core_hint: None,
+            art_path: None,
+            size_bytes: 0,
+            added_at: 200,
+            year: None,
+            developer: None,
+            publisher: None,
+            aliases: None,
+            source,
+            launch_descriptor: Some(r#"{"kind":"steam","appid":"12345"}"#.to_string()),
+            external_id: Some(external_id.to_string()),
         }
     }
 
@@ -732,5 +931,118 @@ mod tests {
         let ids: Vec<i64> = favorites.iter().map(|g| g.id).collect();
         assert_eq!(ids, vec![mario_id, zelda_id], "alphabetical by clean_name");
         assert!(!ids.contains(&not_fav));
+    }
+
+    // --- v0.31 W310: ROM-less library model ---
+
+    #[test]
+    fn a_rom_row_still_round_trips_folder_path_and_system() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let fid = repo.add_folder(&folder("/roms")).unwrap();
+        let gid = repo.add_game(&game(fid, "/roms/a.nes")).unwrap();
+        let g = repo.get_game(gid).unwrap();
+        assert_eq!(g.folder_id, Some(fid));
+        assert_eq!(g.path.as_deref(), Some("/roms/a.nes"));
+        assert_eq!(g.system.as_deref(), Some("nes"));
+        assert_eq!(g.source, GameSource::Rom);
+        assert_eq!(g.launch_descriptor, None);
+        assert_eq!(g.external_id, None);
+    }
+
+    #[test]
+    fn a_non_rom_row_persists_with_no_folder_path_or_system() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = repo
+            .add_game(&non_rom_game(GameSource::Steam, "12345", "Portal 2"))
+            .unwrap();
+        let g = repo.get_game(gid).unwrap();
+        assert_eq!(g.folder_id, None);
+        assert_eq!(g.path, None);
+        assert_eq!(g.system, None);
+        assert_eq!(g.source, GameSource::Steam);
+        assert_eq!(g.external_id.as_deref(), Some("12345"));
+        assert!(g.launch_descriptor.is_some());
+    }
+
+    /// Acceptance: "either-rom-or-descriptor CHECK invariant enforced with a
+    /// repo test" — a row with neither a rom identity (`path` + `system`)
+    /// nor a `launch_descriptor` must be rejected at the database level.
+    #[test]
+    fn check_invariant_rejects_a_row_with_neither_rom_identity_nor_descriptor() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let mut neither = non_rom_game(GameSource::Manual, "x", "Bad Row");
+        neither.launch_descriptor = None; // no descriptor AND no path/system
+        let result = repo.add_game(&neither);
+        assert!(
+            result.is_err(),
+            "a row with neither identity should violate the CHECK constraint"
+        );
+    }
+
+    /// A `rom`-sourced row with only `path` set (no `system`) is still
+    /// rejected: the CHECK requires BOTH halves of the rom identity.
+    #[test]
+    fn check_invariant_rejects_path_without_system() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let mut half_identity = non_rom_game(GameSource::Rom, "y", "Half Row");
+        half_identity.launch_descriptor = None;
+        half_identity.path = Some("/roms/half.nes".to_string());
+        // system stays None — CHECK must still fail.
+        let result = repo.add_game(&half_identity);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn upsert_by_source_inserts_once_then_updates_on_rescan() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+
+        let first = non_rom_game(GameSource::Steam, "620", "Portal 2");
+        let id = repo.upsert_game_by_source(&first).unwrap();
+        assert_eq!(repo.list_games(None).unwrap().len(), 1);
+
+        // A re-scan with a changed clean_name/art must resolve to the SAME
+        // row, not create a duplicate.
+        let mut rescanned = non_rom_game(GameSource::Steam, "620", "Portal 2 (renamed)");
+        rescanned.art_path = Some("/art/portal2.png".to_string());
+        let id_again = repo.upsert_game_by_source(&rescanned).unwrap();
+
+        assert_eq!(id, id_again, "re-scan must dedupe to the existing row");
+        assert_eq!(repo.list_games(None).unwrap().len(), 1, "no duplicate created");
+        let updated = repo.get_game(id).unwrap();
+        assert_eq!(updated.clean_name, "Portal 2 (renamed)");
+        assert_eq!(updated.art_path.as_deref(), Some("/art/portal2.png"));
+    }
+
+    #[test]
+    fn upsert_by_source_distinguishes_same_external_id_across_sources() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+
+        // Same external_id, different source — must be two distinct rows,
+        // since the dedup key is (source, external_id).
+        repo.upsert_game_by_source(&non_rom_game(GameSource::Steam, "1", "Steam Game"))
+            .unwrap();
+        repo.upsert_game_by_source(&non_rom_game(GameSource::App, "1", "App Game"))
+            .unwrap();
+
+        assert_eq!(repo.list_games(None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn duplicate_external_id_within_same_source_is_rejected_by_raw_insert() {
+        // The partial unique index backstops add_game() too (not just the
+        // upsert path) — a second row with the same (source, external_id)
+        // via the plain insert path must be rejected.
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        repo.add_game(&non_rom_game(GameSource::Steam, "620", "Portal 2"))
+            .unwrap();
+        let result = repo.add_game(&non_rom_game(GameSource::Steam, "620", "Portal 2 Dup"));
+        assert!(result.is_err());
     }
 }

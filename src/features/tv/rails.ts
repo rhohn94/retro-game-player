@@ -1,11 +1,15 @@
-// TV rail composition (v0.26 W261, tv-mode-design.md §Design "Shelves"). Pure +
-// framework-free: given the library's games plus the recently-played / favorites
-// slices, produce the ordered list of rails the TV home renders — Continue
-// playing, Favorites, Recently added, then one rail per system that has games
-// (most-recently-played system first). Empty rails are dropped so the home never
-// shows a labelled-but-empty shelf. Unit-tested without a DOM.
+// TV rail composition (v0.26 W261, tv-mode-design.md §Design "Shelves"; v0.31
+// W315 adds the trailing "Desktop" rail). Pure + framework-free: given the
+// library's games plus the recently-played / favorites slices, produce the
+// ordered list of rails the TV home renders — Continue playing, Favorites,
+// Recently added, one rail per system that has games (most-recently-played
+// system first), then a single "Desktop" rail collecting every non-retro
+// (Steam/App/Manual, v0.31 W310) row so they stay launchable from the TV flow.
+// Empty rails are dropped so the home never shows a labelled-but-empty shelf.
+// Unit-tested without a DOM.
 
 import type { Game } from "../../ipc/library";
+import { isNonRetro } from "../library/sourceBadge";
 import { orderSystemsByRecency, tvSystemLabel } from "./systems";
 
 /** A stable, unique rail identifier. Namespaced so a per-system rail id can
@@ -37,6 +41,9 @@ export interface RailSources {
 export const RAIL_CONTINUE: RailId = "rail:continue";
 export const RAIL_FAVORITES: RailId = "rail:favorites";
 export const RAIL_RECENT: RailId = "rail:recent";
+/** The single rail collecting every non-retro (Steam/App/Manual) row (v0.31
+ * W315) — trails the per-system rails so it reads as an addition. */
+export const RAIL_DESKTOP: RailId = "rail:desktop";
 /** Per-system rail id for a system key. */
 export function systemRailId(system: string): RailId {
   return `rail:system:${system}`;
@@ -54,6 +61,8 @@ export const RECENTLY_ADDED_LIMIT = 24;
  *   2. Favorites         — `favorites`.
  *   3. Recently added    — `games` by `addedAt` desc, newest `RECENTLY_ADDED_LIMIT`.
  *   4. One rail per system that has games, most-recently-played system first.
+ *   5. Desktop           — every non-retro (Steam/App/Manual, v0.31 W310) row,
+ *      newest `addedAt` first, trailing every console rail (v0.31 W315).
  *
  * Any rail with no games is omitted entirely (no labelled-empty shelves).
  */
@@ -76,8 +85,11 @@ export function buildRails(sources: RailSources): TvRailModel[] {
   }
 
   // Group games by system, then emit one rail per system in recency order.
+  // Non-ROM games (v0.31 W310) have no `system` and are excluded from the
+  // per-system rails entirely — they get their own "Desktop" rail below.
   const bySystem = new Map<string, Game[]>();
   for (const game of games) {
+    if (!game.system) continue;
     const list = bySystem.get(game.system);
     if (list) list.push(game);
     else bySystem.set(game.system, [game]);
@@ -91,6 +103,14 @@ export function buildRails(sources: RailSources): TvRailModel[] {
         games: systemGames,
       });
     }
+  }
+
+  // The Desktop rail (v0.31 W315): every non-retro row, newest first, so
+  // Steam/App/Manual titles stay browsable + launchable from the TV flow
+  // even though they have no console rail of their own.
+  const desktopGames = games.filter(isNonRetro).sort((a, b) => b.addedAt - a.addedAt);
+  if (desktopGames.length > 0) {
+    rails.push({ id: RAIL_DESKTOP, label: "Desktop", games: desktopGames });
   }
 
   return rails;

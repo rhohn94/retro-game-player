@@ -23,6 +23,7 @@ import type { Game } from "../../ipc/library";
 import { DUR, EASE_OUT, riseIn } from "../../lib/motion";
 import { useFocusable } from "../controller";
 import { useGameArt } from "../library/useGameArt";
+import { isNonRetro, sourceBadgeLabel } from "../library/sourceBadge";
 import { tvSystemLabel } from "./systems";
 import { formatLastPlayed, formatPlayTime, heroMetaLine } from "./playtime";
 import { HERO_FOCUS_ID } from "./railNav";
@@ -55,7 +56,16 @@ export function TvHero({ game, onLaunch, artHandedOff = false }: TvHeroProps) {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
 
-  const systemLabel = game ? tvSystemLabel(game.system) : "";
+  // A non-ROM game (v0.31 W310) has no `system` — the meta line shows its
+  // source badge (Steam/App/Manual) instead of a console name (v0.31 W315,
+  // non-retro-library-design.md §UI).
+  const systemLabel = game
+    ? game.system
+      ? tvSystemLabel(game.system)
+      : isNonRetro(game)
+        ? sourceBadgeLabel(game.source)
+        : ""
+    : "";
   const metaLine = game ? heroMetaLine(systemLabel, game.year) : "";
   const playTime = game ? formatPlayTime(game.totalPlayTimeMs) : null;
   const lastPlayed = game ? formatLastPlayed(game.lastPlayedAt, Date.now()) : null;

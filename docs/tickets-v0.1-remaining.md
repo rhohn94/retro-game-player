@@ -26,7 +26,7 @@ git tag -l v0.1         # must return v0.1
 
 1. Create the GitHub repo (no auto-init — local history will be pushed):
    ```
-   gh repo create rhohn94/harmony --public --source=. --remote=origin
+   gh repo create rhohn94/retro-game-player --public --source=. --remote=origin
    ```
 
 2. **PAUSE HERE — ask the user to confirm before pushing.** Then push:
@@ -46,7 +46,7 @@ git tag -l v0.1         # must return v0.1
 4. Verify:
    ```
    gh release view v0.1
-   gh repo view rhohn94/harmony
+   gh repo view rhohn94/retro-game-player
    ```
 
 ### Out of scope

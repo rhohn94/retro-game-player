@@ -247,6 +247,25 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
+  /* Non-retro (Steam/App/Manual) tiles pair the title with a source badge
+     instead of a console badge (v0.31 W315 — non-retro-library-design.md
+     §UI). */
+  .rgp-tile__title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--aura-space-2);
+  }
+  .rgp-tile__source-badge {
+    flex: 0 0 auto;
+    padding: 2px var(--aura-space-2);
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    font-size: 10px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
 
   /* The hover lift uses the shared fast/out motion token; reduced-motion is
      honoured centrally by the global media query in theme/motion.css. */
@@ -315,6 +334,17 @@
   }
   .rgp-detail__favorite[aria-pressed="true"] {
     color: var(--aura-secondary);
+  }
+  /* Non-retro (Steam/App/Manual) detail badge, next to the title (v0.31 W315
+     — non-retro-library-design.md §UI). */
+  .rgp-detail__source-badge {
+    padding: 2px var(--aura-space-2);
+    border-radius: var(--aura-radius-full);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    font-size: var(--rgp-font-caption);
+    white-space: nowrap;
+    align-self: center;
   }
   .rgp-detail__subtitle,
   .rgp-detail__core {

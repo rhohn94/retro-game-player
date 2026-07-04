@@ -64,7 +64,10 @@ pub fn scan_folder_path(
     let mut known: HashSet<String> = repo
         .list_games(None)?
         .into_iter()
-        .map(|g: Game| g.path)
+        // The scanner only ever registers ROM rows, which always have `path`
+        // set (v0.31 W310 makes it nullable only for non-ROM sources); a
+        // non-ROM row simply contributes nothing to the dedup set.
+        .filter_map(|g: Game| g.path)
         .collect();
 
     let empty = DatIndex::default();
@@ -101,9 +104,9 @@ pub fn scan_folder_path(
         }
 
         let new_game = NewGame {
-            folder_id,
-            path: path_str.clone(),
-            system: cand.mapping.system.clone(),
+            folder_id: Some(folder_id),
+            path: Some(path_str.clone()),
+            system: Some(cand.mapping.system.clone()),
             crc32: Some(hashes.crc32),
             md5: Some(hashes.md5),
             clean_name: outcome.clean_name,
@@ -117,6 +120,9 @@ pub fn scan_folder_path(
             developer: None,
             publisher: None,
             aliases: None,
+            source: crate::db::repo::library::GameSource::Rom,
+            launch_descriptor: None,
+            external_id: None,
         };
 
         match repo.add_game(&new_game) {
@@ -194,7 +200,7 @@ mod tests {
 
         let games = repo.list_games(None).unwrap();
         assert_eq!(games.len(), 2);
-        let mario = games.iter().find(|g| g.system == "nes").unwrap();
+        let mario = games.iter().find(|g| g.system.as_deref() == Some("nes")).unwrap();
         assert_eq!(mario.clean_name, "Mario (World)");
         assert!(mario.dat_matched);
         assert_eq!(mario.crc32.as_deref(), Some("352441c2"));

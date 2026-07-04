@@ -212,4 +212,86 @@ mod tests {
     fn clamp_limit_caps_an_oversized_value() {
         assert_eq!(clamp_limit(MAX_LIST_LIMIT + 1000), MAX_LIST_LIMIT);
     }
+
+    /// End-to-end seam for v0.31 W311's "play session recorded for an
+    /// external launch" acceptance criterion: `SessionTracker::start` (as
+    /// `launch_externally` calls it), a mocked termination observer standing
+    /// in for `PgrepObserver`/NSWorkspace, then `SessionTracker::end` +
+    /// `LibraryRepo::record_play_session` (as `end_and_persist_session`
+    /// calls them) against a real in-memory db. No Tauri `AppHandle`/`State`
+    /// needed — the whole pipeline is plain Rust, which is exactly what
+    /// makes it unit-testable.
+    #[test]
+    fn external_launch_session_is_recorded_once_the_mock_observer_reports_stopped() {
+        use crate::core::launch::observer::{wait_until_stopped, ProcessObserver};
+        use crate::db::repo::library::{GameSource, LibraryRepo, NewGame};
+        use crate::db::Db;
+
+        /// Stands in for `PgrepObserver`/an NSWorkspace app-termination
+        /// watcher: reports "running" a fixed number of times, then "stopped".
+        struct FakeAppTerminationObserver {
+            polls_until_stopped: u32,
+        }
+        impl ProcessObserver for FakeAppTerminationObserver {
+            fn is_running(&mut self, _process_name: &str) -> bool {
+                if self.polls_until_stopped == 0 {
+                    false
+                } else {
+                    self.polls_until_stopped -= 1;
+                    true
+                }
+            }
+        }
+
+        // Seed a non-ROM game row (mirrors an `app` launch descriptor).
+        let db = Db::open_in_memory().unwrap();
+        let lib = LibraryRepo::new(&db);
+        let game_id = lib
+            .add_game(&NewGame {
+                folder_id: None,
+                path: None,
+                system: None,
+                crc32: None,
+                md5: None,
+                clean_name: "Chess".into(),
+                dat_matched: false,
+                core_hint: None,
+                art_path: None,
+                size_bytes: 0,
+                added_at: 1,
+                year: None,
+                developer: None,
+                publisher: None,
+                aliases: None,
+                source: GameSource::App,
+                launch_descriptor: Some(
+                    r#"{"kind":"app","bundle_path":"/Applications/Chess.app"}"#.to_string(),
+                ),
+                external_id: None,
+            })
+            .unwrap();
+
+        // 1. `launch_externally` starts the session at spawn time.
+        let tracker = SessionTracker::default();
+        let session_id = tracker.start(game_id);
+
+        // 2. The background watcher polls the (mocked) observer until the
+        //    app has quit — standing in for `PgrepObserver`.
+        let mut observer = FakeAppTerminationObserver {
+            polls_until_stopped: 3,
+        };
+        wait_until_stopped(&mut observer, "Chess");
+
+        // 3. `end_and_persist_session` ends the tracked session and persists
+        //    the aggregate — verify the row reflects exactly one play.
+        let (ended_game_id, duration_ms) = tracker.end(session_id).expect("session recorded");
+        assert_eq!(ended_game_id, game_id);
+        lib.record_play_session(ended_game_id, 12345, duration_ms)
+            .unwrap();
+
+        let game = lib.get_game(game_id).unwrap();
+        assert_eq!(game.play_count, 1);
+        assert_eq!(game.last_played_at, Some(12345));
+        assert_eq!(game.total_play_time_ms, duration_ms);
+    }
 }

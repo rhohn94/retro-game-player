@@ -13,7 +13,7 @@
 |---|---|
 | **Version** | `v0.29.0` |
 | **Previous** | v0.28.0 (Living Room — TV shelf aesthetics + system menu + gameplay-menu fix) |
-| **Theme** | "Craft" — authentic retro presentation and engineering depth. Four user directives (2026-07-03, delivered together): **(a)** *"Add optional FPS counter. Add tools for profiling emulation performance, recording it in an easily-accessible file for you to review later, and to review in the RGP GUI."* **(b)** *"Add GUI for adjusting per-core settings."* **(c)** *"State-of-the-art CRT filter. Include scanlines, screen curvature, color bleed, etc. Make it highly configurable."* Plus two roadmap-committed carryovers from v0.28's Out-of-Scope §4: keyboard accessibility ([#29](https://github.com/rhohn94/harmony/issues/29)) and play-path integration tests ([#28](https://github.com/rhohn94/harmony/issues/28)). |
+| **Theme** | "Craft" — authentic retro presentation and engineering depth. Four user directives (2026-07-03, delivered together): **(a)** *"Add optional FPS counter. Add tools for profiling emulation performance, recording it in an easily-accessible file for you to review later, and to review in the RGP GUI."* **(b)** *"Add GUI for adjusting per-core settings."* **(c)** *"State-of-the-art CRT filter. Include scanlines, screen curvature, color bleed, etc. Make it highly configurable."* Plus two roadmap-committed carryovers from v0.28's Out-of-Scope §4: keyboard accessibility ([#29](https://github.com/rhohn94/retro-game-player/issues/29)) and play-path integration tests ([#28](https://github.com/rhohn94/retro-game-player/issues/28)). |
 
 **Grimoire-Requirement tracker check:** `issue_tracker.py list --state open
 --labels Grimoire-Requirement` returned zero results — no framework-required

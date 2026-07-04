@@ -23,6 +23,7 @@
 import { useState } from "react";
 
 import { FoldersPane } from "./panes/FoldersPane";
+import { GameSourcesPane } from "./panes/GameSourcesPane";
 import { CoresPane } from "./panes/CoresPane";
 import { CoreOptionsPane } from "./panes/CoreOptionsPane";
 import { ControllersPane } from "./panes/ControllersPane";
@@ -38,6 +39,7 @@ import { RetroArchPane } from "./panes/RetroArchPane";
 
 type SectionId =
   | "folders"
+  | "game-sources"
   | "cores"
   | "core-options"
   | "controllers"
@@ -56,6 +58,7 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { id: "folders", label: "Folders" },
+  { id: "game-sources", label: "Game Sources" },
   { id: "cores", label: "Cores" },
   { id: "core-options", label: "Core Options" },
   { id: "controllers", label: "Controllers" },
@@ -73,6 +76,8 @@ function SectionPane({ id, onNavigate }: { id: SectionId; onNavigate: (id: Secti
   switch (id) {
     case "folders":
       return <FoldersPane />;
+    case "game-sources":
+      return <GameSourcesPane />;
     case "cores":
       return <CoresPane onOpenCoreOptions={() => onNavigate("core-options")} />;
     case "core-options":

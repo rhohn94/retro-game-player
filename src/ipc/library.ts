@@ -4,11 +4,21 @@
 
 import { invoke } from "./invoke";
 
+/**
+ * A game's source (mirrors Rust `GameSource`, v0.31 W310 "Frontier" — see
+ * `docs/design/non-retro-library-design.md`). `"rom"` is the pre-v0.31
+ * default; the others are non-retro library rows that launch externally via
+ * a `launchDescriptor` rather than through a ROM + core.
+ */
+export type GameSource = "rom" | "steam" | "app" | "manual";
+
 /** A scanned/identified game row (mirrors Rust `GameDto`). */
 export interface Game {
   id: number;
-  path: string;
-  system: string;
+  /** ROM path; `null` for non-ROM sources (v0.31 W310). */
+  path: string | null;
+  /** Emulated system; `null` for non-ROM sources (v0.31 W310). */
+  system: string | null;
   crc32: string | null;
   md5: string | null;
   cleanName: string;
@@ -39,6 +49,14 @@ export interface Game {
   /** Cumulative server-measured play time, in milliseconds (v0.26 "library
    * life"). */
   totalPlayTimeMs: number;
+  /** Game source: `"rom"` (default) or a non-retro source (v0.31 W310). */
+  source: GameSource;
+  /** JSON launch descriptor for non-`"rom"` sources; `null` for `"rom"` rows
+   * (v0.31 W310). */
+  launchDescriptor: string | null;
+  /** Source-scoped external identifier (e.g. a Steam appid); `null` for
+   * `"rom"` rows (v0.31 W310). */
+  externalId: string | null;
 }
 
 /** Per-file outcome of an import (mirrors Rust `ImportItemDto`). */
