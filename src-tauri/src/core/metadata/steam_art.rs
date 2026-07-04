@@ -42,6 +42,13 @@ pub async fn fetch_steam_art(
     game_id: i64,
     appid: &str,
 ) -> AppResult<Option<String>> {
+    // Defense-in-depth mirror of the scan-time guard in `sources::steam`: the
+    // appid becomes a cache filename component (`{appid}_{tier}.jpg`) and a
+    // CDN URL segment, and it can reach this function from a pre-fix DB row's
+    // art hint — so a non-numeric appid is refused here too, not just at parse.
+    if appid.is_empty() || !appid.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(None);
+    }
     let svc = ArtCacheService::new(db, paths);
     let mut best: Option<String> = None;
 
@@ -144,6 +151,25 @@ mod tests {
 
         let game = LibraryRepo::new(&db).get_game(game_id).unwrap();
         assert_eq!(game.art_path.as_deref(), Some(path.as_str()));
+    }
+
+    /// The defense-in-depth appid guard: a non-numeric appid (e.g. a
+    /// traversal payload persisted by a pre-guard row) must short-circuit to
+    /// `Ok(None)` before any URL is built or any cache filename is formed.
+    /// Returning without network I/O is also what makes this unit-testable.
+    #[test]
+    fn non_numeric_appid_is_refused_without_fetching() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::with_root(tmp.path().join("harmony")).unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_steam_game(&db, "620");
+
+        for bad in ["../../etc/passwd", "", "12a4", "620/../x"] {
+            let got = tauri::async_runtime::block_on(fetch_steam_art(&db, &paths, game_id, bad))
+                .unwrap();
+            assert!(got.is_none(), "appid {bad:?} must be refused");
+        }
+        assert!(ArtCacheRepo::new(&db).list_for_game(game_id).unwrap().is_empty());
     }
 
     #[test]
