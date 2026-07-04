@@ -116,7 +116,7 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.31 |
 |---|---|---|---|---|
-| `feat/w310-romless-library-model` (W310) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w310-romless-library-model` (W310) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -136,4 +136,17 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 
 ### Follow-ups discovered during implementation
 
-*(populated by release-phase-merge as branches land)*
+- **Fixed in W310 (not a follow-up):** latent migration-runner bug — mid-transaction
+  `PRAGMA foreign_keys` was a no-op, so migration 012's table rebuild would have
+  cascade-deleted `art_cache` rows; the runner gained `Migration::requires_fk_off`
+  (toggled outside the transaction).
+- Reviewer (W310, non-blocking): `migrations.rs` FK re-enable is skipped if a
+  `requires_fk_off` migration fails — inert today (sole caller `Db::init`
+  propagates the error and drops the connection) but worth a scope-guard so the
+  FKs-on invariant holds unconditionally.
+- Reviewer (W310, non-blocking): `upsert_game_by_source`'s UPDATE branch refreshes
+  only clean_name/art_path/size_bytes/launch_descriptor/core_hint — re-scans do
+  not refresh year/developer/publisher/aliases; W311+ must not assume full refresh.
+- Reviewer (W310, non-blocking): `src/ipc/familiar.ts` local `Game` mirror lacks
+  the new source/launchDescriptor/externalId fields — reconcile when the
+  canonical DTO consolidation lands.
