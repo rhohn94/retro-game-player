@@ -9,7 +9,7 @@
 User directive (2026-07-03, verbatim): *"Feature: state-of-the-art CRT
 filter. Include scanlines, screen curvature, color bleed, etc. Make it
 highly configurable."* Tracked as
-[#23](https://github.com/rhohn94/harmony/issues/23).
+[#23](https://github.com/rhohn94/retro-game-player/issues/23).
 
 ## Ground truth: the two play paths render differently (resolved by research)
 

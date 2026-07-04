@@ -8,7 +8,7 @@ The TV home shelves ([tv-mode-design.md](tv-mode-design.md)) need to answer
 "what was I playing?" and "what do I love?" — today the schema can't: no
 favorite flag, no last-played timestamp, no play-time accounting on any of the
 three play paths. This is the data subset of
-[#21](https://github.com/rhohn94/harmony/issues/21) (favorites, recently
+[#21](https://github.com/rhohn94/retro-game-player/issues/21) (favorites, recently
 played, play-time tracking); collections and desktop-library curation UI stay
 deferred.
 
