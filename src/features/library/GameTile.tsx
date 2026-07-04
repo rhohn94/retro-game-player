@@ -49,6 +49,7 @@ export function GameTile({ game, onFocusGame, onOpen }: GameTileProps) {
       ref={ref}
       variants={listItem}
       type="button"
+      role="listitem"
       className="rgp-tile"
       onFocus={claimFocus}
       onMouseEnter={claimFocus}

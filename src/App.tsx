@@ -15,7 +15,13 @@ import { AuraApp } from "@aura/react";
 import { isAppError, ping } from "./ipc/commands";
 import { HARMONY_ROUTES, type HarmonyRoute } from "./routes";
 import { pageTransition } from "./lib/motion";
-import { ControllerProvider, HintBar, useController, useFocusable } from "./features/controller";
+import {
+  ControllerProvider,
+  HintBar,
+  useController,
+  useFocusable,
+  useKeyboardNav,
+} from "./features/controller";
 import { useFullscreen, type UseFullscreenResult } from "./features/shell/useFullscreen";
 import { useCancellableEffect } from "./hooks/useCancellableEffect";
 import {
@@ -73,7 +79,7 @@ function IpcStatus() {
  */
 function FocusableNavItem({ route }: { route: HarmonyRoute }) {
   const navigate = useNavigate();
-  const { ref, isFocused } = useFocusable<HTMLAnchorElement>(`nav:${route.path}`, () =>
+  const { ref, isFocused, focus } = useFocusable<HTMLAnchorElement>(`nav:${route.path}`, () =>
     navigate(route.path),
   );
   useEffect(() => {
@@ -84,6 +90,11 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
       ref={ref}
       to={route.path}
       end={route.index}
+      // Mirrors TvTile's native-focus -> controller-focus bridge (W283): a
+      // keyboard Tab landing here (with no gamepad ever touched) must ALSO
+      // claim controller focus, or the ring below — driven by `isFocused` —
+      // never lights up for a pure keyboard user.
+      onFocus={focus}
       style={({ isActive }) => ({
         padding: "var(--aura-space-2) var(--rgp-space-2-5)",
         borderRadius: "var(--aura-radius-sm)",
@@ -103,7 +114,7 @@ function FocusableNavItem({ route }: { route: HarmonyRoute }) {
 
 /** Focusable fullscreen toggle in the sidebar footer (also bound to F11). */
 function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
-  const { ref, isFocused } = useFocusable<HTMLButtonElement>(
+  const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(
     "shell:fullscreen",
     fullscreen.toggle,
   );
@@ -115,6 +126,10 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
       ref={ref}
       type="button"
       onClick={fullscreen.toggle}
+      // W283: native Tab-focus also claims controller focus (TvTile's
+      // established bridge pattern) so the ring below lights up for a
+      // keyboard-only user, not just a gamepad user.
+      onFocus={focus}
       className="rgp-panel"
       title="Toggle fullscreen (F11)"
       style={{
@@ -138,7 +153,7 @@ function FullscreenButton({ fullscreen }: { fullscreen: UseFullscreenResult }) {
 /** Focusable TV-mode entry button in the sidebar footer (also bound to Cmd+T). */
 function TvModeButton() {
   const { enter } = useTvMode();
-  const { ref, isFocused } = useFocusable<HTMLButtonElement>("shell:tv-mode", enter);
+  const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>("shell:tv-mode", enter);
   useEffect(() => {
     if (isFocused) ref.current?.focus();
   }, [isFocused, ref]);
@@ -147,6 +162,10 @@ function TvModeButton() {
       ref={ref}
       type="button"
       onClick={enter}
+      // W283: native Tab-focus also claims controller focus (TvTile's
+      // established bridge pattern) so the ring below lights up for a
+      // keyboard-only user, not just a gamepad user.
+      onFocus={focus}
       className="rgp-panel"
       title="Enter TV mode (Cmd+T)"
       style={{
@@ -346,10 +365,23 @@ function Shell({ fullscreen }: { fullscreen: UseFullscreenResult }) {
  */
 function Root({ fullscreen }: { fullscreen: UseFullscreenResult }) {
   const tvMode = useTvMode();
+  const { dispatchAction, gameplayClaimActive } = useController();
   useTvModeAccelerator();
   useAutoTvModeOnStartup(tvMode);
   useTvModeControllerToggle();
   useTvSystemMenuTrigger();
+  // W283: the global keyboard-to-semantic-action bridge (controller-input-
+  // design.md §Keyboard as an input method) — mounted once here so it covers
+  // both the desktop `Shell` and `TvShell` (system menu, embedded screens,
+  // the TV home) with no per-screen wiring, additive to the existing gamepad
+  // dispatch this same `dispatchAction` already serves. Disabled exactly
+  // while a player owns the gameplay exclusive claim (`gameplayClaimActive`,
+  // the same signal `useTvModeControllerToggle`/`useTvSystemMenuTrigger`
+  // already gate on): NativePlayer/InPagePlayer install their own complete
+  // keyboard handling for game input + the overlay while mounted, and this
+  // bridge dispatching the SAME nav/confirm actions in parallel would
+  // double-fire overlay selection moves alongside their own listeners.
+  useKeyboardNav({ dispatchAction, enabled: !gameplayClaimActive });
 
   return (
     <AnimatePresence mode="wait">

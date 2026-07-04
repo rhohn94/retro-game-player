@@ -700,9 +700,25 @@ mount), `src/App.tsx` (`Root`'s outlet swap), `src/theme/tv.css` (new tokens).
 - Whether hero uses snap/title art when boxart-only exists — yes, fall back
   boxart → blurred boxart backdrop.
 
+## v0.29 "Craft" (W280) — CRT filter renders unchanged inside the takeover
+
+The CRT filter (crt-filter-design.md) needed no takeover-specific code: both
+`NativePlayer` (WebGL2 shader) and `InPagePlayer` (CSS approximation) apply
+it internally to their own paint/render step, and the takeover surface
+(`TvGameSurface`/`TvEmbeddedScreen`) mounts those same components unchanged
+— it only ever varied the `presentation` prop, never how they paint. So the
+filter renders identically in the desktop foreground player and the TV
+takeover, at whatever intensity Settings → CRT Filter has configured, with
+no new takeover-scoped styling. The takeover's own dim/scale/attract
+treatments (e.g. `--harmony-attract-dim` on the native canvas,
+`.rgp-player--attract`'s `filter: brightness()/saturate()`) compose with the
+CRT shader/overlay rather than replacing it — both are just further
+transforms of the same painted frame.
+
 ## Follow-ups
 
-- CRT display filters over gameplay (#23, v0.29).
+- CRT display filters over gameplay (#23, v0.29) — **implemented, W280** (see
+  above; full design in crt-filter-design.md).
 - Attract-mode idle screensaver (rolling game art) in TV home.
 - Collections rail once full #21 lands.
 - EmulatorJS-path attract previews (save-suppression through the iframe glue)

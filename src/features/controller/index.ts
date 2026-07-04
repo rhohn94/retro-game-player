@@ -25,3 +25,11 @@ export { useLongPress, longPressElapsed, LONG_PRESS_MS } from "./useLongPress";
 export type { LongPressOptions } from "./useLongPress";
 export { useMenuTrigger, isMenuTriggerPressed } from "./useMenuTrigger";
 export type { MenuTriggerOptions, MinimalGamepadButtons } from "./useMenuTrigger";
+export {
+  keyToSemanticAction,
+  isNativeControlTarget,
+  isControlGuardExempt,
+} from "./keyboardMap";
+export type { KeyTargetLike } from "./keyboardMap";
+export { useKeyboardNav } from "./useKeyboardNav";
+export type { KeyboardNavOptions } from "./useKeyboardNav";

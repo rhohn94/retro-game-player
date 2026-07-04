@@ -7,17 +7,9 @@
   to { transform: rotate(360deg); }
 }
 
-/* Focus ring for keyboard/controller nav on system list items. */
-.cores-page [role="option"]:focus-visible {
-  outline: var(--rgp-focus-ring);
-  outline-offset: var(--rgp-focus-ring-offset);
-}
-
-/* Focus ring on action buttons. */
-.cores-page aura-button:focus-visible {
-  outline: var(--rgp-focus-ring);
-  outline-offset: var(--rgp-focus-ring-offset);
-}
+/* Focus ring for keyboard/controller nav on system list items + action buttons
+   comes from the central rule (theme/focus-visible.css) — no per-component
+   rule needed here. */
 
 /* Shelf row hover lift (pointer-optional affordance; does not break gamepad). */
 .cores-row:hover {
@@ -37,8 +29,7 @@
   font: inherit;
   transition: border-color var(--rgp-dur-fast) var(--rgp-ease-out);
 }
+/* Extra border-color on focus (the ring itself comes from the central rule). */
 .cores-search:focus-visible {
-  outline: var(--rgp-focus-ring);
-  outline-offset: var(--rgp-focus-ring-offset);
   border-color: var(--aura-primary);
 }

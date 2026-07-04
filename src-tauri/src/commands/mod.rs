@@ -26,6 +26,9 @@ pub mod player_prefs; // v0.24 W243 — volume + pause-on-blur prefs (#22)
 pub mod downloads; // v0.24 W244 — direct download (#30)
 pub mod play_stats; // v0.26 W264 — favorites, recently-played, play-time (#21 subset)
 pub mod app_config; // v0.26 W260 — general AppConfig IPC (auto_tv_mode)
+pub mod core_options; // v0.29 W282 — per-core libretro option GUI backend
+pub mod crt_filter; // v0.29 W280 — CRT presentation filter config (get/set)
+pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI panel reads
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -132,6 +135,19 @@ macro_rules! register_commands {
             // general AppConfig (v0.26 W260 — TV mode auto-enter)
             $crate::commands::app_config::get_auto_tv_mode,
             $crate::commands::app_config::set_auto_tv_mode,
+            // per-core libretro option GUI (v0.29 W282)
+            $crate::commands::core_options::list_core_options,
+            $crate::commands::core_options::get_core_option,
+            $crate::commands::core_options::set_core_option,
+            // CRT presentation filter config (v0.29 W280)
+            $crate::commands::crt_filter::get_crt_filter,
+            $crate::commands::crt_filter::set_crt_filter,
+            // Emulation performance tooling (v0.29 W281)
+            $crate::commands::perf_tools::get_show_fps_counter,
+            $crate::commands::perf_tools::set_show_fps_counter,
+            $crate::commands::perf_tools::report_ejs_perf_stats,
+            $crate::commands::perf_tools::read_native_perf_log,
+            $crate::commands::perf_tools::read_ejs_perf_log,
         ])
     };
 }

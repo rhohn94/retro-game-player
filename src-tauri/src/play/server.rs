@@ -560,4 +560,60 @@ mod tests {
         assert!(EJS_DATA.get_file("cores/fceumm-wasm.data").is_some());
         assert!(EJS_DATA.get_file("cores/reports/fceumm.json").is_some());
     }
+
+    // ---- W284 (issue #28): boot through the REAL public entrypoint ----
+    // Every test above drives the private `serve_loop`/`handle_request`
+    // helpers directly. This test instead calls the actual `start()` function
+    // production code calls (`lib.rs` setup) — the same bind-ephemeral-port +
+    // background-thread path a real app run takes — so the coverage proves
+    // the whole public loopback contract (bind, origin, player.html, ROM
+    // streaming, healthz), not just the routing function in isolation.
+    #[test]
+    fn start_boots_a_real_server_serving_player_html_rom_and_healthz() {
+        let rom = std::env::temp_dir().join(format!(
+            "harmony-rom-start-{}-{:?}.nes",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::write(&rom, b"NES\x1a real boot rom").unwrap();
+        let db = temp_db_with_game("start-entrypoint", &rom);
+        let saves_root = tempfile::tempdir().expect("tempdir");
+        let cores_root = tempfile::tempdir().expect("tempdir");
+
+        let server = start(
+            db.clone(),
+            saves_root.path().to_path_buf(),
+            cores_root.path().to_path_buf(),
+        );
+
+        // A real bind must produce a non-empty http://127.0.0.1:<port> origin.
+        let origin = server.origin().to_string();
+        assert!(
+            origin.starts_with("http://127.0.0.1:"),
+            "unexpected origin: {origin}"
+        );
+        let port: u16 = origin
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("origin carries a port");
+
+        // player.html actually serves over the real bound port.
+        let (status, body) = http_get(port, "/player.html");
+        assert_eq!(status, 200);
+        assert!(String::from_utf8_lossy(&body).contains("EJS_pathtodata"));
+
+        // /rom/<id> streams the real bytes this handle's db points at.
+        let (status, body) = http_get(port, "/rom/1");
+        assert_eq!(status, 200);
+        assert_eq!(body, b"NES\x1a real boot rom");
+
+        // /healthz liveness probe.
+        let (status, body) = http_get(port, "/healthz");
+        assert_eq!(status, 200);
+        assert_eq!(body, b"ok");
+
+        let _ = std::fs::remove_file(&rom);
+        let _ = std::fs::remove_file(&db);
+    }
 }

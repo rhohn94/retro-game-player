@@ -1,9 +1,10 @@
 // CoresPane — the Settings "Cores" section (per-system active core selection).
 
 import { useCallback, useEffect, useState } from "react";
-import { AuraField } from "@aura/react";
+import { AuraField, AuraButton } from "@aura/react";
 
 import { listInstalledCores, setActiveCore, type Core } from "../../../ipc/cores";
+import { NATIVE_SYSTEM } from "../../play/nativePath";
 
 /** Group installed cores by system for display. */
 function groupBySystem(cores: Core[]): Map<string, Core[]> {
@@ -16,7 +17,14 @@ function groupBySystem(cores: Core[]): Map<string, Core[]> {
   return map;
 }
 
-export function CoresPane() {
+export interface CoresPaneProps {
+  /** Navigates to the Core Options section (v0.29 W282) — called only from
+   * the native-hosted system's row, since that's the only entry point the
+   * design doc scopes in. */
+  onOpenCoreOptions?: () => void;
+}
+
+export function CoresPane({ onOpenCoreOptions }: CoresPaneProps = {}) {
   const [cores, setCores] = useState<Core[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +110,11 @@ export function CoresPane() {
                 ))}
               </select>
             </AuraField>
+            {system === NATIVE_SYSTEM && onOpenCoreOptions && (
+              <AuraButton tabIndex={0} variant="ghost" onClick={onOpenCoreOptions}>
+                Configure options
+              </AuraButton>
+            )}
           </div>
         );
       })}

@@ -117,13 +117,13 @@
     cursor: pointer;
     transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
   }
+  /* The ring itself comes from the central rule (theme/focus-visible.css);
+     this adds the extra background/color swap shared with :hover. */
   .rgp-tv-shell__menu:hover,
   .rgp-tv-shell__menu:focus-visible,
   .rgp-tv-shell__exit:hover,
   .rgp-tv-shell__exit:focus-visible {
     background: var(--aura-primary);
     color: var(--aura-on-primary);
-    outline: var(--rgp-focus-ring);
-    outline-offset: var(--rgp-focus-ring-offset);
   }
 }

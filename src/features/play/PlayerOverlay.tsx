@@ -56,13 +56,20 @@ export function PlayerOverlay({
             if (e.target === e.currentTarget) onScrimClick();
           }}
         >
-          <motion.div className="rgp-overlay__panel" {...dialogPop}>
+          <motion.div
+            className="rgp-overlay__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${gameName} menu`}
+            {...dialogPop}
+          >
             <p className="rgp-overlay__title">{gameName}</p>
-            <div className="rgp-overlay__actions">
+            <div className="rgp-overlay__actions" role="menu">
               {items.map((it, i) => (
                 <button
                   key={it.key}
                   type="button"
+                  role="menuitem"
                   disabled={it.disabled}
                   className={
                     i === selection
@@ -70,6 +77,7 @@ export function PlayerOverlay({
                       : "rgp-overlay__btn"
                   }
                   onMouseEnter={() => setSelection(i)}
+                  onFocus={() => setSelection(i)}
                   onClick={() => {
                     if (!it.disabled) it.run();
                   }}

@@ -12,3 +12,4 @@ pub mod search; // W9 — user-supplied file-search providers (links only)
 pub mod vibrancy; // W10 — pre-blurred hero pipeline + cache
 pub mod familiar; // W12 — Familiar soft-dependency enrichment client
 pub mod console; // v0.12 — console catalog (static metadata + bundled title lists + media)
+pub mod core_options; // W282 — native-hosted core option probe + persistence

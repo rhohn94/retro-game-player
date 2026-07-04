@@ -108,23 +108,32 @@ export function TvSystemMenu() {
     <motion.div
       className="rgp-tv-system-menu"
       role="dialog"
+      aria-modal="true"
       aria-label="TV system menu"
       data-testid="tv-system-menu"
       initial={dialogPop.initial}
       animate={dialogPop.animate}
       exit={dialogPop.exit}
     >
-      <p className="rgp-tv-system-menu__label">Menu</p>
-      <ul className="rgp-tv-system-menu__list">
+      <p className="rgp-tv-system-menu__label" id="tv-system-menu-label">
+        Menu
+      </p>
+      <ul className="rgp-tv-system-menu__list" role="menu" aria-labelledby="tv-system-menu-label">
         {TV_MENU_ITEMS.map((item) => {
           const isFocused = focusedId === item.id;
           return (
-            <li key={item.id}>
+            <li key={item.id} role="none">
               <button
                 type="button"
+                role="menuitem"
                 className="rgp-tv-system-menu__item"
                 data-focused={isFocused ? "true" : undefined}
                 onMouseEnter={() => setFocus(item.id)}
+                // Tab landing here (keyboard-only, no gamepad/pointer hover
+                // touched) must ALSO sync the panel's own selection index —
+                // mirrors the onMouseEnter hover-funnels-into-focus
+                // convention above (W283).
+                onFocus={() => setFocus(item.id)}
                 onClick={() => activate(item, tvMode)}
               >
                 {item.label}
