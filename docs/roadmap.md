@@ -218,6 +218,8 @@ Plan: [`release-planning-v0.28.md`](release-planning/release-planning-v0.28.md).
 - **Play-path integration tests** so a broken player fails CI, not manual QA
   ([#28](https://github.com/rhohn94/harmony/issues/28)).
 
+Plan: [`release-planning-v0.29.md`](release-planning/release-planning-v0.29.md).
+
 ---
 
 ## v0.30 — Passport (planned)
