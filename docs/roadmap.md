@@ -229,7 +229,10 @@ Plan: [`release-planning-v0.29.md`](release-planning/release-planning-v0.29.md).
 - **Notarized, stapled Developer-ID DMG** that launches clean on a fresh Mac
   ([#27](https://github.com/rhohn94/harmony/issues/27)).
 - License follow-through if not already closed in v0.23
-  ([#26](https://github.com/rhohn94/harmony/issues/26)).
+  ([#26](https://github.com/rhohn94/harmony/issues/26)) — already closed in
+  v0.23; not part of v0.30 scope.
+
+Plan: [`release-planning-v0.30.md`](release-planning/release-planning-v0.30.md).
 
 ---
 
