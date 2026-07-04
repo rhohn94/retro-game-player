@@ -64,13 +64,23 @@ pub async fn launch_game(
     // --- 3. Game row ---
     let game = LibraryRepo::new(&db).get_game(game_id)?;
 
+    // This RetroArch path is ROM-only; non-ROM sources (v0.31 W310) launch
+    // externally instead (their own launcher lands in W311 — see
+    // `docs/design/non-retro-library-design.md`), so both `system` and
+    // `path` must be present here.
+    let system = game.system.clone().ok_or_else(|| {
+        AppError::Unsupported(format!("game {game_id} has no ROM system to launch via RetroArch"))
+    })?;
+    let path = game.path.clone().ok_or_else(|| {
+        AppError::Unsupported(format!("game {game_id} has no ROM path to launch via RetroArch"))
+    })?;
+
     // --- 4. Active core for game's system ---
     let core = CoresRepo::new(&db)
-        .get_active(&game.system)?
+        .get_active(&system)?
         .ok_or_else(|| {
             AppError::NotFound(format!(
-                "no active core configured for system '{}' — install and activate a core first",
-                game.system
+                "no active core configured for system '{system}' — install and activate a core first"
             ))
         })?;
 
@@ -86,7 +96,7 @@ pub async fn launch_game(
     let launch_args = args::build(
         &retroarch_exe,
         &PathBuf::from(core_dylib),
-        &PathBuf::from(&game.path),
+        &PathBuf::from(&path),
         use_fullscreen,
     );
 

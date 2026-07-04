@@ -234,6 +234,9 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   const focusedTileGame = gameForFocus(rails, focusedId);
   const dwellGame =
     focusedTileGame &&
+    // A non-ROM game (v0.31 W310) has no `system` and is never native-path
+    // eligible for the attract preview.
+    focusedTileGame.system &&
     isNativePathEligible(focusedTileGame.system, nativeEnabled) &&
     !failedPreviewIds.has(focusedTileGame.id)
       ? focusedTileGame

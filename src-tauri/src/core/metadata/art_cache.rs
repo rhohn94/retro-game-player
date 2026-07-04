@@ -123,7 +123,7 @@ fn epoch_secs() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::repo::library::{LibraryRepo, NewContentFolder, NewGame};
+    use crate::db::repo::library::{GameSource, LibraryRepo, NewContentFolder, NewGame};
 
     fn seed_game(db: &Db) -> i64 {
         let lib = LibraryRepo::new(db);
@@ -135,9 +135,9 @@ mod tests {
             })
             .unwrap();
         lib.add_game(&NewGame {
-            folder_id: fid,
-            path: "/roms/mario.nes".into(),
-            system: "nes".into(),
+            folder_id: Some(fid),
+            path: Some("/roms/mario.nes".into()),
+            system: Some("nes".into()),
             crc32: None,
             md5: None,
             clean_name: "Super Mario Bros.".into(),
@@ -150,6 +150,9 @@ mod tests {
             developer: None,
             publisher: None,
             aliases: None,
+            source: GameSource::Rom,
+            launch_descriptor: None,
+            external_id: None,
         })
         .unwrap()
     }

@@ -28,6 +28,9 @@ function game(id: number, system: string, lastPlayedAt: number | null): Game {
     lastPlayedAt,
     playCount: 0,
     totalPlayTimeMs: 0,
+    source: "rom",
+    launchDescriptor: null,
+    externalId: null,
   };
 }
 

@@ -121,21 +121,30 @@ pub fn start_native_play(
         ));
     }
     let game = LibraryRepo::new(&db).get_game(game_id)?;
-    if game.system != native::NATIVE_SYSTEM {
+    // Native hosting is a ROM-only launch path (v0.31 W310 non-ROM sources
+    // launch externally instead — see `docs/design/non-retro-library-design.md`),
+    // so both `system` and `path` must be present here.
+    let system = game.system.clone().ok_or_else(|| {
+        AppError::Unsupported(format!("game {game_id} has no ROM system to natively host"))
+    })?;
+    let path = game.path.clone().ok_or_else(|| {
+        AppError::Unsupported(format!("game {game_id} has no ROM path to natively host"))
+    })?;
+    if system != native::NATIVE_SYSTEM {
         return Err(AppError::Unsupported(format!(
             "native hosting only supports {} — game {} is {}",
             native::NATIVE_SYSTEM,
             game_id,
-            game.system
+            system
         )));
     }
     let core_path = native::resolve_native_core_path(&db)?;
-    let rom_path = PathBuf::from(&game.path);
+    let rom_path = PathBuf::from(&path);
     // Save persistence (W230): best-effort — an unavailable saves dir means
     // the session plays without persistence rather than failing to boot.
     let saves = Paths::app_support()
         .and_then(|p| p.saves_dir())
-        .map(|root| GameSaves::new(&root, &game.system, &rom_path))
+        .map(|root| GameSaves::new(&root, &system, &rom_path))
         .ok();
     // Perf telemetry file (W274): best-effort — an unresolvable logs dir
     // means the perf line stays stderr-only rather than failing the boot.
@@ -175,7 +184,7 @@ pub fn start_native_play(
     // its own retro_init see exactly what the Cores screen has saved. A
     // core with no declared options (or a probe failure) seeds nothing,
     // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
-    seed_persisted_core_variables(&db, &game.system, native::NATIVE_CORE_ID, &core_path);
+    seed_persisted_core_variables(&db, &system, native::NATIVE_CORE_ID, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
     *guard = Some(runtime);
     Ok(())
@@ -245,8 +254,16 @@ pub struct GameSavesDto {
 #[tauri::command]
 pub fn list_game_saves(game_id: i64, db: State<'_, Db>) -> AppResult<GameSavesDto> {
     let game = LibraryRepo::new(&db).get_game(game_id)?;
+    // Non-ROM sources (v0.31 W310) never have on-disk emulator saves — an
+    // empty inventory rather than an error, since this is just a listing.
+    let (Some(system), Some(path)) = (game.system.as_deref(), game.path.as_deref()) else {
+        return Ok(GameSavesDto {
+            has_sram: false,
+            slots: Vec::new(),
+        });
+    };
     let root = Paths::app_support()?.saves_dir()?;
-    let saves = GameSaves::new(&root, &game.system, Path::new(&game.path));
+    let saves = GameSaves::new(&root, system, Path::new(path));
     let (has_sram, slots) = saves.list();
     Ok(GameSavesDto {
         has_sram,
