@@ -81,8 +81,24 @@ Single work item, single pass — no conflict map needed.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.29.1 |
 |---|---|---|---|---|
-| `fix/w301-nes-flip-fix` (W301) | ☐ | ☐ | ☐ | ☐ |
+| `fix/w301-nes-flip-fix` (W301) | — | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
-(empty at start; populated by release-phase-merge as branches land)
+- **Fixed before merge (not a follow-up):** pre-merge review found the fix
+  itself correct (`gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)` on the right
+  context, right placement, no shader-side double-flip, covers both
+  `CrtWebglRenderer` construction sites), but the two accompanying regression
+  tests were vacuous — a bare recording mock with no real GL semantics, so
+  they'd have passed even with the wrong flag value. Closed by a follow-up
+  commit that made the GL stub actually model `UNPACK_FLIP_Y_WEBGL`
+  row-reversal semantics and assert on the resulting buffer; manually
+  verified (both a full revert and a subtler flag-inversion bug) that the
+  rewritten test now fails correctly when the fix is broken.
+- Whether the EmulatorJS/iframe play path has an analogous issue was
+  confirmed out of scope and, per this release's investigation, moot: EJS
+  runs its own independent rendering inside an iframe and never touches the
+  native core's RGBA frame buffer.
+- No design doc was created for this item (targeted bug fix within existing
+  W280 CRT-filter scope, no new architecture) — consistent with §2's note
+  that none was required.
