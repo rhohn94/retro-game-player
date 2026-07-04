@@ -23,13 +23,15 @@ const open = (selection = 0, itemCount = 5): ScopeRouteState => ({
 });
 
 describe("routeScopedAction — overlay closed", () => {
-  it("summons the overlay on menu", () => {
-    expect(routeScopedAction("menu", closed())).toEqual({ kind: "open-overlay" });
+  it("no longer summons the overlay on a bare menu (Start) press (v0.28 W279)", () => {
+    // Every game needs Start for its own play — a bare press must reach the
+    // core only. The overlay now opens via the raw-poll chord/hold gesture
+    // in useGameplayMenuTrigger.ts, not through routeScopedAction.
+    expect(routeScopedAction("menu", closed())).toEqual({ kind: "swallow" });
   });
 
-  it("swallows EVERY other semantic action (nothing leaks to the page beneath)", () => {
-    const others = SEMANTIC_ACTIONS.filter((a) => a !== "menu");
-    for (const action of others) {
+  it("swallows EVERY semantic action while closed (nothing leaks to the page beneath)", () => {
+    for (const action of SEMANTIC_ACTIONS) {
       expect(routeScopedAction(action, closed()), action).toEqual({ kind: "swallow" });
     }
   });

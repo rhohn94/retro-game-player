@@ -29,6 +29,7 @@ import { getPlayOrigin } from "../../ipc/play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
+import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { PlayerOverlay } from "./PlayerOverlay";
 import {
   playerShellClass,
@@ -100,6 +101,10 @@ export function InPagePlayer({
   const [immersive, setImmersive] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
+  // v0.28 W279: live progress (0..1) toward the hold-to-open-menu threshold —
+  // drives MenuHoldIndicator below; reported by useExclusiveControllerScope's
+  // raw-poll trigger, reset to 0 on release/chord/open.
+  const [holdProgress, setHoldProgress] = useState(0);
 
   // Live mirrors so the controller handler (installed once) reads current state.
   const overlayOpenRef = useRef(overlayOpen);
@@ -303,9 +308,11 @@ export function InPagePlayer({
 
   // While a REAL player is active (origin resolved — unavailable "" or
   // still-resolving null must not trap input) and foreground-presented, it
-  // owns the controller via the shared exclusive scope (W272): menu summons
-  // the overlay, every other semantic action is swallowed; with the overlay
-  // open the controller drives the menu (the game is paused behind it).
+  // owns the controller via the shared exclusive scope (W272): the
+  // Start+Select chord or a 5s Start hold summons the overlay (v0.28 W279 —
+  // a bare Start reaches the game only), every other semantic action is
+  // swallowed while closed; with the overlay open the controller drives the
+  // menu (the game is paused behind it).
   useExclusiveControllerScope({
     presentation,
     ready: !!origin,
@@ -315,6 +322,7 @@ export function InPagePlayer({
     setSelection,
     openOverlay,
     closeOverlay,
+    onHoldProgress: setHoldProgress,
   });
 
   // Escape opens the overlay from the keyboard — directly when the app holds
@@ -412,6 +420,8 @@ export function InPagePlayer({
         title={`Play ${gameName}`}
         allow="autoplay; fullscreen; gamepad"
       />
+
+      {!overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
 
       {!immersive && (
         <div className="rgp-player__bar">
