@@ -12,14 +12,16 @@ use crate::db::repo::library::GameSource;
 use crate::error::AppResult;
 use serde_json::Value;
 
-pub mod steam;
+pub mod app_scan; // W313 — /Applications + ~/Applications game-category scan
+pub mod steam; // W312 — Steam appmanifest scan
 
 /// One game discovered by a [`GameSourceScanner`], not yet persisted.
 ///
 /// Mirrors the fields a `NewGame` non-ROM row needs (source, external id,
 /// launch descriptor); the IPC layer is responsible for turning this into a
-/// `NewGame` and calling `upsert_game_by_source`.
-#[derive(Debug, Clone, PartialEq)]
+/// `NewGame` and calling `upsert_game_by_source`. Serializes so confirm-gated
+/// shortlists (W313 app scan) can cross the IPC boundary as-is.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DiscoveredGame {
     /// Display name as reported by the source (e.g. the Steam manifest's `name`).
     pub name: String,
