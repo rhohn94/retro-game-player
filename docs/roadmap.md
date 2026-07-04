@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.30 — Passport (planned)
+## v0.30 — Passport (implementation complete — pending release)
 
 **Theme:** Ready for hands that aren't the developer's.
 
