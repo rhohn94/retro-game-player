@@ -32,6 +32,7 @@ function ConsoleCard({
     <motion.button
       variants={listItem}
       type="button"
+      role="listitem"
       className="rgp-console-tile"
       onClick={() => onOpen(c.key)}
       aria-label={`${c.name} (${c.manufacturer}, ${c.year})`}
