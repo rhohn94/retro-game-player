@@ -131,8 +131,8 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.31 |
 |---|---|---|---|---|
-| `feat/w314-steam-art` (W314) | ☑ | ☐ | ☐ | ☐ |
-| `feat/w315-nonretro-ui` (W315) | ☑ | ☐ | ☐ | ☐ |
+| `feat/w314-steam-art` (W314) | ☑ | ☑ | ☑ | ☑ |
+| `feat/w315-nonretro-ui` (W315) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -167,3 +167,15 @@ finish the harmony→retro-game-player rename in docs (issue #41).
 - Reviewer (Pass 2, informational): app-launch play sessions can undercount if
   `pgrep` polls before the app starts or the process name differs from the
   bundle stem — documented accepted tradeoff, not a leak.
+- **Fixed before closeout (not a follow-up):** Pass 3 review found a BLOCKING
+  path-traversal — the Steam appid flowed unvalidated from `.acf` manifests
+  into the art-cache filename and CDN URL. Closed by `fix/w314-appid-validation`
+  (merged): numeric-only guard at parse time in `sources/steam.rs` plus a
+  defense-in-depth mirror at `fetch_steam_art`, with traversal-payload tests.
+  This also closes the Pass 2 non-blocking appid-sanitization note.
+- Reviewer (Pass 3, non-blocking): art fetch is awaited serially inside
+  `upsert_discovered` — N Steam titles offline can hold `scan_steam_source`
+  for up to ~N×30s (other IPC unaffected); consider detaching art acquisition
+  or returning counts before art settles.
+- Reviewer (Pass 3, non-blocking): `bundle_icon.rs` sips conversion failures
+  degrade silently to no-art; add a log line for diagnosability.
