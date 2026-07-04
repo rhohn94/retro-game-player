@@ -7,6 +7,17 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.29.1 — Native NES flip-fix hotfix (2026-07-04)
+
+Native NES gameplay renders right-side-up again.
+
+- **Fixed upside-down native NES rendering.** v0.29's new WebGL2 CRT-filter
+  renderer uploaded frames without compensating for the mismatch between the
+  native core's top-down frame buffer and WebGL's texture-coordinate origin,
+  so gameplay on the native play path rendered vertically flipped. The
+  renderer now applies the correct GPU-side unpack orientation; every CRT
+  preset (including Off) displays correctly.
+
 ## v0.29 — Craft (2026-07-03)
 
 Authentic retro presentation and engineering depth — a configurable CRT
