@@ -55,6 +55,9 @@ import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { CrtWebglRenderer } from "./crtWebglRenderer";
 import { useCrtFilter } from "./useCrtFilter";
+import { FpsCounter } from "./fpsCounter";
+import { FpsCounterOverlay } from "./FpsCounterOverlay";
+import { useShowFpsCounter } from "./useShowFpsCounter";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
@@ -127,6 +130,16 @@ export function NativePlayer({
   const { config: crtConfig } = useCrtFilter();
   const crtConfigRef = useRef(crtConfig);
   crtConfigRef.current = crtConfig;
+
+  // v0.29 W281 (performance-tooling-design.md): the optional on-screen FPS
+  // counter, computed client-side from this player's own paint-loop rAF
+  // ticks (see `paintNextFrame` below) — never a shared IPC field, since the
+  // native core's true tick rate is a different signal than the EJS path's
+  // rendered cadence.
+  const showFpsCounter = useShowFpsCounter();
+  const showFpsCounterRef = useRef(showFpsCounter);
+  showFpsCounterRef.current = showFpsCounter;
+  const [fps, setFps] = useState(0);
 
   // Library-life play-session tracking (v0.26 W264): brackets the native
   // session's start/stop lifetime (the effect below re-subscribes per
@@ -358,6 +371,16 @@ export function NativePlayer({
     let renderer: CrtWebglRenderer | null = null;
     let webglAttempted = false;
 
+    // v0.29 W281: sampled from the SAME rAF tick that already drives the
+    // frame poll/paint below — the cleanest available signal for "how often
+    // is this player actually presenting a new frame", independent of
+    // whether the WebGL2 or the putImageData fallback path painted it. A
+    // fresh counter per mount so a game switch doesn't carry over a stale
+    // estimate.
+    const fpsCounter = new FpsCounter();
+    let lastFpsPublished = 0;
+    const FPS_PUBLISH_INTERVAL_MS = 500; // matches FpsCounter's own recompute cadence
+
     // Raw-bytes frame polling (W239). The rAF tick is scheduled up-front so a
     // slow IPC round trip degrades to a skipped paint, never a halved frame
     // rate; the in-flight guard keeps at most one request crossing the
@@ -395,6 +418,21 @@ export function NativePlayer({
             renderer.draw(frame.bytes, frame.width, frame.height, crtConfigRef.current);
           } else {
             canvas.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
+          }
+
+          // v0.29 W281: count this tick only when a genuinely new frame was
+          // painted (not every rAF — most ticks find nothing new via the
+          // seq-echo short-circuit above), so the estimate reflects actual
+          // presentation cadence, not the poll rate. Publishing to React
+          // state is throttled independently of FpsCounter's own recompute
+          // window so a disabled counter never re-renders this component.
+          if (showFpsCounterRef.current) {
+            const now = performance.now();
+            fpsCounter.tick(now);
+            if (now - lastFpsPublished >= FPS_PUBLISH_INTERVAL_MS) {
+              lastFpsPublished = now;
+              setFps(fpsCounter.fps);
+            }
           }
         })
         .catch(() => {
@@ -447,6 +485,7 @@ export function NativePlayer({
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
       {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
+      {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />}
       {!preview && (
         <div className="rgp-player__bar">
           {continueTarget && (

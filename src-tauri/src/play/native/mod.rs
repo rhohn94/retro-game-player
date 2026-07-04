@@ -14,6 +14,7 @@ mod ffi;
 mod frame;
 mod host;
 mod perf_file;
+mod perf_stats;
 mod runtime;
 
 pub use callbacks::{

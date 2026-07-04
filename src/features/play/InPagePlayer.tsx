@@ -29,8 +29,11 @@ import { getPlayOrigin } from "../../ipc/play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listGameSaves } from "../../ipc/native-play";
+import { reportEjsPerfStats } from "../../ipc/perf-tools";
 import { CrtCssOverlay } from "./CrtCssOverlay";
 import { useCrtFilter } from "./useCrtFilter";
+import { FpsCounterOverlay } from "./FpsCounterOverlay";
+import { useShowFpsCounter } from "./useShowFpsCounter";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { PlayerOverlay } from "./PlayerOverlay";
 import {
@@ -102,6 +105,16 @@ export function InPagePlayer({
   // native path's WebGL2 shader reads, applied here as the CSS-only
   // approximation (CrtCssOverlay) — one settings surface, both play paths.
   const { config: crtConfig } = useCrtFilter();
+
+  // v0.29 W281 (performance-tooling-design.md): the optional on-screen FPS
+  // counter. Unlike the native path (which computes it from its own
+  // paint-loop rAF ticks), this path reads player.html's own in-iframe
+  // sampling loop via postMessage (`harmony-perf-stats`, wired below) — the
+  // vendored EmulatorJS build doesn't expose a rate through its JS API, so
+  // player.html runs a small rAF sampler against its own canvas and reports
+  // periodically (see that file's header comment for the exact signal).
+  const showFpsCounter = useShowFpsCounter();
+  const [fps, setFps] = useState(0);
 
   // null = resolving the play origin; "" = server unavailable; else the origin.
   const [origin, setOrigin] = useState<string | null>(null);
@@ -344,11 +357,33 @@ export function InPagePlayer({
     };
     const onMsg = (e: MessageEvent) => {
       if (!origin || e.origin !== origin) return;
-      const data = e.data as { type?: string; op?: string; slot?: string; error?: string | null };
+      const data = e.data as {
+        type?: string;
+        op?: string;
+        slot?: string;
+        error?: string | null;
+        fps?: number;
+        frameTimeMs?: number;
+      };
       if (data?.type === "harmony-overlay-toggle") {
         toggleOverlay();
       } else if (data?.type === "harmony-save-result" && data.op && data.slot) {
         pendingSaves.current.get(`${data.op}:${data.slot}`)?.(data.error ?? null);
+      } else if (
+        data?.type === "harmony-perf-stats" &&
+        typeof data.fps === "number" &&
+        typeof data.frameTimeMs === "number"
+      ) {
+        // v0.29 W281: player.html's own rAF sampling loop reports its
+        // observed cadence periodically (see that file's header) — update
+        // the on-screen readout and, best-effort, append to the sibling log
+        // for the Settings → Performance panel. Reported regardless of
+        // `showFpsCounter` (the log is useful even with the overlay off);
+        // the on-screen number just doesn't render unless enabled.
+        setFps(data.fps);
+        void reportEjsPerfStats({ gameId, fps: data.fps, frameTimeMs: data.frameTimeMs }).catch(
+          () => undefined,
+        );
       }
     };
     window.addEventListener("keydown", onKey);
@@ -432,6 +467,7 @@ export function InPagePlayer({
       </div>
 
       {!overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
+      <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />
 
       {!immersive && (
         <div className="rgp-player__bar">

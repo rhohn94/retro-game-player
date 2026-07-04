@@ -1,0 +1,45 @@
+/* perf-pane.css — Settings → Performance panel (v0.29 W281,
+   performance-tooling-design.md). Aura tokens only; no hardcoded colours
+   (token-adoption guard) — mirrors controllers-pane.css's per-pane CSS-file
+   convention. */
+
+.rgp-perf-pane__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-2);
+  padding: var(--aura-space-3);
+  border-radius: var(--aura-radius-md);
+  background: var(--aura-surface-2);
+}
+
+.rgp-perf-sparkline {
+  width: 100%;
+  max-width: 320px;
+  height: 48px;
+}
+
+.rgp-perf-sparkline__line {
+  fill: none;
+  stroke: var(--aura-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rgp-perf-pane__table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aura-space-1);
+  max-height: 180px;
+  overflow-y: auto;
+  font: 11px/1.5 ui-monospace, monospace;
+  color: var(--aura-on-surface-muted);
+}
+
+.rgp-perf-pane__row {
+  padding: var(--aura-space-1) var(--aura-space-2);
+  border-radius: var(--aura-radius-sm);
+  background: var(--aura-surface);
+  white-space: nowrap;
+  overflow-x: auto;
+}

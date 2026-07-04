@@ -265,6 +265,53 @@
           setTimeout(reveal, MAX_WAIT_MS);
         })();
 
+        // --- Performance sampling (v0.29 W281; performance-tooling-design.md) ---
+        // EmulatorJS's public JS API (EJS_emulator) does not expose a reported
+        // frame rate — checked directly against the vendored build before writing
+        // this rather than assumed, per the design doc's instruction. Instead a
+        // small rAF loop samples the emulator's own visible <canvas> paint
+        // cadence (the same canvas EJS_emulator.canvas / .gameManager draws into),
+        // which is the best available proxy for "how often is this game actually
+        // presenting a new frame" without patching the vendored runtime. Reports
+        // fps + mean frame time every REPORT_INTERVAL_MS via postMessage so the
+        // parent (InPagePlayer.tsx) can show the on-screen counter and forward a
+        // coarser copy into the sibling perf log (report_ejs_perf_stats IPC).
+        (function () {
+          var REPORT_INTERVAL_MS = 1000; // coarser than the native path's 10s window is fine
+          var windowStart = null;
+          var frameCount = 0;
+          var raf = null;
+
+          function sampleLoop(now) {
+            raf = requestAnimationFrame(sampleLoop);
+            if (windowStart === null) {
+              windowStart = now;
+              frameCount = 0;
+              return;
+            }
+            frameCount++;
+            var elapsed = now - windowStart;
+            if (elapsed < REPORT_INTERVAL_MS) return;
+            var fps = (frameCount * 1000) / elapsed;
+            var frameTimeMs = elapsed / frameCount;
+            windowStart = now;
+            frameCount = 0;
+            try {
+              window.parent.postMessage(
+                { type: "harmony-perf-stats", fps: fps, frameTimeMs: frameTimeMs },
+                "*"
+              );
+            } catch (e) {
+              /* best-effort — a missed report is not a session error */
+            }
+          }
+
+          raf = requestAnimationFrame(sampleLoop);
+          window.addEventListener("pagehide", function () {
+            if (raf !== null) cancelAnimationFrame(raf);
+          });
+        })();
+
         // Bridge for the Harmony in-game overlay (v0.15). The parent asks us to
         // pause/resume the emulator while its overlay is open (so the gamepad
         // doesn't drive the game behind the menu); we forward the in-iframe

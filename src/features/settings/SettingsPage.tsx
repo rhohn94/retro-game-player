@@ -7,16 +7,18 @@
 // domain IPC wrapper — no raw `invoke` calls here.
 //
 // Sections: Folders | Cores | Core Options | Controllers | Providers |
-// Familiar | Playback | CRT Filter | Appearance | RetroArch — each
-// implemented in ./panes/, this file is the two-column shell + SectionPane
-// switch. (Controllers hosts the full press-to-rebind editor — W267,
-// controller-input-design.md §Remapping UI. Core Options — v0.29 W282,
+// Familiar | Playback | CRT Filter | Performance | Appearance | RetroArch —
+// each implemented in ./panes/, this file is the two-column shell +
+// SectionPane switch. (Controllers hosts the full press-to-rebind editor —
+// W267, controller-input-design.md §Remapping UI. Core Options — v0.29 W282,
 // core-options-design.md — lists the active native-hosted core's declared
 // libretro options; it renders an explanatory note rather than controls when
 // no native-hosted core applies, so the section itself is always listed but
 // never a broken entry point. CRT Filter — v0.29 W280, crt-filter-design.md —
 // scanline/curvature/color-bleed/vignette sliders + presets, applied
-// identically to both play paths via the shared useCrtFilter config.)
+// identically to both play paths via the shared useCrtFilter config.
+// Performance — v0.29 W281, performance-tooling-design.md — reads both
+// perf-log files via IPC and renders recent sessions as a table + sparkline.)
 
 import { useState } from "react";
 
@@ -28,6 +30,7 @@ import { ProvidersPane } from "./panes/ProvidersPane";
 import { FamiliarPane } from "./panes/FamiliarPane";
 import { PlaybackPane } from "./panes/PlaybackPane";
 import { CrtFilterPane } from "./panes/CrtFilterPane";
+import { PerformancePane } from "./panes/PerformancePane";
 import { AppearancePane } from "./panes/AppearancePane";
 import { RetroArchPane } from "./panes/RetroArchPane";
 
@@ -42,6 +45,7 @@ type SectionId =
   | "familiar"
   | "playback"
   | "crt-filter"
+  | "performance"
   | "appearance"
   | "retroarch";
 
@@ -59,6 +63,7 @@ const SECTIONS: Section[] = [
   { id: "familiar", label: "Familiar" },
   { id: "playback", label: "Playback" },
   { id: "crt-filter", label: "CRT Filter" },
+  { id: "performance", label: "Performance" },
   { id: "appearance", label: "Appearance" },
   { id: "retroarch", label: "RetroArch" },
 ];
@@ -82,6 +87,8 @@ function SectionPane({ id, onNavigate }: { id: SectionId; onNavigate: (id: Secti
       return <PlaybackPane />;
     case "crt-filter":
       return <CrtFilterPane />;
+    case "performance":
+      return <PerformancePane />;
     case "appearance":
       return <AppearancePane />;
     case "retroarch":
