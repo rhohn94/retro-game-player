@@ -235,7 +235,7 @@ doesn't modify it, but sequencing after avoids any merge friction) plus
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.28 |
 |---|---|---|---|---|
-| `fix/w279-gameplay-menu-trigger` (W279) | ☐ | ☐ | ☐ | ☐ |
+| `fix/w279-gameplay-menu-trigger` (W279) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
