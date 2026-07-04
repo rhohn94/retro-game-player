@@ -95,8 +95,35 @@ Single work item, single pass — no conflict map needed.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.30 |
 |---|---|---|---|---|
-| `feat/w300-notarized-dmg` (W300) | ☐ | ☐ | ☐ | ☐ |
+| `feat/w300-notarized-dmg` (W300) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
-(empty at start; populated by release-phase-merge as branches land)
+- **Fixed before merge (not a follow-up):** pre-merge review found
+  `ReleaseOrchestrator.run()` called `TauriBuildStep.run()` outside the
+  `try/except ReleaseSigningError` block, so a real build failure raised an
+  unhandled traceback instead of the pipeline's uniform `[release] ERROR: ...`
+  + return-1 pattern. Closed by a follow-up commit
+  (`fix/w300-build-error-handling`, merged) that moved the build step inside
+  the shared try block and added a self-test case covering the build-failure
+  path (14/14 checks, up from 13).
+- Human step: enroll in the Apple Developer Program, provision a real
+  Developer-ID Application certificate, run
+  `xcrun notarytool store-credentials` with real credentials, and execute one
+  real `recipe.py package` / `pnpm release` end-to-end to confirm the
+  sign→notarize→staple chain against Apple's live notarization service (not
+  reachable from this environment).
+- Human step: verify the resulting stapled DMG installs and launches cleanly
+  on a genuinely clean secondary Mac with zero Gatekeeper override — the
+  acceptance bar this feature exists to satisfy.
+- Environment limitation (not a regression): this sandbox cannot produce a
+  real `.dmg` — `create-dmg`'s AppleScript window-styling step is blocked
+  with "Not authorized to send Apple events to Finder (-1743)". Reproduced
+  identically on the unmodified `version/0.30` baseline via `git stash`, so
+  this is a pre-existing environment constraint, not something W300
+  introduced.
+- Consider CI-runner secrets wiring (`.p12` cert import, `notarytool` API-key
+  form) once this project gains an actual CI pipeline — currently there is
+  none, so only the local-keychain-profile credential story is implemented.
+- Consider Developer-ID Installer (`.pkg`) signing if a `.pkg` bundle target
+  is ever added alongside the current dmg-only target.
