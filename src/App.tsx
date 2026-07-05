@@ -13,6 +13,7 @@ import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-d
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AuraApp } from "@aura/react";
 import { isAppError, ping } from "./ipc/commands";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { HARMONY_ROUTES, type HarmonyRoute } from "./routes";
 import { pageTransition } from "./lib/motion";
 import {
@@ -254,6 +255,12 @@ function ShellControllerBindings() {
  * incoming one fades in — a quiet crossfade that gives navigation continuity
  * without getting in the user's way. `Routes` is given the same `location` so it
  * keeps rendering the outgoing element through its exit animation.
+ *
+ * Wrapped in `ErrorBoundary` (W360, error-telemetry-design.md) so a screen
+ * that throws during render shows the fallback in this content region —
+ * the sidebar/shell chrome around it stays intact — instead of an unmounted
+ * white screen. Keyed by pathname (same key `motion.div` uses) so navigating
+ * away from a tripped route resets the boundary for the next screen.
  */
 function RoutedOutlet() {
   const location = useLocation();
@@ -267,11 +274,13 @@ function RoutedOutlet() {
           animate={pageTransition.animate}
           exit={pageTransition.exit}
         >
-          <Routes location={location}>
-            {HARMONY_ROUTES.map((r) => (
-              <Route key={r.path} path={r.path} element={r.element} />
-            ))}
-          </Routes>
+          <ErrorBoundary key={location.pathname}>
+            <Routes location={location}>
+              {HARMONY_ROUTES.map((r) => (
+                <Route key={r.path} path={r.path} element={r.element} />
+              ))}
+            </Routes>
+          </ErrorBoundary>
         </motion.div>
       </AnimatePresence>
     </div>

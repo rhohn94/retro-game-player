@@ -16,7 +16,12 @@ import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { AuraProvider } from "./theme/AuraProvider";
+import { installGlobalErrorHandlers } from "./telemetry/errorTelemetry";
 import "./styles/global.css";
+
+// W360 (error-telemetry-design.md): install the window-level error sink
+// before anything renders, so the earliest possible boot errors are covered.
+installGlobalErrorHandlers();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
