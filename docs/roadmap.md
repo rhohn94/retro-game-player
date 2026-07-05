@@ -236,6 +236,31 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
+## v0.34 — Engines (in flight)
+
+**Theme:** Every popular platform plays on the native emulation engine
+(user directive, 2026-07-05) — generalize the v0.21 NES-only native libretro
+host into a multi-system engine.
+
+- **Native host generalization** — per-system table, `av_info`-driven
+  geometry/timing, frontend gating (W340).
+- **Catalog expansion** — GB/GBC/GBA + Wii join the 20-console catalog,
+  scanner, and EJS fallback tier (W341).
+- **Software-render native cohort** — SNES, Genesis, Master System, GB/GBC,
+  GBA, Atari 2600, PC Engine on the native engine (W342).
+- **Disc-image identification** — `.cue`/`.chd`/`.bin` sniffing so PS1 discs
+  enter the library (W343); **PS1 native** via pcsx_rearmed (W344).
+- **HW-render subsystem** — OpenGL context + FBO readback in the native
+  host; **N64 native** (W345); **GameCube/Wii stretch** via dolphin (W346).
+- v0.33 reviewer riders (W347).
+
+**Non-goals:** multiplayer/two-controller work (v0.35 next), netplay,
+multi-disc swap UI, NSView/Metal overlay, PS2/Saturn/Dreamcast native.
+
+Plan: [`release-planning-v0.34.md`](release-planning/release-planning-v0.34.md).
+
+---
+
 ## v0.33 — Bottles (implementation complete — pending release)
 
 **Theme:** Horizon H2, first slice — CrossOver bottles on the shelves.

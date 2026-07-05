@@ -171,10 +171,11 @@ export function GameDetailPage() {
           ◀ Back
         </AuraButton>
 
-        {/* A non-retro row has no in-page/native player to mount — PlaySwitch
-            itself already renders nothing for a system-less game, but skipping
+        {/* A non-retro row has no in-page/native player to mount — skipping
             the slot entirely avoids reserving its layout space (attract-mode
-            ref) for a surface that will never appear. */}
+            ref) for a surface that will never appear, and keeps PlaySwitch's
+            external-only notice (which needs a real system key) out of the
+            non-retro layout. */}
         {!nonRetro && (
           <div ref={playSlotRef}>
             <PlaySwitch

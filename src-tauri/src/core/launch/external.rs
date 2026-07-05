@@ -40,8 +40,10 @@ const OPEN_UTILITY: &str = "/usr/bin/open";
 /// - `Exec { program, args }` → `<program> <args...>` directly (no `open`
 ///   wrapper — the program is already an executable, not a bundle or URL).
 /// - `Crossover { bottle, target }` → `<CrossOver.app>/Contents/SharedSupport/
-///   CrossOver/bin/cxstart --bottle <bottle> <target>`, as separate argv
-///   elements (never a shell string, same rule as every other kind). Missing
+///   CrossOver/bin/cxstart --bottle <bottle> -- <target>`, as separate argv
+///   elements (never a shell string, same rule as every other kind); the
+///   `--` terminator before `target` is defense-in-depth against a target
+///   value that starts with `-` being misread as a `cxstart` flag. Missing
 ///   `CrossOver.app` surfaces as `AppError::Dependency` here, before any
 ///   process is spawned — the row is untouched (design doc §Launch: "row
 ///   stays, same posture as a moved GOG bundle").
@@ -105,11 +107,16 @@ fn crossover_missing_error() -> AppError {
     )
 }
 
-/// Pure argv assembly for the `cxstart --bottle <bottle> <target>` launch,
+/// Pure argv assembly for the `cxstart --bottle <bottle> -- <target>` launch,
 /// given an already-located `CrossOver.app` bundle path. `bottle` and
 /// `target` are always separate argv elements — never concatenated into a
 /// shell string — so spaces and non-ASCII characters in either are handled
-/// correctly by the eventual `Command::new(..).args(..)` spawn.
+/// correctly by the eventual `Command::new(..).args(..)` spawn. A literal
+/// `--` argument-terminator precedes `target` as defense-in-depth (v0.33
+/// reviewer rider, W347): even though `target` is already a discrete argv
+/// element (never shell-concatenated), the terminator guarantees `cxstart`
+/// itself cannot reinterpret a target value that happens to start with `-`
+/// as one of its own flags.
 fn cxstart_args(app_bundle: &Path, bottle: &str, target: &str) -> ExternalLaunchArgs {
     let cxstart = app_bundle.join(CXSTART_RELATIVE_PATH);
     ExternalLaunchArgs {
@@ -117,6 +124,7 @@ fn cxstart_args(app_bundle: &Path, bottle: &str, target: &str) -> ExternalLaunch
         args: vec![
             "--bottle".to_string(),
             bottle.to_string(),
+            "--".to_string(),
             target.to_string(),
         ],
     }
@@ -202,7 +210,7 @@ mod tests {
             result.program,
             "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/cxstart"
         );
-        assert_eq!(result.args, vec!["--bottle", "Steam", "C:\\hl2.exe"]);
+        assert_eq!(result.args, vec!["--bottle", "Steam", "--", "C:\\hl2.exe"]);
     }
 
     #[test]
@@ -213,10 +221,10 @@ mod tests {
             r"C:\Program Files\Old Game\oldgame.exe",
         );
         assert_eq!(result.args[1], "My Bottle");
-        assert_eq!(result.args[2], r"C:\Program Files\Old Game\oldgame.exe");
+        assert_eq!(result.args[3], r"C:\Program Files\Old Game\oldgame.exe");
         // Never concatenated into a shell string / quoted — each piece is
         // its own argv element, verbatim.
-        assert_eq!(result.args.len(), 3);
+        assert_eq!(result.args.len(), 4);
         assert!(!result.args.iter().any(|a| a.contains('"')));
     }
 
@@ -228,7 +236,7 @@ mod tests {
             r"C:\Games\ゲーム\café.exe",
         );
         assert_eq!(result.args[1], "日本語ボトル");
-        assert_eq!(result.args[2], r"C:\Games\ゲーム\café.exe");
+        assert_eq!(result.args[3], r"C:\Games\ゲーム\café.exe");
     }
 
     #[test]
@@ -237,7 +245,24 @@ mod tests {
         // separate `Vec<String>` elements even when either contains spaces
         // that could tempt a shell-string join.
         let result = cxstart_args(Path::new("/Applications/CrossOver.app"), "A B", "C D");
-        assert_eq!(result.args, vec!["--bottle", "A B", "C D"]);
+        assert_eq!(result.args, vec!["--bottle", "A B", "--", "C D"]);
+    }
+
+    #[test]
+    fn cxstart_args_inserts_a_terminator_before_a_dash_prefixed_target() {
+        // Rider 1 (v0.33 reviewer follow-up, W347): a `--` argument
+        // terminator sits immediately before `target` as defense-in-depth,
+        // so a target value that happens to start with `-` can never be
+        // misread by `cxstart` as one of its own flags.
+        let result = cxstart_args(
+            Path::new("/Applications/CrossOver.app"),
+            "Steam",
+            "-rm-rf-looking-target.exe",
+        );
+        assert_eq!(
+            result.args,
+            vec!["--bottle", "Steam", "--", "-rm-rf-looking-target.exe"]
+        );
     }
 
     #[test]

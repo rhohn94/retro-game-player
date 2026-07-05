@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeCoreSize, inPageAvailability, systemLabel } from "./inPageAvailability";
+import {
+  describeCoreSize,
+  externalOnlyMessage,
+  inPageAvailability,
+  systemLabel,
+} from "./inPageAvailability";
 import type { InPageCore } from "../../ipc/inpage-cores";
 
 const CORES: InPageCore[] = [
@@ -10,6 +15,11 @@ const CORES: InPageCore[] = [
 describe("inPageAvailability", () => {
   it("is none for systems without any in-page core", () => {
     expect(inPageAvailability("dreamcast", CORES)).toEqual({ kind: "none" });
+  });
+
+  it("is none for GameCube/Wii (dolphin-libretro is external-launch only, W346)", () => {
+    expect(inPageAvailability("gamecube", CORES)).toEqual({ kind: "none" });
+    expect(inPageAvailability("wii", CORES)).toEqual({ kind: "none" });
   });
 
   it("is ready for the embedded NES core regardless of catalog state", () => {
@@ -49,7 +59,38 @@ describe("systemLabel", () => {
   it("names known systems and falls back to the key", () => {
     expect(systemLabel("snes")).toBe("SNES");
     expect(systemLabel("atari2600")).toBe("Atari 2600");
+    expect(systemLabel("gamecube")).toBe("GameCube");
+    expect(systemLabel("wii")).toBe("Wii");
+    expect(systemLabel("gb")).toBe("Game Boy");
+    expect(systemLabel("gbc")).toBe("Game Boy Color");
+    expect(systemLabel("gba")).toBe("Game Boy Advance");
+    expect(systemLabel("dreamcast")).toBe("Dreamcast");
     expect(systemLabel("weird")).toBe("weird");
     expect(systemLabel("constructor")).toBe("constructor"); // prototype-safe
+  });
+});
+
+describe("externalOnlyMessage", () => {
+  it("names the actual emulator for a curated external-only system", () => {
+    expect(externalOnlyMessage("gamecube")).toBe(
+      "GameCube titles launch in RetroArch (Dolphin core) — a separate window opens to play.",
+    );
+    expect(externalOnlyMessage("wii")).toBe(
+      "Wii titles launch in RetroArch (Dolphin core) — a separate window opens to play.",
+    );
+  });
+
+  it("falls back to generic RetroArch wording with no curated emulator name", () => {
+    expect(externalOnlyMessage("saturn")).toBe(
+      "Saturn titles launch in RetroArch — a separate window opens to play.",
+    );
+    expect(externalOnlyMessage("unknown-key")).toBe(
+      "unknown-key titles launch in RetroArch — a separate window opens to play.",
+    );
+  });
+
+  it("returns empty copy for a blank system key", () => {
+    expect(externalOnlyMessage("")).toBe("");
+    expect(externalOnlyMessage("  ")).toBe("");
   });
 });

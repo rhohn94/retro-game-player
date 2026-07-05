@@ -407,6 +407,35 @@ impl LibraryRepo<'_> {
         })
     }
 
+    /// Re-key a game's `external_id` in place (v0.34 W347): when a source's
+    /// key format evolves (CrossOver's `<bottle>/<display-name>` →
+    /// `<bottle>/<CFBundleIdentifier>`), the old-keyed row must move to the
+    /// new key rather than be left behind for [`Self::upsert_game_by_source`]
+    /// to duplicate. A no-op when a row already exists under
+    /// `new_external_id` (the transition already happened) or when no row
+    /// exists under `old_external_id` (nothing to transition). The row's id
+    /// is untouched, so play history and FK references survive. Returns
+    /// whether a row was re-keyed.
+    pub fn rekey_game_external_id(
+        &self,
+        source: GameSource,
+        old_external_id: &str,
+        new_external_id: &str,
+    ) -> AppResult<bool> {
+        self.db.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE games SET external_id = ?3 \
+                     WHERE source = ?1 AND external_id = ?2 \
+                     AND NOT EXISTS \
+                     (SELECT 1 FROM games WHERE source = ?1 AND external_id = ?3)",
+                    params![source.as_db_str(), old_external_id, new_external_id],
+                )
+                .map_err(map_sqlite)?;
+            Ok(n > 0)
+        })
+    }
+
     /// Fetch a game by its `(source, external_id)` dedup key, or `None` if no
     /// such row exists yet (v0.31 W312). Lets a source-scan IPC command tell
     /// whether an upsert inserted a fresh row or refreshed an existing one,
@@ -1097,6 +1126,120 @@ mod tests {
             .unwrap();
 
         assert_eq!(repo.list_games(None).unwrap().len(), 2);
+    }
+
+    // --- v0.34 W347: legacy external_id re-key ---
+
+    #[test]
+    fn rekey_moves_a_row_to_the_new_key_preserving_id_and_play_history() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = repo
+            .upsert_game_by_source(&non_rom_game(
+                GameSource::Crossover,
+                "Steam/Half-Life 2",
+                "Half-Life 2",
+            ))
+            .unwrap();
+        repo.record_play_session(gid, 1_000, 5_000).unwrap();
+
+        let rekeyed = repo
+            .rekey_game_external_id(
+                GameSource::Crossover,
+                "Steam/Half-Life 2",
+                "Steam/com.valve.halflife2",
+            )
+            .unwrap();
+
+        assert!(rekeyed);
+        assert_eq!(repo.list_games(None).unwrap().len(), 1, "no duplicate row");
+        let moved = repo
+            .get_game_by_source_external_id(GameSource::Crossover, "Steam/com.valve.halflife2")
+            .unwrap()
+            .expect("row must now live under the new key");
+        assert_eq!(moved.id, gid, "the row id (and thus its FKs) must survive");
+        assert_eq!(moved.last_played_at, Some(1_000));
+        assert_eq!(moved.play_count, 1);
+        assert_eq!(moved.total_play_time_ms, 5_000);
+        assert!(repo
+            .get_game_by_source_external_id(GameSource::Crossover, "Steam/Half-Life 2")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn rekey_is_a_noop_when_no_row_has_the_old_key() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let rekeyed = repo
+            .rekey_game_external_id(GameSource::Crossover, "Steam/Missing", "Steam/com.x.missing")
+            .unwrap();
+        assert!(!rekeyed);
+    }
+
+    #[test]
+    fn rekey_is_a_noop_when_a_row_already_holds_the_new_key() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let old_id = repo
+            .upsert_game_by_source(&non_rom_game(
+                GameSource::Crossover,
+                "Steam/Half-Life 2",
+                "Half-Life 2",
+            ))
+            .unwrap();
+        let new_id = repo
+            .upsert_game_by_source(&non_rom_game(
+                GameSource::Crossover,
+                "Steam/com.valve.halflife2",
+                "Half-Life 2",
+            ))
+            .unwrap();
+
+        let rekeyed = repo
+            .rekey_game_external_id(
+                GameSource::Crossover,
+                "Steam/Half-Life 2",
+                "Steam/com.valve.halflife2",
+            )
+            .unwrap();
+
+        assert!(!rekeyed, "an occupied new key must never be clobbered");
+        assert_eq!(
+            repo.get_game(old_id).unwrap().external_id.as_deref(),
+            Some("Steam/Half-Life 2")
+        );
+        assert_eq!(
+            repo.get_game(new_id).unwrap().external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    #[test]
+    fn rekey_is_scoped_to_the_given_source() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = repo
+            .upsert_game_by_source(&non_rom_game(
+                GameSource::App,
+                "Steam/Half-Life 2",
+                "Half-Life 2",
+            ))
+            .unwrap();
+
+        let rekeyed = repo
+            .rekey_game_external_id(
+                GameSource::Crossover,
+                "Steam/Half-Life 2",
+                "Steam/com.valve.halflife2",
+            )
+            .unwrap();
+
+        assert!(!rekeyed, "a same-key row under another source is untouched");
+        assert_eq!(
+            repo.get_game(gid).unwrap().external_id.as_deref(),
+            Some("Steam/Half-Life 2")
+        );
     }
 
     #[test]

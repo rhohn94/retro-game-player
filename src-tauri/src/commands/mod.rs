@@ -106,6 +106,8 @@ macro_rules! register_commands {
             // native play (v0.21 "Bedrock" W214/W215)
             $crate::commands::native_play::get_native_play_enabled,
             $crate::commands::native_play::set_native_play_enabled,
+            // native-hostable system table (v0.34 "Engines" W340)
+            $crate::commands::native_play::list_native_systems,
             $crate::commands::native_play::start_native_play,
             $crate::commands::native_play::stop_native_play,
             $crate::commands::native_play::get_native_frame,

@@ -37,7 +37,8 @@ import { getNativePlayEnabled } from "../../ipc/native-play";
 import { DUR, EASE_OUT } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { useWindowFocus } from "../../hooks/useWindowFocus";
-import { NativePlayer, isNativePathEligible } from "../play";
+import { NativePlayer, fetchNativeCapabilities, isNativePathEligible } from "../play";
+import type { NativeCapabilities } from "../play";
 import { navDirection, useController } from "../controller";
 import type { SemanticAction } from "../controller";
 import { useTvMode } from "./TvModeContext";
@@ -205,13 +206,18 @@ export function TvHome({ onExit }: { onExit: () => void }) {
 
   // ── W273 hover-attract ────────────────────────────────────────────────────
   // Previews are native-path-only in v1 (the purity guarantee is structural
-  // there), so resolve the opt-in flag once; until it answers, nothing is
-  // eligible and no preview can boot.
+  // there), so resolve the opt-in flag AND the native-capability table
+  // (W340) once; until both answer, nothing is eligible and no preview can
+  // boot.
   const [nativeEnabled, setNativeEnabled] = useState(false);
+  const [nativeCapabilities, setNativeCapabilities] = useState<NativeCapabilities>(
+    () => new Map(),
+  );
   useCancellableEffect((isCancelled) => {
     getNativePlayEnabled()
       .then((enabled) => !isCancelled() && setNativeEnabled(enabled))
       .catch(() => undefined);
+    fetchNativeCapabilities().then((caps) => !isCancelled() && setNativeCapabilities(caps));
   }, []);
 
   // Games whose preview session failed to start this mount: silently fall
@@ -237,7 +243,7 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     // A non-ROM game (v0.31 W310) has no `system` and is never native-path
     // eligible for the attract preview.
     focusedTileGame.system &&
-    isNativePathEligible(focusedTileGame.system, nativeEnabled) &&
+    isNativePathEligible(focusedTileGame.system, nativeEnabled, nativeCapabilities) &&
     !failedPreviewIds.has(focusedTileGame.id)
       ? focusedTileGame
       : null;

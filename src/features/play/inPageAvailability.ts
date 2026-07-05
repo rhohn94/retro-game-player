@@ -39,16 +39,62 @@ export function describeCoreSize(sizeBytes: number): string {
 
 /** Display names for the get-core panel copy, keyed by Retro Game Player system. */
 const SYSTEM_LABELS: Readonly<Record<string, string>> = {
+  nes: "NES",
   snes: "SNES",
   genesis: "Genesis",
   mastersystem: "Master System",
   n64: "Nintendo 64",
   ps1: "PlayStation",
   atari2600: "Atari 2600",
+  atari5200: "Atari 5200",
+  atari7800: "Atari 7800",
   pcengine: "PC Engine",
+  gamecube: "GameCube",
+  wii: "Wii",
+  gb: "Game Boy",
+  gbc: "Game Boy Color",
+  gba: "Game Boy Advance",
+  dreamcast: "Dreamcast",
+  neogeo: "Neo Geo",
+  jaguar: "Atari Jaguar",
+  intellivision: "Intellivision",
+  colecovision: "ColecoVision",
+  odyssey2: "Odyssey²",
+  saturn: "Saturn",
+  "3do": "3DO",
+  ps2: "PlayStation 2",
 };
 
 /** A human-readable console name for `system` (falls back to the key). */
 export function systemLabel(system: string): string {
   return Object.hasOwn(SYSTEM_LABELS, system) ? SYSTEM_LABELS[system] : system;
+}
+
+/** Display name of the emulator a `kind: "none"` system's ROMs actually run
+ * under inside RetroArch, keyed by Retro Game Player system (v0.34 W346 —
+ * native-emulation-design.md §HW-render GC/Wii note: dolphin-libretro stays
+ * external-launch-only, so the detail page names it honestly instead of the
+ * generic "RetroArch" wording). Absent for a system with no single curated
+ * emulator to name. */
+const EXTERNAL_EMULATOR_LABELS: Readonly<Record<string, string>> = {
+  gamecube: "Dolphin",
+  wii: "Dolphin",
+};
+
+/**
+ * Honest "plays externally" copy for a `kind: "none"` system (no in-page or
+ * native path exists at all — RetroArch launch only, `ExternalOnlyNotice`'s
+ * caller). Names the actual emulator RetroArch loads when one is curated
+ * (e.g. "Dolphin" for GameCube/Wii) rather than leaving the console
+ * unexplained on the detail page.
+ */
+export function externalOnlyMessage(system: string): string {
+  const label = systemLabel(system);
+  if (!label.trim()) return "";
+  const emulator = Object.hasOwn(EXTERNAL_EMULATOR_LABELS, system)
+    ? EXTERNAL_EMULATOR_LABELS[system]
+    : undefined;
+  return emulator
+    ? `${label} titles launch in RetroArch (${emulator} core) — a separate window opens to play.`
+    : `${label} titles launch in RetroArch — a separate window opens to play.`;
 }
