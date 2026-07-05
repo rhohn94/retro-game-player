@@ -154,8 +154,8 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.33 |
 |---|---|---|---|---|
-| `refactor/w330-persisting-source-trait` (W330) | ☐ | ☐ | ☐ | ☐ |
-| `fix/w335-dmg-pipeline` (W335) | ☐ | ☐ | ☐ | ☐ |
+| `w330-persisting-source-trait-v033p1-00` (W330) | ☑ | ☑ | ☑ | ☑ |
+| `w335-dmg-pipeline-v033p1-01` (W335) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -172,4 +172,16 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
 
 ### Follow-ups discovered during implementation
 
-(empty — populated as branches land)
+- **Pass-1 note:** dispatched via the write-capable workflow
+  (`release-phase-model: Auto`); branch names carry the `-v033p1-NN` suffix.
+- Reviewer (W330, non-blocking): confirm at W331 that the TS-side
+  `ScanReport` doc comment uses the same tier-neutral wording as the
+  de-ROM-ed Rust doc ("total candidate files the walker found").
+- Reviewer (W330, informational): `commands/sources.rs` `unreachable!` arm
+  names `GameSource::Rom` directly rather than the `Persisting` tier — fine
+  while Rom is the only persisting source.
+- Reviewer (W335): findings 1+3 (staging copy `symlinks=True`, `.app`
+  guard requires a directory) **applied on version/0.33** (f66ca13) per the
+  review's recommendation; finding 2 (DMG container is not codesigned —
+  Apple-accepted flow, app signed inside, DMG notarized+stapled) recorded
+  as intentional, not a gap.
