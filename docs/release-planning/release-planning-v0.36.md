@@ -238,7 +238,7 @@ branch names carry the `-v036pN-NN` suffix.
 | `w360-error-telemetry-v036p1-00` (W360) | ☑ | ☑ | ☑ | ☑ |
 | `w362-searchpage-decomposition-v036p1-01` (W362) | ☑ n/a | ☑ | ☑ | ☑ |
 | `w363-native-runtime-split-v036p1-02` (W363) | ☑ | ☑ | ☑ | ☑ |
-| `w364-library-repo-cleanup` (W364) | ☐ | ☐ | ☐ | ☐ |
+| `w364-library-repo-cleanup-v036p1-03` (W364) | ☑ n/a | ☑ | ☑ | ☑ |
 | `w365-dead-code-removal-v036p1-04` (W365) | ☑ n/a | ☑ | ☑ | ☑ |
 | `w366-settings-dedup-v036p1-05` (W366) | ☑ n/a | ☑ | ☑ | ☑ |
 
@@ -251,4 +251,49 @@ branch names carry the `-v036pN-NN` suffix.
 
 ### Follow-ups discovered during implementation
 
-(populated by release-phase-merge as branches land)
+- **Pass-1 note:** dispatched via the write-capable workflow
+  (`release-phase-model: Auto`, variant Fast); all six branches implemented,
+  reviewed (zero blocking findings), and merged autonomously.
+- Reviewer (W360, non-blocking): `PanicRecord.schema_version` reuses
+  `RUN_SCHEMA_VERSION` — a future RunRecord schema bump would silently bump
+  PanicRecord's declared version; consider a dedicated `PANIC_SCHEMA_VERSION`.
+- Reviewer (W360, non-blocking): `panic_message_falls_back_for_non_string_payload`
+  test calls `install_panic_hook` then immediately overwrites the hook —
+  vestigial call, droppable.
+- W360 follow-up (design-doc'd): frontend error records persist only to an
+  in-memory ring buffer + console; a `record_frontend_error` IPC command
+  mirroring the Rust panic sink is the deferred durable path.
+- Reviewer (W362, non-blocking): `SearchQueryBar`'s optional `queryRef` prop is
+  never passed (the original ref was already dead) — delete for hygiene.
+- Reviewer (W362, non-blocking): new hooks
+  (`useSearchExecution`/`useResultSelection` etc.) have no hook-level unit
+  tests; coverage rides the pre-existing pure-logic tests + smoke.
+- W363 note: the audited "5-way clone family at callbacks.rs:1307–1452" was in
+  the tests module, not production code; the branch shipped the runtime.rs
+  split, `load_optional_symbol` dedup, and doc corrections.
+- W363 doc note: the localStorage `controlSettings` precedence mitigation
+  (ephemeral loopback port) stops being a no-op if the port is ever made
+  stable across sessions — recorded in `native-emulation-design.md`.
+- Reviewer (W364, non-blocking): `db/repo/library/mod.rs` doc comment says
+  "all four impl blocks" but only 3 submodules carry `impl LibraryRepo`;
+  `try_header`'s fallback branch is untested (unreachable from static call
+  sites).
+- W364 follow-up: `Game`/`NewGame` struct field-list duplication left as-is
+  (Rust can't macro-expand into struct-field position; wrapper would churn
+  ~10 external construction sites).
+- W364 note: `cargo clippy --all-targets` (test-target pass) fails
+  pre-existingly on `core/search/download.rs:293` and a very-complex-type
+  lint predating this release — candidate for a future pass.
+- Reviewer (W365, non-blocking): `get_core_option` and `enrich_game` are now
+  UI-unreached Rust commands (same orphan situation as `get_fleet_status`) —
+  decide retire-or-wire in a future pass; `src/ipc/core-options.ts` header
+  comment ("one function per Rust command") is stale.
+- Reviewer (W366, non-blocking): `LocateToolPane` renders `error` before
+  `children`, flipping FamiliarPane's original probe-status/error order; and
+  `useSourceScan` no longer clears error/status at the start of every
+  direct-scan attempt — both subtle, judged harmless; revisit if a settings
+  UX pass lands.
+- W366 follow-up: `inputStyle` duplication across
+  CoreOptionsPane/GameSourcesPane/ProvidersPane is a candidate for a future
+  dedup pass; no React hook/component render-test harness exists (vitest is
+  plain node) — W360 added one for ErrorBoundary, consider adopting repo-wide.
