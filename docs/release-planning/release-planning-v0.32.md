@@ -157,7 +157,7 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.32 |
 |---|---|---|---|---|
-| `feat/w321-steamgriddb-art` (W321) | ☐ | ☐ | ☐ | ☐ |
+| `w321-steamgriddb-art-v032p3-00` (W321) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -206,3 +206,12 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 - Reviewer (W320, informational): `is_steam_owned` matches the literal
   `/steam/steamapps/` substring — custom Steam library folders aren't
   excluded; pre-existing W313 posture.
+- Reviewer (W321, non-blocking): `steamgriddb_client.rs` `download_image`
+  fetches the API-supplied image URL with no scheme/host allow-list and no
+  response-size cap (uncapped `.bytes()`) — mirrors the existing
+  `steam_cdn.rs` convention, not a regression; if a cap/scheme check is ever
+  added, both clients should get it together.
+- Reviewer (W321, cosmetic): hand-rolled percent-encoder duplicates library
+  behaviour (justified to avoid a new crate dep); blank-key filtering could
+  be hoisted into the `resolve_art` rung guard for readability; degradation
+  logging is `eprintln!`, consistent with sibling modules.
