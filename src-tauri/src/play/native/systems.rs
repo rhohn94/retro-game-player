@@ -10,6 +10,14 @@
 //! N64 enable) only ever need to append a row, never touch the hosting
 //! machinery in `host.rs`/`runtime.rs`/`callbacks.rs`. See
 //! docs/design/native-emulation-design.md, "Multi-system engine".
+//!
+//! W344 (PS1, `pcsx_rearmed`) is this table's first `need_fullpath` row worth
+//! calling out explicitly: [`super::host::LibretroCore::load_game`] has
+//! always passed a **path**, never raw bytes, so appending the row needed no
+//! host change. PS1 is scoped to single-disc play (no disk-control/swap UI)
+//! and boots on pcsx_rearmed's HLE BIOS by default — see
+//! docs/design/native-emulation-design.md, "Multi-system engine" (PS1 row),
+//! for the in-UI honesty notice this implies.
 
 use crate::db::repo::cores::CoresRepo;
 use crate::db::repo::Repository;
@@ -100,6 +108,17 @@ pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[
     NativeSystemSupport {
         system: "n64",
         core_id: "mupen64plus_next",
+    },
+    // W344 (v0.34 "Engines" Pass 3): PS1's disc-image identification landed
+    // in W343 (`core::library::disc_ident`); this row is the enable. Single
+    // disc only (no disk-control/swap UI — see systems.rs module doc and
+    // native-emulation-design.md's Multi-system engine PS1 note) and boots
+    // on pcsx_rearmed's HLE BIOS by default (honest in-UI notice, not a
+    // BIOS-file management feature). Kept last in the table per the release
+    // plan's conflict map (W346's gamecube/wii rows append after this one).
+    NativeSystemSupport {
+        system: "ps1",
+        core_id: "pcsx_rearmed",
     },
 ];
 
@@ -265,7 +284,7 @@ mod tests {
         }
     }
 
-    /// W342: every cohort row's core must be the system's **recommended
+    /// W342/W344: every cohort row's core must be the system's **recommended
     /// default** (`system_map::cores_for(system)[0]`) — the native host never
     /// hosts a different core than the one the Cores screen recommends
     /// installing first for that system. NES is the one pre-existing
@@ -286,13 +305,13 @@ mod tests {
         }
     }
 
-    /// W342 acceptance: the software-render cohort (SNES, Genesis, Master
-    /// System, GB/GBC, GBA, Atari 2600, PC Engine) is enabled alongside NES,
-    /// and W345 adds N64 (the first hardware-render row) — ten rows total.
-    /// PS1 (disc-image identification, W343/W344) is deliberately excluded.
+    /// W342/W344/W345 acceptance: the software-render cohort (SNES, Genesis,
+    /// Master System, GB/GBC, GBA, Atari 2600, PC Engine) is enabled
+    /// alongside NES, W345 adds N64 (the first hardware-render row), and
+    /// W344 adds PS1 (the first `need_fullpath` row) — eleven rows total.
     #[test]
-    fn the_software_render_cohort_and_n64_are_enabled_alongside_nes() {
-        assert_eq!(NATIVE_SYSTEMS.len(), 10);
+    fn the_software_render_cohort_n64_and_ps1_are_enabled_alongside_nes() {
+        assert_eq!(NATIVE_SYSTEMS.len(), 11);
         for system in [
             "nes",
             "snes",
@@ -304,20 +323,37 @@ mod tests {
             "atari2600",
             "pcengine",
             "n64",
+            "ps1",
         ] {
             assert!(is_native_capable(system), "{system} should be native-capable");
         }
-        // Explicitly out of scope this pass.
-        assert!(!is_native_capable("ps1"));
     }
 
-    /// W345: n64 is the LAST row (per the release plan's conflict map — the
-    /// W342 software cohort lands first) and maps to the recommended-default
-    /// `mupen64plus_next` core.
+    /// W345: n64 is second-to-last (per the release plan's conflict map — the
+    /// W342 software cohort lands first, W344's PS1 lands after) and maps to
+    /// the recommended-default `mupen64plus_next` core.
     #[test]
-    fn n64_is_the_last_row_and_uses_mupen64plus_next() {
+    fn n64_precedes_ps1_and_uses_mupen64plus_next() {
+        let n64_index = NATIVE_SYSTEMS
+            .iter()
+            .position(|row| row.system == "n64")
+            .expect("n64 is in the table");
+        assert_eq!(NATIVE_SYSTEMS[n64_index].core_id, "mupen64plus_next");
+        assert_eq!(
+            n64_index,
+            NATIVE_SYSTEMS.len() - 2,
+            "n64 should be second-to-last, with ps1 appended after it"
+        );
+    }
+
+    /// W344: ps1 is the LAST row (per the release plan's conflict map — W346's
+    /// gamecube/wii rows append after this one on a sibling branch) and maps
+    /// to the recommended-default `pcsx_rearmed` core — the same core
+    /// `system_map::cores_for("ps1")[0]` recommends installing first.
+    #[test]
+    fn ps1_is_the_last_row_and_uses_pcsx_rearmed() {
         let last = NATIVE_SYSTEMS.last().expect("table is non-empty");
-        assert_eq!(last.system, "n64");
-        assert_eq!(last.core_id, "mupen64plus_next");
+        assert_eq!(last.system, "ps1");
+        assert_eq!(last.core_id, "pcsx_rearmed");
     }
 }
