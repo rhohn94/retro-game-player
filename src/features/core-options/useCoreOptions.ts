@@ -5,9 +5,10 @@
 // runs off the UI thread in the Rust adapter; this hook only coordinates
 // React state.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { isAppError } from "../../ipc/error";
 import { listCoreOptions, setCoreOption, type CoreOption } from "../../ipc/core-options";
+import { useFetchOnMount } from "../../hooks/useFetchOnMount";
 
 /** Per-option in-flight save state. */
 export type OptionSaveState = "saving" | null;
@@ -52,35 +53,15 @@ function errorMessage(err: unknown): string {
  */
 export function useCoreOptions(system: string): UseCoreOptionsResult {
   const [options, setOptions] = useState<CoreOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const [saveStateMap, setSaveStateMap] = useState<Record<string, OptionSaveState>>({});
   const [saveErrorMap, setSaveErrorMap] = useState<Record<string, string | null>>({});
 
-  const cancelled = useRef(false);
-
-  useEffect(() => {
-    cancelled.current = false;
-    setLoading(true);
-    setFetchError(null);
-
-    listCoreOptions(system)
-      .then((list) => {
-        if (cancelled.current) return;
-        setOptions(list);
-      })
-      .catch((err: unknown) => {
-        if (cancelled.current) return;
-        setFetchError(errorMessage(err));
-      })
-      .finally(() => {
-        if (!cancelled.current) setLoading(false);
-      });
-
-    return () => {
-      cancelled.current = true;
-    };
-  }, [system]);
+  const { loading, fetchError } = useFetchOnMount(
+    () => listCoreOptions(system),
+    setOptions,
+    errorMessage,
+    [system],
+  );
 
   const setValue = useCallback(
     async (key: string, value: string): Promise<void> => {
