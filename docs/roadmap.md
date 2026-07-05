@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.33 — Bottles (in flight)
+## v0.33 — Bottles (implementation complete — pending release)
 
 **Theme:** Horizon H2, first slice — CrossOver bottles on the shelves.
 
