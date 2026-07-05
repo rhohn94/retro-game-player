@@ -207,7 +207,7 @@ consumed by later items (append-only rows).
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
 | `w340-native-host-generalization` (W340) | ☐ | ☐ | ☐ | ☐ |
-| `w341-handheld-wii-catalog` (W341) | ☐ | ☐ | ☐ | ☐ |
+| `w341-handheld-wii-catalog-v034p1-01` (W341) | ☑ | ☑ | ☑ | ☑ |
 | `w347-v033-riders` (W347) | n/a | ☐ | ☐ | ☐ |
 
 ### Pass 2
@@ -227,4 +227,16 @@ consumed by later items (append-only rows).
 
 ### Follow-ups discovered during implementation
 
-(populated as branches land)
+- **Pass-1 note:** dispatched via the write-capable workflow
+  (`release-phase-model: Auto`); branch names carry the `-v034p1-NN` suffix.
+- Reviewer (W341, non-blocking): `inPageAvailability.ts` `SYSTEM_LABELS` not
+  extended — get-core panel copy reads raw "gb"/"gbc"/"gba" instead of
+  friendly names (out-of-lane file; cheap fix for a later rider).
+- Reviewer (W341, non-blocking): `src/features/tv/systems.ts` header claims a
+  COMPLETE label table which the new systems falsify — Wii rail renders
+  fallback "WII"; add labels + fix the stale claim.
+- Reviewer (W341, non-blocking): add a direct
+  `inPageAvailability("gba", …)` test case (criterion currently covered only
+  transitively via `inPageSystem`).
+- Reviewer (W341, cosmetic): `ejs_cores.rs` license string "GPLv2+" breaks
+  the SPDX-ish style — use "GPL-2.0-or-later".
