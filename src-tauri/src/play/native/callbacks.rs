@@ -135,15 +135,36 @@ fn parse_variable_value(value: &str) -> Option<(String, Vec<String>)> {
     Some((description.trim().to_string(), choices))
 }
 
+/// A core's video geometry, as reported at boot (`retro_get_system_av_info`)
+/// or renegotiated mid-game (`RETRO_ENVIRONMENT_SET_GEOMETRY`, W340). Only
+/// the fields the frame pipe actually needs — `max_width`/`max_height`
+/// (buffer sizing) are handled by the runtime always allocating exactly the
+/// frame it receives ([`super::frame::to_rgba8_into`] resizes per frame), so
+/// they are not tracked separately here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeometryUpdate {
+    pub width: u32,
+    pub height: u32,
+    pub aspect_ratio: f32,
+}
+
 /// Environment-callback events worth surfacing to the runtime loop. Most
 /// `RETRO_ENVIRONMENT_*` commands are answered synchronously inline
 /// ([`environment`]) and never reach this channel.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EnvironmentEvent {
     PixelFormat(PixelFormat),
     /// The core declared its option list via `RETRO_ENVIRONMENT_SET_VARIABLES`
     /// (typically once, during `retro_init`/`retro_load_game`).
     VariablesDeclared(Vec<CoreVariable>),
+    /// `RETRO_ENVIRONMENT_SET_GEOMETRY` (W340) — a mid-game resolution/aspect
+    /// change. The runtime loop doesn't need to act on this beyond it being
+    /// observable: each delivered [`VideoFrame`] already carries its own
+    /// width/height, and [`super::frame::to_rgba8_into`] resizes its output
+    /// buffer to match every frame, so a new frame at the new geometry just
+    /// works. Surfaced anyway so callers that want to react (e.g. resizing a
+    /// UI element ahead of the next frame) can.
+    GeometryChanged(GeometryUpdate),
     Shutdown,
 }
 
@@ -396,16 +417,18 @@ unsafe fn set_variables(data: *mut c_void) -> bool {
 
 /// `retro_environment_t`. Handles the subset of commands the design doc
 /// scopes in (overscan/dupe negotiation, pixel format, shutdown, message
-/// acknowledgment, core-declared option variables — W282); everything else
-/// reports unhandled (`false`), matching what a real core would see querying
-/// a feature Harmony doesn't implement.
+/// acknowledgment, core-declared option variables — W282, mid-game geometry
+/// renegotiation — W340); everything else reports unhandled (`false`),
+/// matching what a real core would see querying a feature Harmony doesn't
+/// implement.
 ///
 /// # Safety
 /// `data`, when non-null, must point to a valid, correctly-typed output
 /// location for `cmd` (e.g. a `bool` for `GET_CAN_DUPE`/`GET_OVERSCAN`, a
 /// `u32` for `SET_PIXEL_FORMAT`, a [`ffi::RetroVariable`] for `GET_VARIABLE`,
-/// a null-terminated `RetroVariable` array for `SET_VARIABLES`) — the
-/// contract `retro_environment_t` callers are required to uphold.
+/// a null-terminated `RetroVariable` array for `SET_VARIABLES`, a
+/// [`ffi::RetroGameGeometry`] for `SET_GEOMETRY`) — the contract
+/// `retro_environment_t` callers are required to uphold.
 pub unsafe extern "C" fn environment(cmd: u32, data: *mut c_void) -> bool {
     match cmd {
         ffi::RETRO_ENVIRONMENT_GET_CAN_DUPE => {
@@ -435,6 +458,22 @@ pub unsafe extern "C" fn environment(cmd: u32, data: *mut c_void) -> bool {
         ffi::RETRO_ENVIRONMENT_SET_MESSAGE => true,
         ffi::RETRO_ENVIRONMENT_GET_VARIABLE => unsafe { get_variable(data) },
         ffi::RETRO_ENVIRONMENT_SET_VARIABLES => unsafe { set_variables(data) },
+        ffi::RETRO_ENVIRONMENT_SET_GEOMETRY => {
+            if data.is_null() {
+                return false;
+            }
+            let geometry = unsafe { &*(data as *const ffi::RetroGameGeometry) };
+            if let Some(sinks) = sinks_lock().as_ref() {
+                let _ = sinks
+                    .environment
+                    .send(EnvironmentEvent::GeometryChanged(GeometryUpdate {
+                        width: geometry.base_width,
+                        height: geometry.base_height,
+                        aspect_ratio: geometry.aspect_ratio,
+                    }));
+            }
+            true
+        }
         ffi::RETRO_ENVIRONMENT_SHUTDOWN => {
             if let Some(sinks) = sinks_lock().as_ref() {
                 let _ = sinks.environment.send(EnvironmentEvent::Shutdown);
@@ -554,6 +593,47 @@ mod tests {
             .expect("event sent");
         assert_eq!(event, EnvironmentEvent::PixelFormat(PixelFormat::Xrgb8888));
         uninstall();
+    }
+
+    // ---- W340: RETRO_ENVIRONMENT_SET_GEOMETRY (mid-game geometry change) ----
+
+    #[test]
+    fn environment_forwards_a_mid_game_geometry_change() {
+        let _guard = lock_tests();
+        let channels = install();
+        let mut geometry = ffi::RetroGameGeometry {
+            base_width: 512,
+            base_height: 448,
+            max_width: 512,
+            max_height: 448,
+            aspect_ratio: 16.0 / 9.0,
+        };
+        let ok = unsafe {
+            environment(
+                ffi::RETRO_ENVIRONMENT_SET_GEOMETRY,
+                &mut geometry as *mut ffi::RetroGameGeometry as *mut c_void,
+            )
+        };
+        assert!(ok);
+        let event = channels
+            .environment
+            .recv_timeout(Duration::from_millis(200))
+            .expect("event sent");
+        assert_eq!(
+            event,
+            EnvironmentEvent::GeometryChanged(GeometryUpdate {
+                width: 512,
+                height: 448,
+                aspect_ratio: 16.0 / 9.0,
+            })
+        );
+        uninstall();
+    }
+
+    #[test]
+    fn environment_set_geometry_with_null_data_is_not_handled() {
+        let _guard = lock_tests();
+        assert!(!unsafe { environment(ffi::RETRO_ENVIRONMENT_SET_GEOMETRY, std::ptr::null_mut()) });
     }
 
     #[test]

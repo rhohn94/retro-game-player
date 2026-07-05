@@ -49,6 +49,12 @@ pub const RETRO_ENVIRONMENT_SHUTDOWN: u32 = 7;
 pub const RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: u32 = 10;
 pub const RETRO_ENVIRONMENT_GET_VARIABLE: u32 = 15;
 pub const RETRO_ENVIRONMENT_SET_VARIABLES: u32 = 16;
+/// A core renegotiating its video geometry mid-game (e.g. a system whose
+/// resolution or aspect ratio changes between titles/scenes) without a full
+/// `retro_get_system_av_info` re-query — W340 (multi-system engine
+/// generalization). Payload is a `RetroGameGeometry` (the `geometry` half of
+/// `RetroSystemAvInfo`); timing is unaffected by this command.
+pub const RETRO_ENVIRONMENT_SET_GEOMETRY: u32 = 37;
 
 /// `retro_variable` (a single core-declared option query/answer pair).
 /// Field order/types must match `libretro.h` exactly — this crosses the FFI
