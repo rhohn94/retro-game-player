@@ -144,7 +144,7 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.32 |
 |---|---|---|---|---|
 | `w322-rom-scanner-gamesource-v032p1-00` (W322) | ☑ | ☑ | ☑ | ☑ |
-| `w324-hardening-rider-v032p1-01` (W324) | n/a | ☑ | ☐ | ☐ |
+| `w324-hardening-rider-v032p1-01` (W324) | n/a | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -177,3 +177,8 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
   in `rom.rs` and reduce `scan.rs` to a delegation smoke test.
 - Reviewer (W322, non-blocking): `scan.rs` `pub use super::dat::DatIndex`
   creates a redundant second public path — plain `use` suffices.
+- Reviewer (W324, non-blocking): `familiar.ts` local `Game` mirror still
+  omits several canonical fields (year/developer/publisher/aliases/favorite/
+  play-tracking) — W324 scoped only the three W310 source fields; a future
+  item should have familiar.ts reuse the canonical `Game` from `library.ts`
+  instead of a hand-copied partial mirror.
