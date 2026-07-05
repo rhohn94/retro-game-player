@@ -215,7 +215,7 @@ consumed by later items (append-only rows).
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
 | `w342-software-native-cohort-v034p2-00` (W342) | ☑ | ☑ | ☑ | ☑ |
-| `w343-disc-image-identification` (W343) | ☐ | ☐ | ☐ | ☐ |
+| `w343-disc-image-identification-v034p2-01` (W343) | ☑ | ☑ | ☑ | ☑ |
 | `w345-hw-render-n64` (W345) | ☐ | ☐ | ☐ | ☐ |
 
 ### Pass 3
@@ -283,3 +283,16 @@ consumed by later items (append-only rows).
   ignoring the user's *active* core choice (bsnes-active user still needs
   snes9x for native play) — pre-existing v0.21 posture scaled to 9 systems;
   candidate UX note for the Cores screen.
+- Reviewer (W343, blocking ×5 — **all fixed on branch, 7be49a8**): original
+  sniffing missed real PS1 dumps (cooked-only sector assumption, licence
+  string in the wrong region, unspaced `BOOT=` marker, inert CHD path,
+  first-bin-only cue claiming, unbounded full-file hash). Reworked against
+  real dump layouts (ECMA-130 raw 2352 + cooked 2048, PVD System
+  Identifier + `BOOT`-not-`BOOT2` discriminator, case-insensitive all-FILE
+  claiming, 16 MiB prefix-window hashing).
+- W343 documented limitation: real PS1 `.chd` images are NOT identified in
+  v0.34 (needs hunk decompression) — filed as
+  [#49](https://github.com/rhohn94/retro-game-player/issues/49).
+- Reviewer (W343, non-blocking, remaining): disc-row hashes are
+  prefix-window hashes (no DAT matching for disc rows); scanned-counter
+  semantics differ between passes (recorded, not fixed).
