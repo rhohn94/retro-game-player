@@ -4,7 +4,7 @@
 // set-active. All network/IO runs off the UI thread in the Rust adapter; this
 // hook only coordinates React state.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   installCore,
   isAppError,
@@ -13,6 +13,7 @@ import {
   updateCore,
   type Core,
 } from "../../ipc/commands";
+import { useFetchOnMount } from "../../hooks/useFetchOnMount";
 
 /** Grouped cores keyed by system id. */
 export type CoresBySystem = Record<string, Core[]>;
@@ -87,47 +88,29 @@ const SYSTEM_ORDER = ["nes", "snes", "n64"];
 export function useCores(): UseCoresResult {
   const [coresBySystem, setCoresBySystem] = useState<CoresBySystem>({});
   const [systems, setSystems] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Per-core action and error states stored in refs to avoid re-renders on every
   // keystroke while still available synchronously in callbacks.
   const [actionMap, setActionMap] = useState<Record<string, CoreAction>>({});
   const [errorMap, setErrorMap] = useState<Record<string, CoreError | null>>({});
 
-  const cancelled = useRef(false);
-
-  useEffect(() => {
-    cancelled.current = false;
-    setLoading(true);
-    setFetchError(null);
-
-    listAvailableCores()
-      .then((cores) => {
-        if (cancelled.current) return;
-        const grouped: CoresBySystem = {};
-        for (const core of cores) {
-          (grouped[core.system] ??= []).push(core);
-        }
-        const orderedSystems = [
-          ...SYSTEM_ORDER.filter((s) => s in grouped),
-          ...Object.keys(grouped).filter((s) => !SYSTEM_ORDER.includes(s)),
-        ];
-        setCoresBySystem(grouped);
-        setSystems(orderedSystems);
-      })
-      .catch((err: unknown) => {
-        if (cancelled.current) return;
-        setFetchError(errorMessage(err));
-      })
-      .finally(() => {
-        if (!cancelled.current) setLoading(false);
-      });
-
-    return () => {
-      cancelled.current = true;
-    };
-  }, []);
+  const { loading, fetchError } = useFetchOnMount(
+    listAvailableCores,
+    (cores) => {
+      const grouped: CoresBySystem = {};
+      for (const core of cores) {
+        (grouped[core.system] ??= []).push(core);
+      }
+      const orderedSystems = [
+        ...SYSTEM_ORDER.filter((s) => s in grouped),
+        ...Object.keys(grouped).filter((s) => !SYSTEM_ORDER.includes(s)),
+      ];
+      setCoresBySystem(grouped);
+      setSystems(orderedSystems);
+    },
+    errorMessage,
+    [],
+  );
 
   const setAction = useCallback(
     (system: string, coreId: string, action: CoreAction) => {

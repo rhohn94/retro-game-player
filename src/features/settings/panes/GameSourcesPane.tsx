@@ -20,14 +20,18 @@
 // GOG/itch/CrossOver mirror Steam exactly (an unconfirmed direct
 // scan-and-upsert, no shortlist) rather than the Apps confirm-gate shape,
 // since all three are scoped installs (a Galaxy/itch/bottle-owned tree)
-// rather than a broad system scan that could pick up non-games.
+// rather than a broad system scan that could pick up non-games. Each direct
+// source's scan/status/error plumbing is shared via `useSourceScan`; the
+// per-source row markup is shared via `ScanSourceRow`. The Apps, Manual entry,
+// and SteamGridDB sections each own their own file (AppsSourceSection.tsx,
+// ManualEntrySection.tsx, SteamGridDbSection.tsx) to keep this file to its
+// orchestration role (W366).
 //
 // Aura note: buttons fire native `click`, so this file uses React `onClick`
 // throughout (never a Grimoire `aura-click` listener); `AuraField` wraps a
 // contained `<input>` and never takes `value`/`type` props itself.
 
 import { useCallback, useEffect, useState } from "react";
-import { AuraButton, AuraField } from "@aura/react";
 
 import {
   addManualEntry,
@@ -39,99 +43,70 @@ import {
   scanSteamSource,
   type DiscoveredGame,
   type ManualTarget,
-  type SourceScanReport,
 } from "../../../ipc/sources";
 import { getSteamGridDbApiKey, setSteamGridDbApiKey } from "../../../ipc/steamgriddb";
 import { openFileDialog } from "../../../ipc/dialog";
 import { isAppError } from "../../../ipc/commands";
 import { manualNameError, manualTargetError, selectChecked } from "./gameSourcesGating";
+import { useSourceScan } from "./useSourceScan";
+import { ScanSourceRow } from "./ScanSourceRow";
+import { AppsSourceSection, type ShortlistRow } from "./AppsSourceSection";
+import { ManualEntrySection } from "./ManualEntrySection";
+import { SteamGridDbSection } from "./SteamGridDbSection";
 
-const inputStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 8,
-  border: "1px solid var(--aura-border)",
-  background: "var(--aura-surface-2)",
-  color: "var(--aura-on-surface)",
-  fontSize: 13,
-};
-
-/** A shortlist row's checklist state, keyed by its position in the scan result. */
-interface ShortlistRow {
-  game: DiscoveredGame;
-  checked: boolean;
+/** One direct scan-and-upsert source's static row text. */
+interface DirectSourceCopy {
+  title: string;
+  description: string;
+  scanLabel: string;
 }
+
+const DIRECT_SOURCES: Record<"steam" | "gog" | "itch" | "crossover", DirectSourceCopy> = {
+  steam: {
+    title: "Steam",
+    description: "Scans installed Steam titles from your local Steam library.",
+    scanLabel: "Scan Steam library",
+  },
+  gog: {
+    title: "GOG",
+    description: "Scans installed GOG Galaxy titles from your local GOG library.",
+    scanLabel: "Scan GOG library",
+  },
+  itch: {
+    title: "itch",
+    description: "Scans installed itch titles from your local itch app installs.",
+    scanLabel: "Scan itch library",
+  },
+  crossover: {
+    title: "CrossOver",
+    description: "Scans installed CrossOver bottles for their Windows applications.",
+    scanLabel: "Scan CrossOver bottles",
+  },
+};
 
 export function GameSourcesPane() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  /**
-   * Shared shape for the direct scan-and-upsert sources (Steam, GOG, itch):
-   * run `scan`, report the `{ discovered, added, updated }` counts as the
-   * pane status, and surface any AppError. Kept as one function so the three
-   * sources' handlers stay one-liners instead of duplicating this try/catch
-   * (Apps has its own confirm-gated shape below and doesn't use this).
-   */
-  async function runDirectScan(label: string, scan: () => Promise<SourceScanReport>) {
-    setError(null);
-    setStatus(null);
-    try {
-      const report = await scan();
-      setStatus(
-        `${label} scan found ${report.discovered} game(s) — ${report.added} added, ${report.updated} updated.`,
-      );
-    } catch (e: unknown) {
-      setError(isAppError(e) ? e.detail : String(e));
-    }
-  }
+  const reportError = useCallback((message: string) => setError(message), []);
+  const reportStatus = useCallback(
+    (message: string) => {
+      setError(null);
+      setStatus(message);
+    },
+    [],
+  );
 
-  // --- Steam ---
-  const [steamScanning, setSteamScanning] = useState(false);
-
-  async function handleSteamScan() {
-    setSteamScanning(true);
-    try {
-      await runDirectScan("Steam", scanSteamSource);
-    } finally {
-      setSteamScanning(false);
-    }
-  }
-
-  // --- GOG ---
-  const [gogScanning, setGogScanning] = useState(false);
-
-  async function handleGogScan() {
-    setGogScanning(true);
-    try {
-      await runDirectScan("GOG", scanGogSource);
-    } finally {
-      setGogScanning(false);
-    }
-  }
-
-  // --- itch ---
-  const [itchScanning, setItchScanning] = useState(false);
-
-  async function handleItchScan() {
-    setItchScanning(true);
-    try {
-      await runDirectScan("itch", scanItchSource);
-    } finally {
-      setItchScanning(false);
-    }
-  }
-
-  // --- CrossOver ---
-  const [crossoverScanning, setCrossoverScanning] = useState(false);
-
-  async function handleCrossoverScan() {
-    setCrossoverScanning(true);
-    try {
-      await runDirectScan("CrossOver", scanCrossoverSource);
-    } finally {
-      setCrossoverScanning(false);
-    }
-  }
+  // --- Direct scan-and-upsert sources (Steam, GOG, itch, CrossOver) ---
+  const steam = useSourceScan(DIRECT_SOURCES.steam.title, scanSteamSource, reportStatus, reportError);
+  const gog = useSourceScan(DIRECT_SOURCES.gog.title, scanGogSource, reportStatus, reportError);
+  const itch = useSourceScan(DIRECT_SOURCES.itch.title, scanItchSource, reportStatus, reportError);
+  const crossover = useSourceScan(
+    DIRECT_SOURCES.crossover.title,
+    scanCrossoverSource,
+    reportStatus,
+    reportError,
+  );
 
   // --- Apps (confirm-gated shortlist) ---
   const [appScanning, setAppScanning] = useState(false);
@@ -144,7 +119,7 @@ export function GameSourcesPane() {
     setStatus(null);
     try {
       const found = await scanAppSource();
-      setShortlist(found.map((game) => ({ game, checked: true })));
+      setShortlist(found.map((game: DiscoveredGame) => ({ game, checked: true })));
       if (found.length === 0) setStatus("App scan found no game-category apps.");
     } catch (e: unknown) {
       setError(isAppError(e) ? e.detail : String(e));
@@ -275,203 +250,64 @@ export function GameSourcesPane() {
         <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>{status}</p>
       )}
 
-      {/* Steam */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
-      >
-        <div style={{ flex: 1 }}>
-          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>Steam</p>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-            Scans installed Steam titles from your local Steam library.
-          </p>
-        </div>
-        <AuraButton tabIndex={0} disabled={steamScanning} onClick={() => { void handleSteamScan(); }}>
-          {steamScanning ? "Scanning…" : "Scan Steam library"}
-        </AuraButton>
-      </div>
+      <ScanSourceRow
+        title={DIRECT_SOURCES.steam.title}
+        description={DIRECT_SOURCES.steam.description}
+        scanLabel={DIRECT_SOURCES.steam.scanLabel}
+        scanning={steam.scanning}
+        onScan={() => { void steam.run(); }}
+      />
 
-      {/* GOG */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
-      >
-        <div style={{ flex: 1 }}>
-          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>GOG</p>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-            Scans installed GOG Galaxy titles from your local GOG library.
-          </p>
-        </div>
-        <AuraButton tabIndex={0} disabled={gogScanning} onClick={() => { void handleGogScan(); }}>
-          {gogScanning ? "Scanning…" : "Scan GOG library"}
-        </AuraButton>
-      </div>
+      <ScanSourceRow
+        title={DIRECT_SOURCES.gog.title}
+        description={DIRECT_SOURCES.gog.description}
+        scanLabel={DIRECT_SOURCES.gog.scanLabel}
+        scanning={gog.scanning}
+        onScan={() => { void gog.run(); }}
+      />
 
-      {/* itch */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
-      >
-        <div style={{ flex: 1 }}>
-          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>itch</p>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-            Scans installed itch titles from your local itch app installs.
-          </p>
-        </div>
-        <AuraButton tabIndex={0} disabled={itchScanning} onClick={() => { void handleItchScan(); }}>
-          {itchScanning ? "Scanning…" : "Scan itch library"}
-        </AuraButton>
-      </div>
+      <ScanSourceRow
+        title={DIRECT_SOURCES.itch.title}
+        description={DIRECT_SOURCES.itch.description}
+        scanLabel={DIRECT_SOURCES.itch.scanLabel}
+        scanning={itch.scanning}
+        onScan={() => { void itch.run(); }}
+      />
 
-      {/* CrossOver */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
-      >
-        <div style={{ flex: 1 }}>
-          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>CrossOver</p>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-            Scans installed CrossOver bottles for their Windows applications.
-          </p>
-        </div>
-        <AuraButton
-          tabIndex={0}
-          disabled={crossoverScanning}
-          onClick={() => { void handleCrossoverScan(); }}
-        >
-          {crossoverScanning ? "Scanning…" : "Scan CrossOver bottles"}
-        </AuraButton>
-      </div>
+      <ScanSourceRow
+        title={DIRECT_SOURCES.crossover.title}
+        description={DIRECT_SOURCES.crossover.description}
+        scanLabel={DIRECT_SOURCES.crossover.scanLabel}
+        scanning={crossover.scanning}
+        onScan={() => { void crossover.run(); }}
+      />
 
-      {/* Apps */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", flexDirection: "column", gap: 12, padding: 14, borderRadius: 8 }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>Applications</p>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-              Scans /Applications and ~/Applications for game-category apps.
-              You confirm before anything is added.
-            </p>
-          </div>
-          <AuraButton tabIndex={0} disabled={appScanning} onClick={() => { void handleAppScan(); }}>
-            {appScanning ? "Scanning…" : "Scan Applications"}
-          </AuraButton>
-        </div>
+      <AppsSourceSection
+        scanning={appScanning}
+        shortlist={shortlist}
+        confirming={confirming}
+        onScan={() => { void handleAppScan(); }}
+        onToggleRow={toggleShortlistRow}
+        onCancel={() => setShortlist(null)}
+        onConfirm={() => { void handleConfirmShortlist(); }}
+      />
 
-        {shortlist && shortlist.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-              Confirm which of these to add:
-            </p>
-            {shortlist.map((row, i) => (
-              <label
-                key={`${row.game.externalId ?? row.game.name}-${i}`}
-                style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}
-              >
-                <input
-                  type="checkbox"
-                  tabIndex={0}
-                  checked={row.checked}
-                  onChange={() => toggleShortlistRow(i)}
-                />
-                {row.game.name}
-              </label>
-            ))}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <AuraButton
-                tabIndex={0}
-                variant="ghost"
-                disabled={confirming}
-                onClick={() => setShortlist(null)}
-              >
-                Cancel
-              </AuraButton>
-              <AuraButton
-                tabIndex={0}
-                variant="primary"
-                disabled={confirming}
-                onClick={() => { void handleConfirmShortlist(); }}
-              >
-                {confirming ? "Adding…" : "Add selected"}
-              </AuraButton>
-            </div>
-          </div>
-        )}
-      </div>
+      <ManualEntrySection
+        name={manualName}
+        target={manualTarget}
+        busy={manualBusy}
+        onNameChange={setManualName}
+        onPickTarget={() => { void handlePickTarget(); }}
+        onAdd={() => { void handleAddManual(); }}
+      />
 
-      {/* Manual entry */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, borderRadius: 8 }}
-      >
-        <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>Add manually</p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <AuraField tabIndex={0} style={{ flex: 1 }}>
-            <input
-              type="text"
-              placeholder="Name"
-              tabIndex={0}
-              value={manualName}
-              onChange={(e) => setManualName(e.currentTarget.value)}
-              style={inputStyle}
-            />
-          </AuraField>
-          <AuraButton tabIndex={0} variant="secondary" onClick={() => { void handlePickTarget(); }}>
-            {manualTarget
-              ? manualTarget.kind === "app"
-                ? manualTarget.bundlePath.split("/").pop()
-                : manualTarget.program.split("/").pop()
-              : "Choose target…"}
-          </AuraButton>
-          <AuraButton
-            tabIndex={0}
-            disabled={manualBusy}
-            onClick={() => { void handleAddManual(); }}
-          >
-            {manualBusy ? "Adding…" : "Add"}
-          </AuraButton>
-        </div>
-      </div>
-
-      {/* SteamGridDB art */}
-      <div
-        className="rgp-panel"
-        style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, borderRadius: 8 }}
-      >
-        <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>SteamGridDB art</p>
-        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-          Fetches box/grid art for non-Steam titles (apps, manual entries,
-          GOG, itch, CrossOver) by name. Leave blank to leave this provider
-          off — scans and shelves work the same either way, just without this
-          extra art source.
-        </p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <AuraField tabIndex={0} style={{ flex: 1 }}>
-            <input
-              type="password"
-              placeholder="SteamGridDB API key"
-              tabIndex={0}
-              value={sgdbKeyInput}
-              onChange={(e) => setSgdbKeyInput(e.currentTarget.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleSaveSgdbKey(); }}
-              style={inputStyle}
-            />
-          </AuraField>
-          <AuraButton
-            tabIndex={0}
-            disabled={sgdbSaving || sgdbKeyInput.trim() === (sgdbKeySaved ?? "")}
-            onClick={() => { void handleSaveSgdbKey(); }}
-          >
-            {sgdbSaving ? "Saving…" : "Save"}
-          </AuraButton>
-        </div>
-        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-          {sgdbKeySaved ? "A key is configured." : "No key configured — provider is inert."}
-        </p>
-      </div>
+      <SteamGridDbSection
+        keyInput={sgdbKeyInput}
+        keySaved={sgdbKeySaved}
+        saving={sgdbSaving}
+        onKeyInputChange={setSgdbKeyInput}
+        onSave={() => { void handleSaveSgdbKey(); }}
+      />
     </div>
   );
 }
