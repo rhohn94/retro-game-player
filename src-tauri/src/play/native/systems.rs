@@ -31,18 +31,29 @@ pub struct NativeSystemSupport {
     pub core_id: &'static str,
 }
 
-/// The native-hostable system table. v0.34 "Engines" (W340) ships exactly the
-/// one row v0.21 "Bedrock" already proved out (NES via `fceumm`) — the
+/// The native-hostable system table. v0.34 "Engines" (W340) shipped the row
+/// v0.21 "Bedrock" already proved out (NES via `fceumm`) — the
 /// **acceptance-mandated regression floor** ("NES behaves exactly as
 /// today") — while making the machinery general enough for later items to
-/// append rows without touching it. Order is insertion order; lookups are
-/// linear over this short, curated list (never more than a handful of
-/// systems), matching the existing curated-catalog convention
-/// (`core::cores::install`).
-pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[NativeSystemSupport {
-    system: "nes",
-    core_id: "fceumm",
-}];
+/// append rows without touching it. W345 appends `n64` (`mupen64plus_next`)
+/// last, per the release plan's conflict map (W342's rows land first) — N64
+/// is the table's first HW-render row (§HW-render,
+/// native-emulation-design.md): a core is only asked to negotiate
+/// `RETRO_ENVIRONMENT_SET_HW_RENDER` if it wants to, so appending it here
+/// changes nothing about how every earlier (software-rendered) row hosts.
+/// Order is insertion order; lookups are linear over this short, curated
+/// list (never more than a handful of systems), matching the existing
+/// curated-catalog convention (`core::cores::install`).
+pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[
+    NativeSystemSupport {
+        system: "nes",
+        core_id: "fceumm",
+    },
+    NativeSystemSupport {
+        system: "n64",
+        core_id: "mupen64plus_next",
+    },
+];
 
 /// Backward-compatible aliases for the pre-W340 single-system constants —
 /// still meaningful today (NES/`fceumm` is still the only shipped row) and
