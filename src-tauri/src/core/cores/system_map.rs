@@ -27,6 +27,11 @@ struct SystemEntry {
 /// omitted. CD-based systems are listed here (their cores are installable) even
 /// though `core/library/mapper.rs` cannot auto-scan their shared container
 /// formats by extension.
+///
+/// Handhelds + Wii (v0.34, W341): the v0.10 sweep scoped home consoles only;
+/// this release adds the Game Boy family and Wii. Every core id below (like
+/// every id above) was verified against the live arm64 buildbot index before
+/// inclusion — see `console-catalog-design.md` §Handhelds + Wii.
 const SYSTEM_CORES: &[SystemEntry] = &[
     // Gen 3–5 originals (v0.1).
     SystemEntry { system: "nes", cores: &["mesen", "fceumm", "nestopia", "quicknes"] },
@@ -54,6 +59,11 @@ const SYSTEM_CORES: &[SystemEntry] = &[
     SystemEntry { system: "dreamcast", cores: &["flycast"] },
     SystemEntry { system: "ps2", cores: &["play"] },
     SystemEntry { system: "gamecube", cores: &["dolphin"] },
+    SystemEntry { system: "wii", cores: &["dolphin"] },
+    // Handhelds (v0.34).
+    SystemEntry { system: "gb", cores: &["gambatte", "sameboy", "tgbdual"] },
+    SystemEntry { system: "gbc", cores: &["gambatte", "sameboy"] },
+    SystemEntry { system: "gba", cores: &["mgba", "vba_next", "mednafen_gba"] },
 ];
 
 /// The buildbot core ids offered for `system`, or [`AppError::Unsupported`] if
@@ -164,13 +174,15 @@ mod tests {
     #[test]
     fn available_all_lists_every_pair() {
         let all = available(None).unwrap();
-        assert_eq!(all.len(), 40); // 20 systems, gen 1–6 home consoles (v0.10)
+        assert_eq!(all.len(), 49); // 24 systems: gen 1–6 home consoles + handhelds/Wii (v0.34)
         assert!(all.contains(&("nes", "mesen")));
         assert!(all.contains(&("nes", "quicknes")));
         assert!(all.contains(&("n64", "parallel_n64")));
         assert!(all.contains(&("genesis", "genesis_plus_gx")));
         assert!(all.contains(&("ps1", "pcsx_rearmed")));
         assert!(all.contains(&("dreamcast", "flycast")));
+        assert!(all.contains(&("gba", "mgba")));
+        assert!(all.contains(&("wii", "dolphin")));
     }
 
     #[test]
@@ -204,11 +216,28 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_twenty_systems() {
+    fn catalog_covers_handhelds_and_wii() {
+        // v0.34: Game Boy family + Wii, each with the expected recommended
+        // (first) core.
+        for (system, recommended) in [
+            ("gb", "gambatte"),
+            ("gbc", "gambatte"),
+            ("gba", "mgba"),
+            ("wii", "dolphin"),
+        ] {
+            let cores = cores_for(system)
+                .unwrap_or_else(|_| panic!("system '{system}' missing from catalog"));
+            assert!(!cores.is_empty(), "system '{system}' has no cores");
+            assert_eq!(cores[0], recommended, "wrong default core for '{system}'");
+        }
+    }
+
+    #[test]
+    fn catalog_has_twenty_four_systems() {
         let mut systems: Vec<&str> = SYSTEM_CORES.iter().map(|e| e.system).collect();
         systems.sort_unstable();
         systems.dedup();
-        assert_eq!(systems.len(), 20, "expected 20 distinct gen 1–6 systems");
+        assert_eq!(systems.len(), 24, "expected 24 distinct systems (v0.34)");
     }
 
     #[test]

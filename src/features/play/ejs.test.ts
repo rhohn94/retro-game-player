@@ -22,9 +22,16 @@ describe("inPageSystem", () => {
     expect(isEmbeddedInPage("snes")).toBe(false);
   });
 
+  it("maps the v0.34 handheld systems to explicit core names", () => {
+    expect(inPageSystem("gb")).toBe("gambatte");
+    expect(inPageSystem("gbc")).toBe("gambatte");
+    expect(inPageSystem("gba")).toBe("mgba");
+  });
+
   it("returns undefined for systems with no in-page core", () => {
     expect(inPageSystem("dreamcast")).toBeUndefined();
     expect(inPageSystem("ps2")).toBeUndefined();
+    expect(inPageSystem("wii")).toBeUndefined(); // external launch only (v0.34)
     expect(inPageSystem("")).toBeUndefined();
   });
 

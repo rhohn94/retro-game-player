@@ -51,6 +51,11 @@ const SYSTEMS = [
   { system: "dreamcast", dir: "redump", file: "Sega - Dreamcast.dat" },
   { system: "ps2", dir: "redump", file: "Sony - PlayStation 2.dat" },
   { system: "gamecube", dir: "redump", file: "Nintendo - GameCube.dat" },
+  // Handhelds + Wii (v0.34, W341).
+  { system: "gb", dir: "no-intro", file: "Nintendo - Game Boy.dat" },
+  { system: "gbc", dir: "no-intro", file: "Nintendo - Game Boy Color.dat" },
+  { system: "gba", dir: "no-intro", file: "Nintendo - Game Boy Advance.dat" },
+  { system: "wii", dir: "redump", file: "Nintendo - Wii.dat" },
 ];
 
 /** Build the raw.githubusercontent URL, encoding each path segment. */
