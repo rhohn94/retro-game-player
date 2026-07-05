@@ -265,6 +265,10 @@ ignoring unknown actions/buttons so a stale row can never crash input.
 
 - `harmony-ux-design.md` §0 — controller model, focus ring, per-screen hints.
 - `architecture-design.md` §2.10, §3 — `controller_bindings` surface + table.
+- `native-emulation-design.md` §Multiplayer input (v0.35 "Player Two", W350) —
+  per-port native joypad state; this doc's remapping/binding layer stays
+  global (applies to all pads of a family) and is unaffected by per-port
+  routing on the native-hosting side.
 
 ## Remapping UI (W267)
 

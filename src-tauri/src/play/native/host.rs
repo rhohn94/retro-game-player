@@ -35,6 +35,17 @@ fn load_symbol<T: Copy>(lib: &Library, name: &str) -> AppResult<T> {
     }
 }
 
+/// Like [`load_symbol`], but a missing export is `None` rather than an error
+/// — for symbols libretro cores are not strictly required to provide (W350:
+/// `retro_set_controller_port_device` is exported by every real core Harmony
+/// bundles, but the handful of hand-rolled test-stub `.dylib`s in this crate
+/// predate it, and a core missing it should still load — the announce call
+/// simply becomes a no-op rather than refusing to boot).
+fn load_optional_symbol<T: Copy>(lib: &Library, name: &str) -> Option<T> {
+    let cname = format!("{name}\0");
+    unsafe { lib.get::<T>(cname.as_bytes()).ok().map(|sym| *sym) }
+}
+
 fn read_c_str(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
@@ -94,6 +105,10 @@ impl LibretroCore {
             retro_unserialize: load_symbol(&library, "retro_unserialize")?,
             retro_get_memory_data: load_symbol(&library, "retro_get_memory_data")?,
             retro_get_memory_size: load_symbol(&library, "retro_get_memory_size")?,
+            retro_set_controller_port_device: load_optional_symbol(
+                &library,
+                "retro_set_controller_port_device",
+            ),
         };
 
         let api_version = unsafe { (symbols.retro_api_version)() };
@@ -186,6 +201,21 @@ impl LibretroCore {
     pub fn set_input_state(&self, cb: RetroInputStateFn) {
         unsafe {
             (self.symbols.retro_set_input_state)(cb);
+        }
+    }
+
+    /// Announces which controller `port` carries (`RETRO_DEVICE_JOYPAD` etc.,
+    /// W350). Call after [`Self::load_game`] — RetroArch's own convention,
+    /// since a core may only finalize its per-port state once a game (and
+    /// therefore its controller requirements) is known. A no-op when the
+    /// core's `.dylib` doesn't export `retro_set_controller_port_device`
+    /// (see [`load_optional_symbol`]'s doc): libretro already defaults every
+    /// port to joypad, so skipping the announce changes nothing observable.
+    pub fn set_controller_port_device(&self, port: u32, device: u32) {
+        if let Some(f) = self.symbols.retro_set_controller_port_device {
+            unsafe {
+                f(port, device);
+            }
         }
     }
 
@@ -537,6 +567,100 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_pat
         )
     }
 
+    /// Otherwise identical to [`STUB_CORE_C`], but exports
+    /// `retro_set_controller_port_device` (as every real core Harmony bundles
+    /// does — fceumm, snes9x, etc.) and records the last `(port, device)`
+    /// pair it was announced via `retro_get_memory_data`/`_size`, so W350's
+    /// per-port announce call ([`LibretroCore::set_controller_port_device`])
+    /// can be proven to actually reach a core that implements it, not just
+    /// to safely no-op against one that doesn't ([`STUB_CORE_C`]'s case).
+    const STUB_PORT_AWARE_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+static retro_environment_t env_cb = 0;
+/* [0] = last announced port, [1] = last announced device; unset is
+ * 0xFFFFFFFF so the test can tell "never called" apart from "port 0". */
+static unsigned last_announce[2] = {0xFFFFFFFFu, 0xFFFFFFFFu};
+
+void retro_init(void) {
+    bool can_dupe = false;
+    env_cb(3 /* RETRO_ENVIRONMENT_GET_CAN_DUPE */, &can_dupe);
+}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Port-Aware Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "nes";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 256;
+    info->geometry.base_height = 240;
+    info->geometry.max_width = 256;
+    info->geometry.max_height = 240;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0;
+    info->timing.sample_rate = 44100.0;
+}
+
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) {}
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+void retro_set_controller_port_device(unsigned port, unsigned device) {
+    last_announce[0] = port;
+    last_announce[1] = device;
+}
+
+bool retro_load_game(const struct retro_game_info *game) { return true; }
+void retro_unload_game(void) {}
+void retro_run(void) {}
+
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+
+/* Reuses the save-memory hooks purely as a test probe: id 0 exposes
+ * last_announce so the Rust test can read back what was announced without a
+ * dedicated FFI surface. */
+void *retro_get_memory_data(unsigned id) { return id == 0 ? (void *)last_announce : 0; }
+size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(last_announce) : 0; }
+"#;
+
+    /// Compiles [`STUB_PORT_AWARE_CORE_C`] to a `.dylib` in `dir`.
+    fn build_stub_port_aware_core(dir: &Path) -> Option<std::path::PathBuf> {
+        build_c_source_as_dylib(
+            dir,
+            "stub_port_aware_core.c",
+            "stub_port_aware_core.dylib",
+            STUB_PORT_AWARE_CORE_C,
+        )
+    }
+
     /// Shared compile step for the stub cores above. Returns `None` (the
     /// caller should skip, not fail) if no C toolchain is on `PATH` — keeps
     /// this test environment-independent rather than asserting one is present.
@@ -593,8 +717,45 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_pat
         core.run_frame().expect("run frame 1");
         core.run_frame().expect("run frame 2");
 
+        // W350: STUB_CORE_C doesn't export retro_set_controller_port_device
+        // (real cores like fceumm/snes9x do; this stub predates the
+        // announce call) — calling it must be a silent no-op, never a panic.
+        core.set_controller_port_device(0, ffi::RETRO_DEVICE_JOYPAD);
+        core.set_controller_port_device(1, ffi::RETRO_DEVICE_JOYPAD);
+
         core.unload_game();
         // Drop runs retro_deinit; nothing further to assert beyond "doesn't panic".
+    }
+
+    /// W350: a core that DOES export `retro_set_controller_port_device`
+    /// (every real core Harmony bundles) actually receives the announced
+    /// `(port, device)` pair — the mirror image of the no-op case above.
+    #[test]
+    fn set_controller_port_device_reaches_a_core_that_implements_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_port_aware_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+
+        let mut core = LibretroCore::load(&dylib).expect("load stub port-aware core");
+        core.set_environment(test_environment);
+        core.init().expect("init after set_environment");
+        let rom = dir.path().join("game.nes");
+        std::fs::write(&rom, b"fake rom bytes").expect("write rom");
+        core.load_game(&rom).expect("load_game");
+
+        core.set_controller_port_device(1, ffi::RETRO_DEVICE_JOYPAD);
+        let announced = core.sram().expect("stub exposes last_announce via sram()");
+        let port = u32::from_ne_bytes(announced[0..4].try_into().unwrap());
+        let device = u32::from_ne_bytes(announced[4..8].try_into().unwrap());
+        assert_eq!(port, 1);
+        assert_eq!(device, ffi::RETRO_DEVICE_JOYPAD);
+
+        core.set_controller_port_device(0, ffi::RETRO_DEVICE_JOYPAD);
+        let announced = core.sram().expect("stub exposes last_announce via sram()");
+        let port = u32::from_ne_bytes(announced[0..4].try_into().unwrap());
+        assert_eq!(port, 0, "the most recent announce call must win");
     }
 
     #[test]

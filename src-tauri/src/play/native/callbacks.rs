@@ -192,10 +192,27 @@ struct CallbackSinks {
 
 static SINKS: Mutex<Option<CallbackSinks>> = Mutex::new(None);
 
-/// Bitmask of currently-pressed joypad buttons, indexed by
-/// `RETRO_DEVICE_ID_JOYPAD_*`. Written by the input-mapping layer (W216) via
-/// [`set_joypad_state`], read by [`input_state`] on every core poll.
-static JOYPAD_STATE: AtomicU16 = AtomicU16::new(0);
+/// How many joypad ports Harmony hosts input for (v0.35 "Player Two" W350).
+/// Two this release (NES/SNES two-controller multiplayer); the storage and
+/// port-handling below are written generically over this constant so raising
+/// it later (a real 4-player need — see native-emulation-design.md's Out of
+/// Scope) is a one-line change, not a redesign.
+pub const NUM_NATIVE_INPUT_PORTS: usize = 2;
+
+/// Per-port bitmask of currently-pressed joypad buttons, indexed by
+/// `RETRO_DEVICE_ID_JOYPAD_*`. Port `n` is written by the input-mapping layer
+/// (W216, extended for multiplayer in W350) via [`set_joypad_state`], and
+/// read by [`input_state`] on every core poll for the port the core is
+/// currently asking about. Each port is an independent `AtomicU16` (not a
+/// `Mutex<[u16; N]>`) so the hot per-tick poll path stays lock-free, matching
+/// the single-mask design this replaces.
+static JOYPAD_STATE: [AtomicU16; NUM_NATIVE_INPUT_PORTS] =
+    [AtomicU16::new(0), AtomicU16::new(0)];
+
+// Ties the fixed-length array literal above to `NUM_NATIVE_INPUT_PORTS` at
+// compile time — bumping the constant without updating the initializer (or
+// vice versa) fails the build instead of silently sizing the storage wrong.
+const _: () = assert!(JOYPAD_STATE.len() == NUM_NATIVE_INPUT_PORTS);
 
 /// The current value for each core-declared option key, read by
 /// `RETRO_ENVIRONMENT_GET_VARIABLE`. Populated by [`set_core_variables`]
@@ -248,21 +265,38 @@ pub fn install() -> CallbackChannels {
     }
 }
 
-/// Clears the global sinks, resets joypad state, and drops any seeded core
-/// variables so a stray callback after a session ends becomes a silent no-op
-/// instead of sending into a receiver nobody drains anymore (or answering a
-/// `GET_VARIABLE` query with a stale prior session's values).
+/// Clears the global sinks, resets every port's joypad state, and drops any
+/// seeded core variables so a stray callback after a session ends becomes a
+/// silent no-op instead of sending into a receiver nobody drains anymore (or
+/// answering a `GET_VARIABLE` query with a stale prior session's values).
 pub fn uninstall() {
     *sinks_lock() = None;
-    JOYPAD_STATE.store(0, Ordering::Relaxed);
+    release_all_native_input();
     *core_variables_lock() = None;
     clear_hw_render_context();
 }
 
-/// Sets the full joypad bitmask [`input_state`] reads on the core's next
-/// poll. Bit `n` corresponds to `RETRO_DEVICE_ID_JOYPAD_*` value `n`.
-pub fn set_joypad_state(bits: u16) {
-    JOYPAD_STATE.store(bits, Ordering::Relaxed);
+/// Sets `port`'s full joypad bitmask — [`input_state`] reads it back on the
+/// core's next poll of that port. Bit `n` corresponds to
+/// `RETRO_DEVICE_ID_JOYPAD_*` value `n`. A `port >= `[`NUM_NATIVE_INPUT_PORTS`]
+/// is a silent no-op (nothing polls it — see [`input_state`]'s same-bound
+/// check), matching this module's existing "stray call is harmless" contract.
+pub fn set_joypad_state(bits: u16, port: usize) {
+    if let Some(state) = JOYPAD_STATE.get(port) {
+        state.store(bits, Ordering::Relaxed);
+    }
+}
+
+/// Releases every port's held buttons (all-zero bitmask) — the overlay
+/// open / session-stop contract (W350, native-emulation-design.md
+/// §Multiplayer input): a single call clears both players' input rather than
+/// requiring one release call per port, so the existing single-call release
+/// sites (overlay open, session teardown) keep working unmodified as
+/// multiplayer lands.
+pub fn release_all_native_input() {
+    for state in &JOYPAD_STATE {
+        state.store(0, Ordering::Relaxed);
+    }
 }
 
 /// `retro_video_refresh_t`. A null `data` means "this frame is a duplicate of
@@ -340,17 +374,23 @@ pub unsafe extern "C" fn audio_sample_batch(data: *const i16, frames: usize) -> 
 pub unsafe extern "C" fn input_poll() {}
 
 /// `retro_input_state_t`. Only `RETRO_DEVICE_JOYPAD` is supported (Harmony
-/// hosts NES first; no analog/mouse/lightgun devices) — anything else
-/// reports "not pressed" rather than panicking.
+/// hosts NES/SNES; no analog/mouse/lightgun devices) — anything else reports
+/// "not pressed" rather than panicking. Returns the polled `port`'s own mask
+/// (W350 multiplayer input); a `port` beyond [`NUM_NATIVE_INPUT_PORTS`] (a
+/// core probing for more controllers than Harmony hosts this release) also
+/// reports "not pressed" rather than panicking or wrapping.
 ///
 /// # Safety
 /// Touches no pointers; safe to call unconditionally. Marked `unsafe` only
 /// for signature uniformity with the rest of this callback set.
-pub unsafe extern "C" fn input_state(_port: u32, device: u32, _index: u32, id: u32) -> i16 {
+pub unsafe extern "C" fn input_state(port: u32, device: u32, _index: u32, id: u32) -> i16 {
     if device != ffi::RETRO_DEVICE_JOYPAD || id > ffi::RETRO_DEVICE_ID_JOYPAD_R {
         return 0;
     }
-    let bits = JOYPAD_STATE.load(Ordering::Relaxed);
+    let Some(state) = JOYPAD_STATE.get(port as usize) else {
+        return 0;
+    };
+    let bits = state.load(Ordering::Relaxed);
     i16::from(bits & (1 << id) != 0)
 }
 
@@ -733,7 +773,7 @@ mod tests {
     #[test]
     fn input_state_reflects_the_last_set_joypad_bitmask() {
         let _guard = lock_tests();
-        set_joypad_state(1 << ffi::RETRO_DEVICE_ID_JOYPAD_A);
+        set_joypad_state(1 << ffi::RETRO_DEVICE_ID_JOYPAD_A, 0);
         assert_eq!(
             unsafe { input_state(0, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_A) },
             1
@@ -742,15 +782,111 @@ mod tests {
             unsafe { input_state(0, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_B) },
             0
         );
-        set_joypad_state(0);
+        release_all_native_input();
     }
 
     #[test]
     fn input_state_rejects_unsupported_devices() {
         let _guard = lock_tests();
-        set_joypad_state(u16::MAX);
+        set_joypad_state(u16::MAX, 0);
         assert_eq!(unsafe { input_state(0, 999, 0, 0) }, 0); // not RETRO_DEVICE_JOYPAD
-        set_joypad_state(0);
+        release_all_native_input();
+    }
+
+    #[test]
+    fn a_stub_core_polling_ports_0_and_1_sees_two_independent_masks() {
+        let _guard = lock_tests();
+        set_joypad_state(1 << ffi::RETRO_DEVICE_ID_JOYPAD_A, 0);
+        set_joypad_state(1 << ffi::RETRO_DEVICE_ID_JOYPAD_B, 1);
+        assert_eq!(
+            unsafe { input_state(0, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_A) },
+            1
+        );
+        assert_eq!(
+            unsafe { input_state(1, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_B) },
+            1
+        );
+        release_all_native_input();
+    }
+
+    #[test]
+    fn a_press_on_port_1_never_leaks_into_port_0() {
+        let _guard = lock_tests();
+        set_joypad_state(1 << ffi::RETRO_DEVICE_ID_JOYPAD_START, 1);
+        assert_eq!(
+            unsafe {
+                input_state(0, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_START)
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                input_state(1, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_START)
+            },
+            1
+        );
+        release_all_native_input();
+    }
+
+    #[test]
+    fn ports_at_or_beyond_num_native_input_ports_report_not_pressed() {
+        let _guard = lock_tests();
+        set_joypad_state(u16::MAX, 0);
+        set_joypad_state(u16::MAX, 1);
+        assert_eq!(
+            unsafe {
+                input_state(
+                    NUM_NATIVE_INPUT_PORTS as u32,
+                    ffi::RETRO_DEVICE_JOYPAD,
+                    0,
+                    ffi::RETRO_DEVICE_ID_JOYPAD_A,
+                )
+            },
+            0
+        );
+        release_all_native_input();
+    }
+
+    #[test]
+    fn set_joypad_state_beyond_num_native_input_ports_is_a_silent_no_op() {
+        let _guard = lock_tests();
+        // Must not panic — an out-of-range port is a harmless no-op, matching
+        // this module's existing "stray call" contract.
+        set_joypad_state(u16::MAX, NUM_NATIVE_INPUT_PORTS);
+        release_all_native_input();
+    }
+
+    #[test]
+    fn release_all_native_input_clears_every_port() {
+        let _guard = lock_tests();
+        set_joypad_state(u16::MAX, 0);
+        set_joypad_state(u16::MAX, 1);
+        release_all_native_input();
+        for port in 0..NUM_NATIVE_INPUT_PORTS as u32 {
+            assert_eq!(
+                unsafe {
+                    input_state(port, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_A)
+                },
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn uninstall_releases_all_ports_alongside_sinks() {
+        let _guard = lock_tests();
+        let _channels = install();
+        set_joypad_state(u16::MAX, 0);
+        set_joypad_state(u16::MAX, 1);
+        uninstall();
+        for port in 0..NUM_NATIVE_INPUT_PORTS as u32 {
+            assert_eq!(
+                unsafe {
+                    input_state(port, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_A)
+                },
+                0
+            );
+        }
     }
 
     #[test]

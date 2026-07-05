@@ -14,6 +14,7 @@ use super::audio::{
 };
 use super::callbacks::{self, AudioBatch, EnvironmentEvent, PixelFormat};
 use super::clock::FrameClock;
+use super::ffi::RETRO_DEVICE_JOYPAD;
 use super::frame::{to_rgba8_into, Rgba8Frame};
 use super::host::LibretroCore;
 use super::hw_render::{HwRenderContext, HwRenderRequest};
@@ -298,6 +299,16 @@ fn bring_up_core(core_path: &Path, rom_path: &Path, saves: &Option<GameSaves>) -
     core.set_input_poll(callbacks::input_poll);
     core.set_input_state(callbacks::input_state);
     core.load_game(rom_path)?;
+    // Explicitly announce a joypad on every hosted port (W350, multiplayer
+    // input) — after load_game, matching RetroArch's own ordering
+    // convention: a core may only finalize its per-port controller state
+    // once a game (and therefore its controller requirements) is known.
+    // libretro already defaults every port to joypad, so this is
+    // contract-polite rather than strictly required, but matters for cores
+    // that lazily allocate per-port state on this call.
+    for port in 0..callbacks::NUM_NATIVE_INPUT_PORTS as u32 {
+        core.set_controller_port_device(port, RETRO_DEVICE_JOYPAD);
+    }
     // Restore battery progress before the first frame runs. A
     // corrupt/mismatched .srm degrades to a fresh session, never a failed
     // boot.
