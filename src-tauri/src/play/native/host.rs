@@ -533,7 +533,6 @@ mod tests {
         build_c_source_as_dylib, build_stub_port_aware_core, decode_announce_probe,
     };
     use super::*;
-    use std::process::Command;
 
     /// A minimal libretro core implementing only the 13 functions
     /// [`LibretroCore`] calls — enough to exercise the real load → init →
