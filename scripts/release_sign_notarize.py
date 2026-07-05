@@ -201,8 +201,8 @@ class BundleMacosGuard:
                 f"{self.bundle_macos_dir} does not exist — build did not produce a bundle"
             )
         entries = sorted(self.bundle_macos_dir.iterdir())
-        apps = [e for e in entries if e.suffix == ".app"]
-        unexpected = [e for e in entries if e.suffix != ".app"]
+        apps = [e for e in entries if e.suffix == ".app" and e.is_dir()]
+        unexpected = [e for e in entries if e not in apps]
         if unexpected:
             raise BundleMacosGuardError(
                 f"{self.bundle_macos_dir} contains unexpected entries "
@@ -244,7 +244,10 @@ class DmgStagingBuilder:
         with tempfile.TemporaryDirectory(prefix="rgp-dmg-staging-") as staging_str:
             staging = Path(staging_str)
             staged_app = staging / app_path.name
-            shutil.copytree(app_path, staged_app)
+            # symlinks=True mirrors `cp -R`: preserve any internal symlinks
+            # (framework Versions/Current etc.) so the staged copy keeps the
+            # exact signed layout — dereferencing would break the signature.
+            shutil.copytree(app_path, staged_app, symlinks=True)
             (staging / "Applications").symlink_to("/Applications")
 
             result = self.runner.run(
