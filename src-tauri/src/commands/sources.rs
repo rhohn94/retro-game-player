@@ -18,6 +18,16 @@
 //! `core::metadata::steam_art` / `core::metadata::bundle_icon` — reusing the
 //! existing `art_cache` pipeline (W314). Art failures never fail the
 //! scan/confirm command itself.
+//!
+//! **Art acquisition is detached (W323).** A scan/confirm command upserts
+//! every row and returns its counts immediately; art is fetched on a
+//! best-effort background thread that opens its own short-lived [`Db`]
+//! handle (mirroring the existing `commands::downloads` worker-thread
+//! pattern) rather than being awaited inline. This is what keeps
+//! `scan_steam_source` fast even when every title's Steam-CDN fetch would
+//! otherwise time out serially (see `spawn_art_acquisition`). The UI picks
+//! up art on its next load of the row (existing polling/refresh path) once
+//! the background fetch lands.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -81,39 +91,73 @@ fn now_epoch_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Best-effort art acquisition for a just-upserted game (W314). Never
-/// propagates an error — a CDN miss, an offline network, or an unresolvable
-/// bundle icon all degrade silently to "no art fetched", leaving the
-/// existing placeholder art path in place. `art_hint` is the scanner-supplied
-/// hint (`DiscoveredGame::art_hint`): a Steam appid for `steam` rows, or an
-/// app-bundle path for `app`/`manual` rows.
-async fn acquire_art_best_effort(db: &Db, game_id: i64, source: GameSource, art_hint: Option<&str>) {
+/// Best-effort art acquisition for a just-upserted game, **detached from the
+/// calling command** (W323 — see the module doc). A CDN miss, an offline
+/// network, or an unresolvable bundle icon all degrade silently to "no art
+/// fetched", leaving the existing placeholder art path in place; none of
+/// that ever propagates back to the scan/confirm command, since by the time
+/// it happens the command has already returned. `art_hint` is the
+/// scanner-supplied hint (`DiscoveredGame::art_hint`): a Steam appid for
+/// `steam` rows, or an app-bundle path for `app`/`manual` rows.
+///
+/// Spawns a dedicated OS thread that opens its **own** [`Db`] connection
+/// rather than borrowing the caller's — the caller's `State<Db>` borrow does
+/// not outlive the command call, so a background job needs its own handle.
+/// This mirrors the existing `commands::downloads` worker-thread pattern
+/// (`Db::open` inside a spawned thread, keyed off a `PathBuf`); here the path
+/// is re-resolved via `Paths::app_support()` (the same resolver `lib.rs`
+/// uses for the app's single shared db file) rather than threaded in from
+/// the caller, since doing so keeps every `#[tauri::command]` signature in
+/// this module untouched. Returns immediately; the fetch itself (and the one
+/// blocking async round-trip it drives for `steam` rows) all happen off the
+/// calling thread.
+fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<String>) {
     // ROM art goes through the libretro-thumbnails pipeline
     // (`core::metadata::fallback`), not this non-retro path — bail before
-    // resolving Paths so a `rom` row never touches the app-support dir here.
+    // spawning anything so a `rom` row never touches this thread/dir at all.
     if source == GameSource::Rom {
         return;
     }
     let Some(hint) = art_hint else { return };
-    let Ok(paths) = Paths::app_support() else {
-        return;
-    };
 
-    match source {
-        GameSource::Steam => {
-            let _ = fetch_steam_art(db, &paths, game_id, hint).await;
-        }
-        GameSource::App | GameSource::Manual | GameSource::Gog | GameSource::Itch => {
-            let sanitized_name = sanitize(hint);
-            let _ = fetch_bundle_icon_art(db, &paths, game_id, hint, &sanitized_name);
-        }
-        GameSource::Rom => unreachable!("returned above"),
-    }
+    std::thread::Builder::new()
+        .name(format!("harmony-art-fetch-{game_id}"))
+        .spawn(move || {
+            let Ok(paths) = Paths::app_support() else {
+                return;
+            };
+            let Ok(db_path) = paths.db_file() else {
+                return;
+            };
+            let Ok(db) = Db::open(&db_path) else {
+                return;
+            };
+
+            match source {
+                GameSource::Steam => {
+                    let _ = tauri::async_runtime::block_on(fetch_steam_art(
+                        &db, &paths, game_id, &hint,
+                    ));
+                }
+                GameSource::App | GameSource::Manual | GameSource::Gog | GameSource::Itch => {
+                    let sanitized_name = sanitize(&hint);
+                    let _ = fetch_bundle_icon_art(&db, &paths, game_id, &hint, &sanitized_name);
+                }
+                GameSource::Rom => unreachable!("returned above"),
+            }
+        })
+        // A failure to spawn the OS thread is the same outcome as any other
+        // art-acquisition failure: silently no art this round, placeholder
+        // stands, next scan/load can retry.
+        .ok();
 }
 
 /// Upsert every game a scanner discovered, returning the discovered/added/
 /// updated counts. Shared by every source-scan command so each one stays a
-/// one-line adapter. Best-effort-fetches art for each upserted row (W314).
+/// one-line adapter. Art acquisition for each upserted row is detached to a
+/// background thread (W323) — this function (and therefore every command
+/// calling it) returns as soon as the upserts themselves are done, not after
+/// art lands.
 async fn upsert_discovered(
     repo: &LibraryRepo<'_>,
     discovered: Vec<DiscoveredGame>,
@@ -158,7 +202,7 @@ async fn upsert_discovered(
             external_id: game.external_id,
         };
         let game_id = repo.upsert_game_by_source(&new_game)?;
-        acquire_art_best_effort(repo.db(), game_id, source, art_hint.as_deref()).await;
+        spawn_art_acquisition(game_id, source, art_hint);
 
         if already_existed {
             updated += 1;
@@ -277,7 +321,7 @@ pub async fn confirm_app_entries(
             entry.art_hint,
         )?;
         let game_id = repo.upsert_game_by_source(&game)?;
-        acquire_art_best_effort(repo.db(), game_id, GameSource::App, art_hint.as_deref()).await;
+        spawn_art_acquisition(game_id, GameSource::App, art_hint);
         ids.push(game_id);
     }
     Ok(ids)
@@ -349,7 +393,7 @@ pub async fn add_manual_entry(
         art_hint.clone(),
     )?;
     let game_id = repo.upsert_game_by_source(&game)?;
-    acquire_art_best_effort(repo.db(), game_id, GameSource::Manual, art_hint.as_deref()).await;
+    spawn_art_acquisition(game_id, GameSource::Manual, art_hint);
     Ok(game_id)
 }
 
@@ -410,29 +454,61 @@ mod tests {
         assert!(entry.external_id.is_some());
     }
 
-    // --- acquire_art_best_effort (W314) ---
+    // --- spawn_art_acquisition (W314; detached W323) ---
 
     /// A `rom` row never goes through this non-retro art path (it uses
-    /// `core::metadata::fallback` instead) — this must be a pure no-op, not
-    /// an error, even with a hint present.
+    /// `core::metadata::fallback` instead) — this must be a pure no-op (no
+    /// thread spawned, no panic), even with a hint present.
     #[test]
-    fn acquire_art_best_effort_is_noop_for_rom_source() {
-        let db = Db::open_in_memory().unwrap();
-        // No panic / no error possible: acquire_art_best_effort returns ().
-        tauri::async_runtime::block_on(acquire_art_best_effort(
-            &db,
-            1,
-            GameSource::Rom,
-            Some("irrelevant-hint"),
-        ));
+    fn spawn_art_acquisition_is_noop_for_rom_source() {
+        // No panic / no error possible: spawn_art_acquisition returns ()
+        // synchronously and bails before spawning anything for a rom row.
+        spawn_art_acquisition(1, GameSource::Rom, Some("irrelevant-hint".to_string()));
     }
 
     /// A missing art hint (scanner didn't supply one) must short-circuit
-    /// before touching the network or filesystem at all.
+    /// before spawning a background thread at all.
     #[test]
-    fn acquire_art_best_effort_is_noop_when_hint_absent() {
+    fn spawn_art_acquisition_is_noop_when_hint_absent() {
+        spawn_art_acquisition(1, GameSource::Steam, None);
+    }
+
+    /// The whole point of W323: a scan command must not block on art. This
+    /// proves `upsert_discovered` returns its counts well before a
+    /// Steam-CDN fetch (whose per-asset timeout is 10s — see
+    /// `core::metadata::steam_cdn::REQUEST_TIMEOUT`) could possibly
+    /// complete, for a batch of several discovered titles at once. A
+    /// pre-fix synchronous await of art per row would make this take
+    /// seconds; detached, it must stay well under a second.
+    #[test]
+    fn upsert_discovered_returns_promptly_without_waiting_on_art() {
         let db = Db::open_in_memory().unwrap();
-        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Steam, None));
+        let repo = LibraryRepo::new(&db);
+
+        let discovered: Vec<DiscoveredGame> = (0..5)
+            .map(|i| DiscoveredGame {
+                name: format!("Steam Game {i}"),
+                source: GameSource::Steam,
+                external_id: Some(format!("{i}")),
+                launch_descriptor: serde_json::json!({ "kind": "steam", "appid": format!("{i}") }),
+                art_hint: Some(format!("{i}")),
+            })
+            .collect();
+
+        let start = std::time::Instant::now();
+        let report =
+            tauri::async_runtime::block_on(upsert_discovered(&repo, discovered)).unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(report.discovered, 5);
+        assert_eq!(report.added, 5);
+        assert_eq!(report.updated, 0);
+        // Generous relative to the 10s-per-asset CDN timeout this guards
+        // against, tight enough to fail if art were awaited inline again.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "upsert_discovered took {elapsed:?}; art acquisition must be detached, not awaited"
+        );
     }
 
     // --- acquire_art_best_effort (W320: gog/itch route through bundle-icon art) ---
