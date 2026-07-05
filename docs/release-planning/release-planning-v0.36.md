@@ -240,7 +240,7 @@ branch names carry the `-v036pN-NN` suffix.
 | `w363-native-runtime-split` (W363) | ☐ | ☐ | ☐ | ☐ |
 | `w364-library-repo-cleanup` (W364) | ☐ | ☐ | ☐ | ☐ |
 | `w365-dead-code-removal-v036p1-04` (W365) | ☑ n/a | ☑ | ☑ | ☑ |
-| `w366-settings-dedup` (W366) | ☐ | ☐ | ☐ | ☐ |
+| `w366-settings-dedup-v036p1-05` (W366) | ☑ n/a | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
