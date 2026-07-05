@@ -223,7 +223,7 @@ consumed by later items (append-only rows).
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
 | `w344-ps1-native-v034p3-00` (W344) | ☑ | ☑ | ☑ | ☑ |
-| `w346-gamecube-wii-native` (W346) | ☐ | ☐ | ☐ | ☐ |
+| `w346-gamecube-wii-native-v034p3-01` (W346) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -313,5 +313,22 @@ consumed by later items (append-only rows).
   (`n64_precedes_ps1…`, `ps1_is_the_last_row…`) will break on any future
   row append — make them order-insensitive when next touched.
 - Reviewer (W344, follow-up): `mock-ipc.mjs` `list_native_systems` fixture
-  stale (nes-only) since W342/W345 — smoke never exercises non-NES native
-  routing or the PS1 notice; sync the fixture with NATIVE_SYSTEMS.
+  stale (nes-only) since W342/W345 — **fixed by master on
+  `fix-v034-polish` (16e088e)** along with full label coverage
+  (get-core/external notices + TV rails, closing the W341 label follow-ups)
+  and a blank-system guard on the external-only copy.
+- **W346 outcome (honest blocker):** GameCube/Wii native hosting is blocked —
+  dolphin-libretro's OGL backend requires ARB extensions Apple's
+  GL-over-Metal layer does not expose (empirically probed with the real
+  downloaded arm64 core; GL 4.1 reported, extensions absent). Filed as
+  [#50](https://github.com/rhohn94/retro-game-player/issues/50); future
+  unblock is a Vulkan/MoltenVK HW-render context. GC/Wii stay on the
+  external RetroArch (Dolphin core) launch path with honest detail-page
+  copy (`ExternalOnlyNotice`).
+- Reviewer (W346, non-blocking): no component-level test asserts PlaySwitch
+  renders `ExternalOnlyNotice` on the `none` branch (helper-level only,
+  consistent with house style).
+- **Human follow-ups (on-device):** N64 native boot with a real ROM
+  ([#48](https://github.com/rhohn94/retro-game-player/issues/48)); SNES +
+  GBA native spot checks; PS1 native boot with a real disc image;
+  CrossOver `cxstart --` terminator verification (standing).
