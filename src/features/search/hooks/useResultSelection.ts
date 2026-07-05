@@ -2,7 +2,7 @@
  *  "open selected in browser" action for the Search page (W362). Selection is
  *  keyed by result url so it works uniformly across the provider-grouped and
  *  game-first merged views. Extracted from SearchPage with no behavior change. */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { openUrl } from "../../../ipc/opener";
 import {
   withGroupToggled,
@@ -57,11 +57,12 @@ export function useResultSelection(): UseResultSelectionResult {
     for (const url of urls) await openUrl(url);
   }
   // Reset both selection and expansion — called when a fresh search replaces
-  // the browsable result set.
-  function reset() {
+  // the browsable result set. Memoized so it has a stable identity for
+  // `useSearchExecution`'s `handleSearch` useCallback dependency array.
+  const reset = useCallback(() => {
     setSelected(new Set());
     setExpandedKeys(new Set());
-  }
+  }, []);
 
   return {
     selected,
