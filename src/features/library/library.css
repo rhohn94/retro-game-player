@@ -488,6 +488,27 @@
     font: inherit;
   }
 
+  /* Connected-controllers indicator (v0.35 "Player Two" W351,
+     controller-input-design.md §Two-player capture) — quiet, non-interactive
+     chip reusing the same chip tokens as rgp-player__fs above rather than a
+     bespoke style; sits first in the chrome bar (and in the overlay's title
+     row) so a second player plugging in sees the pickup without hunting for
+     it. Muted foreground (not the primary color) keeps it out of the way of
+     the actionable buttons beside it, per the design language's quiet/minimal
+     guidance for this indicator. */
+  .rgp-player-count {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--rgp-chip-pad);
+    border-radius: var(--aura-radius-full);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
   /* v0.21 "Bedrock" W214 — native libretro core player: a <canvas> instead of
      the EmulatorJS <iframe>, scaled up from the core's native resolution
      without smoothing so NES-era pixel art stays crisp. */
@@ -569,6 +590,15 @@
   .rgp-overlay__title {
     margin: 0;
     font-size: var(--rgp-font-detail-title, 22px);
+  }
+  /* v0.35 W351: the title row pairs the game name with the connected-controllers
+     indicator (rgp-player-count) without disturbing rgp-overlay__title's own
+     margin/size when the indicator is absent (EJS path — see PlayerOverlay.tsx). */
+  .rgp-overlay__title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--aura-space-3);
   }
   .rgp-overlay__actions {
     display: flex;

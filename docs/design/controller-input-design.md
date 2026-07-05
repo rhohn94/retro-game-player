@@ -261,6 +261,96 @@ append-friendly commands back the frontend:
 `resolveBindings(family, overrides)` applies overrides over `defaultBindings`,
 ignoring unknown actions/buttons so a stale row can never crash input.
 
+## Two-player capture (v0.35 "Player Two", W351)
+
+Companion to `native-emulation-design.md` §Multiplayer input (W350, the
+backend per-port storage): this section covers the frontend half — capturing
+both connected pads, assigning them to native-input ports, and surfacing the
+pickup to the player. Native NES/SNES sessions are the only surface in scope
+(the EJS fallback tier's own two-player config is W353's lane,
+`in-page-play-design.md` §7).
+
+### Assignment policy
+
+`gamepadAssignment.ts` is a small pure module (no DOM) that turns the raw
+array `navigator.getGamepads()` returns into a stable port table:
+
+```ts
+export const NUM_NATIVE_PLAY_PORTS = 2;
+export function assignPorts(connected, previous): PortAssignments; // Gamepad.index -> port, or null
+export function releasedPorts(previous, next): number[];           // ports that just lost their pad
+export function padForPort(connected, assignments, port): Gamepad | null;
+export function connectedPortCount(assignments): number;
+```
+
+- **First-connected pad claims port 0, second claims port 1**, keyed by the
+  browser's own `Gamepad.index` (stable for a pad's whole connected
+  lifetime). `assignPorts` carries forward every still-connected pad's
+  existing port first, then assigns any newly-seen index to the lowest free
+  port — so a `getGamepads()` reflow (the browser can reorder the returned
+  array) never reshuffles an assignment already in effect.
+- **A third+ pad is left unassigned** this release (ports 2+ are out of
+  scope — see native-emulation-design.md's Out of Scope); it simply drives
+  nothing until a port frees up.
+- **Keyboard always merges into port 0** alongside pad 0
+  (`computeJoypadBits(heldKeys, gamepad)` for port 0; every other port passes
+  an empty key set) — there is no keyboard-to-port-1 path, matching the "no
+  manual assignment" non-goal below.
+
+### Disconnect / reclaim lifecycle
+
+`NativePlayer`'s poll tick (the same `requestAnimationFrame` loop that already
+pushed one shared mask pre-W351) now: (1) recomputes `assignPorts` against the
+previous tick's table, (2) for every port `releasedPorts` reports, pushes
+`setNativeInput(0, port)` **exactly once** (not every subsequent tick — the
+zero mask is a one-time release, and the port then simply reports nothing
+until reassigned), then (3) computes and pushes each currently-assigned port's
+mask as before. A later reconnect (the same physical pad or a different one)
+claims the **lowest free port**, not necessarily the port it previously held —
+there is no per-pad memory across a disconnect.
+
+Two release paths matter and stay independent:
+- **A per-port zero-mask push** (above) is the disconnect signal for the
+  now-unassigned port specifically.
+- **`releaseAllNativeInput()`** (W350's IPC surface) is the "let go of
+  everything" signal for overlay-open, spectator handoff, and session
+  teardown — `NativePlayer.tsx` migrated its three pre-W351
+  `setNativeInput(0)` call sites (overlay-open, the W235/W273 spectator
+  transition, and unmount teardown) to it, so port 1 can never survive one of
+  those transitions once a second pad is in play (the W350 review hand-off
+  this work item closes out).
+
+### Indicator
+
+A small, quiet `PlayerCountIndicator` chip ("P1" / "P1 P2",
+`playerCountLabel.ts`) reuses the existing chip visual language
+(`rgp-player__fs`'s chip tokens, muted foreground) rather than a bespoke
+style. It renders in two places, both fed the same live `connectedPadCount`
+state (updated every poll tick from `connectedPortCount`):
+- the detail-page/TV player chrome bar (`rgp-player__bar`), and
+- the in-game overlay's title row (`PlayerOverlay`'s `connectedPadCount` prop
+  — `undefined` on the EJS path, which omits the indicator rather than
+  showing a misleading "P1" for a path that doesn't track per-port
+  assignment).
+
+"P1" always shows (even with zero pads connected) since keyboard alone
+already drives port 0; it becomes "P1 P2" the tick a second pad is assigned a
+port, and reverts live on disconnect — no dedicated event listener, since the
+same poll tick that recomputes assignments also recomputes the label input.
+
+### Non-goals (explicit)
+
+- **No manual port-assignment / swap UI.** Assignment is automatic and
+  positional (connection order) only; a player cannot choose "I want port
+  1" or swap which physical pad drives which port.
+- **No per-player rebinding.** The v0.26 press-to-rebind remapping (§Remapping
+  UI above) stays global per device family — both ports read the same
+  `GAMEPAD_BINDINGS`/keyboard map; there is no per-player override layer.
+- **Menus stay first-pad.** `useGamepadPoll`/`ControllerProvider` (the
+  spatial-nav menu layer, §3) are unaffected by this section — menu
+  navigation keeps reading `getGamepads()[0]` only, matching the release
+  plan's "menu/shell navigation from the second pad" non-goal.
+
 ## 6. Cross-links
 
 - `harmony-ux-design.md` §0 — controller model, focus ring, per-screen hints.
