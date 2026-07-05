@@ -143,8 +143,8 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.32 |
 |---|---|---|---|---|
-| `refactor/w322-rom-scanner-gamesource` (W322) | ☐ | ☐ | ☐ | ☐ |
-| `fix/w324-hardening-rider` (W324) | n/a | ☐ | ☐ | ☐ |
+| `w322-rom-scanner-gamesource-v032p1-00` (W322) | ☑ | ☑ | ☑ | ☑ |
+| `w324-hardening-rider-v032p1-01` (W324) | n/a | ☑ | ☐ | ☐ |
 
 ### Pass 2
 
@@ -161,4 +161,19 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 
 ### Follow-ups discovered during implementation
 
-(empty — populated as branches land)
+- **Pass-1 note (dispatch):** Pass 1 ran via the write-capable workflow
+  (`release-phase-model: Auto`); actual branch names carry the
+  `-v032p1-NN` workflow suffix instead of the §5-planned names.
+- **Pass-1 note (BMI-2):** divergence gate HALTed pre-merge — `main` carried
+  the v0.31.0 bump (719c19c) unreachable from `dev`; reconciled by
+  merge-forward `main`→`dev`→`version/0.32` before any Pass-1 merge.
+- Reviewer (W322, non-blocking, IM signed off): `RomSource` is a standalone
+  persisting scanner, not a `GameSourceScanner` impl — the trait's
+  discover-only `scan()` contract can't express a hashing/persisting folder
+  scan. Accepted for v0.32 (W320's scanners fit the trait as-is); reconcile
+  the trait shape (persisting-source variant) before H2 CrossOver.
+- Reviewer (W322, non-blocking): the two legacy scan tests now exist verbatim
+  in both `library/scan.rs` and `sources/rom.rs` — keep the behavioural tests
+  in `rom.rs` and reduce `scan.rs` to a delegation smoke test.
+- Reviewer (W322, non-blocking): `scan.rs` `pub use super::dat::DatIndex`
+  creates a redundant second public path — plain `use` suffices.
