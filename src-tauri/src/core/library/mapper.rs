@@ -19,6 +19,12 @@
 //! Handhelds + Wii (v0.34): Game Boy / Color / Advance each carry a distinct
 //! extension (`gb`/`gbc`/`gba`) and scan unambiguously; Wii's `.wbfs` container
 //! is likewise distinct (`.rvz` stays GameCube-only per the v0.10 note above).
+//!
+//! Disc images (v0.34 W343): `.cue`/`.chd`/`.bin` remain deliberately absent
+//! from this table (still ambiguous by extension) but are no longer entirely
+//! unscanned — [`super::disc_ident`] content-sniffs them for a positive PS1
+//! signature and the scanner (`core::sources::rom`) routes them through it
+//! before falling back to "unscanned" for anything not positively identified.
 
 /// Canonical system id for the Nintendo Entertainment System.
 pub const SYSTEM_NES: &str = "nes";
@@ -26,6 +32,11 @@ pub const SYSTEM_NES: &str = "nes";
 pub const SYSTEM_SNES: &str = "snes";
 /// Canonical system id for the Nintendo 64.
 pub const SYSTEM_N64: &str = "n64";
+/// Canonical system id for the Sony PlayStation. Re-exported from
+/// [`super::disc_ident`] (the module that owns PS1 disc-image sniffing) so
+/// there is exactly one `"ps1"` string literal in the crate; kept visible
+/// here too since this table's `.pbp` row needs it (W343).
+pub use super::disc_ident::SYSTEM_PS1;
 
 /// One scan-mappable system: its canonical key, the recommended default core,
 /// and the lowercased, dot-less ROM extensions that uniquely identify it.
@@ -56,7 +67,7 @@ const SYSTEMS: &[SystemDef] = &[
     SystemDef { system: "pcengine", default_core: "mednafen_pce", extensions: &["pce"] },
     SystemDef { system: "neogeo", default_core: "fbneo", extensions: &["neo"] },
     // Gen 5.
-    SystemDef { system: "ps1", default_core: "pcsx_rearmed", extensions: &["pbp"] },
+    SystemDef { system: SYSTEM_PS1, default_core: "pcsx_rearmed", extensions: &["pbp"] },
     SystemDef { system: "jaguar", default_core: "virtualjaguar", extensions: &["j64", "jag"] },
     // Gen 6.
     SystemDef { system: "dreamcast", default_core: "flycast", extensions: &["gdi", "cdi"] },
