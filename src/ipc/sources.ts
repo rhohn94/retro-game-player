@@ -51,6 +51,18 @@ export function scanItchSource(): Promise<SourceScanReport> {
   return invoke<SourceScanReport>("scan_itch_source");
 }
 
+/**
+ * Scan the local CrossOver installation for bottles and their installed
+ * Windows applications (bottle inventory + launcher-stub bundles, falling
+ * back to per-bottle desktop link records; no CrossOver process is launched
+ * or queried) and upsert each into the library. Returns a
+ * `{ discovered, added, updated }` summary. A machine without CrossOver
+ * installed yields `discovered: 0`, not an error (v0.33 W331).
+ */
+export function scanCrossoverSource(): Promise<SourceScanReport> {
+  return invoke<SourceScanReport>("scan_crossover_source");
+}
+
 /** A shortlisted-but-unconfirmed game (mirrors Rust `DiscoveredGameDto`). */
 export interface DiscoveredGame {
   name: string;

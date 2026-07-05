@@ -7,6 +7,34 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.33 — Bottles (2026-07-04)
+
+Windows games join the shelves. If you run CrossOver, your bottles' installed
+Windows apps now appear in the library and launch from the same detail page
+and TV couch flow as everything else — the first slice of the CrossOver
+integration.
+
+- **CrossOver detection & bottle scan.** One click in Settings → Game
+  sources finds your CrossOver install, reads each bottle, and adds its
+  installed Windows apps to the library (launcher-stub icons feed the
+  existing art pipeline). No CrossOver? A clean zero-count scan.
+- **Launch from the couch.** Windows titles start through CrossOver — via
+  their macOS launcher stub when one exists, or CrossOver's own `cxstart`
+  CLI when not — with play time tracked like any other external title.
+- **Honest boundary.** RGP never creates or modifies bottles or touches
+  Wine; CrossOver stays a user-installed prerequisite, exactly like
+  RetroArch. The guided "run a Windows game from an installer" flow is
+  planned for a future release.
+- **Fixed: release DMG builds** — broken since v0.26 by a temp-file bug in
+  the bundler; the release pipeline now assembles the DMG from a clean
+  staging folder (#45).
+- **Under the hood:** the source machinery gained an explicit
+  persisting-source tier (retro scanning is now first-class in the same
+  dispatch as every other source); database writes from background art
+  fetches now wait out contention instead of silently dropping; itch/GOG
+  scans no longer create unlaunchable rows from stray files or malformed
+  install paths.
+
 ## v0.32 — Sources Complete (2026-07-04)
 
 Horizon H1 finished: every game on the system is discoverable, with art.

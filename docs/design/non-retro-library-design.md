@@ -186,7 +186,8 @@ shape, retro is `source = "rom"`).
 
 ## Follow-ups
 
-- H2 CrossOver bottle enumeration/launch (builds on the descriptor model;
-  arrives as another `GameSource` + descriptor kind after W322).
+- H2 CrossOver bottle enumeration/launch — **scheduled for v0.33**; design
+  moved to [crossover-integration-design.md](crossover-integration-design.md)
+  (includes the W330 persisting-source trait reconciliation).
 - Metadata refresh on re-scan (`upsert_game_by_source` refreshes only a
   subset of fields) — revisit with the metadata-enrichment epic (#24).

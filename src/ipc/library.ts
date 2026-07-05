@@ -9,9 +9,10 @@ import { invoke } from "./invoke";
  * `docs/design/non-retro-library-design.md`). `"rom"` is the pre-v0.31
  * default; the others are non-retro library rows that launch externally via
  * a `launchDescriptor` rather than through a ROM + core. `"gog"`/`"itch"`
- * were added in v0.32 W320.
+ * were added in v0.32 W320; `"crossover"` was added in v0.33 W331 (see
+ * `docs/design/crossover-integration-design.md`).
  */
-export type GameSource = "rom" | "steam" | "app" | "manual" | "gog" | "itch";
+export type GameSource = "rom" | "steam" | "app" | "manual" | "gog" | "itch" | "crossover";
 
 /** A scanned/identified game row (mirrors Rust `GameDto`). */
 export interface Game {

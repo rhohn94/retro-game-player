@@ -176,12 +176,13 @@ fn bundle_path_matches(descriptor: &serde_json::Value, bundle_path: &str) -> boo
 }
 
 /// Build a `DiscoveredGame` from a parsed Galaxy manifest, or `None` if it is
-/// missing a required field (game id or name) — such a manifest is treated
-/// as unparseable rather than crashing the whole scan.
+/// missing a required field (game id or name), or names an empty/relative
+/// `installPath` — such a manifest is treated as unparseable rather than
+/// crashing the whole scan or producing an unlaunchable row (W334).
 fn discovered_game_from_manifest(m: &GalaxyManifest) -> Option<DiscoveredGame> {
     let game_id = m.game_id.as_ref()?.clone();
     let name = m.name.as_ref()?.clone();
-    let bundle_path = m.install_path.clone().unwrap_or_default();
+    let bundle_path = m.install_path.as_deref().filter(|p| is_launchable_path(p))?;
     Some(DiscoveredGame {
         name,
         source: GameSource::Gog,
@@ -190,12 +191,16 @@ fn discovered_game_from_manifest(m: &GalaxyManifest) -> Option<DiscoveredGame> {
             "kind": "app",
             "bundle_path": bundle_path,
         }),
-        art_hint: if bundle_path.is_empty() {
-            None
-        } else {
-            Some(bundle_path)
-        },
+        art_hint: Some(bundle_path.to_string()),
     })
+}
+
+/// Whether `path` is non-empty and absolute — the minimum bar for a launch
+/// path to ever resolve to a real, launchable install (W334: reject
+/// empty/relative `installPath` at parse time rather than producing an
+/// unlaunchable row).
+fn is_launchable_path(path: &str) -> bool {
+    !path.is_empty() && Path::new(path).is_absolute()
 }
 
 impl GameSourceScanner for GogScanner {
@@ -306,6 +311,36 @@ mod tests {
 
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].external_id.as_deref(), Some("620"));
+    }
+
+    #[test]
+    fn manifest_with_empty_install_path_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manifests = tmp.path().join("manifests");
+        let games_root = tmp.path().join("Games");
+        fs::create_dir_all(&manifests).unwrap();
+        fs::create_dir_all(&games_root).unwrap();
+        write_manifest(&manifests, "empty.json", "1", "Empty Path Game", "");
+
+        let scanner = GogScanner::new(&manifests, &games_root);
+        let games = scanner.scan().unwrap();
+
+        assert!(games.is_empty(), "an empty installPath must not produce an unlaunchable row");
+    }
+
+    #[test]
+    fn manifest_with_relative_install_path_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manifests = tmp.path().join("manifests");
+        let games_root = tmp.path().join("Games");
+        fs::create_dir_all(&manifests).unwrap();
+        fs::create_dir_all(&games_root).unwrap();
+        write_manifest(&manifests, "relative.json", "2", "Relative Path Game", "GOG Games/Relative.app");
+
+        let scanner = GogScanner::new(&manifests, &games_root);
+        let games = scanner.scan().unwrap();
+
+        assert!(games.is_empty(), "a relative installPath must not produce an unlaunchable row");
     }
 
     #[test]

@@ -5,6 +5,11 @@
 //! can name the existing path uniformly, but a row with no descriptor at
 //! all (the pre-v0.31 default) still resolves to the RetroArch path via
 //! [`ResolvedLaunch::for_game`] in `dispatch.rs`.
+//!
+//! v0.33 W332 adds [`LaunchDescriptor::Crossover`] for the stub-less
+//! CrossOver app shape `sources::crossover`'s scanner already emits (see
+//! `docs/design/crossover-integration-design.md` §Launch) — stub-backed
+//! CrossOver rows keep using the plain `App` variant unchanged.
 
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -43,6 +48,21 @@ pub enum LaunchDescriptor {
         /// Arguments passed to the program, in order.
         #[serde(default)]
         args: Vec<String>,
+    },
+    /// A stub-less CrossOver-installed Windows application (v0.33 W332, see
+    /// `docs/design/crossover-integration-design.md` §Launch): CrossOver has
+    /// no macOS launcher-stub bundle for this app (the `.cxmenu` fallback
+    /// path — `sources::crossover`'s scanner emits this shape only when a
+    /// stub is unavailable), so launching goes through CrossOver's own CLI
+    /// (`cxstart --bottle <bottle> <target>`) instead of `open -a`. Rows with
+    /// a stub instead use the ordinary `App` variant above and reuse its
+    /// `open -a` launch path unmodified.
+    Crossover {
+        /// The bottle id (`Bottles/<name>/` directory name) the app lives in.
+        bottle: String,
+        /// The Windows-side target `cxstart` should launch (a link-record
+        /// target path, verbatim from the `.cxmenu` fallback).
+        target: String,
     },
 }
 
@@ -133,6 +153,48 @@ mod tests {
     #[test]
     fn unknown_kind_is_an_internal_error() {
         let result = LaunchDescriptor::from_json(r#"{"kind":"emulator_x"}"#);
+        assert!(matches!(result, Err(AppError::Internal(_))));
+    }
+
+    #[test]
+    fn crossover_descriptor_round_trips_through_json() {
+        let d = LaunchDescriptor::Crossover {
+            bottle: "Steam".to_string(),
+            target: r"C:\Program Files\Old Game\oldgame.exe".to_string(),
+        };
+        let json = d.to_json().expect("serialize");
+        let parsed = LaunchDescriptor::from_json(&json).expect("parse");
+        assert_eq!(parsed, d);
+    }
+
+    #[test]
+    fn crossover_descriptor_matches_the_stubless_shape_w331_emits() {
+        // Locks the exact shape `sources::crossover`'s `.cxmenu` fallback
+        // path emits (`upsert_discovered_accepts_the_stubless_crossover_descriptor_shape`
+        // in `commands/sources.rs`), so W331's output and W332's parser never
+        // drift apart.
+        let parsed = LaunchDescriptor::from_json(
+            r#"{"kind":"crossover","bottle":"Legacy","target":"C:\\Program Files\\Old Game\\oldgame.exe"}"#,
+        )
+        .expect("parse");
+        assert_eq!(
+            parsed,
+            LaunchDescriptor::Crossover {
+                bottle: "Legacy".to_string(),
+                target: r"C:\Program Files\Old Game\oldgame.exe".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn crossover_descriptor_missing_target_is_an_internal_error() {
+        let result = LaunchDescriptor::from_json(r#"{"kind":"crossover","bottle":"Legacy"}"#);
+        assert!(matches!(result, Err(AppError::Internal(_))));
+    }
+
+    #[test]
+    fn crossover_descriptor_missing_bottle_is_an_internal_error() {
+        let result = LaunchDescriptor::from_json(r#"{"kind":"crossover","target":"C:\\x.exe"}"#);
         assert!(matches!(result, Err(AppError::Internal(_))));
     }
 }
