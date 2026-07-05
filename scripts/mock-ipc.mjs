@@ -210,6 +210,10 @@ export const MOCK_FIXTURES = {
   //     path is taken, matching a fresh install), and the session/input writes
   //     are void. ---
   get_native_play_enabled: false,
+  // W340 multi-system engine: PlaySwitch fetches the native capability map on
+  // mount; NES-installed matches a fresh install with the embedded-core-era
+  // default (native path available for NES, nothing else yet).
+  list_native_systems: [{ system: "nes", coreId: "fceumm", coreInstalled: true }],
   set_native_play_enabled: null,
   start_native_play: null,
   stop_native_play: null,
