@@ -516,6 +516,96 @@ instead of silently hosting the wrong core.
   eligibility cases (present-but-uninstalled, absent-from-table, empty-table
   degradation, and a second independently-eligible table row).
 
+### Software-render cohort (v0.34 "Engines" Pass 2, W342)
+
+W340 proved the table-driven machinery generalizes with one synthetic
+non-NES stub. W342 spends that proof on real systems: every **pure
+software-render** system in the curated catalog (`system_map.rs`) gets a
+`NATIVE_SYSTEMS` row, using the exact core id `system_map::cores_for(system)
+[0]` already recommends as that system's default (`
+every_cohort_row_is_a_recommended_default_core`, systems.rs) — the native
+host never resolves a different core than the one the Cores screen tells a
+user to install first. "Pure software-render" means: no
+`RETRO_ENVIRONMENT_SET_HW_RENDER` negotiation and no disk-control interface —
+both would need host machinery this pass doesn't add (see the two exclusions
+below).
+
+| System | Core | Pixel format(s) observed | Timing notes | On-device status |
+|---|---|---|---|---|
+| nes | fceumm | 0RGB1555 (default, unchanged) | ~60.0988 Hz NTSC | Verified v0.23 (real-device run recorded above) |
+| snes | snes9x | XRGB8888 (typical for snes9x) | ~60.098 Hz NTSC / ~50.007 Hz PAL-mode titles — both paced from the core's own `av_info` (W340), no per-system constant | **Human follow-up** — spot check not yet run on real hardware (v0.21 precedent: flagged, not blocking) |
+| genesis | genesis_plus_gx | RGB565 (typical for genesis_plus_gx) | ~59.92 Hz NTSC / ~49.70 Hz PAL — a genuinely dual-region cohort member, exercising the "timing comes from the core" contract for real | Not yet run on real hardware (tracked as backlog, not blocking — see Follow-ups) |
+| mastersystem | genesis_plus_gx | RGB565 | ~59.92 Hz NTSC / ~49.70 Hz PAL, shares the core with genesis | Not yet run on real hardware |
+| gb | gambatte | RGB565 (typical for gambatte) | ~59.73 Hz (fixed; no PAL variant) | Not yet run on real hardware |
+| gbc | gambatte | RGB565 | ~59.73 Hz (fixed; no PAL variant) | Not yet run on real hardware |
+| gba | mgba | XRGB8888 (typical for mgba) | ~59.73 Hz (fixed; no PAL variant) | **Human follow-up** — spot check not yet run on real hardware (v0.21 precedent) |
+| atari2600 | stella | 0RGB1555 (typical for stella) | ~60.0 Hz NTSC / ~50.0 Hz PAL — the cohort's other genuinely dual-region member | Not yet run on real hardware |
+| pcengine | mednafen_pce | RGB565 (typical for mednafen_pce) | ~59.826 Hz (fixed; no PAL variant — Japan/US-only console) | Not yet run on real hardware |
+
+Pixel-format and timing figures above are the cores' documented/typical
+negotiated values; the exact value each real `.dylib` reports at
+`RETRO_ENVIRONMENT_SET_PIXEL_FORMAT`/`retro_get_system_av_info` is whatever it
+negotiates at boot — the host never assumes a per-system constant for either
+(same "geometry and timing come from the core" contract W340 established).
+The genesis/mastersystem (genesis_plus_gx) and atari2600 (stella) rows are the
+cohort's two genuinely dual-region cores — a real PAL vs. NTSC ROM boots the
+core at a different `av_info().timing.fps`, and `FrameClock` (clock.rs) paces
+off whatever it reads, exactly like `native_runtime_hosts_a_non_nes_geometry_
+and_timing_stub`'s 50 Hz-vs-60.0988 Hz discrimination already proves for a
+synthetic stub — no new pacing code needed, only cohort-scale confidence that
+the existing contract holds.
+
+**Per-core verification (stub/fixture harness, `runtime.rs`):**
+
+- **Pixel format paths** — `native_runtime_boots_every_cohort_pixel_format`
+  parameterizes a single stub core (compiled three times, once per
+  `STUB_PIXEL_FORMAT` define) over all three libretro pixel formats
+  (0RGB1555, XRGB8888, RGB565) the cohort's cores negotiate, booting each
+  through the real `NativeRuntime::start` entrypoint and asserting the
+  delivered frame decodes to genuine (non-blank) RGBA8888 — one parameterized
+  test, not three copy-pasted ones.
+- **Mid-game geometry change** —
+  `native_runtime_delivers_a_mid_game_geometry_change` rides the same stub
+  core (a real cohort behavior: e.g. a PC Engine title switching between
+  256- and 320-pixel-wide modes) through a live renegotiation from 4x4 to 8x8
+  partway through the run, proving `callbacks.rs`'s
+  `RETRO_ENVIRONMENT_SET_GEOMETRY` arm and `frame.rs`'s per-frame resize (both
+  already unit-tested in isolation) also compose correctly end-to-end for a
+  cohort-shaped core — not just NES's `STUB_ALT_GEOMETRY_CORE_C` sibling,
+  which never changes geometry mid-run.
+- **PAL-ish vs. NTSC timing** — already covered at the pacing-mechanism level
+  by W340's `native_runtime_hosts_a_non_nes_geometry_and_timing_stub` (a
+  synthetic 50 fps vs. NES's ~60.0988 fps discrimination test); the table
+  above records which cohort systems are genuinely dual-region so a future
+  on-device PAL-ROM spot check knows where to look.
+- **Table membership + recommended-default alignment** —
+  `the_software_render_cohort_and_n64_are_enabled_alongside_nes` and
+  `every_cohort_row_is_a_recommended_default_core` (systems.rs) are the
+  acceptance-mandated "each cohort system boots a ROM through the native host
+  in the stub/fixture test harness" floor: every row resolves through the
+  same `resolve_native_core_path`/`CoresRepo` path NES already uses.
+
+**Explicitly excluded from this pass** (not a `NATIVE_SYSTEMS` row):
+
+- **ps1** — disc-image (not cartridge-ROM) identification is W343/W344's
+  scope (`library-identification-design.md`); native PS1 hosting needs that
+  scanning/mapping work landed first.
+- **n64** — every viable N64 libretro core (`mupen64plus_next`,
+  `parallel_n64`) requires `RETRO_ENVIRONMENT_SET_HW_RENDER` (an OpenGL/Metal
+  framebuffer target, not the software `retro_video_refresh` buffer this host
+  reads for the cohort) — out of scope for W342; landed by W345's HW-render
+  module (see §HW-render subsystem + N64 below), which appends the `n64` row
+  last.
+
+**On-device spot checks (human follow-up, v0.21 precedent):** SNES and GBA —
+the two systems called out in this work item's acceptance criteria — are
+recorded above as not yet run on real hardware, matching the v0.21 "Bedrock"
+precedent (`native_play_enabled` shipped dark, then got its real-device
+verification pass in v0.23 once hardware/ROMs were available — see
+"Verification record" above). This does not block v0.34: the stub/fixture
+harness above is the acceptance floor, same as it was for NES's own W340
+generalization.
+
 ## HW-render subsystem + N64 (v0.34 "Engines", W345)
 
 Every system through W340/W341/W344 renders in **software**: the core writes
