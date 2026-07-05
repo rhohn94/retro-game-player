@@ -206,7 +206,7 @@ consumed by later items (append-only rows).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
-| `w340-native-host-generalization` (W340) | ☐ | ☐ | ☐ | ☐ |
+| `w340-native-host-generalization-v034p1-00` (W340) | ☑ | ☑ | ☑ | ☑ |
 | `w341-handheld-wii-catalog-v034p1-01` (W341) | ☑ | ☑ | ☑ | ☑ |
 | `w347-v033-riders` (W347) | n/a | ☐ | ☐ | ☐ |
 
@@ -240,3 +240,19 @@ consumed by later items (append-only rows).
   transitively via `inPageSystem`).
 - Reviewer (W341, cosmetic): `ejs_cores.rs` license string "GPLv2+" breaks
   the SPDX-ish style — use "GPL-2.0-or-later".
+- Reviewer (W340, blocking — **fixed on branch, a0e94a4**): the stub-core
+  pacing test was vacuous (wall-clock assertion included the sleep);
+  replaced with a frame-sequence tick-delta check that discriminates 50 fps
+  from NES's 60.0988 fps.
+- Reviewer (W340, non-blocking): `PlaySwitch` now blanks every system (not
+  just NES) until `list_native_systems` answers — small universal
+  mount-latency regression; consider optimistic render for EJS-only systems.
+- Reviewer (W340, non-blocking): `list_native_systems_at` test helper
+  duplicates the command body — extract a plain `fn(&Db)` the
+  `#[tauri::command]` delegates to.
+- Reviewer (W340, non-blocking): `GeometryChanged.aspect_ratio` is logged
+  but not propagated — a core changing aspect without changing pixel
+  dimensions renders wrong; **must be addressed by W344/W345** (PS1/N64 are
+  exactly where this happens).
+- Reviewer (W340, cosmetic): `start_native_play` double table lookup
+  (`native_support_for` then `resolve_native_core_path` repeats it).
