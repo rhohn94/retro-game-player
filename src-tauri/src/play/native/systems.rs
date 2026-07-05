@@ -31,18 +31,65 @@ pub struct NativeSystemSupport {
     pub core_id: &'static str,
 }
 
-/// The native-hostable system table. v0.34 "Engines" (W340) ships exactly the
-/// one row v0.21 "Bedrock" already proved out (NES via `fceumm`) — the
+/// The native-hostable system table. v0.34 "Engines" (W340) shipped the one
+/// row v0.21 "Bedrock" already proved out (NES via `fceumm`) — the
 /// **acceptance-mandated regression floor** ("NES behaves exactly as
 /// today") — while making the machinery general enough for later items to
-/// append rows without touching it. Order is insertion order; lookups are
-/// linear over this short, curated list (never more than a handful of
+/// append rows without touching it. W342 appends the software-render cohort:
+/// SNES, Genesis, Master System, GB/GBC, GBA, Atari 2600, and PC Engine — all
+/// pure software renderers (no `RETRO_ENVIRONMENT_SET_HW_RENDER`, no disk
+/// control), so each is just a new row here, never a change to
+/// `host.rs`/`runtime.rs`/`callbacks.rs`. Order is insertion order; lookups
+/// are linear over this short, curated list (never more than a handful of
 /// systems), matching the existing curated-catalog convention
 /// (`core::cores::install`).
-pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[NativeSystemSupport {
-    system: "nes",
-    core_id: "fceumm",
-}];
+///
+/// Each `core_id` is the same **recommended-default** core
+/// `core::cores::system_map::cores_for(system)[0]` already lists for that
+/// system (`every_native_row_is_a_recommended_default_core` guards this) —
+/// the native host never resolves a different core than the one the Cores
+/// screen recommends installing first.
+pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[
+    NativeSystemSupport {
+        system: "nes",
+        core_id: "fceumm",
+    },
+    // W342 software-render cohort (v0.34 "Engines" Pass 2). PS1 (disc-image,
+    // W344) and N64 (hardware-render, W345) are explicitly NOT here — see
+    // native-emulation-design.md's Multi-system engine table for why.
+    NativeSystemSupport {
+        system: "snes",
+        core_id: "snes9x",
+    },
+    NativeSystemSupport {
+        system: "genesis",
+        core_id: "genesis_plus_gx",
+    },
+    NativeSystemSupport {
+        system: "mastersystem",
+        core_id: "genesis_plus_gx",
+    },
+    NativeSystemSupport {
+        system: "gb",
+        core_id: "gambatte",
+    },
+    NativeSystemSupport {
+        system: "gbc",
+        core_id: "gambatte",
+    },
+    NativeSystemSupport {
+        system: "gba",
+        core_id: "mgba",
+    },
+    NativeSystemSupport {
+        system: "atari2600",
+        core_id: "stella",
+    },
+    NativeSystemSupport {
+        system: "pcengine",
+        core_id: "mednafen_pce",
+    },
+];
 
 /// Backward-compatible aliases for the pre-W340 single-system constants —
 /// still meaningful today (NES/`fceumm` is still the only shipped row) and
@@ -204,5 +251,51 @@ mod tests {
                 row.core_id
             );
         }
+    }
+
+    /// W342: every cohort row's core must be the system's **recommended
+    /// default** (`system_map::cores_for(system)[0]`) — the native host never
+    /// hosts a different core than the one the Cores screen recommends
+    /// installing first for that system. NES is the one pre-existing
+    /// exception (`fceumm`, not `system_map`'s recommended `mesen`) — a v0.21
+    /// "Bedrock" decision predating this table (see the module doc), left
+    /// untouched by this pass, so it's excluded from this specific check.
+    #[test]
+    fn every_cohort_row_is_a_recommended_default_core() {
+        use crate::core::cores::system_map;
+        for row in NATIVE_SYSTEMS.iter().filter(|r| r.system != "nes") {
+            let cores = system_map::cores_for(row.system)
+                .unwrap_or_else(|_| panic!("{} missing from system_map", row.system));
+            assert_eq!(
+                cores[0], row.core_id,
+                "{}'s native row should use the recommended default core",
+                row.system
+            );
+        }
+    }
+
+    /// W342 acceptance: the software-render cohort (SNES, Genesis, Master
+    /// System, GB/GBC, GBA, Atari 2600, PC Engine) is enabled alongside NES —
+    /// nine rows total. PS1 (disc-image identification, W343/W344) and N64
+    /// (hardware-render, W345) are deliberately excluded this pass.
+    #[test]
+    fn the_software_render_cohort_is_enabled_alongside_nes() {
+        assert_eq!(NATIVE_SYSTEMS.len(), 9);
+        for system in [
+            "nes",
+            "snes",
+            "genesis",
+            "mastersystem",
+            "gb",
+            "gbc",
+            "gba",
+            "atari2600",
+            "pcengine",
+        ] {
+            assert!(is_native_capable(system), "{system} should be native-capable");
+        }
+        // Explicitly out of scope this pass.
+        assert!(!is_native_capable("ps1"));
+        assert!(!is_native_capable("n64"));
     }
 }
