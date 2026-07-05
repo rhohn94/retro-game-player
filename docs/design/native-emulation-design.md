@@ -704,20 +704,27 @@ proves the path end-to-end at a small synthetic size, and the on-device N64
 run is where the real-resolution throughput is confirmed in practice (see
 Acceptance below).
 
-**`bottom_left_origin`.** OpenGL's coordinate convention makes
-`glReadPixels` always return rows bottom-to-top (row 0 = the image's bottom),
-which is the *opposite* of every software-rendered frame in this app (and of
-`ImageData`/`putImageData`, which expect top-to-bottom). A core that leaves
-`bottom_left_origin` at its default `false` wants Harmony to present
-top-left-origin output — exactly what every existing consumer already
-assumes — so `read_frame_into` flips the rows back before handing the buffer
-off; a core that sets it `true` wants its native (bottom-left) order
-preserved, so the flip is skipped. This is exactly the class of bug the
-v0.29.1 flip regression (a row-order mistake in an unrelated, software-only
-code path) warns about: `flip_rows_in_place` is a small, pure, span-swapping
-function with unit tests for the even-row, odd-row (untouched middle row),
-single-row, and zero-size cases — verified in isolation rather than only by
-eyeballing an on-device screenshot.
+**`bottom_left_origin`.** `glReadPixels(0, 0, …)` fills its output starting
+at framebuffer y=0 — GL's **bottom** framebuffer row — so the readback buffer
+is always framebuffer-bottom-first; whether that is the *image's* top or
+bottom depends on which way up the core drew. A core that sets
+`bottom_left_origin = true` (mupen64plus_next and most GL cores) draws with
+GL's native bottom-left convention — the image's bottom row at framebuffer
+y=0 — so its readback comes out image-bottom-first and `read_frame_into`
+**flips** the rows into top-down order; a core that leaves it `false` drew
+the image's top row at y=0, so the readback is already top-down and no flip
+is applied. Every downstream consumer assumes a top-down buffer: the shared
+`Rgba8Frame` contract (all software cores emit top-down rows),
+`NativePlayer`'s `putImageData` (`ImageData` is top-down by definition), and
+`crtWebglRenderer.ts` (whose `UNPACK_FLIP_Y_WEBGL = true` upload expects a
+top-down source). This is exactly the class of bug the v0.29.1 flip
+regression (a row-order mistake in an unrelated, software-only code path)
+warns about: `flip_rows_in_place` is a small, pure, span-swapping function
+with unit tests for the even-row, odd-row (untouched middle row), single-row,
+and zero-size cases, and the end-to-end HW-render stub test draws an
+asymmetric top/bottom banding pattern and asserts the delivered row order for
+**both** `bottom_left_origin` values — verified rather than only eyeballed on
+an on-device screenshot.
 
 ### Lifecycle: `context_reset`/`context_destroy` per the libretro contract
 

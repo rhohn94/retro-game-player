@@ -312,20 +312,35 @@ impl HwRenderContext {
     /// `width * height * 4` and reused across calls (steady-state zero
     /// allocation, matching the software path's `to_rgba8_into` discipline).
     ///
-    /// Respects `bottom_left_origin`: OpenGL's `glReadPixels` always returns
-    /// rows bottom-to-top (row 0 = the bottom of the image). A core that
-    /// declared `bottom_left_origin = true` (i.e. its rendering already
-    /// matches GL's native row order and expects Harmony to present it
-    /// as-is) gets the raw bottom-to-top rows re-flipped
-    /// video-refresh-style; a core that left it `false` (the common
-    /// default — it wants top-left origin, matching every software-rendered
-    /// frame in this app) gets the rows flipped back to top-to-bottom here,
-    /// so the existing frame pipe (which has always assumed top-left origin
-    /// pixel data) needs no changes downstream. This is the exact flip this
-    /// module must get right — the v0.29.1 regression this design doc's
-    /// §HW-render section calls out was a row-order bug in an unrelated
-    /// (software) path, and the fix here is covered by
-    /// [`flip_rows_in_place`]'s unit tests rather than left to inspection.
+    /// Respects `bottom_left_origin`, reasoning through the full chain:
+    ///
+    /// 1. `glReadPixels(0, 0, w, h, ..)` fills `out` starting at framebuffer
+    ///    coordinate y=0 — which GL defines as the framebuffer's **bottom**
+    ///    row. So `out`'s first row is always the *framebuffer-bottom* row;
+    ///    whether that is the *image's* top or bottom depends entirely on
+    ///    which way up the core drew.
+    /// 2. A core that declared `bottom_left_origin = true` (mupen64plus_next
+    ///    and most GL cores) draws with GL's native bottom-left convention:
+    ///    the image's bottom row lands at framebuffer y=0. Readback therefore
+    ///    yields the image bottom-first (vertically inverted for any top-down
+    ///    consumer) — the rows **must be flipped** here.
+    /// 3. A core that left it `false` drew top-left-origin: the image's top
+    ///    row is at framebuffer y=0, so the readback is already in top-down
+    ///    order and **no flip** is applied.
+    /// 4. Every downstream consumer assumes a top-down buffer: the shared
+    ///    frame pipe's `Rgba8Frame` contract (all software cores produce
+    ///    top-down rows), `NativePlayer`'s `putImageData` (ImageData is
+    ///    top-down by definition), and `crtWebglRenderer.ts` (which sets
+    ///    `UNPACK_FLIP_Y_WEBGL = true`, i.e. it expects a top-down source it
+    ///    flips into GL texture space itself).
+    ///
+    /// Net: flip iff `bottom_left_origin == true`. This is exactly the class
+    /// of bug the v0.29.1 flip regression (a row-order mistake in an
+    /// unrelated, software-only path) warns about, so beyond
+    /// [`flip_rows_in_place`]'s pure unit tests the end-to-end HW-render
+    /// stub test draws an asymmetric top/bottom banding pattern and asserts
+    /// row 0 of the delivered frame for **both** `bottom_left_origin` values
+    /// (`runtime.rs::native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`).
     pub fn read_frame_into(&self, out: &mut Vec<u8>) {
         let fbo = self.fbo_lock();
         let (width, height) = (fbo.width, fbo.height);
@@ -344,11 +359,13 @@ impl HwRenderContext {
                 out.as_mut_ptr() as *mut c_void,
             );
         }
-        // glReadPixels always delivers bottom-to-top rows. Harmony's frame
-        // pipe (and every software-rendered core before N64) is top-to-bottom
-        // — flip unless the core explicitly declared it wants the raw,
-        // unflipped (bottom-left-origin) order.
-        if !self.request.bottom_left_origin {
+        // glReadPixels delivered framebuffer-bottom-first rows; a
+        // bottom-left-origin core drew the image bottom at framebuffer y=0,
+        // so its readback is image-bottom-first and must be flipped to the
+        // top-down order the frame pipe assumes. A top-left-origin core's
+        // readback is already top-down. (See the method doc for the full
+        // chain.)
+        if self.request.bottom_left_origin {
             flip_rows_in_place(out, width as usize, height as usize, 4);
         }
     }
