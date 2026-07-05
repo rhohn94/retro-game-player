@@ -7,6 +7,33 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.32 — Sources Complete (2026-07-04)
+
+Horizon H1 finished: every game on the system is discoverable, with art.
+GOG and itch installs join Steam, apps, and manual entries on the shelves,
+non-Steam titles finally get real art, and under the hood retro ROMs now
+flow through the same source machinery as everything else.
+
+- **GOG scanner.** Reads GOG Galaxy's local install records (no network,
+  no login) and adds installed GOG titles to the library. Missing Galaxy?
+  A clean zero-count scan, never an error.
+- **itch scanner.** Discovers games installed through the itch app from its
+  local receipts, falling back to an install-directory scan. Same clean
+  zero-count behaviour without itch.
+- **SteamGridDB art for everything else.** Add your SteamGridDB API key in
+  Settings → Game sources and apps, manual entries, GOG, and itch titles
+  get proper grid art on shelves and TV. Without a key nothing changes —
+  the feature is fully inert. Art resolution follows a deterministic chain:
+  Steam CDN → SteamGridDB → app-bundle icon → placeholder.
+- **Scans no longer wait on art.** Art acquisition happens on a background
+  thread after a scan returns its counts — a library full of titles with an
+  unreachable CDN no longer holds the scan hostage; art appears as it lands.
+- **Under the hood:** the retro ROM scanner migrated onto the same
+  `GameSource` machinery as every other source (with regression-proven
+  parity); the migration runner's foreign-key re-enable is now guaranteed
+  on every exit path; bundle-icon conversion failures are logged instead of
+  silent.
+
 ## v0.31 — Frontier (2026-07-04)
 
 Non-retro games join the library — the first slice of the universal-frontend
