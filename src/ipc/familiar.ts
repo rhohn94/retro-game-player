@@ -5,7 +5,6 @@
 // AI affordances. Master contract: architecture-design.md §2.8.
 
 import { invoke } from "./invoke";
-import type { GameSource } from "./library";
 
 /**
  * Result of the two-stage Familiar probe. `present` is whether the service
@@ -20,36 +19,6 @@ export interface FamiliarProbe {
   capabilities: string[];
 }
 
-// Local structural shape of a game row as returned by `enrichGame`. The
-// canonical `Game` DTO is owned by the library domain (W6/W13, `library.ts`);
-// this minimal mirror is intentionally NOT exported so the `commands.ts` barrel
-// surfaces exactly one `Game` once that module lands.
-interface Game {
-  id: number;
-  // Nullable for non-ROM sources (v0.31 W310) — mirrors the canonical `Game`
-  // DTO in `library.ts`.
-  path: string | null;
-  system: string | null;
-  crc32: string | null;
-  md5: string | null;
-  cleanName: string;
-  datMatched: boolean;
-  coreHint: string | null;
-  artPath: string | null;
-  sizeBytes: number;
-  addedAt: number;
-  /** Game source: `"rom"` (default) or a non-retro source (v0.31 W310).
-   * Mirrors the canonical `Game` DTO in `library.ts`. */
-  source: GameSource;
-  /** JSON launch descriptor for non-`"rom"` sources; `null` for `"rom"` rows
-   * (v0.31 W310). Mirrors the canonical `Game` DTO in `library.ts`. */
-  launchDescriptor: string | null;
-  /** Source-scoped external identifier (e.g. a Steam appid); `null` for
-   * `"rom"` rows (v0.31 W310). Mirrors the canonical `Game` DTO in
-   * `library.ts`. */
-  externalId: string | null;
-}
-
 /**
  * Probe the optional Familiar service. Resolves to a `FamiliarProbe` describing
  * present/authorized/capabilities; never rejects on an absent/unauthorized/slow
@@ -57,15 +26,6 @@ interface Game {
  */
 export function probeFamiliar(): Promise<FamiliarProbe> {
   return invoke<FamiliarProbe>("probe_familiar");
-}
-
-/**
- * Enrich a game's metadata (fuzzy-title / ambiguous-dump disambiguation) via the
- * Familiar. When the Familiar is absent/unauthorized, resolves to the original
- * game unchanged (silent degrade).
- */
-export function enrichGame(gameId: number): Promise<Game> {
-  return invoke<Game>("enrich_game", { gameId });
 }
 
 /**
