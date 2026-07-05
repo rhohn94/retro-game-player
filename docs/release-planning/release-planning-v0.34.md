@@ -214,7 +214,7 @@ consumed by later items (append-only rows).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
-| `w342-software-native-cohort` (W342) | ☐ | ☐ | ☐ | ☐ |
+| `w342-software-native-cohort-v034p2-00` (W342) | ☑ | ☑ | ☑ | ☑ |
 | `w343-disc-image-identification` (W343) | ☐ | ☐ | ☐ | ☐ |
 | `w345-hw-render-n64` (W345) | ☐ | ☐ | ☐ | ☐ |
 
@@ -272,3 +272,14 @@ consumed by later items (append-only rows).
   built-in `bundle_dmg.sh` step fails in the sandboxed session (Finder
   access) — release DMG goes through `recipe package`
   (`release_sign_notarize.py`), the v0.33 #45 pipeline.
+- Reviewer (W342, non-blocking): stale test name in systems.rs module doc
+  (`every_native_row…` vs actual `every_cohort_row…`).
+- Reviewer (W342, non-blocking): cohort pixel-format boot test has a flake
+  window — stub renegotiates 4x4→8x8 at tick 3 and `latest_frame()` could
+  observe either; accept both sizes to deflake if CI flakes.
+- Reviewer (W342, non-blocking): pixel-format attributions disagree between
+  the design-doc table and the stub's doc comment — align the two.
+- Reviewer (W342, backlog): native host pins the recommended default core,
+  ignoring the user's *active* core choice (bsnes-active user still needs
+  snes9x for native play) — pre-existing v0.21 posture scaled to 9 systems;
+  candidate UX note for the Cores screen.
