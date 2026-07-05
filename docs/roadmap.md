@@ -236,6 +236,28 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
+## v0.35 — Player Two (in flight)
+
+**Theme:** Two-controller multiplayer for NES and SNES (user directive,
+2026-07-05) — a second connected controller is picked up automatically by
+the emulators, no configuration required.
+
+- **Per-port native input** — `set_native_input` gains a port; the libretro
+  `input_state` callback honors the polled port; joypads announced on ports
+  0–1 (W350).
+- **Two-controller capture + lifecycle** — NativePlayer polls all pads,
+  stable automatic pad→port assignment, disconnect release/reclaim, P1/P2
+  indicator (W351).
+- **EJS fallback two-player** — verify/config EmulatorJS player-2 auto
+  assignment on the loopback host page (W353).
+
+**Non-goals:** >2 players, manual port-swap UI, per-player rebinding,
+N64/PS1 multiplayer claims, second-pad menu navigation.
+
+Plan: [`release-planning-v0.35.md`](release-planning/release-planning-v0.35.md).
+
+---
+
 ## v0.34 — Engines (implementation complete — pending release)
 
 **Theme:** Every popular platform plays on the native emulation engine
