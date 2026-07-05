@@ -81,12 +81,18 @@ validate field names against real fixtures checked into the test tree):
    fallback can't classify are skipped per-entry (never fail the scan).
 
 Row shape: `source = "crossover"` (migration **014** extends the CHECK
-exactly like 013 did — 12-step rebuild, `requires_fk_off`),
-`external_id = "<bottle>/<app-key>"` (stable across re-scans; dedup on
-`(source, external_id)`), `art_hint` = launcher-stub path when available.
-Steam-owned/app-source-owned bundles are not double-imported (launcher
-stubs live under `~/Applications/CrossOver/` only, so overlap is already
-structurally excluded; assert it in tests anyway).
+exactly like 013 did — 12-step rebuild, `requires_fk_off`), `art_hint` =
+launcher-stub path when available. `external_id` prefers the launcher stub's
+`CFBundleIdentifier` when present (v0.33 reviewer rider, W347 — a stable
+macOS-assigned id that survives a display-name rename), falling back to
+`"<bottle>/<app-key>"` when absent (the only option for the `.cxmenu`
+fallback path, which has no bundle to read a plist from); dedup is always on
+`(source, external_id)`. No DB migration accompanies the bundle-id
+preference — a re-scan simply mints the new stable id and the existing
+dedup handles the one-time transition per row. Steam-owned/app-source-owned
+bundles are not double-imported (launcher stubs live under
+`~/Applications/CrossOver/` only, so overlap is already structurally
+excluded; assert it in tests anyway).
 
 ### Launch (W332)
 
@@ -104,9 +110,13 @@ argv elements, never a shell string):
 - **Fallback path (no stub):** invoke CrossOver's bundled CLI
   (`CrossOver.app/Contents/SharedSupport/CrossOver/bin/cxstart` —
   implementer verifies the exact binary against a real install)
-  `--bottle <bottle> <target>` as separate argv elements.
-- Launch failure surfaces the existing `AppError::Io` path (row stays,
-  same posture as a moved GOG bundle).
+  `--bottle <bottle> -- <target>` as separate argv elements. The `--`
+  argument-terminator precedes `target` as defense-in-depth (v0.33 reviewer
+  rider, W347), so a target value beginning with `-` cannot be misread by
+  `cxstart` as one of its own flags.
+- A missing `CrossOver.app` surfaces as `AppError::Dependency` (row stays,
+  same posture as a moved GOG bundle); this is a missing-prerequisite
+  condition, not an I/O failure, so it does not go through `AppError::Io`.
 - **Play sessions:** existing app-focus observation. Caveat to document:
   Wine processes may present as the stub app or as CrossOver itself;
   best-effort accuracy is accepted (same tradeoff recorded for W311).
@@ -126,9 +136,16 @@ Game-sources pane gains the crossover scan row via W331.
       fallback); migration 014 CHECK-extends idempotently on a v0.32 DB;
       re-scan duplicates none; no CrossOver ⇒ zero-count clean scan.
 - [x] W332: stub rows launch via `open -a`; stubless rows build a correct
-      `cxstart --bottle` argv (unit-tested, no shell strings); session
-      recorded on launch; detail/TV copy correct; full suite +
+      `cxstart --bottle -- <target>` argv (unit-tested, no shell strings);
+      session recorded on launch; detail/TV copy correct; full suite +
       `recipe.py smoke` green.
+- [x] W347 (v0.34, three reviewer riders on this doc/W332's implementation):
+      `cxstart` argv gains a `--` terminator before `target`
+      (unit-tested); doc comments reconciled to the actual
+      `core::launch::external` module and `AppError::Dependency` (not `Io`);
+      `external_id` prefers the launcher stub's `CFBundleIdentifier` when
+      present, falling back to `<bottle>/<app-key>` (unit-tested,
+      re-scan-stable, no DB migration).
 - [ ] On-device verification with a real CrossOver install is a **human
       follow-up** (none available in this environment) — file it, don't
       claim it.
