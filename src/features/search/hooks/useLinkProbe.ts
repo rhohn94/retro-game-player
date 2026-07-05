@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { probeLinks } from "../../../ipc/search";
 import type { ProviderResults, LinkState } from "../../../ipc/search";
 import { buildStatusMap } from "../linkStatus";
+import { swallow } from "../../../ipc/swallow";
 
 /** The most we probe for liveness in one pass (mirrors the backend cap). */
 const MAX_PROBE_URLS = 64;
@@ -42,8 +43,9 @@ export function useLinkProbe(
       .then((statuses) => {
         if (!cancelled) setStatusMap(buildStatusMap(statuses));
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!cancelled) setStatusMap(new Map());
+        swallow(err, "useLinkProbe.probeLinks");
       })
       .finally(() => {
         if (!cancelled) setProbing(false);

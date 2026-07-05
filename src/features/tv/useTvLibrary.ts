@@ -10,6 +10,7 @@ import { listRecentlyPlayed, listFavorites } from "../../ipc/play-stats";
 import type { Game } from "../../ipc/library";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { buildRails, type TvRailModel } from "./rails";
+import { swallow } from "../../ipc/swallow";
 
 /** How many recently-played / favorite rows to request from the backend. The
  * rails are art shelves, not full lists — a generous cap keeps a long history
@@ -44,9 +45,18 @@ export function useTvLibrary(): TvLibrary {
       // Each slice resolves to [] on failure so one bad call can't blank the
       // home; games is awaited as the spine.
       const [games, recentlyPlayed, favorites] = await Promise.all([
-        listGames().catch(() => [] as Game[]),
-        listRecentlyPlayed(RAIL_QUERY_LIMIT).catch(() => [] as Game[]),
-        listFavorites(RAIL_QUERY_LIMIT).catch(() => [] as Game[]),
+        listGames().catch((err: unknown) => {
+          swallow(err, "useTvLibrary.listGames");
+          return [] as Game[];
+        }),
+        listRecentlyPlayed(RAIL_QUERY_LIMIT).catch((err: unknown) => {
+          swallow(err, "useTvLibrary.listRecentlyPlayed");
+          return [] as Game[];
+        }),
+        listFavorites(RAIL_QUERY_LIMIT).catch((err: unknown) => {
+          swallow(err, "useTvLibrary.listFavorites");
+          return [] as Game[];
+        }),
       ]);
       if (isCancelled()) return;
       setRails(buildRails({ games, recentlyPlayed, favorites }));

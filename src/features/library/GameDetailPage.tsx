@@ -34,6 +34,7 @@ import { isNonRetro, launchesViaLabel, sourceBadgeLabel } from "./sourceBadge";
 import { useBoxart } from "./useBoxart";
 import { PlaySwitch } from "../play";
 import { useAttractPresentation } from "../play/useAttractPresentation";
+import { swallow } from "../../ipc/swallow";
 
 /** Human-readable byte size. */
 function formatSize(bytes: number): string {
@@ -109,10 +110,11 @@ export function GameDetailPage() {
     if (!game) return;
     const next = !game.favorite;
     setGame({ ...game, favorite: next });
-    void setFavorite(game.id, next).catch(() => {
+    void setFavorite(game.id, next).catch((err: unknown) => {
       setGame((current) =>
         current && current.id === game.id ? { ...current, favorite: !next } : current,
       );
+      swallow(err, "GameDetailPage.toggleFavorite");
     });
   }, [game]);
 
@@ -122,7 +124,7 @@ export function GameDetailPage() {
       .then((path) => {
         if (path) setArtOverride(artUrl(path));
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => swallow(err, "GameDetailPage.getArt"));
   }, [game]);
 
   // Auto-download cover art + a Wikipedia description, then refresh in place.
@@ -134,7 +136,7 @@ export function GameDetailPage() {
         setGame(updated);
         if (updated.artPath) setArtOverride(artUrl(updated.artPath));
       })
-      .catch(() => undefined)
+      .catch((err: unknown) => swallow(err, "GameDetailPage.refreshMetadata"))
       .finally(() => setEnriching(false));
   }, [game, enriching]);
 
@@ -271,7 +273,11 @@ export function GameDetailPage() {
                   <button
                     type="button"
                     className="rgp-detail__wiki"
-                    onClick={() => void openUrl(game.wikipediaUrl!).catch(() => undefined)}
+                    onClick={() =>
+                      void openUrl(game.wikipediaUrl!).catch((err: unknown) =>
+                        swallow(err, "GameDetailPage.openWikipediaUrl", "info"),
+                      )
+                    }
                   >
                     Read more on Wikipedia ↗
                   </button>

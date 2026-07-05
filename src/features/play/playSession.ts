@@ -11,6 +11,7 @@
 
 import { useEffect, useRef } from "react";
 import { recordPlayEnd, recordPlayStart } from "../../ipc/play-stats";
+import { swallow } from "../../ipc/swallow";
 
 /** Tracks one play session's lifecycle so it starts and ends exactly once. */
 export class PlaySessionTracker {
@@ -25,7 +26,7 @@ export class PlaySessionTracker {
     // immediately instead of "reviving" a session the caller already
     // considers over.
     if (this.ending) {
-      void recordPlayEnd(id).catch(() => undefined);
+      void recordPlayEnd(id).catch((err: unknown) => swallow(err, "PlaySessionTracker.start.lateEnd"));
       return;
     }
     this.sessionId = id;
@@ -37,7 +38,7 @@ export class PlaySessionTracker {
     const id = this.sessionId;
     this.sessionId = null;
     if (id !== null) {
-      void recordPlayEnd(id).catch(() => undefined);
+      void recordPlayEnd(id).catch((err: unknown) => swallow(err, "PlaySessionTracker.end"));
     }
   }
 }

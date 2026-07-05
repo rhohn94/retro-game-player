@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Game } from "../../ipc/library";
 import { useFocusable } from "../controller";
 import { launchesViaLabel } from "../library/sourceBadge";
+import { swallow } from "../../ipc/swallow";
 import "./tv-external-surface.css";
 
 /** The external launch's progression, surfaced honestly on the panel. */
@@ -47,7 +48,10 @@ export function TvExternalSurface({ game, onReturn, launch }: TvExternalSurfaceP
     let cancelled = false;
     launch(game.id, true)
       .then(() => !cancelled && setLaunchState("running"))
-      .catch(() => !cancelled && setLaunchState("failed"));
+      .catch((err: unknown) => {
+        if (!cancelled) setLaunchState("failed");
+        swallow(err, "TvExternalSurface.launch");
+      });
     return () => {
       cancelled = true;
     };

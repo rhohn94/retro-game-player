@@ -37,6 +37,7 @@ import { useSearchProviders } from "./hooks/useSearchProviders";
 import { useSearchExecution } from "./hooks/useSearchExecution";
 import { useLinkProbe } from "./hooks/useLinkProbe";
 import { useResultSelection } from "./hooks/useResultSelection";
+import { swallow } from "../../ipc/swallow";
 
 /** How results are grouped in the panel: by provider (default) or merged into
  *  one game-first row per title ("available from N providers"). */
@@ -220,7 +221,10 @@ function useConsoleCatalog(): ConsoleInfo[] {
   useEffect(() => {
     listConsoles()
       .then(setConsoles)
-      .catch(() => setConsoles([]));
+      .catch((err: unknown) => {
+        setConsoles([]);
+        swallow(err, "useConsoleCatalog.load");
+      });
   }, []);
   return consoles;
 }

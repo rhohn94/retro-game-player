@@ -12,6 +12,7 @@ import {
 } from "../../../ipc/search";
 import type { SearchProvider } from "../../../ipc/search";
 import type { ProviderFormData } from "../ProviderDialog";
+import { swallow } from "../../../ipc/swallow";
 
 /** Add/edit-provider dialog visibility + which provider (if any) is being edited. */
 export interface DialogState {
@@ -47,7 +48,10 @@ export function useSearchProviders(): UseSearchProvidersResult {
   useEffect(() => {
     listProviders()
       .then(setProviders)
-      .catch(() => setProviders([]));
+      .catch((err: unknown) => {
+        setProviders([]);
+        swallow(err, "useSearchProviders.load");
+      });
   }, []);
 
   async function toggleProvider(id: number) {
