@@ -452,8 +452,10 @@ the pacing/pixel math. W340's contribution is:
   `native_runtime_hosts_a_non_nes_geometry_and_timing_stub` boots a stub core
   reporting an 8×6 frame at 50 fps / 22050 Hz (nothing like NES) through the
   exact same `NativeRuntime::start` entrypoint and asserts both the delivered
-  frame's dimensions AND the run loop's real-time pacing match the stub's
-  numbers, not NES's — the acceptance-mandated "a second software-rendered
+  frame's dimensions AND the run loop's tick rate: the frame-sequence delta
+  over a measured window must be consistent with the stub's declared 50 fps
+  and inconsistent with NES's ~60.0988 fps, proving the loop paces itself off
+  `av_info().timing.fps` — the acceptance-mandated "a second software-rendered
   system boots through the same host in a test with a stub core reporting
   non-NES geometry/timing."
 - **Mid-game geometry renegotiation** — `RETRO_ENVIRONMENT_SET_GEOMETRY`

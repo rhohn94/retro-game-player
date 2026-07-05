@@ -1202,7 +1202,6 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         let rom_path = dir.path().join("game.alt");
         std::fs::write(&rom_path, [0u8; 16]).expect("write stub rom");
 
-        let start = Instant::now();
         let runtime = NativeRuntime::start(&dylib, &rom_path, None, None).expect("runtime starts");
 
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -1222,19 +1221,36 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         assert_eq!(frame.data.len(), 8 * 6 * 4);
         assert!(frame.data.iter().any(|&b| b != 0), "frame must not be blank");
 
-        // Timing: at 50 fps (vs. NES's ~60.0988), a run of N ticks should
-        // take roughly N / 50 seconds — proves the run loop actually paced
-        // itself off `av_info().timing.fps`, not a hard-coded NES period.
-        // Loose bound (CI-tolerant): wait for several ticks, then check the
-        // elapsed wall time is in the right ballpark for 50 Hz, not ~60 Hz.
-        std::thread::sleep(Duration::from_millis(400)); // ~20 ticks at 50 fps
-        let elapsed = start.elapsed();
-        // 20 ticks at 50 fps = 400ms; at a wrongly-hard-coded 60.0988 fps the
-        // same 20 ticks would take ~333ms — the two are far enough apart
-        // that a wide tolerance still distinguishes them.
+        // Timing: at 50 fps (vs. NES's ~60.0988), the number of run-loop
+        // ticks inside a fixed window discriminates which rate the loop paces
+        // at. The stub emits exactly one video frame per `retro_run` and the
+        // loop drains once per tick, so the frame sequence number is a tick
+        // counter. The window is anchored on our own two `latest_frame`
+        // reads (startup/setup time never leaks into it), and both bounds
+        // scale with the *measured* window so scheduler jitter in the sleep
+        // itself cannot skew the expectation.
+        let (seq_before, _) = runtime.latest_frame().expect("first frame already observed");
+        let window_start = Instant::now();
+        std::thread::sleep(Duration::from_secs(1)); // ~50 ticks at 50 fps, ~60 at NES rate
+        let (seq_after, _) = runtime.latest_frame().expect("frames must still be flowing");
+        let elapsed = window_start.elapsed().as_secs_f64();
+        let ticks = seq_after.wrapping_sub(seq_before);
+        let expected_at_50 = elapsed * 50.0;
+        let expected_at_nes = elapsed * 60.0988;
+        // Generous lower bound (CI scheduler stalls, ±1-tick read
+        // quantization at each end) that still requires ~50 Hz progress...
         assert!(
-            elapsed >= Duration::from_millis(350),
-            "expected pacing at ~50 fps (>= 350ms for ~20 ticks), got {elapsed:?}"
+            ticks as f64 >= expected_at_50 * 0.7,
+            "expected ~{expected_at_50:.1} ticks at 50 fps over {elapsed:.3}s, got {ticks}"
+        );
+        // ...and an upper bound at the midpoint between the two candidate
+        // rates: a loop wrongly hard-coded to NES's ~60.0988 fps would
+        // produce ~{expected_at_nes:.1} ticks and overshoot it.
+        assert!(
+            (ticks as f64) < (expected_at_50 + expected_at_nes) / 2.0,
+            "tick rate looks like NES ~60.0988 fps, not the stub's declared 50 fps: \
+             {ticks} ticks in {elapsed:.3}s (50 fps ≈ {expected_at_50:.1}, \
+             60.0988 fps ≈ {expected_at_nes:.1})"
         );
 
         drop(runtime); // stops + joins both threads
