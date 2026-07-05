@@ -168,7 +168,7 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.33 |
 |---|---|---|---|---|
-| `feat/w332-crossover-launch` (W332) | ☐ | ☐ | ☐ | ☐ |
+| `w332-crossover-launch-v033p3-00` (W332) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -196,3 +196,14 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
 - Reviewer (W334): zero findings — all five hardening items verified,
   including busy_timeout inheritance at all four contending `Db::open`
   call sites (`open_in_memory` correctly exempt).
+- Reviewer (W332, non-blocking): add a `--` argument-terminator before
+  `target` in `cxstart_args` as defense-in-depth (target is a `C:\...`
+  path today, leading-`-` effectively impossible).
+- Reviewer (W332, cosmetic): doc comments reference a
+  `core::launch::crossover_launcher` module that is actually
+  `external.rs`; design doc says `AppError::Io` where the impl correctly
+  uses the more specific `AppError::Dependency` for missing CrossOver —
+  reconcile wording.
+- **Human follow-up (unchanged from design doc):** on-device verification
+  with a real CrossOver install — enumeration field names and the
+  `cxstart` CLI surface are fixture-validated only.
