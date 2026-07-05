@@ -1,7 +1,7 @@
-# Non-Retro Library — v0.31 (Horizon H1, first slice)
+# Non-Retro Library — Horizon H1 (v0.31 first slice, v0.32 completion)
 
 > **Up:** [↑ Design index](README.md)
-> **Status:** agreed for v0.31 — implemented by W310–W315
+> **Status:** agreed — v0.31 implemented by W310–W315; v0.32 slice agreed (W320–W322)
 > **Origin:** roadmap §Horizon H1 (user scope directive 2026-07-03)
 
 ## Motivation
@@ -121,8 +121,72 @@ Steam + app scans and add manual entries.
 - [ ] Existing retro flows (RetroArch launch, in-page play) unregressed —
       full test suite + smoke green.
 
+## v0.32 — Sources Complete (H1 second slice)
+
+Finishes H1 on the abstractions above. Plan:
+[release-planning-v0.32.md](../release-planning/release-planning-v0.32.md).
+
+### GOG + itch scanners (W320)
+
+Two further `GameSource` implementations, additive exactly like W312/W313 —
+same `scan() -> Vec<DiscoveredGame>` shape, same scan-report counts in the
+Game-sources pane, keyless, and a missing install is a clean zero-count
+scan.
+
+- **GOG:** discover installed titles from GOG Galaxy's local records on
+  macOS (`~/Library/Application Support/GOG.com/Galaxy` DB/manifests when
+  present) and/or `.app` bundles under the Galaxy games install root.
+  Descriptor: `app` (bundle path) — no Galaxy URL scheme dependency.
+- **itch:** discover installs from the itch app's local records
+  (`~/Library/Application Support/itch` — butler database/receipts when
+  present) falling back to the itch install directory scan. Descriptor:
+  `app` or `exec` per what the receipt names.
+- New `games.source` values `gog` | `itch` (additive migration if the
+  column is CHECK-constrained; otherwise enum extension in code + DTOs).
+- Both sources exclude bundles already claimed by the Steam/app sources
+  (same dedup posture as W313).
+
+### SteamGridDB art (W321)
+
+Art for rows with no Steam appid (apps, manual, GOG, itch) via the
+SteamGridDB HTTP API, reusing the W314 `art_cache` pipeline.
+
+- Client keyed by a **user-supplied API key** (Settings field beside the
+  Game-sources pane; stored with the existing settings mechanism). No key ⇒
+  the provider is inert — scans and shelves behave exactly as v0.31.
+- Name-based search → pick best grid/hero; cache through `art_cache` with a
+  `steamgriddb` origin tag; rate-limit friendly (serial fetch queue, no
+  retry storms).
+- Deterministic fallback chain per title: Steam CDN (appid) → SteamGridDB
+  (key present) → bundle icon → placeholder. Failures log and degrade to
+  the next rung; never block or fail a scan.
+
+### ROM scanner on `GameSource` (W322)
+
+The deferred refactor: the legacy ROM folder scanner becomes a `GameSource`
+implementation so scan orchestration is uniform (one scan loop, one report
+shape, retro is `source = "rom"`).
+
+- **Behaviour parity is the acceptance bar:** identical rows (hashes,
+  systems, core hints, art) to the legacy path, proven by regression tests
+  over a fixture ROM tree; shelves/detail/TV unregressed.
+- Legacy scan entry points delegate to the new source (or are removed if
+  nothing external calls them); IPC surface unchanged.
+- Sets up H2: CrossOver later arrives as just another `GameSource` +
+  descriptor kind.
+
+### v0.32 acceptance
+
+- [ ] GOG/itch titles discovered where installed; zero-count clean scans
+      where not; re-scan duplicates none.
+- [ ] SteamGridDB art appears for keyed installs on shelf + TV; keyless
+      installs unchanged from v0.31; fallback chain tested.
+- [ ] ROM scanning via `GameSource` with regression-proven parity; full
+      suite + `recipe.py smoke` green.
+
 ## Follow-ups
 
-- GOG/itch scanners; SteamGridDB for non-Steam art (v0.32 candidates).
-- ROM scanner migration onto the `GameSource` trait.
-- H2 CrossOver bottle enumeration/launch (builds on the descriptor model).
+- H2 CrossOver bottle enumeration/launch (builds on the descriptor model;
+  arrives as another `GameSource` + descriptor kind after W322).
+- Metadata refresh on re-scan (`upsert_game_by_source` refreshes only a
+  subset of fields) — revisit with the metadata-enrichment epic (#24).

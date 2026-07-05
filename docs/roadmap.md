@@ -236,7 +236,24 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.31 — Frontier (implementation complete — pending release)
+## v0.32 — Sources Complete (implementation complete — pending release)
+
+**Theme:** Finish Horizon H1 — every game on the system discoverable, with art.
+
+- **GOG + itch scanners** as additive `GameSource` implementations (W320).
+- **SteamGridDB art** for non-Steam titles — keyed client, fallback chain
+  Steam CDN → SteamGridDB → bundled icon (W321).
+- **ROM scanner migrated onto `GameSource`** — retro becomes just another
+  source (W322).
+- Carryover follow-ups: art-fetch detachment + icon-failure logging (W323);
+  FK scope-guard, shared gating helpers, familiar DTO fields (W324).
+
+Design: [`non-retro-library-design.md`](design/non-retro-library-design.md).
+Plan: [`release-planning-v0.32.md`](release-planning/release-planning-v0.32.md).
+
+---
+
+## v0.31 — Frontier (released — see version-history.md)
 
 **Theme:** Non-retro games join the library — Horizon H1, first slice.
 
