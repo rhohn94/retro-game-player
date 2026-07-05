@@ -29,11 +29,6 @@ export function listCoreOptions(system: string): Promise<CoreOption[]> {
   return invoke<CoreOption[]>("list_core_options", { system });
 }
 
-/** Reads one option's persisted value, or `null` if nothing has been saved. */
-export function getCoreOption(system: string, optionKey: string): Promise<string | null> {
-  return invoke<string | null>("get_core_option", { system, optionKey });
-}
-
 /** Persists one option's value. Takes effect on the next boot (no hot-reload). */
 export function setCoreOption(system: string, optionKey: string, value: string): Promise<void> {
   return invoke<void>("set_core_option", { system, optionKey, value });

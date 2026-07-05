@@ -6,6 +6,13 @@
 //!
 //! One file per concern: [`identity`] (stable id), [`schemas`] (wire types),
 //! [`manifest`] (status/manifest assembly + write), [`server`] (HTTP face).
+//!
+//! W365 (v0.36): the frontend `get_fleet_status` IPC wrapper was removed as
+//! dead code — no UI surface currently calls it, so this Rust command surface
+//! is presently unreached from the UI. It is retained as-is (not deleted)
+//! pending the issue #39 self-update decision, which may depend on it. The
+//! localhost HTTP status server (`server::spawn_status_server`) is unaffected
+//! and keeps running independently of the IPC command.
 
 pub mod identity;
 pub mod manifest;

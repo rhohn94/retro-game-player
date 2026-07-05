@@ -72,14 +72,3 @@ export function resolveTheme(className: string | null | undefined): NamedTheme {
   }
   return DEFAULT_THEME;
 }
-
-/**
- * The three OKLCH brand knobs — everything else (hover, borders, focus rings,
- * on-surface text) derives from these. Mirrors design-language.md §3.1.
- * Exported for tests / programmatic consumers; the live values come from CSS.
- */
-export const BRAND_KNOBS = {
-  primary: "oklch(0.78 0.15 215)",
-  secondary: "oklch(0.80 0.13 65)",
-  onPrimary: "oklch(0.18 0.01 230)",
-} as const;
