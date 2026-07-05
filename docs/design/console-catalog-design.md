@@ -1,4 +1,4 @@
-# Console Catalog (Gen 1–6) — Design
+# Console Catalog (Gen 1–7 + handhelds) — Design
 
 > **Up:** [↑ Docs](../README.md) · **Sib:** [core-discovery](core-discovery-design.md),
 > [interaction-wiring](interaction-wiring-design.md)
@@ -8,7 +8,9 @@
 Expand Harmony's default console coverage from the original three (NES, SNES,
 N64) to **all home consoles of generations 1–6**, so discovery, scanning, the
 core catalog, and the library console filter span the classic era
-([#7](https://github.com/rhohn94/retro-game-player/issues/7)).
+([#7](https://github.com/rhohn94/retro-game-player/issues/7)). v0.34 (W341)
+extends coverage further to the Game Boy handheld family and the Wii — see
+§7.
 
 ## 2. Two sources of truth (kept decoupled)
 
@@ -71,8 +73,57 @@ Cores screen shows the new breadth under visual inspection.
 ## 6. Out of scope
 
 - Pretty display names per system (the UI shows the canonical key, as it already
-  does for nes/snes/n64) — a polish follow-up.
-- Handhelds (Game Boy, GBA, etc.) — the ticket scopes home consoles.
+  does for nes/snes/n64) — a polish follow-up. (TV rail labels are the one
+  exception — `features/tv/systems.ts` keeps its own complete label table,
+  independent of this doc; new keys fall back to an upper-cased label there.)
 - Manual system assignment for ambiguous CD container formats.
 - Broadening `fleet/manifest.rs::DECLARED_CORE_SYSTEMS` (telemetry dependency
   edges) beyond the primary three — left as-is to avoid 17 mostly-absent edges.
+
+## 7. Handhelds + Wii (v0.34, W341)
+
+The v0.10 sweep (§1–6 above) scoped **home consoles** only, explicitly
+deferring handhelds. v0.34 lifts that scope limit for the highest-value
+handheld family plus the one home console released just after the v0.10 cutoff
+generation:
+
+- **Game Boy** (`gb`), **Game Boy Color** (`gbc`), **Game Boy Advance** (`gba`)
+- **Wii** (`wii`) — gen 7, alongside GameCube's Dolphin core (Dolphin covers
+  both GameCube and Wii; the same core id serves two `system` keys, mirroring
+  the existing `genesis`/`mastersystem` → `genesis_plus_gx` pattern).
+
+### Core selection (arm64-verified, same discipline as §3)
+
+Every id below was checked against the live arm64 buildbot index
+(`…/apple/osx/arm64/latest/`) before inclusion — none were guessed. All
+candidates named in the release plan existed and none were dropped:
+
+- `gb` → **gambatte** (recommended), sameboy, tgbdual
+- `gbc` → **gambatte** (recommended), sameboy
+- `gba` → **mgba** (recommended), vba_next, mednafen_gba
+- `wii` → **dolphin** (recommended; shared with `gamecube`)
+
+### Scan mapping
+
+`gb`/`gbc`/`gba` each carry a distinct, unambiguous extension (`.gb`, `.gbc`,
+`.gba`) and scan exactly like the existing cartridge systems. Wii's `.wbfs`
+container is likewise distinct and scannable; `.rvz`/`.gcm` remain GameCube-only
+per §4 — Wii is not auto-detected from those extensions.
+
+### Console browse
+
+`core/console/catalog.rs` gained four `ConsoleInfo` rows (Game Boy in the gen-4
+group, Game Boy Color in gen-5, Game Boy Advance in gen-6, Wii as a new gen-7
+group) using the same static-spec + Wikipedia-title pattern as every existing
+entry — no browse/media code changed (§5 still holds: the grid groups
+dynamically by `generation`, so gen 7 renders with no frontend edit).
+
+### EJS in-page fallback tier
+
+`gb`/`gbc` share **gambatte** and `gba` gets **mgba** in the curated on-demand
+EJS catalog (`play/ejs_cores.rs`) and in `EJS_SYSTEM`
+(`src/features/play/ejs.ts`) — both cores were downloaded from the
+version-pinned EmulatorJS CDN (v4.2.3) and SHA-256-pinned 2026-07-05, same
+discipline as the W241 catalog (`in-page-play-design.md` §7). **Wii gets no EJS
+entry** — Dolphin has no browser/WASM build; Wii is external-RetroArch-launch
+only, same as PS2/Saturn/3DO today.
