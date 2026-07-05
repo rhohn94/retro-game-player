@@ -1911,7 +1911,9 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
     /// bug — this pattern fails for either inversion of the flip condition.
     #[cfg(target_os = "macos")]
     #[test]
+    #[ignore = "needs a live CGL context — RGP_LIVE_GL_TESTS=1 cargo test -- --ignored"]
     fn native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels() {
+        crate::play::native::require_live_gl_opt_in();
         for bottom_left_origin in [false, true] {
             let _guard = crate::play::native::lock_tests();
             let dir = tempfile::tempdir().expect("tempdir");

@@ -823,12 +823,31 @@ already touches:
   read-back/resize/proc-address/teardown cycle
   (`hw_render::tests`, macOS-only — this project's only target), and a full
   `NativeRuntime::start`-through-`latest_frame` HW-render integration test
-  with a synthetic GL-drawing stub core
+  with a synthetic GL-drawing stub core that paints an asymmetric two-band
+  pattern and asserts the delivered top-down row order for both
+  `bottom_left_origin` values
   (`native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`).
   The on-device-only step (`manual_n64_boots_and_renders_via_hw_render`) is
   `#[ignore]`d, gated behind `RGP_N64_CORE`/`RGP_N64_ROM`, mirroring the
   existing `manual_play_produces_audible_output` precedent (§2's
   verification record).
+
+**Running the live-GL tests.** Every test that needs a live CGL context (the
+`hw_render::tests` context create/readback/resize/proc-address/second-session/
+destroy-on-drop cycle and the HW-render E2E above) is `#[ignore]`d behind an
+env-var opt-in — following the `manual_play_produces_audible_output`
+precedent — so plain `cargo test` stays green on GL-less/CI runners. Run them
+on a machine with a real GL stack via:
+
+```text
+RGP_LIVE_GL_TESTS=1 cargo test --manifest-path src-tauri/Cargo.toml -- \
+  --ignored hw_render --skip manual_
+```
+
+(the `require_live_gl_opt_in` guard panics with this instruction if the
+variable is missing). Everything that doesn't need a live context — the
+`flip_rows_in_place` unit tests, `callbacks.rs`'s negotiation-arm tests, and
+`HwRenderRequest` construction — stays un-ignored under plain `cargo test`.
 
 ### Verification record (v0.34, W345)
 

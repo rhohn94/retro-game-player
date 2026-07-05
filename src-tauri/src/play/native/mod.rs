@@ -42,3 +42,29 @@ pub use systems::{
 /// callback state directly — see `callbacks::lock_tests`'s doc.
 #[cfg(test)]
 pub(crate) use callbacks::lock_tests;
+
+/// Env-var opt-in guard shared by every `#[ignore]`d test that needs a live
+/// CGL/OpenGL context (the `hw_render::tests` context/readback/resize/
+/// proc-address/teardown cycle and `runtime`'s HW-render E2E). Plain
+/// `cargo test` never runs them (they're `#[ignore]`d, following the
+/// `manual_play_produces_audible_output` precedent); opt in on a machine
+/// with a real GL stack via:
+///
+/// ```text
+/// RGP_LIVE_GL_TESTS=1 cargo test --manifest-path src-tauri/Cargo.toml -- \
+///     --ignored hw_render --skip manual_
+/// ```
+///
+/// The guard panics with that instruction if the variable is missing, so a
+/// blanket `cargo test -- --ignored` on a GL-less runner fails loudly and
+/// explains itself instead of hanging or segfaulting inside CGL.
+#[cfg(test)]
+pub(crate) fn require_live_gl_opt_in() {
+    if std::env::var("RGP_LIVE_GL_TESTS").is_err() {
+        panic!(
+            "this test needs a live CGL/OpenGL context — opt in with \
+             RGP_LIVE_GL_TESTS=1 cargo test -- --ignored (see \
+             docs/design/native-emulation-design.md §HW-render)"
+        );
+    }
+}
