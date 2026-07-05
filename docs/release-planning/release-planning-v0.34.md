@@ -208,7 +208,7 @@ consumed by later items (append-only rows).
 |---|---|---|---|---|
 | `w340-native-host-generalization-v034p1-00` (W340) | ☑ | ☑ | ☑ | ☑ |
 | `w341-handheld-wii-catalog-v034p1-01` (W341) | ☑ | ☑ | ☑ | ☑ |
-| `w347-v033-riders` (W347) | n/a | ☐ | ☐ | ☐ |
+| `w347-v033-riders-v034p1-02` (W347) | n/a | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -256,3 +256,12 @@ consumed by later items (append-only rows).
   exactly where this happens).
 - Reviewer (W340, cosmetic): `start_native_play` double table lookup
   (`native_support_for` then `resolve_native_core_path` repeats it).
+- Reviewer (W347, blocking — **fixed on branch, 479b2bd**): raw-bundle-id
+  external_id would have duplicated every existing CrossOver row on
+  re-scan (upsert-only pipeline, no prune) and collided the same app across
+  bottles; fixed as bottle-scoped `<bottle>/<CFBundleIdentifier>` with a
+  pre-upsert legacy re-key pass (`rekey_game_external_id`), DB-transition
+  tested.
+- Reviewer (W347, informational): whether the real `cxstart` binary honors
+  the `--` terminator rides on the standing on-device CrossOver human
+  follow-up (fixture-validated only).
