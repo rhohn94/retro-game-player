@@ -146,7 +146,7 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.35 |
 |---|---|---|---|---|
-| `w351-two-pad-capture-lifecycle` (W351) | ☐ | ☐ | ☐ | ☐ |
+| `w351-two-pad-capture-lifecycle-v035p2-00` (W351) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -176,3 +176,14 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
   `port` key → `None` is assumed (tested only at the Rust fn boundary);
   `load_optional_symbol` duplicates the NUL-name derivation of
   `load_symbol`.
+- Reviewer (W351, blocking — **fixed on branch, 6695866**): the
+  overlay-hosted P1/P2 indicator froze while the pause menu was open (the
+  natural plug-in moment); assignments now recompute every tick with only
+  the input pushes gated, via a `PortInputPusher` that also fixes the
+  stale-mask-on-failed-release retry and derives the port count.
+- Reviewer (W351, non-blocking, recorded): same-tick pad swap hands the
+  port over without an intermediate zero mask (intended semantics, now
+  tested); zero-pad aria-label and chip CSS literals fixed on the branch.
+- **Human follow-ups (on-device):** two-pad NES/SNES session on the native
+  path (port assignment, disconnect/reclaim, indicator) and on the EJS
+  fallback (EmulatorJS auto-assignment with the new default controls).
