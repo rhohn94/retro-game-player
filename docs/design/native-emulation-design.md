@@ -261,7 +261,7 @@ through the JSON IPC layer plus a per-byte `atob` decode loop in JS, with the
 next poll serialized behind the previous round trip. First real gameplay
 (post-crash-fix) showed it as heavy stutter. The fix keeps the poll model but
 moves to Tauri 2's raw-binary channel: `get_native_frame` returns a
-`tauri::ipc::Response` whose body is a 16-byte header
+`tauri::ipc::Response` whose body is a header
 (`[seq: u64 LE][width: u32 LE][height: u32 LE]`) followed by the tightly
 packed RGBA8888 pixels, received frontend-side as an `ArrayBuffer` and viewed
 zero-copy into `ImageData`. The runtime stamps each stored frame with a
@@ -270,6 +270,12 @@ one and an unchanged frame answers with an **empty body**, so paused /
 overlay / idle polls are near-free. The rAF tick is scheduled up-front with
 an in-flight guard, so a slow round trip degrades to a skipped paint rather
 than a halved frame rate.
+
+**v0.34 (W345) — header gains an aspect ratio field.** The header above grew
+one more field (`[..][aspect_ratio: f32 LE]`, now 20 bytes total) — purely
+additive, appended after the pre-existing three fields — to carry the
+display aspect ratio the frontend needs to render N64/PS1 correctly. Full
+detail: the new §HW-render section's "Aspect ratio propagation" below.
 
 ### 4. Coexistence with EmulatorJS
 
@@ -573,7 +579,7 @@ the existing contract holds.
   above records which cohort systems are genuinely dual-region so a future
   on-device PAL-ROM spot check knows where to look.
 - **Table membership + recommended-default alignment** —
-  `the_software_render_cohort_is_enabled_alongside_nes` and
+  `the_software_render_cohort_and_n64_are_enabled_alongside_nes` and
   `every_cohort_row_is_a_recommended_default_core` (systems.rs) are the
   acceptance-mandated "each cohort system boots a ROM through the native host
   in the stub/fixture test harness" floor: every row resolves through the
@@ -587,9 +593,9 @@ the existing contract holds.
 - **n64** — every viable N64 libretro core (`mupen64plus_next`,
   `parallel_n64`) requires `RETRO_ENVIRONMENT_SET_HW_RENDER` (an OpenGL/Metal
   framebuffer target, not the software `retro_video_refresh` buffer this host
-  currently reads) — out of scope until W345 lands the HW-render module (see
-  the forthcoming §HW-render section this design doc gains alongside that
-  work).
+  reads for the cohort) — out of scope for W342; landed by W345's HW-render
+  module (see §HW-render subsystem + N64 below), which appends the `n64` row
+  last.
 
 **On-device spot checks (human follow-up, v0.21 precedent):** SNES and GBA —
 the two systems called out in this work item's acceptance criteria — are
@@ -599,6 +605,268 @@ verification pass in v0.23 once hardware/ROMs were available — see
 "Verification record" above). This does not block v0.34: the stub/fixture
 harness above is the acceptance floor, same as it was for NES's own W340
 generalization.
+
+## HW-render subsystem + N64 (v0.34 "Engines", W345)
+
+Every system through W340/W341/W344 renders in **software**: the core writes
+raw pixels into a buffer it owns and hands Harmony a pointer via
+`retro_video_refresh_t`. mupen64plus_next (N64) — like most 3D-era cores —
+instead renders with **OpenGL directly into a framebuffer Harmony provides**,
+negotiated via `RETRO_ENVIRONMENT_SET_HW_RENDER`. W345 adds the subsystem that
+makes that possible without disturbing anything the software path already
+does.
+
+### Context strategy: headless CGL, created only on demand
+
+New module `play::native::hw_render` — deliberately the **only** new file
+this item touches inside `play::native/` (per the release plan's conflict
+map; `callbacks.rs` gets one new `environment` match arm and `runtime.rs`
+gets the bring-up/drain wiring, nothing else).
+
+- **CGL, not NSOpenGLView.** macOS has no "headless EGL" the way Linux does,
+  but CGL (`CGLChoosePixelFormat`/`CGLCreateContext`/`CGLSetCurrentContext`)
+  creates a fully offscreen, windowless OpenGL context — no `NSView`, no
+  window, nothing added to the app's view hierarchy. This is the same
+  "narrow, hand-rolled FFI over a stable C ABI" posture §1 already
+  established for the libretro surface itself, applied to CGL: a small
+  `extern "C" { ... }` block linking the system `OpenGL` framework
+  (`#[link(name = "OpenGL", kind = "framework")]`), cfg-gated to
+  `target_os = "macos"` the same way `runtime.rs`'s core-thread QoS
+  elevation already is.
+- **Created only when a core asks.** `HwRenderContext::create` is called
+  exactly once per session, and only in response to a core's own
+  `RETRO_ENVIRONMENT_SET_HW_RENDER` negotiation succeeding
+  (`EnvironmentEvent::HwRenderRequested`, drained by the run loop's
+  `bring_up_hw_render`). No context is ever created speculatively — the
+  acceptance-mandated "software-render systems are untouched" isn't a
+  best-effort claim, it's structural: nothing in `hw_render.rs` runs unless a
+  core explicitly requests it.
+- **Negotiation is narrow by design.** `callbacks::environment`'s new
+  `RETRO_ENVIRONMENT_SET_HW_RENDER` arm accepts exactly
+  `RETRO_HW_CONTEXT_OPENGL` and `RETRO_HW_CONTEXT_OPENGL_CORE` (CGL only
+  speaks desktop OpenGL — no GLES, no Vulkan, no D3D) and refuses everything
+  else by returning `false`, exactly like any other environment command
+  Harmony doesn't implement. A refused negotiation is not a Harmony error —
+  it's the core's own cue to either fall back to a software path (some cores
+  can) or fail `retro_load_game` cleanly, which the existing
+  native-init-failure → EmulatorJS-fallback contract (§4) already covers
+  with zero new code.
+- **What Harmony fills in vs. what the core fills in.** The core partially
+  populates a `retro_hw_render_callback` (context type, `depth`/`stencil`/
+  `bottom_left_origin` flags, its own `context_reset`/`context_destroy`
+  function pointers) before the environment call; Harmony's `set_hw_render`
+  fills in `get_current_framebuffer` and `get_proc_address` before returning
+  `true`, then forwards the decoded flags + the core's two callbacks as an
+  `EnvironmentEvent` for the run loop to act on. The environment callback
+  itself never touches GL — it only negotiates.
+
+### The FBO: sized from the core, resized on renegotiation
+
+`Fbo` owns a framebuffer object with a color renderbuffer (`GL_RGBA8`) always,
+plus a combined depth/stencil (`GL_DEPTH24_STENCIL8`) or depth-only
+(`GL_DEPTH_COMPONENT24`) renderbuffer when the core's negotiated flags asked
+for either. Initial size is the core's declared `max_width`/`max_height`
+(`retro_get_system_av_info`'s `geometry`, read in `bring_up_core` — the same
+call site W340 already reads `fps`/`sample_rate` from); a later
+`RETRO_ENVIRONMENT_SET_GEOMETRY` (W340's event) resizes the FBO by rebuilding
+its GL objects (renderbuffer storage is immutable once allocated on desktop
+GL — there's no in-place resize) rather than reusing the old ones. `Mutex<Fbo>`
+gives the struct interior mutability so the same `Arc<HwRenderContext>` can be
+read from both the run loop and the process-global FFI callback slot without
+a `&mut` handoff — real contention is impossible because both call sites only
+ever run on the same core thread, one at a time, inside the same `retro_run`
+tick (the libretro contract is single-threaded).
+
+### Readback: `glReadPixels` into the existing frame pipe, unchanged downstream
+
+A hardware-rendered core reports its frame differently: instead of a real
+pointer, `retro_video_refresh_t`'s `data` argument is the sentinel value
+`RETRO_HW_FRAME_BUFFER_VALID` (`(void *)-1`), meaning "I already drew into the
+FBO you gave me — go read it yourself." `callbacks::video_refresh` detects the
+sentinel and forwards a `VideoFrame` marker (`is_hw_frame: true`, empty
+`data`) instead of copying bytes; `runtime.rs`'s `drain_video` branches on
+that flag and calls `HwRenderContext::read_frame_into` (a `glReadPixels` into
+the same reused scratch buffer the software path's `to_rgba8_into` already
+uses) instead of the pixel-format decode. From that point on — the shared
+`publish_frame` helper both paths call — the frame pipe is **identical**:
+same `Rgba8Frame`, same latest-frame-wins slot, same sequence-numbered
+raw-bytes IPC channel (§3). The HW-render layer's entire job is producing an
+`Rgba8Frame`; it never touches IPC, canvas painting, or anything
+frontend-facing directly.
+
+**Throughput.** `glReadPixels` at N64's common 640×480@60 output is
+640 × 480 × 4 bytes × 60 fps ≈ **73 MB/s** — about 5× the existing NES path's
+256×240@60 ≈ 14.7 MB/s (§3's own cited figure), well inside what Tauri 2's
+binary IPC channel and a modern GPU's PCIe/UMA readback bandwidth handle
+without becoming the bottleneck; the headless integration test
+(`native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`)
+proves the path end-to-end at a small synthetic size, and the on-device N64
+run is where the real-resolution throughput is confirmed in practice (see
+Acceptance below).
+
+**`bottom_left_origin`.** `glReadPixels(0, 0, …)` fills its output starting
+at framebuffer y=0 — GL's **bottom** framebuffer row — so the readback buffer
+is always framebuffer-bottom-first; whether that is the *image's* top or
+bottom depends on which way up the core drew. A core that sets
+`bottom_left_origin = true` (mupen64plus_next and most GL cores) draws with
+GL's native bottom-left convention — the image's bottom row at framebuffer
+y=0 — so its readback comes out image-bottom-first and `read_frame_into`
+**flips** the rows into top-down order; a core that leaves it `false` drew
+the image's top row at y=0, so the readback is already top-down and no flip
+is applied. Every downstream consumer assumes a top-down buffer: the shared
+`Rgba8Frame` contract (all software cores emit top-down rows),
+`NativePlayer`'s `putImageData` (`ImageData` is top-down by definition), and
+`crtWebglRenderer.ts` (whose `UNPACK_FLIP_Y_WEBGL = true` upload expects a
+top-down source). This is exactly the class of bug the v0.29.1 flip
+regression (a row-order mistake in an unrelated, software-only code path)
+warns about: `flip_rows_in_place` is a small, pure, span-swapping function
+with unit tests for the even-row, odd-row (untouched middle row), single-row,
+and zero-size cases, and the end-to-end HW-render stub test draws an
+asymmetric top/bottom banding pattern and asserts the delivered row order for
+**both** `bottom_left_origin` values — verified rather than only eyeballed on
+an on-device screenshot.
+
+### Lifecycle: `context_reset`/`context_destroy` per the libretro contract
+
+The libretro contract is specific about ordering: `context_reset` fires once
+the context **and** the render target are actually ready to be drawn into —
+which in practice means after `retro_load_game` (a core's geometry, and
+therefore the FBO's size, is only final once the ROM is loaded) — and
+`context_destroy` fires before the context itself is torn down, giving the
+core one last chance to free its own GL objects while everything is still
+current.
+
+- **`context_reset` timing bug found and fixed while testing this item.**
+  `RETRO_ENVIRONMENT_SET_HW_RENDER` is negotiated during `retro_init` (before
+  `retro_load_game`), but the very first `retro_run` tick was, pre-fix, run
+  *before* the freshly-drained `HwRenderRequested` event ever created the
+  context — meaning `get_current_framebuffer`/`get_proc_address` were still
+  null pointers the core's `context_reset` hadn't been called to resolve, so
+  the first frame silently rendered nothing. The fix: `run_core_loop` drains
+  the environment channel once **before** entering the tick loop (not only
+  after each `run_frame`), since the negotiation-time events from
+  `bring_up_core`'s `retro_init`/`retro_load_game` are already sitting in the
+  channel by the time the loop starts. Caught by, and regression-proofed by,
+  `native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`
+  (flaky ~1-in-5 before the fix, solid across 15+ runs after).
+- **Teardown.** `HwRenderContext::drop` calls `context_destroy` (if the core
+  supplied one) before the CGL context itself is destroyed
+  (`CglContext::drop`, which clears the current context and calls
+  `CGLDestroyContext`). `callbacks::uninstall` — already called on every
+  session stop, native or not — additionally clears the process-global
+  `HW_RENDER_CONTEXT` slot, so a second session's `install_hw_render_context`
+  never races a dying session's stray callback. `a_second_session_can_create_a_fresh_context_after_the_first_is_dropped`
+  proves the "unload cleanly so a second session can start" acceptance
+  criterion directly, by doing exactly that twice in a row.
+
+### What falls back when negotiation is rejected
+
+Nothing new: a core that doesn't get the HW-render context it asked for is in
+exactly the same position as any other `retro_load_game` failure the
+pre-W345 native host already handles — `NativeRuntime::start` returns an
+`Err`, and the existing native-init-failure → EmulatorJS-fallback switch (§4)
+takes over. No dedicated "HW-render fallback" code path exists, or needs to.
+
+### Aspect ratio propagation (W340 reviewer fix)
+
+W340 added `RETRO_ENVIRONMENT_SET_GEOMETRY` handling but only *logged* the
+core's `aspect_ratio` — never propagated it, so N64 and PS1 (both of which
+declare a real display aspect distinct from their pixel dimensions) would
+have rendered stretched into the frontend's fixed 4:3 box. Fixed as part of
+this item since it's the same reviewer note and the same code path W345
+already touches:
+
+- **Backend.** `Rgba8Frame` gained an `aspect_ratio: Option<f32>` field
+  (`None`/non-positive means "derive it from width/height", libretro's own
+  convention for an unset ratio — `positive_aspect_ratio` is the one shared
+  helper both boot-time (`bring_up_core`'s `av_info` read) and mid-game
+  (`drain_environment`'s `GeometryChanged` handler) call, so the two call
+  sites can't drift on what "unset" means). `get_native_frame`'s wire header
+  gained one `f32 LE` field, purely appended after the existing 16-byte
+  `[seq][width][height]` header (now 20 bytes) — additive, matching this
+  file's own established pattern for header extensions (§3's W239 raw-bytes
+  history).
+- **Frontend.** `nativeFrame.ts`'s `parseFrameBuffer` decodes the new field
+  into `ParsedFrame.aspectRatio` (`null` for the unset sentinel).
+  `NativePlayer.tsx` tracks the latest non-`null` value in state and applies
+  it as the `--rgp-player-aspect-ratio` CSS custom property on
+  `.rgp-player__frame`; `library.css`'s `aspect-ratio` declaration now reads
+  `var(--rgp-player-aspect-ratio, 4 / 3)` — the `4 / 3` fallback preserves
+  every pre-W345 system's exact current rendering (NES included, which never
+  sets an aspect ratio) since the variable is only set once a frame actually
+  reports one.
+
+### Acceptance (W345)
+
+- An N64 ROM boots and renders through the native host on device — see the
+  Verification record below (on-device-gated; ships dark with a filed
+  blocker if the on-device step is unavailable in this session).
+- Readback throughput at 640×480@60 (≈ 73 MB/s, see above) does not regress
+  the frame pipe — the shared `publish_frame` tail is identical to the
+  software path's, and the headless integration test proves the FBO →
+  `glReadPixels` → frame-slot chain functions correctly end to end.
+- Software-render systems are untouched — `HwRenderContext` is constructed
+  in exactly one place (`bring_up_hw_render`, called only from
+  `EnvironmentEvent::HwRenderRequested`), so no software-rendered core's
+  session ever allocates a CGL context or an FBO.
+- EJS N64 fallback is intact — no change to `system_map.rs`'s external-core
+  catalog or `commands::play`'s EJS launch path; `NATIVE_SYSTEMS` gaining an
+  `n64` row only changes what `list_native_systems`/`nativePath.ts` report as
+  native-eligible, and the existing "native init failed → fall back" switch
+  (§4) covers a rejected/failed HW-render negotiation the same as any other
+  native-start failure.
+- Unit/headless coverage: environment negotiation (accept OpenGL/OpenGL-Core,
+  reject everything else, fill in the frontend callbacks, forward the
+  decoded request), the `RETRO_HW_FRAME_BUFFER_VALID` sentinel in
+  `video_refresh`, row-flip logic (`flip_rows_in_place`, both orientations),
+  FBO size/resize behavior, a real headless CGL context + FBO create/clear/
+  read-back/resize/proc-address/teardown cycle
+  (`hw_render::tests`, macOS-only — this project's only target), and a full
+  `NativeRuntime::start`-through-`latest_frame` HW-render integration test
+  with a synthetic GL-drawing stub core that paints an asymmetric two-band
+  pattern and asserts the delivered top-down row order for both
+  `bottom_left_origin` values
+  (`native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`).
+  The on-device-only step (`manual_n64_boots_and_renders_via_hw_render`) is
+  `#[ignore]`d, gated behind `RGP_N64_CORE`/`RGP_N64_ROM`, mirroring the
+  existing `manual_play_produces_audible_output` precedent (§2's
+  verification record).
+
+**Running the live-GL tests.** Every test that needs a live CGL context (the
+`hw_render::tests` context create/readback/resize/proc-address/second-session/
+destroy-on-drop cycle and the HW-render E2E above) is `#[ignore]`d behind an
+env-var opt-in — following the `manual_play_produces_audible_output`
+precedent — so plain `cargo test` stays green on GL-less/CI runners. Run them
+on a machine with a real GL stack via:
+
+```text
+RGP_LIVE_GL_TESTS=1 cargo test --manifest-path src-tauri/Cargo.toml -- \
+  --ignored hw_render --skip manual_
+```
+
+(the `require_live_gl_opt_in` guard panics with this instruction if the
+variable is missing). Everything that doesn't need a live context — the
+`flip_rows_in_place` unit tests, `callbacks.rs`'s negotiation-arm tests, and
+`HwRenderRequest` construction — stays un-ignored under plain `cargo test`.
+
+### Verification record (v0.34, W345)
+
+On-device mupen64plus_next + a real N64 ROM were not available in this
+implementation session (sandboxed, no installed N64 core/ROM on the build
+machine) — the acceptance criterion's on-device step is explicitly gated on
+that per the release plan ("if blocked, file the blocker as a GitHub issue
+... and ship the HW-render layer dark"). The HW-render layer itself is fully
+exercised headlessly: the real CGL/FBO plumbing (not a mock) is created,
+drawn into via `glClearColor`/`glClear`/`glBindFramebuffer` resolved through
+the real `get_proc_address`, and read back with real, checkable non-blank
+GPU-rendered pixel content
+(`native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`) —
+the same proof-standard §2's `a_real_run_frame_tick_produces_genuine_video_and_audio_content`
+established for the original software/audio path. The `n64`/
+`mupen64plus_next` table row ships enabled (not dark) since the layer it
+depends on is proven; only the literal "boots a real N64 title" step is the
+human on-device follow-up, tracked as a filed blocker (see the release
+ledger) rather than blocking this branch.
 
 ## Follow-ups
 

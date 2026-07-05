@@ -20,9 +20,10 @@
 #![allow(dead_code)]
 
 use super::ffi;
+use super::hw_render::HwRenderRequest;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_void};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
@@ -36,7 +37,8 @@ use std::sync::Mutex;
 static LOGGED_UNHANDLED_ENV_CMDS: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
 
 /// Serializes every test in the crate that touches this module's
-/// process-global state ([`SINKS`], [`JOYPAD_STATE`], [`CORE_VARIABLES`]) —
+/// process-global state ([`SINKS`], [`JOYPAD_STATE`], [`CORE_VARIABLES`],
+/// [`HW_RENDER_CONTEXT`]) —
 /// `cargo test` runs tests in parallel threads within one process by
 /// default, and these statics are process-global by FFI necessity (see the
 /// module doc). `pub(crate)` (not `#[cfg(test)]`-gated) so other modules'
@@ -55,13 +57,20 @@ pub(crate) fn lock_tests() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// A decoded video frame, copied out of the core's buffer (which is only
-/// valid for the duration of the `retro_video_refresh_t` call).
+/// valid for the duration of the `retro_video_refresh_t` call) — OR, for a
+/// hardware-rendered core (W345), a marker that a new frame is sitting in
+/// the active [`super::hw_render::HwRenderContext`]'s FBO instead. `data` is
+/// empty and `pitch` is meaningless when [`Self::is_hw_frame`] is set; the
+/// run loop reads the real pixels back from the FBO
+/// ([`super::hw_render::HwRenderContext::read_frame_into`]), never from this
+/// struct, for that case.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoFrame {
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
     pub pitch: usize,
+    pub is_hw_frame: bool,
 }
 
 /// A batch of interleaved stereo `i16` samples (L, R, L, R, ...) — libretro's
@@ -165,6 +174,13 @@ pub enum EnvironmentEvent {
     /// works. Surfaced anyway so callers that want to react (e.g. resizing a
     /// UI element ahead of the next frame) can.
     GeometryChanged(GeometryUpdate),
+    /// `RETRO_ENVIRONMENT_SET_HW_RENDER` was accepted (W345) — the runtime
+    /// loop creates the [`super::hw_render::HwRenderContext`] in response
+    /// (never eagerly, and never for a core that didn't ask). Carries the
+    /// decoded request (flags + the core's `context_reset`/`context_destroy`
+    /// callbacks); the negotiation itself already happened synchronously in
+    /// [`environment`] by the time this is sent.
+    HwRenderRequested(HwRenderRequest),
     Shutdown,
 }
 
@@ -240,6 +256,7 @@ pub fn uninstall() {
     *sinks_lock() = None;
     JOYPAD_STATE.store(0, Ordering::Relaxed);
     *core_variables_lock() = None;
+    clear_hw_render_context();
 }
 
 /// Sets the full joypad bitmask [`input_state`] reads on the core's next
@@ -250,14 +267,33 @@ pub fn set_joypad_state(bits: u16) {
 
 /// `retro_video_refresh_t`. A null `data` means "this frame is a duplicate of
 /// the last one" (negotiated via `RETRO_ENVIRONMENT_GET_CAN_DUPE`) — dropped
-/// rather than forwarded, since there's nothing new to paint.
+/// rather than forwarded, since there's nothing new to paint. A `data` equal
+/// to [`ffi::RETRO_HW_FRAME_BUFFER_VALID`] (W345) means a hardware-rendered
+/// core already drew this frame into the FBO
+/// [`hw_get_current_framebuffer`] handed it — forwarded as an
+/// [`VideoFrame::is_hw_frame`] marker (no pixel bytes to copy; the run loop
+/// reads them back from the FBO itself) rather than treated as a real
+/// pointer.
 ///
 /// # Safety
-/// `data`, when non-null, must point to at least `pitch * height` readable
-/// bytes — the contract `retro_video_refresh_t` callers (the core, via
-/// `retro_run`) are required to uphold.
+/// `data`, when neither null nor [`ffi::RETRO_HW_FRAME_BUFFER_VALID`], must
+/// point to at least `pitch * height` readable bytes — the contract
+/// `retro_video_refresh_t` callers (the core, via `retro_run`) are required
+/// to uphold.
 pub unsafe extern "C" fn video_refresh(data: *const c_void, width: u32, height: u32, pitch: usize) {
     if data.is_null() {
+        return;
+    }
+    if data == ffi::RETRO_HW_FRAME_BUFFER_VALID {
+        if let Some(sinks) = sinks_lock().as_ref() {
+            let _ = sinks.video.send(VideoFrame {
+                data: Vec::new(),
+                width,
+                height,
+                pitch,
+                is_hw_frame: true,
+            });
+        }
         return;
     }
     let len = pitch.saturating_mul(height as usize);
@@ -268,6 +304,7 @@ pub unsafe extern "C" fn video_refresh(data: *const c_void, width: u32, height: 
             width,
             height,
             pitch,
+            is_hw_frame: false,
         });
     }
 }
@@ -415,12 +452,120 @@ unsafe fn set_variables(data: *mut c_void) -> bool {
     true
 }
 
+/// `retro_hw_get_current_framebuffer_t` — Harmony's answer, wired into every
+/// accepted [`ffi::RetroHwRenderCallback`]. Reads the active session's
+/// [`super::hw_render::HwRenderContext`] (installed by the runtime loop once
+/// it has actually created one in response to
+/// [`EnvironmentEvent::HwRenderRequested`]); before that point (or after
+/// teardown) there is nothing to render into, so this answers 0 — the
+/// libretro-defined "default framebuffer" sentinel, which a core calling
+/// this before context_reset has no business doing anyway.
+///
+/// # Safety
+/// Takes no arguments and touches no caller-supplied pointers; safe to call
+/// unconditionally. `unsafe extern "C"` only for ABI-signature uniformity
+/// with the rest of this callback set.
+pub unsafe extern "C" fn hw_get_current_framebuffer() -> usize {
+    active_hw_render_context()
+        .map(|ctx| ctx.current_framebuffer())
+        .unwrap_or(0)
+}
+
+/// `retro_hw_get_proc_address_t` — Harmony's answer, wired into every
+/// accepted [`ffi::RetroHwRenderCallback`]. `None` (a null answer, the
+/// libretro-defined "not found" result) with no active HW-render context or
+/// an unresolvable symbol — never a dangling pointer.
+///
+/// # Safety
+/// `sym`, when non-null, must be a valid, NUL-terminated C string — the
+/// `retro_hw_get_proc_address_t` contract.
+pub unsafe extern "C" fn hw_get_proc_address(sym: *const c_char) -> Option<ffi::RetroProcAddressFn> {
+    if sym.is_null() {
+        return None;
+    }
+    let name = unsafe { CStr::from_ptr(sym) }.to_string_lossy();
+    active_hw_render_context().and_then(|ctx| ctx.get_proc_address(&name))
+}
+
+/// The active session's [`super::hw_render::HwRenderContext`], if any —
+/// installed by the runtime loop after it creates one
+/// ([`super::runtime::CoreLoop`]'s HW-render bring-up) and cleared on
+/// teardown, mirroring how [`SINKS`] tracks the rest of a session's
+/// process-global state (see the module doc's rationale: libretro's
+/// pre-v2 callback ABI has no per-instance userdata pointer).
+static HW_RENDER_CONTEXT: Mutex<Option<std::sync::Arc<super::hw_render::HwRenderContext>>> =
+    Mutex::new(None);
+
+fn active_hw_render_context() -> Option<std::sync::Arc<super::hw_render::HwRenderContext>> {
+    HW_RENDER_CONTEXT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+}
+
+/// Installs the runtime's freshly created HW-render context so
+/// [`hw_get_current_framebuffer`]/[`hw_get_proc_address`] can answer the
+/// core's calls during `retro_run`. Called once per session, only after a
+/// core's `RETRO_ENVIRONMENT_SET_HW_RENDER` negotiation was accepted.
+pub fn install_hw_render_context(ctx: std::sync::Arc<super::hw_render::HwRenderContext>) {
+    *HW_RENDER_CONTEXT.lock().unwrap_or_else(|p| p.into_inner()) = Some(ctx);
+}
+
+/// Clears the active HW-render context — called on session teardown
+/// ([`uninstall`]) so a stray callback from a dying core thread never reaches
+/// a context another session is about to build.
+fn clear_hw_render_context() {
+    *HW_RENDER_CONTEXT.lock().unwrap_or_else(|p| p.into_inner()) = None;
+}
+
+/// `RETRO_ENVIRONMENT_SET_HW_RENDER`: decodes the core's partially-filled
+/// [`ffi::RetroHwRenderCallback`], accepts only a context type Harmony can
+/// actually create ([`ffi::RetroHwContextType::Opengl`] or
+/// [`ffi::RetroHwContextType::OpenglCore`] — CGL only speaks desktop OpenGL,
+/// never GLES/Vulkan/D3D), fills in `get_current_framebuffer`/
+/// `get_proc_address`, and forwards the rest
+/// ([`EnvironmentEvent::HwRenderRequested`]) so the runtime loop can actually
+/// build the context (never eagerly — this callback only negotiates, it
+/// never touches GL itself). Rejecting an unsupported context type answers
+/// `false`, exactly like any other unhandled environment command — the core
+/// then falls back to its own software path or fails `retro_load_game`
+/// cleanly, which the existing EJS fallback already covers.
+///
+/// # Safety
+/// `data`, when non-null, must point to a valid, mutable
+/// [`ffi::RetroHwRenderCallback`] — the `retro_environment_t` contract for
+/// `SET_HW_RENDER`.
+unsafe fn set_hw_render(data: *mut c_void) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let render = unsafe { &mut *(data as *mut ffi::RetroHwRenderCallback) };
+    if ffi::RetroHwContextType::from_raw(render.context_type).is_none() {
+        return false; // GLES/Vulkan/D3D/etc — no CGL equivalent, refuse cleanly
+    }
+    let request = HwRenderRequest {
+        depth: render.depth,
+        stencil: render.stencil,
+        bottom_left_origin: render.bottom_left_origin,
+        context_reset: render.context_reset,
+        context_destroy: render.context_destroy,
+    };
+    render.get_current_framebuffer = Some(hw_get_current_framebuffer);
+    render.get_proc_address = Some(hw_get_proc_address);
+    if let Some(sinks) = sinks_lock().as_ref() {
+        let _ = sinks
+            .environment
+            .send(EnvironmentEvent::HwRenderRequested(request));
+    }
+    true
+}
+
 /// `retro_environment_t`. Handles the subset of commands the design doc
 /// scopes in (overscan/dupe negotiation, pixel format, shutdown, message
 /// acknowledgment, core-declared option variables — W282, mid-game geometry
-/// renegotiation — W340); everything else reports unhandled (`false`),
-/// matching what a real core would see querying a feature Harmony doesn't
-/// implement.
+/// renegotiation — W340, HW-render negotiation — W345); everything else
+/// reports unhandled (`false`), matching what a real core would see querying
+/// a feature Harmony doesn't implement.
 ///
 /// # Safety
 /// `data`, when non-null, must point to a valid, correctly-typed output
@@ -474,6 +619,7 @@ pub unsafe extern "C" fn environment(cmd: u32, data: *mut c_void) -> bool {
             }
             true
         }
+        ffi::RETRO_ENVIRONMENT_SET_HW_RENDER => unsafe { set_hw_render(data) },
         ffi::RETRO_ENVIRONMENT_SHUTDOWN => {
             if let Some(sinks) = sinks_lock().as_ref() {
                 let _ = sinks.environment.send(EnvironmentEvent::Shutdown);
@@ -521,6 +667,38 @@ mod tests {
             .video
             .recv_timeout(Duration::from_millis(50))
             .is_err());
+        uninstall();
+    }
+
+    // ---- W345: RETRO_HW_FRAME_BUFFER_VALID sentinel ----
+
+    #[test]
+    fn video_refresh_with_the_hw_frame_sentinel_forwards_a_marker_not_pixel_data() {
+        let _guard = lock_tests();
+        let channels = install();
+        unsafe { video_refresh(ffi::RETRO_HW_FRAME_BUFFER_VALID, 320, 240, 0) };
+        let frame = channels
+            .video
+            .recv_timeout(Duration::from_millis(200))
+            .expect("a marker frame must be sent");
+        assert!(frame.is_hw_frame);
+        assert!(frame.data.is_empty(), "no pixel bytes are copied for a HW frame");
+        assert_eq!((frame.width, frame.height), (320, 240));
+        uninstall();
+    }
+
+    #[test]
+    fn video_refresh_with_real_data_is_not_marked_as_a_hw_frame() {
+        let _guard = lock_tests();
+        let channels = install();
+        let pixels: [u8; 4] = [1, 2, 3, 4];
+        unsafe { video_refresh(pixels.as_ptr() as *const c_void, 1, 1, 4) };
+        let frame = channels
+            .video
+            .recv_timeout(Duration::from_millis(200))
+            .expect("frame sent");
+        assert!(!frame.is_hw_frame);
+        assert_eq!(frame.data, pixels);
         uninstall();
     }
 
@@ -634,6 +812,175 @@ mod tests {
     fn environment_set_geometry_with_null_data_is_not_handled() {
         let _guard = lock_tests();
         assert!(!unsafe { environment(ffi::RETRO_ENVIRONMENT_SET_GEOMETRY, std::ptr::null_mut()) });
+    }
+
+    // ---- W345: RETRO_ENVIRONMENT_SET_HW_RENDER (HW-render negotiation) ----
+
+    unsafe extern "C" fn stub_context_reset() {}
+    unsafe extern "C" fn stub_context_destroy() {}
+
+    fn hw_render_callback(context_type: u32) -> ffi::RetroHwRenderCallback {
+        ffi::RetroHwRenderCallback {
+            context_type,
+            context_reset: Some(stub_context_reset),
+            get_current_framebuffer: None,
+            get_proc_address: None,
+            depth: true,
+            stencil: false,
+            bottom_left_origin: true,
+            version_major: 3,
+            version_minor: 1,
+            cache_context: false,
+            context_destroy: Some(stub_context_destroy),
+            debug_context: false,
+        }
+    }
+
+    #[test]
+    fn environment_accepts_opengl_core_hw_render_and_forwards_the_request() {
+        let _guard = lock_tests();
+        let channels = install();
+        let mut render = hw_render_callback(3 /* RETRO_HW_CONTEXT_OPENGL_CORE */);
+        let ok = unsafe {
+            environment(
+                ffi::RETRO_ENVIRONMENT_SET_HW_RENDER,
+                &mut render as *mut ffi::RetroHwRenderCallback as *mut c_void,
+            )
+        };
+        assert!(ok);
+        let event = channels
+            .environment
+            .recv_timeout(Duration::from_millis(200))
+            .expect("event sent");
+        match event {
+            EnvironmentEvent::HwRenderRequested(request) => {
+                assert!(request.depth);
+                assert!(!request.stencil);
+                assert!(request.bottom_left_origin);
+                assert!(request.context_reset.is_some());
+                assert!(request.context_destroy.is_some());
+            }
+            other => panic!("expected HwRenderRequested, got {other:?}"),
+        }
+        uninstall();
+    }
+
+    #[test]
+    fn environment_accepts_plain_opengl_hw_render() {
+        let _guard = lock_tests();
+        let channels = install();
+        let mut render = hw_render_callback(1 /* RETRO_HW_CONTEXT_OPENGL */);
+        let ok = unsafe {
+            environment(
+                ffi::RETRO_ENVIRONMENT_SET_HW_RENDER,
+                &mut render as *mut ffi::RetroHwRenderCallback as *mut c_void,
+            )
+        };
+        assert!(ok);
+        assert!(channels
+            .environment
+            .recv_timeout(Duration::from_millis(200))
+            .is_ok());
+        uninstall();
+    }
+
+    #[test]
+    fn environment_set_hw_render_fills_in_the_frontend_callbacks() {
+        let _guard = lock_tests();
+        let channels = install();
+        let mut render = hw_render_callback(3);
+        unsafe {
+            environment(
+                ffi::RETRO_ENVIRONMENT_SET_HW_RENDER,
+                &mut render as *mut ffi::RetroHwRenderCallback as *mut c_void,
+            )
+        };
+        assert!(render.get_current_framebuffer.is_some());
+        assert!(render.get_proc_address.is_some());
+        let _ = channels.environment.recv_timeout(Duration::from_millis(200));
+        uninstall();
+    }
+
+    #[test]
+    fn environment_rejects_an_unsupported_hw_context_type() {
+        let _guard = lock_tests();
+        let channels = install();
+        // RETRO_HW_CONTEXT_VULKAN (6) — no CGL equivalent, must be refused.
+        let mut render = hw_render_callback(6);
+        let ok = unsafe {
+            environment(
+                ffi::RETRO_ENVIRONMENT_SET_HW_RENDER,
+                &mut render as *mut ffi::RetroHwRenderCallback as *mut c_void,
+            )
+        };
+        assert!(!ok, "an unsupported context type must be refused, not silently accepted");
+        assert!(
+            channels
+                .environment
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "a refused negotiation must not forward an event"
+        );
+        // Harmony must not have overwritten the core's callback slots for a
+        // rejected negotiation — the core is expected to ignore them anyway,
+        // but leaving them untouched is the conservative, contract-correct
+        // behavior.
+        assert!(render.get_current_framebuffer.is_none());
+        assert!(render.get_proc_address.is_none());
+        uninstall();
+    }
+
+    #[test]
+    fn environment_set_hw_render_with_null_data_is_not_handled() {
+        let _guard = lock_tests();
+        assert!(!unsafe { environment(ffi::RETRO_ENVIRONMENT_SET_HW_RENDER, std::ptr::null_mut()) });
+    }
+
+    #[test]
+    fn hw_get_current_framebuffer_answers_zero_with_no_active_context() {
+        let _guard = lock_tests();
+        clear_hw_render_context();
+        assert_eq!(unsafe { hw_get_current_framebuffer() }, 0);
+    }
+
+    #[test]
+    fn hw_get_proc_address_answers_none_with_no_active_context() {
+        let _guard = lock_tests();
+        clear_hw_render_context();
+        let sym = CString::new("glGetString").unwrap();
+        assert!(unsafe { hw_get_proc_address(sym.as_ptr()) }.is_none());
+    }
+
+    #[test]
+    fn hw_get_proc_address_with_null_sym_is_none() {
+        let _guard = lock_tests();
+        assert!(unsafe { hw_get_proc_address(std::ptr::null()) }.is_none());
+    }
+
+    #[test]
+    fn uninstall_clears_the_active_hw_render_context() {
+        let _guard = lock_tests();
+        // Build a real context via the same test-only path hw_render's own
+        // tests use, install it, then confirm uninstall() tears it back out —
+        // proving the "unload cleanly so a second session can start"
+        // acceptance criterion at the FFI-callback layer, not just the
+        // HwRenderContext layer hw_render.rs's own tests already cover.
+        #[cfg(target_os = "macos")]
+        {
+            let request = HwRenderRequest {
+                depth: false,
+                stencil: false,
+                bottom_left_origin: false,
+                context_reset: None,
+                context_destroy: None,
+            };
+            let ctx = super::super::hw_render::HwRenderContext::create(2, 2, request)
+                .expect("headless CGL context");
+            install_hw_render_context(std::sync::Arc::new(ctx));
+            assert_ne!(unsafe { hw_get_current_framebuffer() }, 0);
+            uninstall();
+            assert_eq!(unsafe { hw_get_current_framebuffer() }, 0);
+        }
     }
 
     #[test]

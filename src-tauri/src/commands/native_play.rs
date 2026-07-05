@@ -323,14 +323,26 @@ pub fn stop_native_play(session: State<'_, NativeSession>) -> AppResult<()> {
 }
 
 /// How many bytes of header precede the RGBA payload in a non-empty
-/// `get_native_frame` response: `[seq: u64 LE][width: u32 LE][height: u32 LE]`.
-/// Mirrored by the frontend parser (`nativeFrame.ts`).
-const FRAME_HEADER_BYTES: usize = 16;
+/// `get_native_frame` response: `[seq: u64 LE][width: u32 LE][height: u32
+/// LE][aspect_ratio: f32 LE]`. Mirrored by the frontend parser
+/// (`nativeFrame.ts`). The `aspect_ratio` field is a W345 addition (fixing
+/// the W340 reviewer note that `GeometryChanged.aspect_ratio` was logged but
+/// never propagated to the frontend) — purely additive to the existing
+/// 16-byte header, so it's still `[seq][width][height]` followed by 4 more
+/// bytes, never a reordering.
+const FRAME_HEADER_BYTES: usize = 20;
 
-/// Encodes a frame poll answer for the raw-bytes IPC channel (W239).
-/// An empty body means "nothing to paint" — no session, no frame yet, or the
-/// caller already holds this sequence number. Otherwise: the 16-byte header
-/// followed by the tightly-packed RGBA8888 pixels.
+/// `0.0` in the wire header means "unset — derive the aspect ratio from
+/// `width`/`height`", matching libretro's own non-positive-aspect-ratio
+/// convention (see `play::native::runtime`'s `positive_aspect_ratio`) —
+/// shared here so the encoder and any future decoder agree on the sentinel.
+const ASPECT_RATIO_UNSET: f32 = 0.0;
+
+/// Encodes a frame poll answer for the raw-bytes IPC channel (W239, header
+/// extended for aspect ratio in W345). An empty body means "nothing to
+/// paint" — no session, no frame yet, or the caller already holds this
+/// sequence number. Otherwise: the 20-byte header followed by the
+/// tightly-packed RGBA8888 pixels.
 fn encode_frame_response(last_seq: u64, frame: Option<(u64, Rgba8Frame)>) -> Vec<u8> {
     match frame {
         Some((seq, frame)) if seq != last_seq => {
@@ -338,6 +350,7 @@ fn encode_frame_response(last_seq: u64, frame: Option<(u64, Rgba8Frame)>) -> Vec
             out.extend_from_slice(&seq.to_le_bytes());
             out.extend_from_slice(&frame.width.to_le_bytes());
             out.extend_from_slice(&frame.height.to_le_bytes());
+            out.extend_from_slice(&frame.aspect_ratio.unwrap_or(ASPECT_RATIO_UNSET).to_le_bytes());
             out.extend_from_slice(&frame.data);
             out
         }
@@ -546,6 +559,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
                 data: vec![1, 2, 3, 4, 5, 6, 7, 8],
                 width: 2,
                 height: 1,
+                aspect_ratio: None,
             },
         ))
     }
@@ -557,7 +571,25 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         assert_eq!(u64::from_le_bytes(out[0..8].try_into().unwrap()), 7);
         assert_eq!(u32::from_le_bytes(out[8..12].try_into().unwrap()), 2);
         assert_eq!(u32::from_le_bytes(out[12..16].try_into().unwrap()), 1);
-        assert_eq!(&out[16..], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        // No aspect ratio was set on this frame — the wire sentinel (0.0,
+        // "derive from width/height") is encoded, not a garbage value.
+        assert_eq!(f32::from_le_bytes(out[16..20].try_into().unwrap()), 0.0);
+        assert_eq!(&out[20..], &[1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn encodes_a_real_aspect_ratio_when_the_frame_carries_one() {
+        let frame = Some((
+            7,
+            Rgba8Frame {
+                data: vec![9, 9, 9, 9],
+                width: 1,
+                height: 1,
+                aspect_ratio: Some(16.0 / 9.0),
+            },
+        ));
+        let out = encode_frame_response(0, frame);
+        assert_eq!(f32::from_le_bytes(out[16..20].try_into().unwrap()), 16.0 / 9.0);
     }
 
     #[test]
@@ -747,7 +779,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         *lock(&session) = Some(runtime);
 
         // Poll until a real frame lands, then assert get_native_frame's
-        // exact encoding: a non-empty body carrying the 16-byte header +
+        // exact encoding: a non-empty body carrying the header (FRAME_HEADER_BYTES) +
         // real, non-blank RGBA8888 pixels for a fresh sequence number.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut body = Vec::new();

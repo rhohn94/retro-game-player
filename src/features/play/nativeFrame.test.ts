@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 import { FRAME_HEADER_BYTES, parseFrameBuffer } from "./nativeFrame";
 
 /** Builds a wire-format buffer the way the Rust encoder does. */
-function encodeFrame(seq: number, width: number, height: number, pixels: number[]): ArrayBuffer {
+function encodeFrame(
+  seq: number,
+  width: number,
+  height: number,
+  pixels: number[],
+  aspectRatio = 0,
+): ArrayBuffer {
   const buf = new ArrayBuffer(FRAME_HEADER_BYTES + pixels.length);
   const view = new DataView(buf);
   view.setBigUint64(0, BigInt(seq), true);
   view.setUint32(8, width, true);
   view.setUint32(12, height, true);
+  view.setFloat32(16, aspectRatio, true);
   new Uint8Array(buf, FRAME_HEADER_BYTES).set(pixels);
   return buf;
 }
@@ -20,7 +27,14 @@ describe("parseFrameBuffer", () => {
     expect(frame?.seq).toBe(7);
     expect(frame?.width).toBe(2);
     expect(frame?.height).toBe(1);
+    expect(frame?.aspectRatio).toBeNull();
     expect(Array.from(frame?.bytes ?? [])).toEqual([255, 0, 0, 255, 0, 255, 0, 255]);
+  });
+
+  it("parses a real aspect ratio when the header carries one", () => {
+    const buf = encodeFrame(7, 2, 1, [1, 2, 3, 4, 5, 6, 7, 8], 4 / 3);
+    const frame = parseFrameBuffer(buf);
+    expect(frame?.aspectRatio).toBeCloseTo(4 / 3, 5);
   });
 
   it("returns a zero-copy view into the transferred buffer", () => {
