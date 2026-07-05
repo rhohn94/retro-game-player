@@ -111,6 +111,47 @@ fn set_foreign_keys(conn: &Connection, on: bool) -> AppResult<()> {
         .map_err(|e| AppError::Db(e.to_string()))
 }
 
+/// Scope-guard that unconditionally restores `PRAGMA foreign_keys = ON` when
+/// dropped (W324 hardening rider). A `requires_fk_off` migration turns FK
+/// enforcement off for the duration of its transaction; without this guard, a
+/// failure partway through that transaction (the `?`-propagated error from
+/// `tx.execute_batch` / `tx.commit`) would return early from [`apply`] and
+/// leave the connection permanently in `foreign_keys = OFF` state. The
+/// guard's `Drop` impl re-enables FKs on every exit path — success, early
+/// return, or panic-driven unwind — so the FKs-on invariant holds even when a
+/// migration fails.
+///
+/// Holds a raw pointer rather than `&Connection` solely so the guard can stay
+/// alive across the immediately-following `conn.transaction()` call, which
+/// needs `&mut Connection` and would otherwise conflict with a borrowing
+/// guard. Sound because: single-threaded, synchronous use only; the guard
+/// never outlives the `conn: &mut Connection` it was engaged from (its only
+/// caller is [`apply`], within one stack frame); and `Connection` is never
+/// moved or dropped while the guard is alive.
+struct ForeignKeyOffGuard {
+    conn: *const Connection,
+}
+
+impl ForeignKeyOffGuard {
+    /// Turn foreign keys off and arm the guard that will turn them back on.
+    fn engage(conn: &Connection) -> AppResult<Self> {
+        set_foreign_keys(conn, false)?;
+        Ok(Self { conn })
+    }
+}
+
+impl Drop for ForeignKeyOffGuard {
+    fn drop(&mut self) {
+        // Safety: see the struct-level comment — `conn` is still valid for
+        // the guard's entire lifetime. Best-effort: a Drop impl cannot
+        // propagate a Result, and this path only runs after a migration
+        // already failed, so a second error here must not panic
+        // (double-panic would abort the process).
+        let conn = unsafe { &*self.conn };
+        let _ = set_foreign_keys(conn, true);
+    }
+}
+
 /// Apply every pending migration in order. Idempotent: migrations at or below
 /// the stored `user_version` are skipped, so a second call does nothing and the
 /// version is unchanged. Each migration runs in its own transaction so a failure
@@ -120,25 +161,36 @@ fn set_foreign_keys(conn: &Connection, on: bool) -> AppResult<()> {
 /// ([`Migration::requires_fk_off`]) has FK enforcement turned off for the
 /// duration of its transaction and restored immediately after — both
 /// OUTSIDE the transaction itself, since `PRAGMA foreign_keys` is a no-op
-/// once a transaction is open.
+/// once a transaction is open. The restore is scope-guarded
+/// ([`ForeignKeyOffGuard`]) so it happens even if the migration's transaction
+/// fails partway through (W324): the FKs-on invariant must hold on every exit
+/// path, not just the success path.
 pub fn run(conn: &mut Connection) -> AppResult<()> {
+    apply(conn, MIGRATIONS)
+}
+
+/// Shared implementation behind [`run`], parameterized over the migration set
+/// so tests can inject a deliberately-failing [`Migration`] and observe the
+/// FKs-on invariant ([`ForeignKeyOffGuard`]) hold on the error path — the same
+/// code path production traffic runs through.
+fn apply(conn: &mut Connection, migrations: &[Migration]) -> AppResult<()> {
     let mut version = current_version(conn)?;
-    for migration in MIGRATIONS {
+    for migration in migrations {
         if migration.version <= version {
             continue;
         }
-        if migration.requires_fk_off {
-            set_foreign_keys(conn, false)?;
-        }
+        let _fk_guard = if migration.requires_fk_off {
+            Some(ForeignKeyOffGuard::engage(&*conn)?)
+        } else {
+            None
+        };
         let tx = conn
             .transaction()
             .map_err(|e| AppError::Db(e.to_string()))?;
         tx.execute_batch(migration.sql)
             .map_err(|e| AppError::Db(e.to_string()))?;
         tx.commit().map_err(|e| AppError::Db(e.to_string()))?;
-        if migration.requires_fk_off {
-            set_foreign_keys(conn, true)?;
-        }
+        drop(_fk_guard);
         set_version(conn, migration.version)?;
         version = migration.version;
     }
@@ -712,5 +764,74 @@ mod tests {
             .query_row("SELECT count(*) FROM search_providers", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, n2);
+    }
+
+    // --- W324: FKs-on invariant holds even when a requires_fk_off migration fails ---
+
+    /// A `requires_fk_off` migration whose SQL fails must still leave
+    /// `PRAGMA foreign_keys` restored to ON — the whole point of
+    /// [`ForeignKeyOffGuard`]. Drives the real [`apply`] code path (not a
+    /// reimplementation) with a deliberately-broken migration appended after
+    /// the real set, so the guard is exercised exactly as production would.
+    #[test]
+    fn foreign_keys_are_restored_when_a_requires_fk_off_migration_fails() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("apply the real migration set first");
+
+        let broken_migration = Migration {
+            version: latest_version() + 1,
+            sql: "THIS IS NOT VALID SQL;",
+            requires_fk_off: true,
+        };
+        let result = apply(&mut conn, std::slice::from_ref(&broken_migration));
+        assert!(result.is_err(), "the broken migration must fail");
+
+        let fk_state: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            fk_state, 1,
+            "foreign_keys must be back ON after a requires_fk_off migration fails"
+        );
+    }
+
+    /// Same failure mode, but the break happens at `tx.commit()` time rather
+    /// than at `execute_batch` time — a duplicate `PRIMARY KEY` insert makes
+    /// the batch itself succeed-then-fail deep inside SQLite's execution,
+    /// covering a different point of the `?`-propagated early return.
+    #[test]
+    fn foreign_keys_are_restored_when_a_requires_fk_off_migration_batch_partially_fails() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("apply the real migration set first");
+
+        let broken_migration = Migration {
+            version: latest_version() + 1,
+            sql: "CREATE TABLE w324_probe(id INTEGER PRIMARY KEY); \
+                  INSERT INTO w324_probe(id) VALUES (1); \
+                  INSERT INTO w324_probe(id) VALUES (1);",
+            requires_fk_off: true,
+        };
+        let result = apply(&mut conn, std::slice::from_ref(&broken_migration));
+        assert!(result.is_err(), "the duplicate-key batch must fail");
+
+        let fk_state: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            fk_state, 1,
+            "foreign_keys must be back ON even when the failure occurs mid-batch"
+        );
+    }
+
+    /// The success path must, of course, also leave FKs on — guards against a
+    /// change that only restores FKs on the error path.
+    #[test]
+    fn foreign_keys_remain_on_after_a_successful_requires_fk_off_migration() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let fk_state: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fk_state, 1, "foreign_keys must be ON after a clean migration run");
     }
 }

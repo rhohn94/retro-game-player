@@ -24,6 +24,7 @@ import {
 } from "../../../ipc/sources";
 import { openFileDialog } from "../../../ipc/dialog";
 import { isAppError } from "../../../ipc/commands";
+import { manualNameError, manualTargetError, selectChecked } from "./gameSourcesGating";
 
 const inputStyle: React.CSSProperties = {
   padding: "8px 12px",
@@ -93,7 +94,7 @@ export function GameSourcesPane() {
 
   async function handleConfirmShortlist() {
     if (!shortlist) return;
-    const chosen = shortlist.filter((r) => r.checked).map((r) => r.game);
+    const chosen = selectChecked(shortlist.map((row) => ({ item: row.game, checked: row.checked })));
     if (chosen.length === 0) {
       setShortlist(null);
       return;
@@ -130,21 +131,11 @@ export function GameSourcesPane() {
     }
   }
 
-  function manualNameError(): string | null {
-    if (manualName.trim().length === 0) return "Name is required.";
-    return null;
-  }
-
-  function manualTargetError(): string | null {
-    if (!manualTarget) return "Choose an app or executable.";
-    return null;
-  }
-
   async function handleAddManual() {
     setError(null);
     setStatus(null);
-    const nameErr = manualNameError();
-    const targetErr = manualTargetError();
+    const nameErr = manualNameError(manualName);
+    const targetErr = manualTargetError(manualTarget);
     if (nameErr || targetErr) {
       setError(nameErr ?? targetErr);
       return;
