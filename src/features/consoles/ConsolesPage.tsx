@@ -18,6 +18,7 @@ import { artUrl } from "../library/art";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
 import { EmptyState } from "../../components/EmptyState";
+import { swallow } from "../../ipc/swallow";
 
 /** One focusable console card. */
 function ConsoleCard({
@@ -83,7 +84,7 @@ export function ConsolesPage() {
               if (isCancelled()) return;
               setConsoles((prev) => prev.map((x) => (x.key === full.key ? full : x)));
             })
-            .catch(() => undefined);
+            .catch((err: unknown) => swallow(err, "ConsolesPage.lazyFetchConsoleMedia", "info"));
         }
       })
       .catch((err: unknown) => {

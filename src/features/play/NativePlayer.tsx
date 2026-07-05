@@ -77,6 +77,7 @@ import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
 import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
+import { swallow } from "../../ipc/swallow";
 
 /** Ducked audio gain while the game plays as the page background (W235). */
 const ATTRACT_GAIN = 0.3;
@@ -194,7 +195,7 @@ export function NativePlayer({
   const effectiveGainRef = useRef(effectiveGain);
   effectiveGainRef.current = effectiveGain;
   useEffect(() => {
-    void setNativeVolume(effectiveGain).catch(() => undefined);
+    void setNativeVolume(effectiveGain).catch((err: unknown) => swallow(err, "NativePlayer.applyEffectiveGain"));
   }, [effectiveGain]);
 
   // Spectator transitions (W235 attract; W273 preview from mount): release
@@ -204,8 +205,11 @@ export function NativePlayer({
   useEffect(() => {
     if (spectator) {
       setOverlayOpen(false); // a spectator shows the running game, never a menu
-      void setNativePaused(false).catch(() => undefined);
-      void releaseAllNativeInput().catch(() => undefined); // v0.35 W351: release every port, not just port 0
+      void setNativePaused(false).catch((err: unknown) => swallow(err, "NativePlayer.spectatorTransition.resume"));
+      // v0.35 W351: release every port, not just port 0
+      void releaseAllNativeInput().catch((err: unknown) =>
+        swallow(err, "NativePlayer.spectatorTransition.release"),
+      );
     }
   }, [spectator]);
 
@@ -219,14 +223,15 @@ export function NativePlayer({
     // `menu`), stomping the release-to-zero below and leaking a one-frame
     // Start press to the core (W275).
     overlayOpenRef.current = true;
-    void releaseAllNativeInput().catch(() => undefined); // v0.35 W351: release held buttons on every port
-    void setNativePaused(true).catch(() => undefined);
+    // v0.35 W351: release held buttons on every port
+    void releaseAllNativeInput().catch((err: unknown) => swallow(err, "NativePlayer.openOverlay.release"));
+    void setNativePaused(true).catch((err: unknown) => swallow(err, "NativePlayer.openOverlay.pause"));
   }, []);
 
   const closeOverlay = useCallback(() => {
     setOverlayOpen(false);
     overlayOpenRef.current = false; // eager mirror — see openOverlay
-    void setNativePaused(false).catch(() => undefined);
+    void setNativePaused(false).catch((err: unknown) => swallow(err, "NativePlayer.closeOverlay.resume"));
   }, []);
 
   // Keep the latest onExit reachable from the stable overlay-menu callback.
@@ -253,7 +258,7 @@ export function NativePlayer({
           if (isCancelled()) return;
           setContinueTarget((continueSlot(saves, "native")?.slot as SaveSlot | undefined) ?? null);
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => swallow(err, "NativePlayer.loadContinueTarget"));
     },
     [gameId, preview],
   );
@@ -262,7 +267,7 @@ export function NativePlayer({
     if (!slot) return;
     loadNativeState(slot)
       .then(() => setContinueTarget(null))
-      .catch(() => undefined);
+      .catch((err: unknown) => swallow(err, "NativePlayer.onContinue"));
   }, [continueTarget]);
 
   const { items, status, resetView } = useOverlayMenu({
@@ -372,13 +377,15 @@ export function NativePlayer({
       heldKeys.clear();
       if (pauseOnBlurRef.current && !overlayOpenRef.current) {
         blurPaused = true;
-        void setNativePaused(true).catch(() => undefined);
+        void setNativePaused(true).catch((err: unknown) => swallow(err, "NativePlayer.onBlur.pause"));
       }
     };
     const onFocus = () => {
       if (!blurPaused) return;
       blurPaused = false;
-      if (!overlayOpenRef.current) void setNativePaused(false).catch(() => undefined);
+      if (!overlayOpenRef.current) {
+        void setNativePaused(false).catch((err: unknown) => swallow(err, "NativePlayer.onFocus.resume"));
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -509,7 +516,10 @@ export function NativePlayer({
           }
         })
         .catch(() => {
-          /* a poll failing isn't fatal — try again next tick */
+          // Intentional silent swallow (not routed through swallow()): this
+          // poll fires every rAF tick (up to ~60/s), so logging each failure
+          // would flood telemetry for a transient hiccup that self-heals next
+          // tick — a poll failing isn't fatal, just try again next tick.
         })
         .finally(() => {
           inFlight = false;
@@ -523,11 +533,14 @@ export function NativePlayer({
         if (cancelled) return;
         // A fresh session starts at gain 1.0 backend-side — re-apply the
         // user's persisted volume (and any attract duck) immediately.
-        void setNativeVolume(effectiveGainRef.current).catch(() => undefined);
+        void setNativeVolume(effectiveGainRef.current).catch((err: unknown) =>
+          swallow(err, "NativePlayer.reapplyGainOnStart"),
+        );
         frameHandle = requestAnimationFrame(paintNextFrame);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!cancelled) onStartFailed?.();
+        swallow(err, "NativePlayer.startNativePlay");
       });
 
     return () => {
@@ -537,7 +550,8 @@ export function NativePlayer({
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
-      void releaseAllNativeInput().catch(() => undefined); // v0.35 W351: release every port before tearing down
+      // v0.35 W351: release every port before tearing down
+      void releaseAllNativeInput().catch((err: unknown) => swallow(err, "NativePlayer.teardown.release"));
       void stopNativePlay();
       renderer?.dispose(); // free the GL texture/VAO/program before the canvas unmounts
     };

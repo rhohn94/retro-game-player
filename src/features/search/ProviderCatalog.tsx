@@ -18,6 +18,7 @@ import { dialogPop } from "../../lib/motion";
 import { listProviderCatalog, addProvider } from "../../ipc/search";
 import type { CatalogProvider, SearchProvider } from "../../ipc/search";
 import { isAppError } from "../../ipc/commands";
+import { swallow } from "../../ipc/swallow";
 
 interface ProviderCatalogProps {
   open: boolean;
@@ -160,7 +161,10 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
     setError(null);
     listProviderCatalog()
       .then(setEntries)
-      .catch(() => setEntries([]));
+      .catch((err: unknown) => {
+        setEntries([]);
+        swallow(err, "ProviderCatalog.load");
+      });
   }, [open]);
 
   const mediaTypes = useMemo(

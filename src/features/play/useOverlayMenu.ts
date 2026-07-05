@@ -9,6 +9,7 @@ import { listGameSaves } from "../../ipc/native-play";
 import type { GameSaves, SaveSlot } from "../../ipc/native-play";
 import type { OverlayItem } from "./PlayerOverlay";
 import { slotRows } from "./saveSlots";
+import { swallow } from "../../ipc/swallow";
 
 export interface OverlayMenuConfig {
   gameId: number;
@@ -48,7 +49,10 @@ export function useOverlayMenu(config: OverlayMenuConfig): OverlayMenu {
   const refreshSaves = useCallback(() => {
     listGameSaves(cfg.current.gameId)
       .then(setSaves)
-      .catch(() => setSaves(null));
+      .catch((err: unknown) => {
+        setSaves(null);
+        swallow(err, "useOverlayMenu.refreshSaves");
+      });
   }, []);
 
   // Refresh the inventory each time the overlay opens (cheap disk read).

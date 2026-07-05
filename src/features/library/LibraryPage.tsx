@@ -27,6 +27,7 @@ import { useBoxart } from "./useBoxart";
 import { LibraryFilters } from "./LibraryFilters";
 import { pickRomFiles, runImport, summarizeImport } from "./import";
 import { EMPTY_CRITERIA, facetValues, filterGames, type FilterCriteria } from "./filter";
+import { swallow } from "../../ipc/swallow";
 
 /** The large hero teaser over the backdrop: cover + title + system + Play. */
 function HeroTeaser({ game }: { game: Game | null }) {
@@ -52,7 +53,11 @@ function HeroTeaser({ game }: { game: Game | null }) {
           <p className="rgp-hero__system">{game.system}</p>
           <AuraButton
             class="rgp-hero__play"
-            onClick={() => void launchGame(game.id).catch(() => undefined)}
+            onClick={() =>
+              void launchGame(game.id).catch((err: unknown) =>
+                swallow(err, "LibraryPage.HeroTeaser.launch"),
+              )
+            }
           >
             ▶ Play
           </AuraButton>

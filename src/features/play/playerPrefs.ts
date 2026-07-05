@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getPlayerPrefs, setPlayerPrefs } from "../../ipc/player-prefs";
+import { swallow } from "../../ipc/swallow";
 
 /** How long after the last volume change the persist write fires. */
 const PERSIST_DEBOUNCE_MS = 400;
@@ -65,7 +66,7 @@ export function usePlayerPrefs(onVolumeApplied?: (volume: number) => void): Play
         if (v > 0) lastAudible.current = v;
         applyRef.current?.(v);
       })
-      .catch(() => undefined); // defaults (1, true) stand
+      .catch((err: unknown) => swallow(err, "usePlayerPrefs.load")); // defaults (1, true) stand
     return () => {
       cancelled = true;
       if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
@@ -79,8 +80,8 @@ export function usePlayerPrefs(onVolumeApplied?: (volume: number) => void): Play
     applyRef.current?.(v);
     if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(() => {
-      void setPlayerPrefs({ volume: v, pauseOnBlur: pauseOnBlurRef.current }).catch(
-        () => undefined,
+      void setPlayerPrefs({ volume: v, pauseOnBlur: pauseOnBlurRef.current }).catch((err: unknown) =>
+        swallow(err, "usePlayerPrefs.persistVolume"),
       );
     }, PERSIST_DEBOUNCE_MS);
   }, []);
