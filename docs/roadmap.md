@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.32 — Sources Complete (in flight)
+## v0.32 — Sources Complete (implementation complete — pending release)
 
 **Theme:** Finish Horizon H1 — every game on the system discoverable, with art.
 
