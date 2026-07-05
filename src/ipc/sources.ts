@@ -1,7 +1,8 @@
 // Typed wrappers for the non-ROM game-source commands (v0.31 W312/W313
-// "Frontier" — see `docs/design/non-retro-library-design.md` §Game sources).
-// Each function calls `invoke` with the command name and resolves a typed
-// result or throws a typed AppError.
+// "Frontier"; v0.32 W320 adds GOG + itch — see
+// `docs/design/non-retro-library-design.md` §Game sources). Each function
+// calls `invoke` with the command name and resolves a typed result or throws
+// a typed AppError.
 
 import { invoke } from "./invoke";
 import type { GameSource } from "./library";
@@ -26,6 +27,28 @@ export interface SourceScanReport {
  */
 export function scanSteamSource(): Promise<SourceScanReport> {
   return invoke<SourceScanReport>("scan_steam_source");
+}
+
+/**
+ * Scan the local GOG Galaxy installation for installed games (Galaxy's local
+ * manifest records and/or `.app` bundles under the Galaxy games install
+ * root; no network calls) and upsert each into the library. Returns a
+ * `{ discovered, added, updated }` summary. A machine without GOG Galaxy
+ * installed yields `discovered: 0`, not an error (v0.32 W320).
+ */
+export function scanGogSource(): Promise<SourceScanReport> {
+  return invoke<SourceScanReport>("scan_gog_source");
+}
+
+/**
+ * Scan the local itch installation for installed games (the itch app's
+ * local install receipts and/or a fallback install-directory scan; no
+ * network calls) and upsert each into the library. Returns a
+ * `{ discovered, added, updated }` summary. A machine without itch installed
+ * yields `discovered: 0`, not an error (v0.32 W320).
+ */
+export function scanItchSource(): Promise<SourceScanReport> {
+  return invoke<SourceScanReport>("scan_itch_source");
 }
 
 /** A shortlisted-but-unconfirmed game (mirrors Rust `DiscoveredGameDto`). */

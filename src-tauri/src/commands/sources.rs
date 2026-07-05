@@ -9,12 +9,15 @@
 //! - `scan_app_source` — enumerate the app shortlist; creates no rows (W313).
 //! - `confirm_app_entries` — upsert the user-confirmed subset of a shortlist.
 //! - `add_manual_entry` — the manual-entry escape hatch (name + app/exec target).
+//! - `scan_gog_source` — scan + upsert GOG Galaxy installs, return counts (W320).
+//! - `scan_itch_source` — scan + upsert itch installs, return counts (W320).
 //!
 //! After each upsert, `upsert_discovered` best-effort-fetches art for the row
 //! (Steam CDN for `steam` rows keyed on appid; `.app` bundle-icon render for
-//! `app`/`manual` rows backed by a bundle) via `core::metadata::steam_art` /
-//! `core::metadata::bundle_icon` — reusing the existing `art_cache` pipeline
-//! (W314). Art failures never fail the scan/confirm command itself.
+//! `app`/`manual`/`gog`/`itch` rows backed by a bundle) via
+//! `core::metadata::steam_art` / `core::metadata::bundle_icon` — reusing the
+//! existing `art_cache` pipeline (W314). Art failures never fail the
+//! scan/confirm command itself.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -24,6 +27,8 @@ use crate::core::metadata::bundle_icon::fetch_bundle_icon_art;
 use crate::core::metadata::name_sanitizer::sanitize;
 use crate::core::metadata::steam_art::fetch_steam_art;
 use crate::core::sources::app_scan::AppScanner;
+use crate::core::sources::gog::GogScanner;
+use crate::core::sources::itch::ItchScanner;
 use crate::core::sources::steam::SteamScanner;
 use crate::core::sources::{DiscoveredGame, GameSourceScanner};
 use crate::db::repo::library::{GameSource, LibraryRepo, NewGame};
@@ -98,7 +103,7 @@ async fn acquire_art_best_effort(db: &Db, game_id: i64, source: GameSource, art_
         GameSource::Steam => {
             let _ = fetch_steam_art(db, &paths, game_id, hint).await;
         }
-        GameSource::App | GameSource::Manual => {
+        GameSource::App | GameSource::Manual | GameSource::Gog | GameSource::Itch => {
             let sanitized_name = sanitize(hint);
             let _ = fetch_bundle_icon_art(db, &paths, game_id, hint, &sanitized_name);
         }
@@ -177,6 +182,30 @@ async fn upsert_discovered(
 pub async fn scan_steam_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
     let repo = LibraryRepo::new(&db);
     let scanner = SteamScanner::default_location();
+    let discovered = scanner.scan()?;
+    upsert_discovered(&repo, discovered).await
+}
+
+/// Scan for installed GOG Galaxy titles (Galaxy's local manifest records
+/// and/or `.app` bundles under the Galaxy games install root; no network
+/// calls) and upsert each into the library. A missing GOG Galaxy install
+/// yields a report with `discovered: 0` rather than an error (W320).
+#[tauri::command]
+pub async fn scan_gog_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
+    let repo = LibraryRepo::new(&db);
+    let scanner = GogScanner::default_location();
+    let discovered = scanner.scan()?;
+    upsert_discovered(&repo, discovered).await
+}
+
+/// Scan for installed itch titles (the itch app's local install receipts
+/// and/or a fallback install-directory scan; no network calls) and upsert
+/// each into the library. A missing itch install yields a report with
+/// `discovered: 0` rather than an error (W320).
+#[tauri::command]
+pub async fn scan_itch_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
+    let repo = LibraryRepo::new(&db);
+    let scanner = ItchScanner::default_location();
     let discovered = scanner.scan()?;
     upsert_discovered(&repo, discovered).await
 }
@@ -404,5 +433,63 @@ mod tests {
     fn acquire_art_best_effort_is_noop_when_hint_absent() {
         let db = Db::open_in_memory().unwrap();
         tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Steam, None));
+    }
+
+    // --- acquire_art_best_effort (W320: gog/itch route through bundle-icon art) ---
+
+    /// A missing art hint for a `gog` row must short-circuit before touching
+    /// the filesystem, same as every other non-ROM source.
+    #[test]
+    fn acquire_art_best_effort_is_noop_for_gog_without_hint() {
+        let db = Db::open_in_memory().unwrap();
+        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Gog, None));
+    }
+
+    /// A missing art hint for an `itch` row must short-circuit before
+    /// touching the filesystem, same as every other non-ROM source.
+    #[test]
+    fn acquire_art_best_effort_is_noop_for_itch_without_hint() {
+        let db = Db::open_in_memory().unwrap();
+        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Itch, None));
+    }
+
+    // --- new_game_for_source (W320: gog/itch rows share the App/Manual shape) ---
+
+    /// `new_game_for_source` never leaves a `gog` row with a rom identity —
+    /// mirrors the App-source invariant test above.
+    #[test]
+    fn new_game_for_source_gog_has_no_rom_identity() {
+        let game = new_game_for_source(
+            "GWENT".to_string(),
+            GameSource::Gog,
+            Some("1097893768".to_string()),
+            serde_json::json!({ "kind": "app", "bundle_path": "/Applications/GWENT.app" }),
+            None,
+        )
+        .unwrap();
+        assert!(game.folder_id.is_none());
+        assert!(game.path.is_none());
+        assert!(game.system.is_none());
+        assert!(game.launch_descriptor.is_some());
+        assert_eq!(game.source, GameSource::Gog);
+    }
+
+    /// `new_game_for_source` never leaves an `itch` row with a rom identity —
+    /// mirrors the App-source invariant test above.
+    #[test]
+    fn new_game_for_source_itch_has_no_rom_identity() {
+        let game = new_game_for_source(
+            "Celeste".to_string(),
+            GameSource::Itch,
+            Some("user/celeste".to_string()),
+            serde_json::json!({ "kind": "app", "bundle_path": "/Applications/Celeste.app" }),
+            None,
+        )
+        .unwrap();
+        assert!(game.folder_id.is_none());
+        assert!(game.path.is_none());
+        assert!(game.system.is_none());
+        assert!(game.launch_descriptor.is_some());
+        assert_eq!(game.source, GameSource::Itch);
     }
 }
