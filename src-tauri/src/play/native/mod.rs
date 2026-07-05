@@ -25,8 +25,9 @@ mod systems;
 
 pub use callbacks::{
     audio_sample_batch, environment, input_poll, input_state, install, install_hw_render_context,
-    set_core_variables, set_joypad_state, uninstall, AudioBatch, CallbackChannels, CoreVariable,
-    EnvironmentEvent, PixelFormat, VideoFrame,
+    release_all_native_input, set_core_variables, set_joypad_state, uninstall, AudioBatch,
+    CallbackChannels, CoreVariable, EnvironmentEvent, PixelFormat, VideoFrame,
+    NUM_NATIVE_INPUT_PORTS,
 };
 pub use frame::Rgba8Frame;
 pub use host::{CoreSystemInfo, LibretroCore};

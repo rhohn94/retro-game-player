@@ -1058,6 +1058,106 @@ No other system is affected: `NATIVE_SYSTEMS`
 - A real, legally-owned GameCube or Wii disc image for the actual boot
   attempt.
 
+## Multiplayer input (v0.35 "Player Two", W350)
+
+Two-controller multiplayer for NES/SNES (the release's headline feature)
+starts here, backend-first: the single shared joypad mask
+[`play::native::callbacks`] hosted since W216 becomes per-port state, so a
+second pad's input never collides with the first.
+
+### Port model
+
+`JOYPAD_STATE` (`play/native/callbacks.rs`) was a single `AtomicU16`; it is
+now `[AtomicU16; NUM_NATIVE_INPUT_PORTS]`, one atomic per port —
+`NUM_NATIVE_INPUT_PORTS = 2` this release. Each port stays its own
+`AtomicU16` rather than a `Mutex<[u16; N]>` so the hot per-tick poll path
+(`input_state`, called once per button per core frame) stays lock-free,
+matching the single-mask design it replaces. `set_joypad_state(bits, port)`
+writes one port; `input_state(port, device, _, id)` reads the polled port's
+own mask and returns "not pressed" (never panics or wraps) for
+`port >= NUM_NATIVE_INPUT_PORTS` — a core probing for more controllers than
+Harmony hosts this release degrades gracefully rather than crashing.
+Raising `NUM_NATIVE_INPUT_PORTS` later (a real 4-player need) is a one-line
+change plus growing the array literal; a `const _: () = assert!(...)` ties
+the two together at compile time so they can't silently drift apart.
+
+### Announcing joypads
+
+After `retro_load_game` succeeds, the runtime calls
+`retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD)` for every port
+0..`NUM_NATIVE_INPUT_PORTS` (`bring_up_core`, `runtime.rs`). *After* load,
+not before, matching RetroArch's own ordering convention: a core may only
+finalize its per-port controller state once a game (and therefore its
+controller requirements) is known. libretro already defaults every port to
+joypad, so this is contract-polite rather than strictly required — but it
+matters for a core that lazily allocates per-port state on this call.
+`retro_set_controller_port_device` is loaded as an **optional** FFI symbol
+(`LibretroCore::set_controller_port_device` is a no-op when the core's
+`.dylib` doesn't export it): every real core Harmony bundles (fceumm,
+snes9x, ...) exports it, but several hand-rolled test-stub cores in this
+crate predate the announce call and don't need to grow it just to keep
+loading.
+
+### Release-all contract
+
+`set_native_input` (the IPC command, `commands/native_play.rs`) gained a
+`port` parameter with **backward-compatible** shape: `port: Option<u16>`,
+defaulting to `0` when omitted, so every pre-W350 call site (`PlaySwitch`'s
+native-switch path, the overlay) keeps working unmodified as port-0-only
+calls. A **separate** command, `release_all_native_input`, covers the
+"let go of everything" case (overlay open, session stop) — deliberately not
+overloaded onto `set_native_input(0)`, so `set_native_input` always means
+"one specific port" and a caller that wants every port released says so
+explicitly rather than relying on a magic bits-value/no-port combination.
+Session start (`callbacks::install`, the first thing `NativeRuntime::start`
+does), session stop, and the FFI callback teardown (`uninstall`) all route
+through the same `release_all_native_input` helper in `callbacks.rs`, so
+there is exactly one place that clears every port. The start-side clear
+closes a real between-sessions hole: `set_native_input` is deliberately a
+no-session no-op, so a stray keydown landing after one session stops (the
+keydown race) would otherwise leave ghost held buttons the next session's
+core reads at its very first poll.
+
+### Extensibility note
+
+Nothing above hard-codes "2" outside `NUM_NATIVE_INPUT_PORTS` itself: the
+storage array, the announce loop, and the release-all loop all iterate over
+the constant. Ports 2-3 (4-player) are out of scope for v0.35 (no UI/testing
+claim), but the backend plumbing does not need to change shape to support
+them later — only the constant and the frontend's port-assignment policy.
+
+### Acceptance (W350)
+
+- A stub core polling ports 0 and 1 sees two independent masks
+  (`a_stub_core_polling_ports_0_and_1_sees_two_independent_masks`); a press
+  on port 1 never leaks into port 0
+  (`a_press_on_port_1_never_leaks_into_port_0`).
+- `set_native_input` without a port behaves exactly as before ports existed
+  (`set_native_input_without_a_port_behaves_as_port_0`).
+- All-ports release is exercised at both the callback layer
+  (`release_all_native_input_clears_every_port`,
+  `uninstall_releases_all_ports_alongside_sinks`) and the command layer
+  (`release_all_native_input_clears_both_ports`).
+- Session start clears stale between-session port state, at the callback
+  layer (`install_clears_stale_port_state_left_between_sessions`) and
+  end-to-end through a real stub session whose core polls input on its first
+  `retro_run` tick
+  (`a_fresh_session_reads_all_zero_input_despite_stale_between_session_state`).
+- Ports at or beyond `NUM_NATIVE_INPUT_PORTS` report not-pressed rather than
+  panicking (`ports_at_or_beyond_num_native_input_ports_report_not_pressed`).
+- The announce call reaches a core that implements
+  `retro_set_controller_port_device`
+  (`set_controller_port_device_reaches_a_core_that_implements_it`) and is a
+  silent no-op against one that doesn't (extended into
+  `loads_a_stub_core_and_runs_the_lifecycle`). The stub records every
+  announce call (not just the last), so `bring_up_core`'s announce loop
+  itself has direct multi-port coverage: ports 0 and 1 are both announced as
+  `RETRO_DEVICE_JOYPAD`, in port order, after `retro_load_game`
+  (`bring_up_core_announces_a_joypad_on_every_hosted_port_after_load`).
+- NES + SNES cohort behavior is unchanged for single-pad sessions — the
+  announce call and per-port storage are additive; a session that never
+  touches port 1 behaves exactly as the pre-W350 single-mask design did.
+
 ## Follow-ups
 
 - Broaden the native core catalog beyond NES once the hosting layer is proven.
