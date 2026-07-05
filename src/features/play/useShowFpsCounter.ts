@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getShowFpsCounter, setShowFpsCounter as persistShowFpsCounter } from "../../ipc/perf-tools";
+import { swallow } from "../../ipc/swallow";
 
 export interface ShowFpsCounterState {
   /** Whether the on-screen FPS counter is enabled; `false` until the initial
@@ -27,7 +28,7 @@ export function useShowFpsCounterState(): ShowFpsCounterState {
       .then((v) => {
         if (!cancelled) setEnabledState(v);
       })
-      .catch(() => undefined); // false stands
+      .catch((err: unknown) => swallow(err, "useShowFpsCounterState.load")); // false stands
     return () => {
       cancelled = true;
     };
@@ -35,7 +36,7 @@ export function useShowFpsCounterState(): ShowFpsCounterState {
 
   const setEnabled = useCallback((next: boolean) => {
     setEnabledState(next);
-    void persistShowFpsCounter(next).catch(() => undefined);
+    void persistShowFpsCounter(next).catch((err: unknown) => swallow(err, "useShowFpsCounterState.setEnabled"));
   }, []);
 
   return { enabled, setEnabled };

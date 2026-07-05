@@ -131,6 +131,89 @@ pub async fn fetch_game_art(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::repo::library::{GameSource, LibraryRepo, NewGame};
+    use crate::db::Db;
+
+    fn seed_game(db: &Db, system: Option<&str>, source: GameSource) -> i64 {
+        LibraryRepo::new(db)
+            .add_game(&NewGame {
+                folder_id: None,
+                // The `games` table's CHECK constraint requires a ROM row to
+                // carry both `path` and `system` together (or else a
+                // `launch_descriptor`) — mirror that pairing here.
+                path: system.map(|_| "/roms/test.rom".to_string()),
+                system: system.map(str::to_string),
+                crc32: None,
+                md5: None,
+                clean_name: "Test Game".to_string(),
+                dat_matched: false,
+                core_hint: None,
+                art_path: None,
+                size_bytes: 0,
+                added_at: 0,
+                year: None,
+                developer: None,
+                publisher: None,
+                aliases: None,
+                source,
+                launch_descriptor: if source == GameSource::Rom {
+                    None
+                } else {
+                    Some(r#"{"kind":"app","bundle_path":"/Applications/X.app"}"#.to_string())
+                },
+                external_id: None,
+            })
+            .expect("seed game")
+    }
+
+    /// Mirrors `fetch_boxart`/`fetch_game_art`'s shared game-lookup step: an
+    /// unknown id maps a bare rusqlite-not-found into the same
+    /// `AppError::NotFound(format!("game {id} not found"))` both commands
+    /// return, rather than surfacing the repo's raw error. Exercised against
+    /// a plain `&Db` since the real commands take `State<'_, Db>`, which —
+    /// like every other command module in this crate — cannot be constructed
+    /// outside a running `tauri::App` (see `commands::native_play`'s
+    /// `list_native_systems_at` for the same pattern).
+    fn lookup_game_or_not_found(db: &Db, game_id: i64) -> AppResult<crate::db::repo::library::Game> {
+        LibraryRepo::new(db)
+            .get_game(game_id)
+            .map_err(|_| AppError::NotFound(format!("game {game_id} not found")))
+    }
+
+    #[test]
+    fn lookup_maps_a_missing_game_to_not_found() {
+        let db = Db::open_in_memory().unwrap();
+        let err = lookup_game_or_not_found(&db, 999).expect_err("missing game");
+        match err {
+            AppError::NotFound(detail) => assert_eq!(detail, "game 999 not found"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    /// A non-ROM game (v0.31 W310) has no `system`, so both `fetch_boxart`
+    /// and `fetch_game_art` treat it as a graceful miss rather than an error
+    /// — this confirms the `system` field itself carries that signal for a
+    /// freshly-seeded non-ROM row.
+    #[test]
+    fn a_non_rom_game_has_no_system_to_key_cdn_art_lookup_by() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db, None, GameSource::App);
+        let game = lookup_game_or_not_found(&db, game_id).expect("seeded game found");
+        assert!(game.system.is_none());
+    }
+
+    #[test]
+    fn a_rom_game_carries_its_system_for_cdn_art_lookup() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db, Some("nes"), GameSource::Rom);
+        let game = lookup_game_or_not_found(&db, game_id).expect("seeded game found");
+        assert_eq!(game.system.as_deref(), Some("nes"));
+    }
+}
+
 /// Return every art tier already cached on disk for a game, without hitting
 /// the network (W263). Ordered boxart → title → snap; a game with no cached
 /// art of any tier yields an empty list.

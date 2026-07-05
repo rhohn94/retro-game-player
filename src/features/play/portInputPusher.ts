@@ -12,6 +12,7 @@
 // NativePlayer.tsx is the only impure caller (it injects `setNativeInput`).
 
 import { NUM_NATIVE_PLAY_PORTS } from "./gamepadAssignment";
+import { swallow } from "../../ipc/swallow";
 
 /** Sentinel "nothing sent yet" memo value — never matches a real bitmask, so a port's first push always sends. */
 const NEVER_SENT = -1;
@@ -49,8 +50,9 @@ export class PortInputPusher {
     const prev = this.lastSentBits[port];
     if (bits === prev) return;
     this.lastSentBits[port] = bits;
-    void this.send(bits, port).catch(() => {
+    void this.send(bits, port).catch((err: unknown) => {
       if (this.lastSentBits[port] === bits) this.lastSentBits[port] = prev;
+      swallow(err, "PortInputPusher.push", "info"); // retried next tick — not user-facing
     });
   }
 

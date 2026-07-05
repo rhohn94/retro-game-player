@@ -9,6 +9,7 @@ import { getNativePlayEnabled, setNativePlayEnabled } from "../../../ipc/native-
 import { getPlayerPrefs, setPlayerPrefs } from "../../../ipc/player-prefs";
 import type { PlayerPrefs } from "../../../ipc/player-prefs";
 import { useShowFpsCounterState } from "../../play/useShowFpsCounter";
+import { swallow } from "../../../ipc/swallow";
 
 export function PlaybackPane() {
   const [nativeEnabled, setNativeEnabledState] = useState<boolean | null>(null);
@@ -23,7 +24,10 @@ export function PlaybackPane() {
       .catch((e: unknown) => setError(String(e)));
     getPlayerPrefs()
       .then(setPrefsState)
-      .catch(() => setPrefsState(null));
+      .catch((e: unknown) => {
+        setPrefsState(null);
+        swallow(e, "PlaybackPane.loadPlayerPrefs");
+      });
   }, []);
 
   async function handleBlurToggle() {

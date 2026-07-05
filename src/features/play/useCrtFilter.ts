@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCrtFilter, setCrtFilter as persistCrtFilter } from "../../ipc/crt-filter";
 import type { CrtFilterConfig, CrtPreset } from "../../ipc/crt-filter";
 import { CRT_FILTER_OFF, applyCrtPreset, clampCrtFilter, matchingPreset } from "./crtFilter";
+import { swallow } from "../../ipc/swallow";
 
 /** How long after the last slider change the persist write fires. */
 const PERSIST_DEBOUNCE_MS = 400;
@@ -45,8 +46,9 @@ export function useCrtFilter(): CrtFilterState {
         setConfigState(clampCrtFilter(cfg));
         setReady(true);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!cancelled) setReady(true); // CRT_FILTER_OFF stands
+        swallow(err, "useCrtFilter.load");
       });
     return () => {
       cancelled = true;
@@ -57,7 +59,7 @@ export function useCrtFilter(): CrtFilterState {
   const persistDebounced = useCallback((next: CrtFilterConfig) => {
     if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(() => {
-      void persistCrtFilter(next).catch(() => undefined);
+      void persistCrtFilter(next).catch((err: unknown) => swallow(err, "useCrtFilter.persistDebounced"));
     }, PERSIST_DEBOUNCE_MS);
   }, []);
 
@@ -77,7 +79,7 @@ export function useCrtFilter(): CrtFilterState {
       setConfigState(next);
       // Discrete action (a button press, not a drag) — persist right away.
       if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
-      void persistCrtFilter(next).catch(() => undefined);
+      void persistCrtFilter(next).catch((err: unknown) => swallow(err, "useCrtFilter.setPreset"));
     },
     [],
   );

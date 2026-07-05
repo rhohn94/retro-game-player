@@ -18,6 +18,7 @@ import { GameTile } from "../library/GameTile";
 import { CatalogBrowser } from "./CatalogBrowser";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
+import { swallow } from "../../ipc/swallow";
 
 export function ConsoleDetailPage() {
   const { key } = useParams<{ key: string }>();
@@ -42,7 +43,7 @@ export function ConsoleDetailPage() {
         .then((rows) => {
           if (!isCancelled()) setOwned(rows);
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => swallow(err, "ConsoleDetailPage.listOwnedGames"));
     },
     [key],
   );
@@ -103,7 +104,11 @@ export function ConsoleDetailPage() {
             <button
               type="button"
               className="rgp-detail__wiki"
-              onClick={() => void openUrl(info.wikipediaUrl!).catch(() => undefined)}
+              onClick={() =>
+                void openUrl(info.wikipediaUrl!).catch((err: unknown) =>
+                  swallow(err, "ConsoleDetailPage.openWikipediaUrl", "info"),
+                )
+              }
             >
               Read more on Wikipedia ↗
             </button>

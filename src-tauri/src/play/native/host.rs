@@ -40,10 +40,12 @@ fn load_symbol<T: Copy>(lib: &Library, name: &str) -> AppResult<T> {
 /// `retro_set_controller_port_device` is exported by every real core Harmony
 /// bundles, but the handful of hand-rolled test-stub `.dylib`s in this crate
 /// predate it, and a core missing it should still load — the announce call
-/// simply becomes a no-op rather than refusing to boot).
+/// simply becomes a no-op rather than refusing to boot). Built directly on
+/// [`load_symbol`] (v0.35 review follow-up, W363) so the two never drift on
+/// how a symbol name is turned into the NUL-terminated bytes `Library::get`
+/// requires.
 fn load_optional_symbol<T: Copy>(lib: &Library, name: &str) -> Option<T> {
-    let cname = format!("{name}\0");
-    unsafe { lib.get::<T>(cname.as_bytes()).ok().map(|sym| *sym) }
+    load_symbol(lib, name).ok()
 }
 
 fn read_c_str(ptr: *const c_char) -> String {

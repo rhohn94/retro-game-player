@@ -4,7 +4,7 @@
 // of re-implementing mirrors of the pane's inline logic.
 import { describe, it, expect } from "vitest";
 
-import { manualNameError, manualTargetError, selectChecked } from "./gameSourcesGating";
+import { manualNameError, manualTargetError, manualTargetLabel, selectChecked } from "./gameSourcesGating";
 
 describe("game sources: app-shortlist confirm gate", () => {
   it("confirms only the checked rows", () => {
@@ -49,5 +49,21 @@ describe("game sources: manual-entry validation", () => {
 
   it("accepts a chosen target", () => {
     expect(manualTargetError({ kind: "app", bundlePath: "/Applications/X.app" })).toBeNull();
+  });
+});
+
+describe("game sources: manual-target picker label", () => {
+  it("prompts to choose when no target is set", () => {
+    expect(manualTargetLabel(null)).toBe("Choose target…");
+  });
+
+  it("shows the app bundle's basename", () => {
+    expect(manualTargetLabel({ kind: "app", bundlePath: "/Applications/Foo.app" })).toBe("Foo.app");
+  });
+
+  it("shows the executable's basename", () => {
+    expect(
+      manualTargetLabel({ kind: "exec", program: "/usr/local/bin/foo", args: [] }),
+    ).toBe("foo");
   });
 });
