@@ -237,7 +237,7 @@ branch names carry the `-v036pN-NN` suffix.
 |---|---|---|---|---|
 | `w360-error-telemetry-v036p1-00` (W360) | ☑ | ☑ | ☑ | ☑ |
 | `w362-searchpage-decomposition-v036p1-01` (W362) | ☑ n/a | ☑ | ☑ | ☑ |
-| `w363-native-runtime-split` (W363) | ☐ | ☐ | ☐ | ☐ |
+| `w363-native-runtime-split-v036p1-02` (W363) | ☑ | ☑ | ☑ | ☑ |
 | `w364-library-repo-cleanup` (W364) | ☐ | ☐ | ☐ | ☐ |
 | `w365-dead-code-removal-v036p1-04` (W365) | ☑ n/a | ☑ | ☑ | ☑ |
 | `w366-settings-dedup-v036p1-05` (W366) | ☑ n/a | ☑ | ☑ | ☑ |
