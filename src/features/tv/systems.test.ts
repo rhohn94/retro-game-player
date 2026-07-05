@@ -42,7 +42,7 @@ describe("tvSystemLabel (v0.26 W261)", () => {
     expect(tvSystemLabel("ps1")).toBe("PlayStation");
   });
   it("upper-cases an unknown key so a new system still reads as a label", () => {
-    expect(tvSystemLabel("gb")).toBe("GB");
+    expect(tvSystemLabel("vectrex")).toBe("VECTREX");
   });
 });
 
