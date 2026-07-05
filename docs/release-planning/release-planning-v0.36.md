@@ -246,7 +246,7 @@ branch names carry the `-v036pN-NN` suffix.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.36 |
 |---|---|---|---|---|
-| `w361-silent-catch-remediation` (W361) | ☐ | ☐ | ☐ | ☐ |
+| `w361-silent-catch-remediation-v036p2-00` (W361) | ☑ n/a | ☑ | ☑ | ☑ |
 | `w367-test-depth` (W367) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
@@ -293,6 +293,12 @@ branch names carry the `-v036pN-NN` suffix.
   `useSourceScan` no longer clears error/status at the start of every
   direct-scan attempt — both subtle, judged harmless; revisit if a settings
   UX pass lands.
+- W361 follow-ups: swallow() context strings are free-text with no shared
+  registry — consider a lint/doc convention if the telemetry stream is ever
+  aggregated by context; `import.ts` `pickRomFiles()` keeps a pre-existing
+  bare try/catch (outside the `.catch` audit scope); a few high-frequency
+  sites route at 'info' severity — revisit levels once real telemetry volume
+  is observed post-release.
 - W366 follow-up: `inputStyle` duplication across
   CoreOptionsPane/GameSourcesPane/ProvidersPane is a candidate for a future
   dedup pass; no React hook/component render-test harness exists (vitest is
