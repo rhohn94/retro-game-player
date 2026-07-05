@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.34 — Engines (in flight)
+## v0.34 — Engines (implementation complete — pending release)
 
 **Theme:** Every popular platform plays on the native emulation engine
 (user directive, 2026-07-05) — generalize the v0.21 NES-only native libretro
