@@ -216,7 +216,7 @@ consumed by later items (append-only rows).
 |---|---|---|---|---|
 | `w342-software-native-cohort-v034p2-00` (W342) | ☑ | ☑ | ☑ | ☑ |
 | `w343-disc-image-identification-v034p2-01` (W343) | ☑ | ☑ | ☑ | ☑ |
-| `w345-hw-render-n64` (W345) | ☐ | ☐ | ☐ | ☐ |
+| `w345-hw-render-n64-v034p2-02` (W345) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -296,3 +296,14 @@ consumed by later items (append-only rows).
 - Reviewer (W343, non-blocking, remaining): disc-row hashes are
   prefix-window hashes (no DAT matching for disc rows); scanned-counter
   semantics differ between passes (recorded, not fixed).
+- Reviewer (W345, blocking ×2 — **both fixed on branch, eba85a2**): stale
+  merge base predating W342 (resolved by merge-forward, no W342 content
+  lost) and an inverted `bottom_left_origin` row-flip that would have
+  rendered N64 upside-down (fixed; E2E stub now draws asymmetric bands and
+  the test fails under the inverted condition).
+- W345: live-GL tests are env-gated (`RGP_LIVE_GL_TESTS=1 cargo test --
+  --ignored hw_render`); all 6 passed on this machine. On-device N64
+  boot with a real ROM remains tracked as
+  [#48](https://github.com/rhohn94/retro-game-player/issues/48).
+- W345 addressed the W340 follow-up: aspect-ratio now propagates through
+  the frame header (16→20-byte, additive) into NativePlayer rendering.
