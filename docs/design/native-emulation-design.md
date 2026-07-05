@@ -868,6 +868,100 @@ depends on is proven; only the literal "boots a real N64 title" step is the
 human on-device follow-up, tracked as a filed blocker (see the release
 ledger) rather than blocking this branch.
 
+## HW-render GC/Wii note (v0.34 "Engines", W346)
+
+W346 was the release plan's explicit honest-outcome stretch: attempt
+dolphin-libretro on the W345 HW-render layer for `gamecube`/`wii`, with
+acceptance being *either* a booting title *or* a documented blocker filed as
+an issue, external launch staying supported either way. **Outcome: blocked —
+no `gamecube`/`wii` rows were added to `NATIVE_SYSTEMS`.** Filed as
+[#50](https://github.com/rhohn94/retro-game-player/issues/50).
+
+### What actually blocks it (not what the work item assumed)
+
+The work item's premise — that the arm64 buildbot might not even ship the
+core, or that HW-context negotiation itself would be refused — didn't hold
+up under investigation:
+
+- **The core exists and downloads cleanly.** `dolphin_libretro.dylib.zip` is
+  present at the arm64 nightly buildbot path, a valid signed arm64 Mach-O
+  dylib once unzipped.
+- **The negotiated context type is satisfiable.** Dolphin's own embedded
+  strings show it requests `RETRO_HW_CONTEXT_OPENGL_CORE` and checks for
+  "OpenGL 3.3" — both squarely inside what `hw_render.rs`'s CGL path already
+  offers. Empirically, Harmony's existing `kCGLOGLPVersion_GL3_Core` context
+  reports `GL_VERSION: 4.1 Metal - 90.5` on Apple Silicon — comfortably above
+  the stated 3.3 floor.
+- **`load()` → `set_environment()` → `retro_init()` survive** against the
+  real dylib (verified with a standalone `dlopen` harness driving Harmony's
+  own `callbacks::environment`) — no repeat of the N64/W233-style
+  init-ordering crash.
+
+The real blocker is one level deeper: **Apple's OpenGL-over-Metal
+compatibility layer reports a GL 4.1 version string but implements none of
+the modern ARB extensions dolphin's OpenGL video backend is written
+against** — `GL_ARB_copy_image`, `GL_ARB_buffer_storage`,
+`GL_ARB_shader_image_load_store`, `GL_ARB_compute_shader`,
+`GL_ARB_texture_storage_multisample`, `GL_ARB_multi_bind`,
+`GL_ARB_clip_control`, `GL_ARB_bindless_texture`, and `GL_KHR_debug` are all
+referenced inside `dolphin_libretro.dylib`'s own `VideoBackends/OGL/*`
+translation units and all absent from a real CGL GL3-Core context's
+`glGetStringi(GL_EXTENSIONS, …)` enumeration on the dev machine (43
+extensions total, none of the above). The `GL_VERSION` string alone is not a
+reliable readiness signal here — a core can request and receive a
+context whose reported version implies capability it doesn't actually get on
+this platform. Dolphin's own Vulkan backend (also linked into the same
+dylib) targets a lower, more portable capability floor and is the documented
+path most likely to actually work on Apple Silicon, but `hw_render.rs` has
+no Vulkan/MoltenVK context support — CGL only speaks desktop OpenGL, and
+building a MoltenVK-backed context (new instance/device negotiation, a
+different `get_proc_address` contract, MoltenVK as a new bundled dependency)
+is materially larger than this stretch item's scope.
+
+Compounding the extension gap, no real GameCube/Wii disc image (or free,
+prebuilt homebrew `.dol`/`.rvz`) was obtainable in the sandboxed
+implementation session, so the actual `retro_load_game`-time HW-render
+negotiation and any subsequent runtime behavior (crash, degraded rendering,
+or a clean boot) couldn't be exercised end-to-end — the same category of gap
+N64 hit on-device verification (#48), but here it stacks on top of the
+extension-coverage risk rather than standing alone as the only open
+question.
+
+### Decision: no rows added, external launch stays the supported path
+
+Given both gaps — a real, evidenced capability mismatch (not merely an
+untested one) and no way to exercise the runtime path at all in this
+session — shipping `gamecube`/`wii` rows into `NATIVE_SYSTEMS` would be
+exactly the "half-working" outcome the work item's honest-outcome rules
+prohibit. `gamecube` and `wii` remain on the pre-existing external
+RetroArch (Dolphin core) launch path, unchanged. The detail page's "plays
+externally" copy is upgraded from generic per-system-agnostic wording to
+naming Dolphin explicitly:
+
+- `src/features/play/inPageAvailability.ts` gained `externalOnlyMessage`
+  (a pure, unit-tested helper keyed by system, mirroring the existing
+  `systemLabel` table) and `gamecube`/`wii` entries in `SYSTEM_LABELS`.
+- `src/features/play/ExternalOnlyNotice.tsx` (new) renders that message in
+  the player slot for `inPageAvailability`'s `kind: "none"` outcome —
+  previously `PlaySwitch` rendered nothing there at all beyond the
+  degradation-notice banner, so a GameCube/Wii detail page gave no
+  indication of *why* the player slot stayed empty.
+
+No other system is affected: `NATIVE_SYSTEMS`
+(`src-tauri/src/play/native/systems.rs`) is unchanged by this investigation
+— still the 10 rows W340/W342/W345 established.
+
+### What a future attempt needs
+
+- **Vulkan/MoltenVK support in `hw_render.rs`** — the primary unblock;
+  dolphin's Vulkan backend is the more portable target on this platform.
+- Confirming empirically, with real disc content, whether the missing ARB
+  extensions are soft-optional per rendering feature (degraded but working)
+  rather than hard `retro_load_game` failures — static analysis of the
+  dylib's linked symbols can't distinguish the two.
+- A real, legally-owned GameCube or Wii disc image for the actual boot
+  attempt.
+
 ## Follow-ups
 
 - Broaden the native core catalog beyond NES once the hosting layer is proven.
