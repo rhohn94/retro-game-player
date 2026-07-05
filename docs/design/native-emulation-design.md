@@ -1065,6 +1065,32 @@ starts here, backend-first: the single shared joypad mask
 [`play::native::callbacks`] hosted since W216 becomes per-port state, so a
 second pad's input never collides with the first.
 
+This section covers the **native** libretro host only. The EmulatorJS
+fallback tier's own two-controller config lives in
+in-page-play-design.md §7 ("Player-2 config") — including two corrections
+recorded there for v0.36 (v0.35 review follow-up, W363):
+
+1. `EJS_defaultControls`' button table only covers **gameplay buttons 0–13**
+   (A/B/X/Y, select/start, shoulders, d-pad) — not full parity with
+   EmulatorJS's built-in ids, whose 14–26 range (keyboard-only menu/save-state
+   hotkeys) the override wholesale-replaces rather than merges. The
+   `player.html` source comment and in-page-play-design.md §7 already state
+   this correctly ("the only buttons NES/SNES cores read"); this note exists
+   so a reader lands on the accurate wording from either design doc.
+2. EmulatorJS's `loadSettings()` overwrites `this.controls` (and therefore
+   the two-controller button table above) from a **per-game
+   `localStorage` `controlSettings` entry** if one exists at
+   `getLocalStorageKey()`'s origin-scoped key, taking precedence over
+   `EJS_defaultControls` on every subsequent boot of that game. In practice
+   this is neutralized today: each play session is served from a fresh
+   **ephemeral loopback port** (in-page-play-design.md §1), so `localStorage`
+   — scoped to the page's origin (`http://127.0.0.1:<port>`) — starts empty
+   every time and a prior session's `controlSettings` never carries forward.
+   This stops being a no-op the moment the loopback port is ever made stable
+   across sessions (a change with no plan behind it today) — at that point a
+   returning player's saved single-pad control remap would silently suppress
+   the player-2 override above.
+
 ### Port model
 
 `JOYPAD_STATE` (`play/native/callbacks.rs`) was a single `AtomicU16`; it is
@@ -1157,6 +1183,38 @@ them later — only the constant and the frontend's port-assignment policy.
 - NES + SNES cohort behavior is unchanged for single-pad sessions — the
   announce call and per-port storage are additive; a session that never
   touches port 1 behaves exactly as the pre-W350 single-mask design did.
+
+## Module layout (v0.36 "Spring Cleaning", W363)
+
+`play/native/runtime.rs` grew to 2306 lines across several v0.34/v0.35
+features (multi-system engine, HW-render, multiplayer input) sharing one
+file. W363 split it into a `play/native/runtime/` directory module along its
+existing internal seams — a pure-move refactor (moves + visibility
+adjustments only, no logic changes):
+
+- `session.rs` — the public [`NativeRuntime`] handle: thread bring-up (core +
+  audio), `bring_up_core`/`bring_up_audio`, and the save/load/pause/volume
+  surface `commands::native_play` calls into.
+- `core_loop.rs` — `CoreLoop`'s per-tick state and `run_core_loop`'s drive
+  loop (the absolute-deadline frame clock, save/load commands, SRAM flush).
+- `video.rs` — draining queued video frames (or an HW-render FBO readback)
+  into the shared latest-frame slot, plus the environment-event drain (pixel
+  format / mid-game geometry / HW-render bring-up) that feeds it.
+- `audio.rs` — draining queued core audio batches through the resampler into
+  the realtime ring.
+- `perf.rs` — the periodic `[rgp-native] perf:` line.
+- `manual.rs` — the `#[ignore]`d real-device verification harnesses.
+- `tests/` — the headless stub-core integration tests (previously one
+  `headless_integration` module), split by stub-core family: `av_core`
+  (baseline genuine-content + multi-port-announce proof), `input_probe` (W350
+  stale-input regression), `alt_geometry` (W340 non-NES timing/geometry),
+  `cohort` (W342 pixel-format + mid-game geometry), `hw_render` (W345
+  CGL/FBO readback, macOS-only).
+
+Each submodule stayed under ~600 lines; no test moved gained or lost
+coverage — the split only changes which file a given `fn`/`struct`/`#[test]`
+lives in. `NativeRuntime` remains the module's only `pub` re-export from
+`play::native`, matching the pre-split public surface exactly.
 
 ## Follow-ups
 
