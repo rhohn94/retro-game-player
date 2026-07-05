@@ -14,11 +14,21 @@ use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// macOS bundle identifier — the app-support subdirectory name (§4.1).
 const BUNDLE_ID: &str = "com.harmony.app";
 /// SQLite database filename under app-support (§4.1).
 const DB_FILENAME: &str = "harmony.db";
+
+/// How long a connection waits on a busy database before giving up. SQLite is
+/// single-writer; the app-state `Db` and any detached-thread connection opened
+/// separately via [`Db::open`] (e.g. the background art/download/scan workers
+/// in `commands/*`) can briefly contend for the same file. Without this, a
+/// losing writer fails immediately instead of waiting out the brief window,
+/// silently dropping its write. Shared with [`crate::play::server`]'s
+/// read-only loopback connections, which face the same contention.
+pub const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Thread-safe handle to the application database. Stored in Tauri app state via
 /// [`tauri::Manager::manage`]; repos lock [`Db::conn`] for the duration of a call.
@@ -31,6 +41,8 @@ impl Db {
     /// run all pending migrations. The parent directory must already exist.
     pub fn open(path: &Path) -> AppResult<Self> {
         let mut conn = Connection::open(path).map_err(|e| AppError::Db(e.to_string()))?;
+        conn.busy_timeout(DB_BUSY_TIMEOUT)
+            .map_err(|e| AppError::Db(e.to_string()))?;
         Self::init(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -115,6 +127,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(v, migrations::latest_version());
+    }
+
+    #[test]
+    fn open_sets_the_shared_busy_timeout() {
+        // Regression for W334: a detached-thread connection opened separately
+        // via `Db::open` (e.g. the background art/download/scan workers) must
+        // wait out contention with the app-state connection rather than
+        // failing immediately and silently dropping its write.
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let db = Db::open(&tmp.path().join("harmony.db")).expect("open");
+        let ms: i64 = db
+            .with_conn(|c| {
+                c.query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+                    .map_err(|e| AppError::Db(e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(ms, DB_BUSY_TIMEOUT.as_millis() as i64);
     }
 
     #[test]

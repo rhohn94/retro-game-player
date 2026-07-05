@@ -105,9 +105,10 @@ impl ItchScanner {
     /// Discover top-level installs directly under the itch apps root that no
     /// receipt already accounted for. A missing root yields an empty result,
     /// not an error. Each entry is classified `app` (an `.app` bundle) or
-    /// `exec` (any other directory/file), per the design doc's "descriptor
-    /// `app` or `exec` per what the receipt names" — the fallback scan makes
-    /// the same distinction from the filesystem shape alone.
+    /// `exec` (a regular file with the executable bit set) — anything else
+    /// (a plain data file, a non-bundle subdirectory) is neither launchable
+    /// nor a bundle, so it is skipped rather than mis-classified as `exec`
+    /// (W334: a data file/subdir must never become an unlaunchable row).
     fn scan_install_dir(&self, already_discovered: &[DiscoveredGame]) -> AppResult<Vec<DiscoveredGame>> {
         let Ok(entries) = std::fs::read_dir(&self.apps_root) else {
             return Ok(vec![]);
@@ -119,6 +120,9 @@ impl ItchScanner {
                 continue;
             }
             let is_app_bundle = path.extension().and_then(|e| e.to_str()) == Some("app");
+            if !is_app_bundle && !is_executable_file(&path) {
+                continue;
+            }
             let launch_path_str = path.to_string_lossy().into_owned();
             let already_claimed = already_discovered
                 .iter()
@@ -157,6 +161,18 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// Whether `path` is a regular file with at least one executable bit set —
+/// the only filesystem shape the install-dir fallback classifies as `exec`
+/// (W334). A data file or a bare directory (neither a regular file nor
+/// executable) is skipped rather than turned into an unlaunchable row.
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+}
+
 /// Whether `install_path` sits under a Steam-owned install tree, so the itch
 /// install-dir scan excludes titles the Steam source already owns (same
 /// dedup posture as `AppScanner`/`GogScanner`, W313/W320).
@@ -178,12 +194,13 @@ fn launch_path_matches(descriptor: &serde_json::Value, launch_path: &str) -> boo
 }
 
 /// Build a `DiscoveredGame` from a parsed itch receipt, or `None` if it is
-/// missing a required field (game id or title) — such a receipt is treated
-/// as unparseable rather than crashing the whole scan.
+/// missing a required field (game id or title), or names an empty/relative
+/// `installPath` — such a receipt is treated as unparseable rather than
+/// crashing the whole scan or producing an unlaunchable row (W334).
 fn discovered_game_from_receipt(r: &ItchReceipt) -> Option<DiscoveredGame> {
     let game_id = r.game_id.as_ref()?.clone();
     let title = r.title.as_ref()?.clone();
-    let launch_path = r.launch_path.clone().unwrap_or_default();
+    let launch_path = r.launch_path.as_deref().filter(|p| is_launchable_path(p))?;
     let is_app_bundle = launch_path.ends_with(".app");
     let launch_descriptor = if is_app_bundle {
         serde_json::json!({ "kind": "app", "bundle_path": launch_path })
@@ -195,12 +212,20 @@ fn discovered_game_from_receipt(r: &ItchReceipt) -> Option<DiscoveredGame> {
         source: GameSource::Itch,
         external_id: Some(game_id),
         launch_descriptor,
-        art_hint: if is_app_bundle && !launch_path.is_empty() {
-            Some(launch_path)
+        art_hint: if is_app_bundle {
+            Some(launch_path.to_string())
         } else {
             None
         },
     })
+}
+
+/// Whether `path` is non-empty and absolute — the minimum bar for a launch
+/// path to ever resolve to a real, launchable install (W334: reject
+/// empty/relative `installPath` at parse time rather than producing an
+/// unlaunchable row).
+fn is_launchable_path(path: &str) -> bool {
+    !path.is_empty() && Path::new(path).is_absolute()
 }
 
 impl GameSourceScanner for ItchScanner {
@@ -233,9 +258,21 @@ mod tests {
     }
 
     fn write_exec(root: &Path, exe_name: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
         let exe = root.join(exe_name);
         fs::write(&exe, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
         exe
+    }
+
+    /// A regular file with no executable bit set — e.g. a data file the itch
+    /// apps root happens to contain alongside real installs.
+    fn write_data_file(root: &Path, filename: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let file = root.join(filename);
+        fs::write(&file, "not launchable").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        file
     }
 
     #[test]
@@ -346,6 +383,36 @@ mod tests {
     }
 
     #[test]
+    fn receipt_with_empty_install_path_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let receipts = tmp.path().join("receipts");
+        let apps = tmp.path().join("apps");
+        fs::create_dir_all(&receipts).unwrap();
+        fs::create_dir_all(&apps).unwrap();
+        write_receipt(&receipts, "empty.json", "1", "Empty Path Game", "");
+
+        let scanner = ItchScanner::new(&receipts, &apps);
+        let games = scanner.scan().unwrap();
+
+        assert!(games.is_empty(), "an empty installPath must not produce an unlaunchable row");
+    }
+
+    #[test]
+    fn receipt_with_relative_install_path_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let receipts = tmp.path().join("receipts");
+        let apps = tmp.path().join("apps");
+        fs::create_dir_all(&receipts).unwrap();
+        fs::create_dir_all(&apps).unwrap();
+        write_receipt(&receipts, "relative.json", "2", "Relative Path Game", "itch/relative-bin");
+
+        let scanner = ItchScanner::new(&receipts, &apps);
+        let games = scanner.scan().unwrap();
+
+        assert!(games.is_empty(), "a relative installPath must not produce an unlaunchable row");
+    }
+
+    #[test]
     fn non_json_files_in_receipts_dir_are_ignored() {
         let tmp = tempfile::tempdir().unwrap();
         let receipts = tmp.path().join("receipts");
@@ -392,6 +459,35 @@ mod tests {
 
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].launch_descriptor["kind"], "exec");
+    }
+
+    #[test]
+    fn install_dir_scan_skips_non_executable_data_files_and_plain_subdirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let receipts = tmp.path().join("receipts");
+        let apps = tmp.path().join("apps");
+        fs::create_dir_all(&receipts).unwrap();
+        fs::create_dir_all(&apps).unwrap();
+        // A non-executable data file (e.g. a README or manifest) ...
+        write_data_file(&apps, "README.txt");
+        // ... and a bare (non-`.app`) subdirectory, e.g. leftover cache dir.
+        fs::create_dir_all(apps.join("cache")).unwrap();
+        // ... alongside one real, executable install that must still surface.
+        write_exec(&apps, "spelunky");
+
+        let scanner = ItchScanner::new(&receipts, &apps);
+        let games = scanner.scan().unwrap();
+
+        assert_eq!(
+            games.len(),
+            1,
+            "data files and non-bundle subdirs must never become unlaunchable rows"
+        );
+        assert_eq!(games[0].launch_descriptor["kind"], "exec");
+        assert!(games[0].launch_descriptor["program"]
+            .as_str()
+            .unwrap()
+            .ends_with("spelunky"));
     }
 
     #[test]
