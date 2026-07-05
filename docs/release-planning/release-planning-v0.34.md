@@ -265,3 +265,10 @@ consumed by later items (append-only rows).
 - Reviewer (W347, informational): whether the real `cxstart` binary honors
   the `--` terminator rides on the standing on-device CrossOver human
   follow-up (fixture-validated only).
+- Master (Pass-1 completion): W340's `list_native_systems` had no mock-IPC
+  fixture — smoke gate caught it; fixed on `fix-mock-ipc-native-systems`
+  (a1e7a2a). Note for W342/W345 agents: extend that fixture if capability
+  shape changes. `pnpm tauri build` compiles + bundles the .app; the
+  built-in `bundle_dmg.sh` step fails in the sandboxed session (Finder
+  access) — release DMG goes through `recipe package`
+  (`release_sign_notarize.py`), the v0.33 #45 pipeline.
