@@ -278,6 +278,21 @@ NES/SNES session — that two-pad behavioral check is a manual follow-up
 alongside the native path's on-device check (see release notes / QA pass for
 v0.35).
 
+**Doc correction (v0.36, W363 — v0.35 review follow-up):** `EJS_defaultControls`
+covers **gameplay buttons 0–13 only** (A/B/X/Y, select/start, shoulders,
+d-pad) — this is not full parity with every id EmulatorJS's built-in mapping
+defines; ids 14–26 are keyboard-only save-state/menu hotkeys the wholesale
+override drops for both players (never read by an NES/SNES core, so nothing
+gameplay-relevant is lost). Separately, EmulatorJS's `loadSettings()`
+(`src/emulator.js`) overwrites `this.controls` — and therefore the table
+above — from a per-game `localStorage` `controlSettings` entry if one was
+previously saved at that game's `getLocalStorageKey()`, taking precedence
+over `EJS_defaultControls` on the next boot of the same game. This is
+neutralized today by §1's ephemeral loopback port: each session serves from
+a fresh `http://127.0.0.1:<port>` origin, so origin-scoped `localStorage`
+never carries a prior session's `controlSettings` forward. It stops being a
+no-op the moment the loopback port is ever made stable across sessions.
+
 ## 8. Player conveniences (v0.24, W243 — #22)
 
 - **Volume + mute, both paths, persisted.** `AppConfig` gains

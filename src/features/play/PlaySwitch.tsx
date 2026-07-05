@@ -28,6 +28,7 @@ import { getNativePlayEnabled } from "../../ipc/native-play";
 import { listInPageCores } from "../../ipc/inpage-cores";
 import type { InPageCore } from "../../ipc/inpage-cores";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { swallow } from "../../ipc/swallow";
 
 export interface PlaySwitchProps {
   gameId: number;
@@ -94,7 +95,10 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
       if (!isNativeCandidate) return;
       getNativePlayEnabled()
         .then((enabled) => !isCancelled() && setNativeEnabled(enabled))
-        .catch(() => !isCancelled() && setNativeEnabled(false));
+        .catch((err: unknown) => {
+          if (!isCancelled()) setNativeEnabled(false);
+          swallow(err, "PlaySwitch.getNativePlayEnabled");
+        });
     },
     [isNativeCandidate],
   );
@@ -118,7 +122,10 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
           setCores(list);
           setCoresResolved(true);
         })
-        .catch(() => !isCancelled() && setCoresResolved(true));
+        .catch((err: unknown) => {
+          if (!isCancelled()) setCoresResolved(true);
+          swallow(err, "PlaySwitch.listInPageCores");
+        });
     },
     [needsCatalog],
   );

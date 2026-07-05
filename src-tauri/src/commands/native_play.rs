@@ -737,7 +737,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
     /// `STUB_CORE_C`/`build_stub_core` above, whose `retro_run` is a no-op —
     /// sufficient for the lifecycle/session-bookkeeping tests above, but not
     /// for proving `get_native_frame` actually polls real content). Mirrors
-    /// `play::native::runtime`'s own `headless_integration::STUB_AV_CORE_C`
+    /// `play::native::runtime`'s own `tests::av_core::STUB_AV_CORE_C`
     /// fixture (kept local rather than shared, matching this crate's
     /// established one-fixture-per-module convention for these small C stubs).
     const STUB_FRAME_CORE_C: &str = r#"

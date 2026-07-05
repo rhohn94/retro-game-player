@@ -236,6 +236,33 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
+## v0.36 — Spring Cleaning (implementation complete — pending release)
+
+**Theme:** Code quality (user directive, 2026-07-05) — unhandled-error
+observability, decomposition of the two worst oversized modules, duplication
+collapse, dead-code removal, and targeted test depth. No user-visible
+feature work.
+
+- **Error-telemetry foundations** — Rust panic hook, frontend
+  `onerror`/`unhandledrejection`, route-shell ErrorBoundary, shared IPC
+  `swallow()` helper (W360), then remediation of the 53 silent-catch sites
+  (W361).
+- **Decompositions** — `SearchPage.tsx` (CC 34, 919 lines,
+  [#43](https://github.com/rhohn94/retro-game-player/issues/43)) (W362) and
+  `play/native/runtime.rs` (2306 lines) + callback clone-family collapse
+  (W363).
+- **Data-layer cleanup** — `db/repo/library.rs` row-mapper dedup + split;
+  `play/server.rs` raw-SQL relocation, unwraps, brittle test (W364).
+- **Dead code + duplication** — confirmed dead exports and the `fleet.ts`
+  wrapper (W365); settings-pane/hook clone clusters (W366).
+- **Test depth** — search-result logic, `import.ts`, `invoke.ts`, Rust
+  command adapters (W367, partial
+  [#28](https://github.com/rhohn94/retro-game-player/issues/28)).
+
+Plan: [`release-planning-v0.36.md`](release-planning/release-planning-v0.36.md).
+
+---
+
 ## v0.35 — Player Two (implementation complete — pending release)
 
 **Theme:** Two-controller multiplayer for NES and SNES (user directive,

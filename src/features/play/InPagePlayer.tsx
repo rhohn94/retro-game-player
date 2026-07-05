@@ -46,6 +46,7 @@ import { usePlaySession } from "./playSession";
 import { continueSlot } from "./saveSlots";
 import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
+import { swallow } from "../../ipc/swallow";
 
 /** How long a save/load round-trip to the game iframe may take before the
  * overlay reports it failed (the bridge answers in milliseconds normally). */
@@ -141,10 +142,11 @@ export function InPagePlayer({
         setOrigin(o);
         if (o === "") onUnavailableRef.current?.();
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (isCancelled()) return;
         setOrigin("");
         onUnavailableRef.current?.();
+        swallow(err, "InPagePlayer.getPlayOrigin");
       });
   }, []);
 
@@ -222,7 +224,7 @@ export function InPagePlayer({
           if (isCancelled()) return;
           setContinueTarget((continueSlot(saves, "ejs")?.slot as SaveSlot | undefined) ?? null);
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => swallow(err, "InPagePlayer.loadContinueTarget"));
     },
     [gameId],
   );
@@ -231,7 +233,7 @@ export function InPagePlayer({
     if (!slot) return;
     requestSaveOp("load", slot)
       .then(() => setContinueTarget(null))
-      .catch(() => undefined);
+      .catch((err: unknown) => swallow(err, "InPagePlayer.onContinue"));
   }, [continueTarget, requestSaveOp]);
 
   const enterImmersive = useCallback(() => {
@@ -381,6 +383,9 @@ export function InPagePlayer({
         // `showFpsCounter` (the log is useful even with the overlay off);
         // the on-screen number just doesn't render unless enabled.
         setFps(data.fps);
+        // Intentional silent swallow (ipc/perf-tools.ts's documented
+        // fire-and-forget contract): this fires on every periodic in-iframe
+        // sample report, and a missed report is not a session error.
         void reportEjsPerfStats({ gameId, fps: data.fps, frameTimeMs: data.frameTimeMs }).catch(
           () => undefined,
         );

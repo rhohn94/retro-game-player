@@ -9,6 +9,7 @@
 import { openFileDialog } from "../../ipc/dialog";
 import { enrichGameMetadata, importGames } from "../../ipc/commands";
 import type { ImportItem } from "../../ipc/commands";
+import { swallow } from "../../ipc/swallow";
 
 /**
  * ROM file extensions Retro Game Player can identify on import. Mirrors the scan map in
@@ -70,7 +71,9 @@ export async function runImport(
   const results = await importGames(paths);
   const pending = results
     .filter((r) => r.status === "imported" && r.game)
-    .map((r) => enrichGameMetadata(r.game!.id).catch(() => undefined));
+    .map((r) =>
+      enrichGameMetadata(r.game!.id).catch((err: unknown) => swallow(err, "runImport.enrichGameMetadata")),
+    );
   if (pending.length > 0 && onEnriched) {
     void Promise.allSettled(pending).then(() => onEnriched());
   }

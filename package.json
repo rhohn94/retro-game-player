@@ -35,6 +35,7 @@
     "@types/react-dom": "^19.0.1",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.16.0",
+    "jsdom": "^25.0.1",
     "playwright-core": "^1.61.1",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",

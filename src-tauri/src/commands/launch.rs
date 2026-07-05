@@ -353,3 +353,156 @@ fn resolve_retroarch_exe(config: &AppConfig) -> AppResult<PathBuf> {
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::repo::cores::{CoresRepo, NewCore};
+    use crate::db::repo::library::{GameSource, LibraryRepo, NewGame};
+    use crate::db::Db;
+
+    /// `resolve_retroarch_exe` propagates `locator::locate`'s own `Io` error
+    /// unchanged when the user has configured an override path that no
+    /// longer exists — it must not paper over that as the generic
+    /// "not installed" `Dependency` message, since the two mean different
+    /// things to the user (misconfigured vs. never configured).
+    #[test]
+    fn resolve_retroarch_exe_propagates_a_stale_override_as_io_not_dependency() {
+        let config = AppConfig {
+            retroarch_path: Some("/nonexistent/RetroArch.app".to_string()),
+            ..AppConfig::default()
+        };
+        let err = resolve_retroarch_exe(&config).expect_err("stale override must error");
+        assert!(matches!(err, AppError::Io(_)), "expected Io, got {err:?}");
+    }
+
+    /// `set_retroarch_path` rejects an empty path before touching disk or
+    /// AppConfig at all (a pure validation branch — safe to exercise
+    /// directly, unlike the success path which would write the real
+    /// app-support config file).
+    #[test]
+    fn set_retroarch_path_rejects_an_empty_path() {
+        let err = tauri::async_runtime::block_on(set_retroarch_path(String::new()))
+            .expect_err("empty path must be rejected");
+        assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    /// A non-empty path that doesn't resolve to a real executable is an `Io`
+    /// error naming the resolved path, not a generic failure — also pure
+    /// validation, no AppConfig write happens before this check fails.
+    #[test]
+    fn set_retroarch_path_rejects_a_path_with_no_executable() {
+        let err = tauri::async_runtime::block_on(set_retroarch_path(
+            "/definitely/not/a/real/path/RetroArch.app".to_string(),
+        ))
+        .expect_err("missing executable must be rejected");
+        match err {
+            AppError::Io(detail) => assert!(detail.contains("RetroArch executable not found")),
+            other => panic!("expected Io, got {other:?}"),
+        }
+    }
+
+    /// Mirrors `launch_via_retroarch`'s steps 3-4 (game-row + active-core
+    /// lookup) against a plain `&Db` — the real command takes
+    /// `State<'_, Db>` and an `AppHandle`, which — like every other command
+    /// module in this crate — cannot be constructed outside a running
+    /// `tauri::App` (see `commands::native_play`'s `list_native_systems_at`
+    /// for the same pattern). Stops short of the config/spawn/session steps,
+    /// which need a real RetroArch binary and a live process.
+    fn resolve_launch_target(db: &Db, game_id: i64) -> AppResult<(String, PathBuf)> {
+        let game = LibraryRepo::new(db).get_game(game_id)?;
+        let system = game.system.clone().ok_or_else(|| {
+            AppError::Unsupported(format!("game {game_id} has no ROM system to launch via RetroArch"))
+        })?;
+        let _path = game.path.clone().ok_or_else(|| {
+            AppError::Unsupported(format!("game {game_id} has no ROM path to launch via RetroArch"))
+        })?;
+        let core = CoresRepo::new(db).get_active(&system)?.ok_or_else(|| {
+            AppError::NotFound(format!(
+                "no active core configured for system '{system}' — install and activate a core first"
+            ))
+        })?;
+        let core_dylib = core.installed_path.clone().ok_or_else(|| {
+            AppError::NotFound(format!(
+                "core '{}' is not installed (no dylib path) — install it first",
+                core.core_id
+            ))
+        })?;
+        Ok((system, PathBuf::from(core_dylib)))
+    }
+
+    fn seed_rom_game(db: &Db, system: &str, path: &str) -> i64 {
+        LibraryRepo::new(db)
+            .add_game(&NewGame {
+                folder_id: None,
+                path: Some(path.to_string()),
+                system: Some(system.to_string()),
+                crc32: None,
+                md5: None,
+                clean_name: "Test Game".to_string(),
+                dat_matched: false,
+                core_hint: None,
+                art_path: None,
+                size_bytes: 0,
+                added_at: 0,
+                year: None,
+                developer: None,
+                publisher: None,
+                aliases: None,
+                source: GameSource::Rom,
+                launch_descriptor: None,
+                external_id: None,
+            })
+            .expect("seed rom game")
+    }
+
+    #[test]
+    fn resolve_launch_target_errors_when_no_active_core_is_configured() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_rom_game(&db, "nes", "/roms/a.nes");
+        let err = resolve_launch_target(&db, game_id).expect_err("no core configured");
+        assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    #[test]
+    fn resolve_launch_target_errors_when_the_active_core_has_no_installed_path() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_rom_game(&db, "nes", "/roms/a.nes");
+        CoresRepo::new(&db)
+            .add(&NewCore {
+                system: "nes".to_string(),
+                core_id: "fceumm".to_string(),
+                installed_path: None,
+                version: None,
+                last_modified: None,
+                active: true,
+            })
+            .expect("seed uninstalled core");
+
+        let err = resolve_launch_target(&db, game_id).expect_err("core not installed");
+        match err {
+            AppError::NotFound(detail) => assert!(detail.contains("not installed")),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_launch_target_succeeds_with_a_seeded_installed_core() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_rom_game(&db, "nes", "/roms/a.nes");
+        CoresRepo::new(&db)
+            .add(&NewCore {
+                system: "nes".to_string(),
+                core_id: "fceumm".to_string(),
+                installed_path: Some("/cores/nes/fceumm_libretro.dylib".to_string()),
+                version: None,
+                last_modified: None,
+                active: true,
+            })
+            .expect("seed installed core");
+
+        let (system, core_dylib) = resolve_launch_target(&db, game_id).expect("resolves");
+        assert_eq!(system, "nes");
+        assert_eq!(core_dylib, PathBuf::from("/cores/nes/fceumm_libretro.dylib"));
+    }
+}

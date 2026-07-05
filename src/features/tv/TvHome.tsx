@@ -51,6 +51,7 @@ import { TvRail } from "./TvRail";
 import { locateTile, rememberFocus, resolveRailNav } from "./railNav";
 import type { RailFocusMemory } from "./railNav";
 import type { TvRailModel } from "./rails";
+import { swallow } from "../../ipc/swallow";
 import "./tv-home.css";
 
 /** How long the focused game must hold before the hero crossfades to its art —
@@ -216,7 +217,7 @@ export function TvHome({ onExit }: { onExit: () => void }) {
   useCancellableEffect((isCancelled) => {
     getNativePlayEnabled()
       .then((enabled) => !isCancelled() && setNativeEnabled(enabled))
-      .catch(() => undefined);
+      .catch((err: unknown) => swallow(err, "TvHome.getNativePlayEnabled"));
     fetchNativeCapabilities().then((caps) => !isCancelled() && setNativeCapabilities(caps));
   }, []);
 
