@@ -161,8 +161,8 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.33 |
 |---|---|---|---|---|
-| `feat/w331-crossover-source` (W331) | ☐ | ☐ | ☐ | ☐ |
-| `fix/w334-hardening-rider` (W334) | n/a | ☐ | ☐ | ☐ |
+| `w331-crossover-source-v033p2-00` (W331) | ☑ | ☑ | ☑ | ☑ |
+| `w334-hardening-rider-v033p2-01` (W334) | n/a | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -185,3 +185,14 @@ typecheck, lint; W331/W332 (served/UI surfaces) additionally pass
   review's recommendation; finding 2 (DMG container is not codesigned —
   Apple-accepted flow, app signed inside, DMG notarized+stapled) recorded
   as intentional, not a gap.
+- Reviewer (W331, non-blocking): `external_id` keys on the app **display
+  name** (`<bottle>/<name>`) — renaming a launcher stub mints a new row and
+  orphans the old on re-scan; a future rung should prefer the stub's
+  `CFBundleIdentifier` where present. Recorded beside the design doc's
+  fixture-validation follow-up.
+- Reviewer (W331, cosmetic): `list_bottles()` returns `read_dir` order
+  (non-deterministic) — harmless for dedup; sort if display order ever
+  matters.
+- Reviewer (W334): zero findings — all five hardening items verified,
+  including busy_timeout inheritance at all four contending `Db::open`
+  call sites (`open_in_memory` correctly exempt).
