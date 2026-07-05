@@ -231,6 +231,9 @@ export const MOCK_FIXTURES = {
   start_native_play: null,
   stop_native_play: null,
   set_native_input: null,
+  // v0.35 "Player Two" W350 — release-all-ports contract used by overlay
+  // open / session teardown.
+  release_all_native_input: null,
 
   // --- Console catalog (src/ipc/console.ts, v0.12) ---
   list_consoles: [

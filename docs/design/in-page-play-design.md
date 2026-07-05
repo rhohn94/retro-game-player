@@ -226,6 +226,58 @@ loopback server still needs **no COOP/COEP headers** and no
   from the EmulatorJS CDN, mirroring the RetroArch core-downloader model.
   Recorded in THIRD-PARTY-NOTICES.md.
 
+### Player-2 config (v0.35, W353)
+
+v0.35 ("Player Two") adds two-controller multiplayer. The **native** libretro
+host (`emulation-launch-design.md`, `native-emulation-design.md` §Multiplayer
+input) is the primary multiplayer surface; this note covers what the
+**EmulatorJS fallback tier** does, verified by reading the actual vendored
+runtime (`src-tauri/vendor/emulatorjs/src/{emulator,gamepad}.js`, EJS 4.2.3) —
+not assumed from upstream docs.
+
+**EmulatorJS's built-in assignment behavior:**
+- `GamepadHandler` (`src/gamepad.js`) has no player-index concept at all — it
+  just reports `gamepadIndex` (the raw `Gamepad.index` from the browser) on
+  connect/disconnect/button/axis events.
+- `EmulatorJS.gamepad.on("connected", …)` (`src/emulator.js`) is where
+  player-slot assignment actually happens: on each `connected` event it walks
+  `this.gamepadSelection` (one entry per player, 0–3) and drops the new pad's
+  id into the **first empty slot**. In practice this means: first pad
+  connected → player 0, second pad connected → player 1, automatically, with
+  no configuration and no in-iframe manual mapping. **This part already works
+  in our embed with zero changes.**
+- What does **not** work out of the box: `this.defaultControllers` (seeded in
+  `initControlVars()`) hard-codes a full keyboard+gamepad button map for
+  player **0** only — `defaultControllers[1]`, `[2]`, `[3]` are `{}` (empty)
+  in the vendored 4.2.3 build. `gamepadEvent()` looks up
+  `this.controls[player][buttonIndex].value2` to route a press to
+  `GameManager.simulateInput(player, index, value)`; with an empty control map
+  for player 1, a second pad is correctly *selected* into slot 1 but every
+  button press is silently dropped before it ever reaches the core. Unassisted,
+  player 2 would appear to have a "connected" controller that does nothing.
+
+**Our configuration:** `src-tauri/vendor/player.html`'s inline boot script now
+sets `EJS_defaultControls` (the documented `config.defaultControllers`
+override point) with a standard-gamepad-mapping button table
+(A/B/X/Y·Select/Start·shoulders·d-pad — the only buttons NES/SNES cores read)
+for **both** player 0 and player 1. This is a wholesale replacement, not a
+merge (`emulator.js` only does `this.defaultControllers = this.config.defaultControllers`
+when the config key is truthy), so player 0's entry repeats EmulatorJS's own
+built-in keyboard mapping to avoid silently breaking keyboard play the moment
+the override is present; player 1 is gamepad-only (a second physical pad is
+the only supported player-2 input on this tier — keyboard-as-player-2 is out
+of scope). Covered by
+`src-tauri/src/play/server.rs::tests::serves_player_html_and_runtime_and_rom_and_404`,
+which asserts the served page carries populated control maps for both player
+slots (not just that the `EJS_defaultControls` key exists).
+
+**What remains a human on-device follow-up:** headless testing can verify the
+served config (the assertion above) but not that two physical pads plugged
+into a real machine actually drive players 1 and 2 independently in a running
+NES/SNES session — that two-pad behavioral check is a manual follow-up
+alongside the native path's on-device check (see release notes / QA pass for
+v0.35).
+
 ## 8. Player conveniences (v0.24, W243 — #22)
 
 - **Volume + mute, both paths, persisted.** `AppConfig` gains

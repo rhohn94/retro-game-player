@@ -64,9 +64,26 @@ export function getNativeFrame(lastSeq: number): Promise<ArrayBuffer | null> {
   return invoke<ArrayBuffer | null>("get_native_frame", { lastSeq });
 }
 
-/** Pushes the current joypad bitmask (see `nativeInput.ts`'s `computeJoypadBits`). */
-export function setNativeInput(bits: number): Promise<void> {
-  return invoke<void>("set_native_input", { bits });
+/**
+ * Pushes the current joypad bitmask (see `nativeInput.ts`'s
+ * `computeJoypadBits`) for `port` (v0.35 "Player Two" W350: ports 0 and 1
+ * this release). `port` is optional and backward-compatible — an omitted
+ * `port` behaves exactly as it did before ports existed, i.e. port 0, so
+ * every pre-W350 call site keeps working unmodified.
+ */
+export function setNativeInput(bits: number, port?: number): Promise<void> {
+  return invoke<void>("set_native_input", { bits, port });
+}
+
+/**
+ * Releases every port's held buttons in one call — the overlay-open and
+ * session-stop "let go of everything" contract (W350,
+ * native-emulation-design.md §Multiplayer input). Use this instead of
+ * `setNativeInput(0)` when the intent is "release all players", not just
+ * port 0.
+ */
+export function releaseAllNativeInput(): Promise<void> {
+  return invoke<void>("release_all_native_input");
 }
 
 /** Pauses/resumes the running native session (overlay open = frozen game). */

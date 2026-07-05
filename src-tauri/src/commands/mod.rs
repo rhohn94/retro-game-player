@@ -112,6 +112,8 @@ macro_rules! register_commands {
             $crate::commands::native_play::stop_native_play,
             $crate::commands::native_play::get_native_frame,
             $crate::commands::native_play::set_native_input,
+            // multiplayer input (v0.35 "Player Two" W350)
+            $crate::commands::native_play::release_all_native_input,
             // save persistence (v0.23 "Continuity" W230)
             $crate::commands::native_play::save_native_state,
             $crate::commands::native_play::load_native_state,
