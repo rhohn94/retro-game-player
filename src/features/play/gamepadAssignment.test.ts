@@ -94,6 +94,25 @@ describe("releasedPorts", () => {
   it("does not report a port that was never assigned", () => {
     expect(releasedPorts(emptyAssignments(), emptyAssignments())).toEqual([]);
   });
+
+  it("reports nothing for a same-tick swap — the port hands over, it is never released", () => {
+    // Intended semantics (controller-input-design.md §Two-player capture):
+    // when a pad disconnects AND a new pad connects in the SAME tick, the
+    // newcomer claims the freed port within that one assignPorts call, so
+    // the port never passes through an unassigned state and no intermediate
+    // zero-mask release is owed for it.
+    const before = assignPorts([pad(3)], emptyAssignments());
+    const after = assignPorts([pad(9)], before);
+    expect(after).toEqual([9, null]);
+    expect(releasedPorts(before, after)).toEqual([]);
+  });
+
+  it("a same-tick swap with a second pad connected keeps the other port stable and releases nothing", () => {
+    const before = assignPorts([pad(3), pad(7)], emptyAssignments());
+    const after = assignPorts([pad(7), pad(9)], before); // pad 3 out, pad 9 in, same tick
+    expect(after).toEqual([9, 7]);
+    expect(releasedPorts(before, after)).toEqual([]);
+  });
 });
 
 describe("padForPort", () => {
