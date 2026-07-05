@@ -1,25 +1,10 @@
 // Unit tests for GameSourcesPane's pure gating/validation logic (v0.31 W313
 // acceptance: "shortlist confirm gate works"; "form validates name/target").
-// Extracted here as standalone functions (mirroring the pane's own logic) so
-// they're testable without mounting React or invoking Tauri IPC.
+// W324: imports the real extracted helpers from gameSourcesGating.ts instead
+// of re-implementing mirrors of the pane's inline logic.
 import { describe, it, expect } from "vitest";
 
-/** Mirrors GameSourcesPane's checklist filter: only checked rows are confirmed. */
-function selectChecked<T>(rows: { item: T; checked: boolean }[]): T[] {
-  return rows.filter((r) => r.checked).map((r) => r.item);
-}
-
-/** Mirrors GameSourcesPane's manual-entry name validation. */
-function manualNameError(name: string): string | null {
-  if (name.trim().length === 0) return "Name is required.";
-  return null;
-}
-
-/** Mirrors GameSourcesPane's manual-entry target validation. */
-function manualTargetError(target: unknown): string | null {
-  if (!target) return "Choose an app or executable.";
-  return null;
-}
+import { manualNameError, manualTargetError, selectChecked } from "./gameSourcesGating";
 
 describe("game sources: app-shortlist confirm gate", () => {
   it("confirms only the checked rows", () => {

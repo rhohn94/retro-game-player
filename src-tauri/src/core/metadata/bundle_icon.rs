@@ -76,6 +76,15 @@ fn resolve_icns_path(bundle_path: &Path) -> Option<PathBuf> {
 /// on success (exit status 0 and the output file exists), `false` for any
 /// failure — including `sips` being unavailable, which must not be treated
 /// as an error (degrade to placeholder).
+///
+/// A failure still logs a single `eprintln!` line (W323 reviewer follow-up)
+/// so a silent "no art" outcome is diagnosable from the app logs — spawning
+/// `sips` failing outright, the process exiting non-zero, or it reporting
+/// success without actually producing `png_out_path` are three distinct
+/// failure shapes, each logged with enough detail (path + cause) to tell
+/// them apart. This never escalates to an `Err`: the caller's
+/// graceful-degradation contract (fall back to the placeholder) is
+/// unchanged, only observability improves.
 fn convert_icns_to_png(icns_path: &Path, png_out_path: &Path) -> bool {
     let status = std::process::Command::new("sips")
         .arg("-s")
@@ -87,8 +96,32 @@ fn convert_icns_to_png(icns_path: &Path, png_out_path: &Path) -> bool {
         .output();
 
     match status {
-        Ok(output) => output.status.success() && png_out_path.is_file(),
-        Err(_) => false,
+        Ok(output) if output.status.success() && png_out_path.is_file() => true,
+        Ok(output) if output.status.success() => {
+            eprintln!(
+                "[bundle_icon] sips reported success converting {} but {} was not created",
+                icns_path.display(),
+                png_out_path.display()
+            );
+            false
+        }
+        Ok(output) => {
+            eprintln!(
+                "[bundle_icon] sips failed converting {} to {} (exit status: {}): {}",
+                icns_path.display(),
+                png_out_path.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            false
+        }
+        Err(e) => {
+            eprintln!(
+                "[bundle_icon] failed to spawn sips converting {}: {e}",
+                icns_path.display()
+            );
+            false
+        }
     }
 }
 

@@ -5,6 +5,7 @@
 // AI affordances. Master contract: architecture-design.md §2.8.
 
 import { invoke } from "./invoke";
+import type { GameSource } from "./library";
 
 /**
  * Result of the two-stage Familiar probe. `present` is whether the service
@@ -37,6 +38,16 @@ interface Game {
   artPath: string | null;
   sizeBytes: number;
   addedAt: number;
+  /** Game source: `"rom"` (default) or a non-retro source (v0.31 W310).
+   * Mirrors the canonical `Game` DTO in `library.ts`. */
+  source: GameSource;
+  /** JSON launch descriptor for non-`"rom"` sources; `null` for `"rom"` rows
+   * (v0.31 W310). Mirrors the canonical `Game` DTO in `library.ts`. */
+  launchDescriptor: string | null;
+  /** Source-scoped external identifier (e.g. a Steam appid); `null` for
+   * `"rom"` rows (v0.31 W310). Mirrors the canonical `Game` DTO in
+   * `library.ts`. */
+  externalId: string | null;
 }
 
 /**

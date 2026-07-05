@@ -65,6 +65,12 @@ pub struct AppConfig {
     /// W281, performance-tooling-design.md). Off by default — an opt-in
     /// diagnostic overlay, not a surprise addition to the play surface.
     pub show_fps_counter: bool,
+    /// User-supplied SteamGridDB API key (v0.32 W321,
+    /// non-retro-library-design.md §SteamGridDB art). `None` until the user
+    /// enters one in Settings → Game Sources; the SteamGridDB art-fallback
+    /// rung is fully inert without it — scans and shelves behave exactly as
+    /// v0.31 (no SteamGridDB requests attempted at all).
+    pub steamgriddb_api_key: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -81,6 +87,7 @@ impl Default for AppConfig {
             auto_tv_mode: false,
             crt_filter: CrtFilterConfig::default(),
             show_fps_counter: false,
+            steamgriddb_api_key: None,
         }
     }
 }
@@ -231,6 +238,20 @@ mod tests {
         assert!(!cfg.auto_tv_mode); // TV mode is opt-in (v0.26 W260)
         assert_eq!(cfg.crt_filter, CrtFilterConfig::default()); // off by default (v0.29 W280)
         assert!(!cfg.show_fps_counter); // opt-in diagnostic overlay (v0.29 W281)
+        assert!(cfg.steamgriddb_api_key.is_none()); // inert until configured (v0.32 W321)
+    }
+
+    #[test]
+    fn steamgriddb_api_key_round_trips() {
+        let (paths, tmp) = temp_paths("steamgriddb-api-key");
+        let cfg = AppConfig {
+            steamgriddb_api_key: Some("sgdb-test-key".to_string()),
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert_eq!(loaded.steamgriddb_api_key.as_deref(), Some("sgdb-test-key"));
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
