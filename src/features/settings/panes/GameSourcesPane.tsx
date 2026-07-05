@@ -1,7 +1,7 @@
 // GameSourcesPane — the Settings "Game sources" section (v0.31 W313; GOG +
-// itch added v0.32 W320).
+// itch added v0.32 W320; SteamGridDB API key field added v0.32 W321).
 //
-// Five affordances, per docs/design/non-retro-library-design.md §UI:
+// Six affordances, per docs/design/non-retro-library-design.md §UI:
 // - Steam: trigger a re-scan (button calls scan_steam_source; W312).
 // - Apps: run the /Applications + ~/Applications scan, then confirm a
 //   checklist of the shortlist before any row is created (no silent library
@@ -9,6 +9,10 @@
 // - GOG: trigger a re-scan (button calls scan_gog_source; W320).
 // - itch: trigger a re-scan (button calls scan_itch_source; W320).
 // - Manual: a name + file-picker form that adds an escape-hatch entry.
+// - SteamGridDB: an API key field for the art-fallback rung that covers
+//   non-Steam titles (apps, manual, GOG, itch). Blank/absent leaves the
+//   provider fully inert — scans and shelves behave exactly as v0.31 (§Art &
+//   metadata, W321).
 //
 // GOG/itch mirror Steam exactly (an unconfirmed direct scan-and-upsert, no
 // shortlist) rather than the Apps confirm-gate shape, since both sources are
@@ -19,7 +23,7 @@
 // throughout (never a Grimoire `aura-click` listener); `AuraField` wraps a
 // contained `<input>` and never takes `value`/`type` props itself.
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AuraButton, AuraField } from "@aura/react";
 
 import {
@@ -33,6 +37,7 @@ import {
   type ManualTarget,
   type SourceScanReport,
 } from "../../../ipc/sources";
+import { getSteamGridDbApiKey, setSteamGridDbApiKey } from "../../../ipc/steamgriddb";
 import { openFileDialog } from "../../../ipc/dialog";
 import { isAppError } from "../../../ipc/commands";
 import { manualNameError, manualTargetError, selectChecked } from "./gameSourcesGating";
@@ -201,6 +206,44 @@ export function GameSourcesPane() {
     }
   }
 
+  // --- SteamGridDB API key ---
+  const [sgdbKeyInput, setSgdbKeyInput] = useState("");
+  const [sgdbKeySaved, setSgdbKeySaved] = useState<string | null>(null);
+  const [sgdbSaving, setSgdbSaving] = useState(false);
+
+  const loadSgdbKey = useCallback(() => {
+    getSteamGridDbApiKey()
+      .then((key) => {
+        setSgdbKeySaved(key);
+        setSgdbKeyInput(key ?? "");
+      })
+      .catch((e: unknown) => setError(isAppError(e) ? e.detail : String(e)));
+  }, []);
+
+  useEffect(() => {
+    loadSgdbKey();
+  }, [loadSgdbKey]);
+
+  async function handleSaveSgdbKey() {
+    setError(null);
+    setStatus(null);
+    setSgdbSaving(true);
+    try {
+      const trimmed = sgdbKeyInput.trim();
+      await setSteamGridDbApiKey(trimmed.length > 0 ? trimmed : null);
+      setSgdbKeySaved(trimmed.length > 0 ? trimmed : null);
+      setStatus(
+        trimmed.length > 0
+          ? "SteamGridDB API key saved."
+          : "SteamGridDB API key cleared — the provider is now inert.",
+      );
+    } catch (e: unknown) {
+      setError(isAppError(e) ? e.detail : String(e));
+    } finally {
+      setSgdbSaving(false);
+    }
+  }
+
   return (
     <div className="settings-pane" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <h3 style={{ margin: 0 }}>Game Sources</h3>
@@ -355,6 +398,43 @@ export function GameSourcesPane() {
             {manualBusy ? "Adding…" : "Add"}
           </AuraButton>
         </div>
+      </div>
+
+      {/* SteamGridDB art */}
+      <div
+        className="rgp-panel"
+        style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, borderRadius: 8 }}
+      >
+        <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>SteamGridDB art</p>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+          Fetches box/grid art for non-Steam titles (apps, manual entries,
+          GOG, itch) by name. Leave blank to leave this provider off — scans
+          and shelves work the same either way, just without this extra art
+          source.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <AuraField tabIndex={0} style={{ flex: 1 }}>
+            <input
+              type="password"
+              placeholder="SteamGridDB API key"
+              tabIndex={0}
+              value={sgdbKeyInput}
+              onChange={(e) => setSgdbKeyInput(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleSaveSgdbKey(); }}
+              style={inputStyle}
+            />
+          </AuraField>
+          <AuraButton
+            tabIndex={0}
+            disabled={sgdbSaving || sgdbKeyInput.trim() === (sgdbKeySaved ?? "")}
+            onClick={() => { void handleSaveSgdbKey(); }}
+          >
+            {sgdbSaving ? "Saving…" : "Save"}
+          </AuraButton>
+        </div>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+          {sgdbKeySaved ? "A key is configured." : "No key configured — provider is inert."}
+        </p>
       </div>
     </div>
   );

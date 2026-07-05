@@ -1,6 +1,6 @@
 //! Game-source IPC adapters (v0.31 W312/W313 "Frontier"; art acquisition
-//! W314). Thin `#[tauri::command]` wrappers over the `core::sources`
-//! scanners and `LibraryRepo::upsert_game_by_source`. See
+//! W314; SteamGridDB rung W321). Thin `#[tauri::command]` wrappers over the
+//! `core::sources` scanners and `LibraryRepo::upsert_game_by_source`. See
 //! `docs/design/non-retro-library-design.md` §Game sources, §UI, and
 //! §Art & metadata.
 //!
@@ -13,11 +13,10 @@
 //! - `scan_itch_source` — scan + upsert itch installs, return counts (W320).
 //!
 //! After each upsert, `upsert_discovered` best-effort-fetches art for the row
-//! (Steam CDN for `steam` rows keyed on appid; `.app` bundle-icon render for
-//! `app`/`manual`/`gog`/`itch` rows backed by a bundle) via
-//! `core::metadata::steam_art` / `core::metadata::bundle_icon` — reusing the
-//! existing `art_cache` pipeline (W314). Art failures never fail the
-//! scan/confirm command itself.
+//! via `core::metadata::art_fallback_chain::resolve_art` — the deterministic
+//! Steam CDN (appid) → SteamGridDB (API key present) → bundle icon rung
+//! order (W321), reusing the existing `art_cache` pipeline (W314). Art
+//! failures never fail the scan/confirm command itself.
 //!
 //! **Art acquisition is detached (W323).** A scan/confirm command upserts
 //! every row and returns its counts immediately; art is fetched on a
@@ -33,9 +32,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::config::paths::Paths;
-use crate::core::metadata::bundle_icon::fetch_bundle_icon_art;
-use crate::core::metadata::name_sanitizer::sanitize;
-use crate::core::metadata::steam_art::fetch_steam_art;
+use crate::config::AppConfig;
+use crate::core::metadata::art_fallback_chain::{resolve_art, ArtFallbackInput};
 use crate::core::sources::app_scan::AppScanner;
 use crate::core::sources::gog::GogScanner;
 use crate::core::sources::itch::ItchScanner;
@@ -92,13 +90,25 @@ fn now_epoch_secs() -> i64 {
 }
 
 /// Best-effort art acquisition for a just-upserted game, **detached from the
-/// calling command** (W323 — see the module doc). A CDN miss, an offline
-/// network, or an unresolvable bundle icon all degrade silently to "no art
-/// fetched", leaving the existing placeholder art path in place; none of
-/// that ever propagates back to the scan/confirm command, since by the time
-/// it happens the command has already returned. `art_hint` is the
-/// scanner-supplied hint (`DiscoveredGame::art_hint`): a Steam appid for
-/// `steam` rows, or an app-bundle path for `app`/`manual` rows.
+/// calling command** (W323 — see the module doc). Every failure (CDN miss,
+/// offline network, unresolvable bundle icon, no/invalid SteamGridDB key)
+/// degrades silently to "no art fetched", leaving the existing placeholder
+/// art path in place; none of that ever propagates back to the scan/confirm
+/// command, since by the time it happens the command has already returned.
+/// `art_hint` is the scanner-supplied hint (`DiscoveredGame::art_hint`): a
+/// Steam appid for `steam` rows, or an app-bundle path for
+/// `app`/`manual`/`gog`/`itch` rows. A missing hint (e.g. an exec-target
+/// manual entry) short-circuits before spawning anything, same as pre-W321 —
+/// SteamGridDB's name-based rung still runs whenever *some* hint is present
+/// (it only needs the game's title, read from the DB once the thread is
+/// already spawned), it just isn't reason enough on its own to spawn a
+/// thread + load `AppConfig` for a hint-less row.
+///
+/// Dispatches to [`core::metadata::art_fallback_chain::resolve_art`] (v0.32
+/// W321) for the deterministic Steam CDN → SteamGridDB → bundle icon rung
+/// order — this function's only remaining job is mapping `(source, hint)`
+/// onto that chain's `ArtFallbackInput` and supplying the SteamGridDB key
+/// from `AppConfig`.
 ///
 /// Spawns a dedicated OS thread that opens its **own** [`Db`] connection
 /// rather than borrowing the caller's — the caller's `State<Db>` borrow does
@@ -108,9 +118,12 @@ fn now_epoch_secs() -> i64 {
 /// is re-resolved via `Paths::app_support()` (the same resolver `lib.rs`
 /// uses for the app's single shared db file) rather than threaded in from
 /// the caller, since doing so keeps every `#[tauri::command]` signature in
-/// this module untouched. Returns immediately; the fetch itself (and the one
-/// blocking async round-trip it drives for `steam` rows) all happen off the
-/// calling thread.
+/// this module untouched. Returns immediately; the fetch itself (including
+/// the SteamGridDB rung's serial search+download and the Steam rung's one
+/// blocking async round-trip) all happen off the calling thread — one row
+/// per thread, so requests to SteamGridDB across a scan's several rows are
+/// naturally serialized per-row without a shared queue (W321: "rate-limit
+/// friendly, no retry storms").
 fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<String>) {
     // ROM art goes through the libretro-thumbnails pipeline
     // (`core::metadata::fallback`), not this non-retro path — bail before
@@ -118,6 +131,12 @@ fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<Stri
     if source == GameSource::Rom {
         return;
     }
+    // No scanner-supplied hint means neither the Steam-CDN rung (needs an
+    // appid) nor the bundle-icon rung (needs a bundle path) has anything to
+    // try; the SteamGridDB rung alone isn't worth spawning a thread + DB/
+    // config load for, so this mirrors the pre-W321 short-circuit exactly
+    // (also keeps unit tests that pass `None` from touching the real
+    // on-disk app-support DB via `Paths::app_support()` below).
     let Some(hint) = art_hint else { return };
 
     std::thread::Builder::new()
@@ -132,19 +151,28 @@ fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<Stri
             let Ok(db) = Db::open(&db_path) else {
                 return;
             };
+            let Ok(game) = LibraryRepo::new(&db).get_game(game_id) else {
+                return;
+            };
+            let Ok(cfg) = AppConfig::load(&paths) else {
+                return;
+            };
 
-            match source {
-                GameSource::Steam => {
-                    let _ = tauri::async_runtime::block_on(fetch_steam_art(
-                        &db, &paths, game_id, &hint,
-                    ));
-                }
+            let (steam_appid, bundle_path) = match source {
+                GameSource::Steam => (Some(hint.as_str()), None),
                 GameSource::App | GameSource::Manual | GameSource::Gog | GameSource::Itch => {
-                    let sanitized_name = sanitize(&hint);
-                    let _ = fetch_bundle_icon_art(&db, &paths, game_id, &hint, &sanitized_name);
+                    (None, Some(hint.as_str()))
                 }
                 GameSource::Rom => unreachable!("returned above"),
-            }
+            };
+
+            let input = ArtFallbackInput {
+                steam_appid,
+                steamgriddb_api_key: cfg.steamgriddb_api_key.as_deref(),
+                bundle_path,
+                display_name: &game.clean_name,
+            };
+            let _ = resolve_art(&db, &paths, game_id, &input);
         })
         // A failure to spawn the OS thread is the same outcome as any other
         // art-acquisition failure: silently no art this round, placeholder
