@@ -579,8 +579,9 @@ the existing contract holds.
   above records which cohort systems are genuinely dual-region so a future
   on-device PAL-ROM spot check knows where to look.
 - **Table membership + recommended-default alignment** —
-  `the_software_render_cohort_and_n64_are_enabled_alongside_nes` and
-  `every_cohort_row_is_a_recommended_default_core` (systems.rs) are the
+  `the_software_render_cohort_n64_and_ps1_are_enabled_alongside_nes` (renamed
+  by W344 as later rows landed) and `every_cohort_row_is_a_recommended_default_core`
+  (systems.rs) are the
   acceptance-mandated "each cohort system boots a ROM through the native host
   in the stub/fixture test harness" floor: every row resolves through the
   same `resolve_native_core_path`/`CoresRepo` path NES already uses.
@@ -589,7 +590,8 @@ the existing contract holds.
 
 - **ps1** — disc-image (not cartridge-ROM) identification is W343/W344's
   scope (`library-identification-design.md`); native PS1 hosting needs that
-  scanning/mapping work landed first.
+  scanning/mapping work landed first. Enabled by W344 (see §PS1 native enable
+  below).
 - **n64** — every viable N64 libretro core (`mupen64plus_next`,
   `parallel_n64`) requires `RETRO_ENVIRONMENT_SET_HW_RENDER` (an OpenGL/Metal
   framebuffer target, not the software `retro_video_refresh` buffer this host
@@ -605,6 +607,100 @@ verification pass in v0.23 once hardware/ROMs were available — see
 "Verification record" above). This does not block v0.34: the stub/fixture
 harness above is the acceptance floor, same as it was for NES's own W340
 generalization.
+
+## PS1 native enable (v0.34 "Engines" Pass 3, W344)
+
+W343 (Pass 2) taught the library scanner to positively identify a PS1
+disc image by content-sniffing `.cue`/`.bin`/`.chd` (`core::library::disc_ident`)
+rather than by file extension alone — real `.chd` images are the one
+documented gap (needs hunk decompression, tracked as
+[#49](https://github.com/rhohn94/retro-game-player/issues/49)). W344 spends
+that identification on an actual `NATIVE_SYSTEMS` row: `ps1` via
+`pcsx_rearmed`, the same recommended-default core `system_map::cores_for
+("ps1")[0]` already lists.
+
+| System | Core | `need_fullpath` | BIOS | Disc scope | On-device status |
+|---|---|---|---|---|---|
+| ps1 | pcsx_rearmed | **true** — the core opens/seeks the `.cue` itself | HLE (built-in) by default; a real BIOS file in RetroArch's system folder is needed for some titles — Harmony manages no BIOS files, only surfaces the honest notice | Disc 1 only — no disk-control/swap UI this release | **Human follow-up** — no PS1 fixture/homebrew hardware run available in this session; the stub/fixture harness below is the acceptance floor (v0.21 "Bedrock" precedent) |
+
+**`need_fullpath` needed no host change.** `pcsx_rearmed` declares
+`need_fullpath = true` in its `retro_get_system_info` — it wants a real file
+path it can `open()`/`seek()` itself (a `.cue` sheet references its `.bin`
+tracks by relative path, so the core must resolve them from a real path on
+disk), not a blob of bytes. `play::native::host::LibretroCore::load_game` has
+never had a bytes-mode branch: every call site already hands it a `Path`,
+which it turns into a `RetroGameInfo { path: <cstring>, data: null, size: 0,
+… }` — the exact shape a `need_fullpath` core expects. Appending the `ps1`
+row was therefore the *entire* enable on the host side; a stub core in
+`host.rs`'s test module now declares `need_fullpath = true` itself and
+asserts the exact path string it receives back, matching (and reusing) the
+existing `.cue`-is-canonical guarantee `disc_ident.rs`/`core::sources::rom`
+already established (a `.cue`+`.bin` pair's library-row path is always the
+`.cue`, never the `.bin` — `sniff_cue_file`'s doc comment and its own tests).
+
+**HLE-BIOS honesty, not BIOS management.** pcsx_rearmed ships a built-in
+high-level-emulation BIOS and boots the majority of PS1 titles on it with
+zero configuration; a minority of titles (certain licensing/boot-check
+edge cases) only boot correctly against a **real** PlayStation BIOS file
+dropped into RetroArch's system folder. W344 does not add BIOS-file
+management (no picker, no validation, no bundling) — it adds one honest,
+standing notice on the game detail page, shown whenever the native path is
+about to be used for a `ps1` game (`ps1BiosCopy.ts`'s
+`shouldShowPs1BiosNotice`, rendered by `PlaySwitch` via the small
+`Ps1BiosNotice` component, styled like the existing `PlayNotice` degradation
+banner but **not** a degradation — the native path IS what is running, so it
+doesn't route through `degradation.ts`'s once-per-session dismiss funnel):
+
+> Runs on an emulated (HLE) BIOS — some titles need a real PlayStation BIOS
+> in RetroArch's system folder.
+
+**Single-disc scope.** Multi-disc PS1 games (most RPGs) are common; W344
+ships disc 1 only, with no in-app disc-swap UI — the same notice's hint line
+documents this ("Multi-disc games play disc 1 only — there's no in-app
+disc-swap control yet"). If a core asks Harmony for the libretro
+disk-control interface (`RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE`,
+raw id 61 — deliberately given no named constant in `ffi.rs`, matching that
+file's "only implemented commands are named" convention), the environment
+dispatcher's existing unhandled-command arm already returns `false` and logs
+once — exactly like any other environment command Harmony doesn't implement
+— never a panic, never an invented disk-control response. This is proven
+directly by `callbacks.rs`'s
+`environment_set_disk_control_interface_is_not_handled` test using the real
+libretro numeric id.
+
+### Acceptance (W344)
+
+- `host.rs`'s `a_need_fullpath_core_receives_the_disc_image_path_not_bytes`
+  boots a stub core declaring `need_fullpath = true` through
+  `LibretroCore::load_game` and asserts the exact `.cue` path string arrives
+  (`data`/`size` empty) — the "a PS1 fixture/homebrew image boots natively in
+  the test harness" floor, since no real pcsx_rearmed `.dylib`/BIOS/ROM
+  combination is available in this sandboxed session (same posture as W345's
+  N64 on-device gap: the harness is the acceptance floor, the real-hardware
+  run is a tracked human follow-up).
+- `ps1` is a `NATIVE_SYSTEMS` row (`systems.rs`'s `ps1_is_the_last_row_and_uses_pcsx_rearmed`
+  and `the_software_render_cohort_n64_and_ps1_are_enabled_alongside_nes`),
+  resolving through the same `resolve_native_core_path`/`CoresRepo` path
+  every other row uses.
+- BIOS-notice copy shows on the PS1 detail page whenever the native path is
+  active (`ps1BiosCopy.test.ts`'s `shouldShowPs1BiosNotice` cases; wired into
+  `PlaySwitch.tsx`).
+- Multi-disc games play disc 1 with the swap limitation documented (this
+  section, the notice's hint copy, and
+  `environment_set_disk_control_interface_is_not_handled`).
+- EJS fallback is intact — no change to `system_map.rs`'s external-core
+  catalog or the EJS launch path; `NATIVE_SYSTEMS` gaining a `ps1` row only
+  changes what `list_native_systems`/`nativePath.ts` report as
+  native-eligible, and the existing native-init-failure → EmulatorJS-fallback
+  switch (§4) covers a failed PS1 native start the same as any other system.
+
+**On-device verification (human follow-up, v0.21/W345 precedent):** a real
+pcsx_rearmed `.dylib` plus a PS1 fixture/homebrew disc image were not
+available in this implementation session — tracked as a follow-up in the
+release ledger, not blocking this branch, matching the standing "ships dark
+on the stub/fixture floor, real-hardware spot check is a tracked human
+follow-up" posture this design doc already uses for SNES/GBA (W342) and N64
+(W345).
 
 ## HW-render subsystem + N64 (v0.34 "Engines", W345)
 

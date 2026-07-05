@@ -1037,6 +1037,28 @@ mod tests {
         assert!(!unsafe { environment(9999, std::ptr::null_mut()) });
     }
 
+    /// W344 (PS1, single-disc scope): Harmony implements no disk-control
+    /// interface, so a core asking for one (e.g. pcsx_rearmed on a multi-disc
+    /// game probing for swap support) must degrade exactly like any other
+    /// environment command Harmony doesn't implement — `false`, no panic —
+    /// never a crash, and never a silently-invented disk-control response.
+    /// `RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE` is libretro.h's real
+    /// numeric id (61); Harmony deliberately gives it no named constant here
+    /// (see ffi.rs's "only implemented commands are named" convention) since
+    /// it falls through the same unhandled-command arm as any other
+    /// unimplemented command.
+    #[test]
+    fn environment_set_disk_control_interface_is_not_handled() {
+        let _guard = lock_tests();
+        const RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE: u32 = 61;
+        assert!(!unsafe {
+            environment(
+                RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE,
+                std::ptr::null_mut(),
+            )
+        });
+    }
+
     #[test]
     fn callbacks_before_install_are_silent_no_ops() {
         let _guard = lock_tests();

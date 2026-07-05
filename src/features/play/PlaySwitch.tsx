@@ -14,6 +14,8 @@ import { GetCorePanel } from "./GetCorePanel";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
 import { PlayNotice } from "./PlayNotice";
+import { Ps1BiosNotice } from "./Ps1BiosNotice";
+import { shouldShowPs1BiosNotice } from "./ps1BiosCopy";
 import type { PlayerPresentation } from "./presentation";
 import { canPlayInPage, isEmbeddedInPage } from "./ejs";
 import { inPageAvailability, systemLabel } from "./inPageAvailability";
@@ -128,9 +130,14 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
   const noticeEl = notice ? <PlayNotice notice={notice} /> : null;
 
   if (isNativeCandidate && nativeEnabled && !nativeFailed) {
+    // PS1 honesty notice (W344): the native path is what's about to run, on
+    // pcsx_rearmed's HLE BIOS by default — a standing notice, not a
+    // degradation, so it renders independently of `noticeEl` above.
+    const ps1NoticeEl = shouldShowPs1BiosNotice(system, true) ? <Ps1BiosNotice /> : null;
     return (
       <>
         {noticeEl}
+        {ps1NoticeEl}
         <NativePlayer
           gameId={gameId}
           gameName={gameName}
