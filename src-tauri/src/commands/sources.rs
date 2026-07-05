@@ -511,22 +511,20 @@ mod tests {
         );
     }
 
-    // --- acquire_art_best_effort (W320: gog/itch route through bundle-icon art) ---
+    // --- spawn_art_acquisition (W320: gog/itch route through bundle-icon art) ---
 
     /// A missing art hint for a `gog` row must short-circuit before touching
     /// the filesystem, same as every other non-ROM source.
     #[test]
-    fn acquire_art_best_effort_is_noop_for_gog_without_hint() {
-        let db = Db::open_in_memory().unwrap();
-        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Gog, None));
+    fn spawn_art_acquisition_is_noop_for_gog_without_hint() {
+        spawn_art_acquisition(1, GameSource::Gog, None);
     }
 
     /// A missing art hint for an `itch` row must short-circuit before
     /// touching the filesystem, same as every other non-ROM source.
     #[test]
-    fn acquire_art_best_effort_is_noop_for_itch_without_hint() {
-        let db = Db::open_in_memory().unwrap();
-        tauri::async_runtime::block_on(acquire_art_best_effort(&db, 1, GameSource::Itch, None));
+    fn spawn_art_acquisition_is_noop_for_itch_without_hint() {
+        spawn_art_acquisition(1, GameSource::Itch, None);
     }
 
     // --- new_game_for_source (W320: gog/itch rows share the App/Manual shape) ---
