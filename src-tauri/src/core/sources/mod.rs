@@ -13,6 +13,7 @@ use crate::error::AppResult;
 use serde_json::Value;
 
 pub mod app_scan; // W313 — /Applications + ~/Applications game-category scan
+pub mod rom; // W322 — legacy ROM folder scanner migrated onto GameSource
 pub mod steam; // W312 — Steam appmanifest scan
 
 /// One game discovered by a [`GameSourceScanner`], not yet persisted.

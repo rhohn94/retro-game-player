@@ -1,47 +1,22 @@
-//! Scan orchestration (W6): walk a content folder, hash + identify each ROM,
-//! and persist new games via the library repo.
+//! Scan orchestration (W6, migrated onto `GameSource` in W322): walk a
+//! content folder, hash + identify each ROM, and persist new games via the
+//! library repo.
 //!
-//! This is the only library module that touches the database. It composes the
-//! pure pieces ([`walker`], [`hasher`], [`matcher`]) and writes [`NewGame`] rows.
-//! Dedup is by `games.path` (UNIQUE in §3): a path already present is skipped, so
-//! a rescan is idempotent. Unidentified ROMs are still persisted (with
-//! `dat_matched = false`) and counted so the UI can surface them as a flagged
-//! subset.
+//! v0.32 W322 moved the actual scan/dedup/persist logic onto
+//! [`crate::core::sources::rom::RomSource`] — the ROM folder scanner is now
+//! "just another `GameSource`", alongside `SteamScanner` / `AppScanner`. This
+//! module is kept as a thin, IPC-facing shim so `scan_folder_path` /
+//! `ScanReport` remain stable call sites (`commands::library`, the wider
+//! test suite) with zero duplicated logic — see
+//! `docs/design/non-retro-library-design.md` §ROM scanner on GameSource.
 
-use super::matcher::Matcher;
-use super::{dat::DatIndex, hasher, walker};
-use crate::db::repo::library::{Game, LibraryRepo, NewGame};
-use crate::db::repo::Repository;
+use crate::core::sources::rom::RomSource;
 use crate::db::Db;
-use crate::error::{AppError, AppResult};
-use std::collections::HashSet;
+use crate::error::AppResult;
 use std::path::Path;
 
-/// Summary of a single folder scan, mirroring the TS `ScanReport` (§2.1).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScanReport {
-    /// The content folder that was scanned.
-    pub folder_id: i64,
-    /// Total ROM files the walker found.
-    pub scanned: usize,
-    /// ROMs matched against the DAT (`dat_matched = true`).
-    pub identified: usize,
-    /// ROMs with no DAT match (flagged for the UI).
-    pub unidentified: usize,
-    /// New game rows inserted this scan (excludes already-present paths).
-    pub added: usize,
-}
-
-/// Current Unix epoch seconds, for `added_at`. Centralized so the time source is
-/// named once rather than inlined at each call site.
-fn now_epoch_secs() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
+pub use super::dat::DatIndex;
+pub use crate::core::sources::rom::ScanReport;
 
 /// Scan one content folder rooted at `root` (the folder's `path`), persisting new
 /// games under `folder_id`. `dat` is the optional identification index — when
@@ -49,107 +24,23 @@ fn now_epoch_secs() -> i64 {
 ///
 /// Existing `games.path` rows are skipped (dedup), so repeated scans converge.
 /// A per-file read/hash failure is logged into the `scanned` count but does not
-/// abort the scan.
+/// abort the scan. Delegates to [`RomSource::scan_folder`] (W322) — this
+/// function is kept only so existing call sites don't need to change.
 pub fn scan_folder_path(
     db: &Db,
     folder_id: i64,
     root: &Path,
     dat: Option<&DatIndex>,
 ) -> AppResult<ScanReport> {
-    let repo = LibraryRepo::new(db);
-
-    // Existing paths under this folder — the dedup set. We also dedup within the
-    // walk itself (the walker already yields unique paths, but a set keeps the
-    // insertion total in the face of future symlink resolution).
-    let mut known: HashSet<String> = repo
-        .list_games(None)?
-        .into_iter()
-        // The scanner only ever registers ROM rows, which always have `path`
-        // set (v0.31 W310 makes it nullable only for non-ROM sources); a
-        // non-ROM row simply contributes nothing to the dedup set.
-        .filter_map(|g: Game| g.path)
-        .collect();
-
-    let empty = DatIndex::default();
-    let index = dat.unwrap_or(&empty);
-    let matcher = Matcher::new(index);
-
-    let candidates = walker::walk(root);
-    let scanned = candidates.len();
-    let mut identified = 0usize;
-    let mut unidentified = 0usize;
-    let mut added = 0usize;
-    let now = now_epoch_secs();
-
-    for cand in candidates {
-        let path_str = cand.path.to_string_lossy().to_string();
-
-        let bytes = match std::fs::read(&cand.path) {
-            Ok(b) => b,
-            Err(_) => continue, // unreadable file — skip, already counted as scanned
-        };
-        let size_bytes = bytes.len() as i64;
-        let hashes = hasher::hash_rom(&bytes, &cand.mapping.system);
-        let outcome = matcher.match_rom(&hashes, &cand.path);
-
-        if outcome.dat_matched {
-            identified += 1;
-        } else {
-            unidentified += 1;
-        }
-
-        // Dedup by path; a rescan re-counts identify stats but inserts nothing new.
-        if known.contains(&path_str) {
-            continue;
-        }
-
-        let new_game = NewGame {
-            folder_id: Some(folder_id),
-            path: Some(path_str.clone()),
-            system: Some(cand.mapping.system.clone()),
-            crc32: Some(hashes.crc32),
-            md5: Some(hashes.md5),
-            clean_name: outcome.clean_name,
-            dat_matched: outcome.dat_matched,
-            core_hint: Some(cand.mapping.core_hint.clone()),
-            art_path: None,
-            size_bytes,
-            added_at: now,
-            // Metadata is populated by future enrichment, not by the scan (W61).
-            year: None,
-            developer: None,
-            publisher: None,
-            aliases: None,
-            source: crate::db::repo::library::GameSource::Rom,
-            launch_descriptor: None,
-            external_id: None,
-        };
-
-        match repo.add_game(&new_game) {
-            Ok(_) => {
-                known.insert(path_str);
-                added += 1;
-            }
-            // A racing UNIQUE collision is benign for a scan — treat as deduped.
-            Err(AppError::Conflict(_)) => {}
-            Err(e) => return Err(e),
-        }
-    }
-
-    Ok(ScanReport {
-        folder_id,
-        scanned,
-        identified,
-        unidentified,
-        added,
-    })
+    RomSource::new(db).scan_folder(folder_id, root, dat)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::library::ines::{INES_HEADER_LEN, INES_MAGIC};
-    use crate::db::repo::library::NewContentFolder;
+    use crate::db::repo::library::{Game, LibraryRepo, NewContentFolder};
+    use crate::db::repo::Repository;
     use std::fs;
     use std::path::PathBuf;
 
@@ -200,7 +91,7 @@ mod tests {
 
         let games = repo.list_games(None).unwrap();
         assert_eq!(games.len(), 2);
-        let mario = games.iter().find(|g| g.system.as_deref() == Some("nes")).unwrap();
+        let mario = games.iter().find(|g: &&Game| g.system.as_deref() == Some("nes")).unwrap();
         assert_eq!(mario.clean_name, "Mario (World)");
         assert!(mario.dat_matched);
         assert_eq!(mario.crc32.as_deref(), Some("352441c2"));
