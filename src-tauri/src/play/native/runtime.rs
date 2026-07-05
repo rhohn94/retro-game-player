@@ -16,6 +16,7 @@ use super::callbacks::{self, AudioBatch, EnvironmentEvent, PixelFormat};
 use super::clock::FrameClock;
 use super::frame::{to_rgba8_into, Rgba8Frame};
 use super::host::LibretroCore;
+use super::hw_render::{HwRenderContext, HwRenderRequest};
 use super::perf_file::PerfLogFile;
 use super::perf_stats::FrameTimeWindow;
 use crate::error::{AppError, AppResult};
@@ -108,17 +109,26 @@ impl NativeRuntime {
         // retro_init/retro_load_game, and events sent before install() would
         // be silently dropped.
         let channels = callbacks::install();
-        let (core, fps, core_sample_rate) = match bring_up_core(core_path, rom_path, &saves) {
+        let bring_up = match bring_up_core(core_path, rom_path, &saves) {
             Ok(v) => v,
             Err(e) => {
                 callbacks::uninstall(); // don't leave dead sinks installed
                 return Err(e);
             }
         };
+        let CoreBringUp {
+            core,
+            fps,
+            audio_sample_rate: core_sample_rate,
+            aspect_ratio,
+            max_width,
+            max_height,
+        } = bring_up;
 
         let latest_frame = Arc::new(Mutex::new(FrameSlot::default()));
         // Libretro's implicit default before a core negotiates otherwise.
         let pixel_format = Arc::new(Mutex::new(PixelFormat::Rgb1555));
+        let aspect_ratio = Arc::new(Mutex::new(aspect_ratio));
         let stop = Arc::new(AtomicBool::new(false));
         let paused = Arc::new(AtomicBool::new(false));
         let gain = Arc::new(SharedGain::new());
@@ -131,6 +141,7 @@ impl NativeRuntime {
         let core_thread = {
             let latest_frame = Arc::clone(&latest_frame);
             let pixel_format = Arc::clone(&pixel_format);
+            let aspect_ratio = Arc::clone(&aspect_ratio);
             let stop = Arc::clone(&stop);
             let paused = Arc::clone(&paused);
             let counters = Arc::clone(&counters);
@@ -147,6 +158,10 @@ impl NativeRuntime {
                     commands: command_rx,
                     latest_frame: &latest_frame,
                     pixel_format: &pixel_format,
+                    aspect_ratio: &aspect_ratio,
+                    hw_render: None,
+                    max_width,
+                    max_height,
                     stop: &stop,
                     paused: &paused,
                 });
@@ -248,13 +263,31 @@ fn elevate_core_thread_qos() {
 #[cfg(not(target_os = "macos"))]
 fn elevate_core_thread_qos() {}
 
+/// Everything [`bring_up_core`] hands back to [`NativeRuntime::start`]: the
+/// loaded core plus the facts it reported that the rest of bring-up needs
+/// (pacing, initial display aspect, and — for a core that will go on to
+/// negotiate HW-render — the max geometry the FBO should be sized from).
+struct CoreBringUp {
+    core: LibretroCore,
+    fps: f64,
+    audio_sample_rate: f64,
+    /// The core's declared display aspect ratio at boot
+    /// (`retro_get_system_av_info`'s `geometry.aspect_ratio`) — `None` for a
+    /// non-positive value, matching libretro's "derive it from width/height"
+    /// convention. Superseded at runtime by any
+    /// `RETRO_ENVIRONMENT_SET_GEOMETRY` renegotiation (W340).
+    aspect_ratio: Option<f32>,
+    /// The core's declared max frame dimensions — the size an HW-render FBO
+    /// is allocated at (never renegotiated except by `SET_GEOMETRY`, which
+    /// resizes the FBO in place). Meaningless for a software-rendered core
+    /// (nothing reads it).
+    max_width: u32,
+    max_height: u32,
+}
+
 /// Loads and initializes the core + ROM (+ saved SRAM), returning it with
-/// the fps and audio sample rate it reports.
-fn bring_up_core(
-    core_path: &Path,
-    rom_path: &Path,
-    saves: &Option<GameSaves>,
-) -> AppResult<(LibretroCore, f64, f64)> {
+/// the facts the rest of bring-up needs ([`CoreBringUp`]).
+fn bring_up_core(core_path: &Path, rom_path: &Path, saves: &Option<GameSaves>) -> AppResult<CoreBringUp> {
     let mut core = LibretroCore::load(core_path)?;
     // Contract order (see LibretroCore's doc): environment MUST be
     // registered before retro_init — real cores query it during init.
@@ -281,7 +314,23 @@ fn bring_up_core(
     } else {
         FALLBACK_FPS
     };
-    Ok((core, fps, av.timing.sample_rate))
+    Ok(CoreBringUp {
+        core,
+        fps,
+        audio_sample_rate: av.timing.sample_rate,
+        aspect_ratio: positive_aspect_ratio(av.geometry.aspect_ratio),
+        max_width: av.geometry.max_width,
+        max_height: av.geometry.max_height,
+    })
+}
+
+/// Libretro's convention for `retro_game_geometry.aspect_ratio`: a
+/// non-positive value means "not set — derive it from width/height", never a
+/// literal ratio to render at. Shared by boot-time (`bring_up_core`) and
+/// mid-game (`SET_GEOMETRY`, in [`drain_environment`]) geometry reads so the
+/// two call sites can't drift on what "unset" means.
+fn positive_aspect_ratio(raw: f32) -> Option<f32> {
+    (raw > 0.0).then_some(raw)
 }
 
 /// Spawns the audio thread and waits for its bring-up handoff: the device's
@@ -348,6 +397,27 @@ struct CoreLoop<'a> {
     commands: Receiver<CoreCommand>,
     latest_frame: &'a Mutex<FrameSlot>,
     pixel_format: &'a Mutex<PixelFormat>,
+    /// The frame pipe's current display aspect ratio (W340's reviewer note,
+    /// W345): seeded from the core's boot-time `av_info` and updated on
+    /// `RETRO_ENVIRONMENT_SET_GEOMETRY`; read into every delivered
+    /// [`Rgba8Frame`] so the frontend can render at the correct aspect
+    /// instead of assuming a fixed box.
+    aspect_ratio: &'a Mutex<Option<f32>>,
+    /// `None` until a core negotiates `RETRO_ENVIRONMENT_SET_HW_RENDER`
+    /// (W345) — created lazily by [`bring_up_hw_render`] the first time
+    /// [`EnvironmentEvent::HwRenderRequested`] is drained, never eagerly.
+    /// `Arc` (not `Box`) because [`callbacks::install_hw_render_context`]
+    /// needs its own handle for the process-global FFI callbacks
+    /// ([`callbacks::hw_get_current_framebuffer`]/
+    /// [`callbacks::hw_get_proc_address`]) to read from a different call
+    /// stack (the core's own `retro_run`, re-entering through the C ABI)
+    /// than the one that owns it here.
+    hw_render: Option<Arc<HwRenderContext>>,
+    /// The core's declared max frame dimensions — sizes the HW-render FBO
+    /// the first time it is created. Meaningless (and unread) for a
+    /// software-rendered session.
+    max_width: u32,
+    max_height: u32,
     stop: &'a AtomicBool,
     paused: &'a AtomicBool,
 }
@@ -359,6 +429,20 @@ struct CoreLoop<'a> {
 /// logging perf counters, and writing the final SRAM + auto save-state on
 /// exit.
 fn run_core_loop(mut ctx: CoreLoop<'_>) {
+    // Drain once before the loop starts: a core negotiates HW-render (and
+    // pixel format, and its option list) during `retro_init`/`retro_load_game`
+    // — both of which already happened inside `bring_up_core`, before this
+    // function was ever called — so those events are sitting in the channel
+    // right now. Draining them here (not waiting for the post-`run_frame`
+    // drain inside the loop below) matters specifically for HW-render
+    // (W345): the libretro contract calls for `context_reset` to fire once
+    // the context + FBO are ready but BEFORE the core's first `retro_run`,
+    // and the core's own copy of `get_current_framebuffer`/`get_proc_address`
+    // (captured at negotiation time) is only valid once `bring_up_hw_render`
+    // has filled them in — a first `retro_run` before this drain would call
+    // through function pointers the core hasn't resolved via
+    // `get_proc_address` yet, producing a blank first frame at best.
+    drain_environment(&mut ctx);
     let frame_duration = Duration::from_secs_f64(1.0 / ctx.fps);
     let mut clock = FrameClock::new(frame_duration);
     let mut last_flushed_sram: Option<Vec<u8>> = None;
@@ -406,13 +490,16 @@ fn run_core_loop(mut ctx: CoreLoop<'_>) {
             break;
         }
         ctx.counters.frames_run.fetch_add(1, Ordering::Relaxed);
-        // Before video: a core typically negotiates its pixel format once
-        // near startup, before its first real video_refresh call.
-        drain_environment(&ctx.channels, ctx.pixel_format, ctx.stop);
+        // Before video: a core typically negotiates its pixel format (or,
+        // for N64/W345, its HW-render context) once near startup, before its
+        // first real video_refresh call.
+        drain_environment(&mut ctx);
         drain_video(
             &ctx.channels,
             ctx.latest_frame,
             ctx.pixel_format,
+            ctx.aspect_ratio,
+            ctx.hw_render.as_deref(),
             &mut rgba_scratch,
             &ctx.counters,
         );
@@ -588,15 +675,16 @@ fn flush_sram_if_dirty(ctx: &CoreLoop<'_>, last_flushed: &mut Option<Vec<u8>>) {
     }
 }
 
-fn drain_environment(
-    channels: &callbacks::CallbackChannels,
-    pixel_format: &Mutex<PixelFormat>,
-    stop: &AtomicBool,
-) {
-    while let Ok(event) = channels.environment.try_recv() {
+/// Drains queued environment events into `ctx`'s state: pixel format, the
+/// shared aspect ratio (W345, propagating the W340 reviewer note), HW-render
+/// bring-up (W345, lazy — created the first and only time
+/// `HwRenderRequested` arrives), and mid-game geometry (which also resizes
+/// the HW-render FBO in place, when one exists).
+fn drain_environment(ctx: &mut CoreLoop<'_>) {
+    while let Ok(event) = ctx.channels.environment.try_recv() {
         match event {
             EnvironmentEvent::PixelFormat(format) => {
-                *pixel_format.lock().unwrap_or_else(|p| p.into_inner()) = format;
+                *ctx.pixel_format.lock().unwrap_or_else(|p| p.into_inner()) = format;
             }
             // The declared option list only matters to the core-options IPC
             // surface (W282), which reads it via a dedicated headless probe
@@ -605,19 +693,59 @@ fn drain_environment(
             // `callbacks::set_core_variables` before this core booted.
             EnvironmentEvent::VariablesDeclared(_) => {}
             // A mid-game geometry renegotiation (W340) needs no explicit
-            // resize here: every `VideoFrame` carries its own width/height,
-            // and `drain_video`'s `to_rgba8_into` resizes its output buffer
-            // to match each frame it converts — the very next frame at the
-            // new geometry is handled without any special-casing. Logged
-            // once per change so an on-device session (e.g. a system whose
-            // titles vary resolution) is observable.
+            // pixel-buffer resize for the software path: every `VideoFrame`
+            // carries its own width/height, and `drain_video`'s
+            // `to_rgba8_into` resizes its output buffer to match each frame
+            // it converts. The HW-render FBO (W345) is NOT self-resizing the
+            // same way (its storage is GPU-allocated up front), so it is
+            // explicitly resized here when a context exists. The shared
+            // aspect ratio (both paths) is updated either way — this is the
+            // W340 reviewer note's fix: aspect used to only be logged.
             EnvironmentEvent::GeometryChanged(geometry) => {
                 eprintln!(
                     "[rgp-native] geometry changed: {}x{} (aspect {:.3})",
                     geometry.width, geometry.height, geometry.aspect_ratio
                 );
+                *ctx.aspect_ratio.lock().unwrap_or_else(|p| p.into_inner()) =
+                    positive_aspect_ratio(geometry.aspect_ratio);
+                if let Some(hw) = ctx.hw_render.as_ref() {
+                    if let Err(e) = hw.resize(geometry.width, geometry.height) {
+                        eprintln!("[rgp-native] HW-render FBO resize failed: {e}");
+                    }
+                }
             }
-            EnvironmentEvent::Shutdown => stop.store(true, Ordering::Relaxed),
+            EnvironmentEvent::HwRenderRequested(request) => bring_up_hw_render(ctx, request),
+            EnvironmentEvent::Shutdown => ctx.stop.store(true, Ordering::Relaxed),
+        }
+    }
+}
+
+/// Creates the session's [`HwRenderContext`] the first time a core
+/// negotiates `RETRO_ENVIRONMENT_SET_HW_RENDER` (W345) — never eagerly, and
+/// never more than once per session (a second request while one is already
+/// active is a core bug, logged and ignored rather than leaking the first
+/// context). Installs it into the process-global FFI slot
+/// ([`callbacks::install_hw_render_context`]) so
+/// `get_current_framebuffer`/`get_proc_address` can answer the core's calls,
+/// then signals `context_reset` per the libretro contract (after
+/// `retro_load_game`, once the context + FBO are actually ready).
+fn bring_up_hw_render(ctx: &mut CoreLoop<'_>, request: HwRenderRequest) {
+    if ctx.hw_render.is_some() {
+        eprintln!("[rgp-native] core requested HW-render a second time; ignoring");
+        return;
+    }
+    match HwRenderContext::create(ctx.max_width, ctx.max_height, request) {
+        Ok(hw) => {
+            let hw = Arc::new(hw);
+            callbacks::install_hw_render_context(Arc::clone(&hw));
+            hw.signal_context_reset();
+            ctx.hw_render = Some(hw);
+        }
+        Err(e) => {
+            eprintln!(
+                "[rgp-native] HW-render context creation failed, core init will likely fail \
+                 cleanly (EJS fallback applies): {e}"
+            );
         }
     }
 }
@@ -630,10 +758,13 @@ fn drain_environment(
 /// NOT kept (a newer one replaced it before anyone painted it) bumps
 /// `counters.dropped_video_frames` (v0.29 W281) — this is the core outpacing
 /// the frontend's poll cadence, not a decode/paint failure.
+#[allow(clippy::too_many_arguments)]
 fn drain_video(
     channels: &callbacks::CallbackChannels,
     latest_frame: &Mutex<FrameSlot>,
     pixel_format: &Mutex<PixelFormat>,
+    aspect_ratio: &Mutex<Option<f32>>,
+    hw_render: Option<&HwRenderContext>,
     scratch: &mut Vec<u8>,
     counters: &PerfCounters,
 ) {
@@ -651,15 +782,44 @@ fn drain_video(
             .fetch_add(discarded, Ordering::Relaxed);
     }
     let Some(frame) = newest else { return };
+    // Hardware-rendered frame (W345): the core already drew into the FBO
+    // `hw_get_current_framebuffer` handed it — read the real pixels back
+    // instead of decoding `frame.data` (which is empty for this case; see
+    // `VideoFrame::is_hw_frame`'s doc). A frame claiming to be a HW frame
+    // with no active context (shouldn't happen — the core can only get the
+    // sentinel value from a context Harmony itself handed out) is dropped
+    // rather than risking a stale/garbage readback.
+    if frame.is_hw_frame {
+        let Some(hw) = hw_render else { return };
+        hw.read_frame_into(scratch);
+        publish_frame(latest_frame, scratch, frame.width, frame.height, aspect_ratio);
+        return;
+    }
     let format = *pixel_format.lock().unwrap_or_else(|p| p.into_inner());
     to_rgba8_into(&frame, format, scratch);
+    publish_frame(latest_frame, scratch, frame.width, frame.height, aspect_ratio);
+}
+
+/// Shared tail of both the software and HW-render video-drain paths: hands
+/// `scratch`'s converted/read-back RGBA bytes to the shared frame slot,
+/// recycling the displaced frame's allocation as the next scratch buffer
+/// (steady-state zero allocation either way), stamped with the current
+/// aspect ratio (W340 reviewer note / W345) and a fresh sequence number.
+fn publish_frame(
+    latest_frame: &Mutex<FrameSlot>,
+    scratch: &mut Vec<u8>,
+    width: u32,
+    height: u32,
+    aspect_ratio: &Mutex<Option<f32>>,
+) {
+    let aspect_ratio = *aspect_ratio.lock().unwrap_or_else(|p| p.into_inner());
     let mut slot = latest_frame.lock().unwrap_or_else(|p| p.into_inner());
-    // Recycle the displaced frame's allocation as the next scratch buffer.
     let recycled = slot.frame.take().map(|f| f.data).unwrap_or_default();
     slot.frame = Some(Rgba8Frame {
         data: std::mem::replace(scratch, recycled),
-        width: frame.width,
-        height: frame.height,
+        width,
+        height,
+        aspect_ratio,
     });
     slot.seq = slot.seq.wrapping_add(1);
 }
@@ -719,6 +879,7 @@ mod tests {
             width: 1,
             height: 1,
             pitch: 2,
+            is_hw_frame: false,
         }
     }
 
@@ -727,6 +888,7 @@ mod tests {
         let (video_tx, _audio_tx, channels) = test_channels();
         let latest_frame = Mutex::new(FrameSlot::default());
         let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let aspect_ratio = Mutex::new(None);
         let counters = PerfCounters::default();
         let mut scratch = Vec::new();
 
@@ -734,7 +896,15 @@ mod tests {
         video_tx.send(one_pixel_frame()).expect("send 2");
         video_tx.send(one_pixel_frame()).expect("send 3");
 
-        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+        drain_video(
+            &channels,
+            &latest_frame,
+            &pixel_format,
+            &aspect_ratio,
+            None,
+            &mut scratch,
+            &counters,
+        );
 
         // 3 queued, 1 kept — the other 2 counted as dropped.
         assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 2);
@@ -748,11 +918,20 @@ mod tests {
         let (video_tx, _audio_tx, channels) = test_channels();
         let latest_frame = Mutex::new(FrameSlot::default());
         let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let aspect_ratio = Mutex::new(None);
         let counters = PerfCounters::default();
         let mut scratch = Vec::new();
 
         video_tx.send(one_pixel_frame()).expect("send");
-        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+        drain_video(
+            &channels,
+            &latest_frame,
+            &pixel_format,
+            &aspect_ratio,
+            None,
+            &mut scratch,
+            &counters,
+        );
 
         assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 0);
     }
@@ -762,13 +941,47 @@ mod tests {
         let (_video_tx, _audio_tx, channels) = test_channels();
         let latest_frame = Mutex::new(FrameSlot::default());
         let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let aspect_ratio = Mutex::new(None);
         let counters = PerfCounters::default();
         let mut scratch = Vec::new();
 
-        drain_video(&channels, &latest_frame, &pixel_format, &mut scratch, &counters);
+        drain_video(
+            &channels,
+            &latest_frame,
+            &pixel_format,
+            &aspect_ratio,
+            None,
+            &mut scratch,
+            &counters,
+        );
 
         assert_eq!(counters.dropped_video_frames.load(Ordering::Relaxed), 0);
         assert!(latest_frame.lock().unwrap().frame.is_none());
+    }
+
+    #[test]
+    fn drain_video_publishes_the_current_aspect_ratio_onto_the_frame() {
+        let (video_tx, _audio_tx, channels) = test_channels();
+        let latest_frame = Mutex::new(FrameSlot::default());
+        let pixel_format = Mutex::new(PixelFormat::Rgb565);
+        let aspect_ratio = Mutex::new(Some(16.0 / 9.0));
+        let counters = PerfCounters::default();
+        let mut scratch = Vec::new();
+
+        video_tx.send(one_pixel_frame()).expect("send");
+        drain_video(
+            &channels,
+            &latest_frame,
+            &pixel_format,
+            &aspect_ratio,
+            None,
+            &mut scratch,
+            &counters,
+        );
+
+        let slot = latest_frame.lock().unwrap();
+        let frame = slot.frame.as_ref().expect("frame published");
+        assert_eq!(frame.aspect_ratio, Some(16.0 / 9.0));
     }
 
     /// The additive-format contract (W281 acceptance): the pre-existing
@@ -1255,6 +1468,194 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
 
         drop(runtime); // stops + joins both threads
     }
+
+    /// W345 acceptance ("readback throughput ... does not regress the frame
+    /// pipe" / "software-render systems are untouched"): an end-to-end proof
+    /// that a core negotiating `RETRO_ENVIRONMENT_SET_HW_RENDER` boots
+    /// through the exact same [`NativeRuntime::start`] entrypoint as every
+    /// software-rendered stub above, and that its FBO-rendered frames arrive
+    /// at [`NativeRuntime::latest_frame`] as real, non-blank RGBA pixels —
+    /// proving the whole chain (environment negotiation → CGL/FBO bring-up →
+    /// `context_reset` → the core drawing via real `glClearColor`/`glClear`
+    /// resolved through `get_proc_address` → the `RETRO_HW_FRAME_BUFFER_VALID`
+    /// sentinel → `glReadPixels` readback → the same frame slot every
+    /// software core uses) headlessly, with no bundled/copyrighted ROM or
+    /// real N64 core. macOS-only (HW-render negotiation is refused
+    /// elsewhere), matching this module's other `cfg(target_os = "macos")`
+    /// gates.
+    #[cfg(target_os = "macos")]
+    const STUB_HW_RENDER_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+typedef void (*retro_hw_context_reset_t)(void);
+typedef uintptr_t (*retro_hw_get_current_framebuffer_t)(void);
+typedef void (*retro_proc_address_t)(void);
+typedef retro_proc_address_t (*retro_hw_get_proc_address_t)(const char *sym);
+struct retro_hw_render_callback {
+    int context_type;
+    retro_hw_context_reset_t context_reset;
+    retro_hw_get_current_framebuffer_t get_current_framebuffer;
+    retro_hw_get_proc_address_t get_proc_address;
+    bool depth;
+    bool stencil;
+    bool bottom_left_origin;
+    unsigned version_major;
+    unsigned version_minor;
+    bool cache_context;
+    retro_hw_context_reset_t context_destroy;
+    bool debug_context;
+};
+
+static retro_environment_t env_cb = 0;
+static retro_video_refresh_t video_cb = 0;
+static struct retro_hw_render_callback hw = {0};
+static int context_reset_calls = 0;
+static void (*glBindFramebuffer_p)(unsigned, unsigned) = 0;
+static void (*glClearColor_p)(float, float, float, float) = 0;
+static void (*glClear_p)(unsigned) = 0;
+
+static void on_context_reset(void) {
+    context_reset_calls++;
+    glBindFramebuffer_p = (void (*)(unsigned, unsigned)) hw.get_proc_address("glBindFramebuffer");
+    glClearColor_p = (void (*)(float, float, float, float)) hw.get_proc_address("glClearColor");
+    glClear_p = (void (*)(unsigned)) hw.get_proc_address("glClear");
+}
+
+void retro_init(void) {
+    hw.context_type = 3; /* RETRO_HW_CONTEXT_OPENGL_CORE */
+    hw.context_reset = on_context_reset;
+    hw.depth = false;
+    hw.stencil = false;
+    hw.bottom_left_origin = false;
+    bool accepted = env_cb(14 /* RETRO_ENVIRONMENT_SET_HW_RENDER */, &hw);
+    (void)accepted; /* the test asserts on real frame content, not this flag */
+}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub HW-Render Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "z64";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 4;
+    info->geometry.base_height = 4;
+    info->geometry.max_width = 4;
+    info->geometry.max_height = 4;
+    info->geometry.aspect_ratio = 4.0f / 3.0f;
+    info->timing.fps = 60.0;
+    info->timing.sample_rate = 44100.0;
+}
+
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+
+bool retro_load_game(const struct retro_game_info *game) { return true; }
+void retro_unload_game(void) {}
+
+/* Draws a known, non-black color into the FBO Harmony handed out via
+ * get_current_framebuffer, then reports the frame via the
+ * RETRO_HW_FRAME_BUFFER_VALID sentinel rather than a real pointer — exactly
+ * the libretro HW-render contract. */
+void retro_run(void) {
+    if (glBindFramebuffer_p && hw.get_current_framebuffer) {
+        glBindFramebuffer_p(0x8D40 /* GL_FRAMEBUFFER */, (unsigned)hw.get_current_framebuffer());
+    }
+    if (glClearColor_p) glClearColor_p(0.2f, 0.6f, 1.0f, 1.0f);
+    if (glClear_p) glClear_p(0x00004000 /* GL_COLOR_BUFFER_BIT */);
+    if (video_cb) video_cb((const void *)(uintptr_t)(intptr_t)-1, 4, 4, 0);
+}
+
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+void *retro_get_memory_data(unsigned id) { return 0; }
+size_t retro_get_memory_size(unsigned id) { return 0; }
+"#;
+
+    #[cfg(target_os = "macos")]
+    fn build_stub_hw_render_core(dir: &Path) -> Option<PathBuf> {
+        let c_path = dir.join("stub_hw_render_core.c");
+        std::fs::write(&c_path, STUB_HW_RENDER_CORE_C).ok()?;
+        let dylib_path = dir.join("stub_hw_render_core.dylib");
+        let status = Command::new("cc")
+            .arg("-dynamiclib")
+            .arg("-o")
+            .arg(&dylib_path)
+            .arg(&c_path)
+            .status()
+            .ok()?;
+        status.success().then_some(dylib_path)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels() {
+        let _guard = crate::play::native::lock_tests();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_hw_render_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let rom_path = dir.path().join("game.z64");
+        std::fs::write(&rom_path, [0u8; 16]).expect("write stub rom");
+
+        let runtime = NativeRuntime::start(&dylib, &rom_path, None, None).expect("runtime starts");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut first_frame = None;
+        while Instant::now() < deadline {
+            if let Some((seq, frame)) = runtime.latest_frame() {
+                first_frame = Some((seq, frame));
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let (_seq, frame) =
+            first_frame.expect("a real HW-rendered frame must be produced within the deadline");
+
+        assert_eq!((frame.width, frame.height), (4, 4));
+        assert_eq!(frame.data.len(), 4 * 4 * 4);
+        // The stub cleared to (0.2, 0.6, 1.0, 1.0) — approximately
+        // (51, 153, 255, 255) in RGBA8888. Every pixel must carry that real,
+        // non-blank GPU-rendered color, proving the FBO readback (not a
+        // stale/zeroed buffer) reached the frame pipe.
+        for px in frame.data.chunks_exact(4) {
+            assert!(
+                (45..=57).contains(&px[0]) && (147..=159).contains(&px[1]) && px[2] >= 250 && px[3] == 255,
+                "unexpected pixel {px:?}, expected ~[51, 153, 255, 255]"
+            );
+        }
+
+        drop(runtime); // stops + joins both threads; context_destroy fires
+    }
 }
 
 /// Manual, real-device verification harness for the v0.21 "Bedrock"
@@ -1298,6 +1699,53 @@ mod manual {
                 .map(|(seq, f)| format!("{}x{} (seq {seq})", f.width, f.height))
                 .unwrap_or_else(|| "none".into())
         );
+        drop(runtime);
+    }
+
+    /// W345's on-device acceptance criterion ("an N64 ROM boots and renders
+    /// through the native host on device") — the real-hardware counterpart
+    /// to the headless HW-render stub-core proof
+    /// (`headless_integration::native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels`),
+    /// which proves the FBO/readback plumbing but necessarily uses a fake
+    /// core, not real N64 emulation. Not run by `cargo test` (`#[ignore]`);
+    /// run it explicitly once mupen64plus_next is installed and a ROM is
+    /// available:
+    ///
+    /// ```text
+    /// RGP_N64_CORE=/path/to/mupen64plus_next_libretro.dylib \
+    /// RGP_N64_ROM=/path/to/game.z64 \
+    /// cargo test --release manual_n64_boots_and_renders_via_hw_render -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn manual_n64_boots_and_renders_via_hw_render() {
+        let core_path = std::env::var("RGP_N64_CORE")
+            .expect("set RGP_N64_CORE to an installed mupen64plus_next_libretro.dylib path");
+        let rom_path =
+            std::env::var("RGP_N64_ROM").expect("set RGP_N64_ROM to a real .z64/.n64 ROM path");
+
+        let runtime = NativeRuntime::start(
+            &PathBuf::from(core_path),
+            &PathBuf::from(rom_path),
+            None,
+            None,
+        )
+        .expect("native runtime failed to start");
+
+        println!("playing for 5s — confirm a real N64 frame renders (HW-render, W345)...");
+        std::thread::sleep(Duration::from_secs(5));
+        let frame = runtime.latest_frame();
+        println!(
+            "latest frame present: {}",
+            frame
+                .as_ref()
+                .map(|(seq, f)| format!(
+                    "{}x{} aspect={:?} (seq {seq})",
+                    f.width, f.height, f.aspect_ratio
+                ))
+                .unwrap_or_else(|| "none".into())
+        );
+        assert!(frame.is_some(), "an N64 session must produce at least one frame");
         drop(runtime);
     }
 }
