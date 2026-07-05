@@ -450,6 +450,16 @@ mod tests {
         // W276: the audio warm-up master-gain shim must actually ship with
         // the served page (warm-then-reset cold-start fix).
         assert!(player_html.contains("__harmonyMaster"));
+        // W353: the served page must configure EmulatorJS's player-1 gamepad
+        // button mapping — the vendored runtime ships an EMPTY default
+        // control map for players 1-3, so without this override a second
+        // connected pad is auto-selected into slot 1 but every button press
+        // is silently dropped. Assert both player slots are populated (not
+        // just that the config key exists) so a `{0: ..., 1: {}}` regression
+        // — which would still leave player 2 unplayable — would fail here.
+        assert!(player_html.contains("EJS_defaultControls"));
+        assert!(player_html.contains("0: playerControls(true)"));
+        assert!(player_html.contains("1: playerControls(false)"));
 
         // embedded runtime asset (present in every EmulatorJS release)
         let (status, _) = http_get(port, "/emulatorjs/loader.js");

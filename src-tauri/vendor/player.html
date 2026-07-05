@@ -162,6 +162,62 @@
         window.EJS_gameName = name;
         window.EJS_startOnLoaded = true;
 
+        // --- Two-player gamepad config (v0.35 W353; in-page-play-design.md §7) ---
+        // EmulatorJS auto-assigns the first two connected gamepads to player
+        // slots 0/1 in controller-connect order (its GamepadHandler "connected"
+        // listener fills the first empty `gamepadSelection` slot — no config
+        // needed for that part). What it does NOT ship is a default *button*
+        // mapping for any player beyond 0: `defaultControllers[1..3]` are empty
+        // objects in the vendored runtime, so a slot-1 pad is "selected" but
+        // every button press is silently dropped (`this.controls[1][j]` has no
+        // `value2` for gamepadEvent to match). EJS_defaultControls is the
+        // documented override point — it seeds `this.controls` directly and
+        // REPLACES the built-in default wholesale (emulator.js only assigns it
+        // when truthy, but does not merge it), so player 0's entry below also
+        // repeats EmulatorJS's own built-in keyboard `value` mapping — omitting
+        // it would silently break keyboard play for player 0 the moment this
+        // config is present. Player 1 gets gamepad-only entries (no keyboard
+        // `value`): a second physical pad is the only supported player-2 input
+        // this release, keyboard-as-player-2 is out of scope.
+        function padButton(value2, value) {
+          var entry = { value2: value2 };
+          if (value !== undefined) entry.value = value;
+          return entry;
+        }
+        // [gamepadLabel, player-0 keyboard key] pairs, in standard-mapping
+        // button-index order — matches both EmulatorJS's built-in player-0
+        // default and the Gamepad API's canonical button layout: A/B/X/Y,
+        // select/start, shoulders, sticks, d-pad. NES/SNES only ever read
+        // buttons 0–13, so shoulders are included but sticks are not needed.
+        var STANDARD_PAD_BUTTONS = [
+          ["BUTTON_2", "x"],
+          ["BUTTON_4", "s"],
+          ["SELECT", "v"],
+          ["START", "enter"],
+          ["DPAD_UP", "up arrow"],
+          ["DPAD_DOWN", "down arrow"],
+          ["DPAD_LEFT", "left arrow"],
+          ["DPAD_RIGHT", "right arrow"],
+          ["BUTTON_1", "z"],
+          ["BUTTON_3", "a"],
+          ["LEFT_TOP_SHOULDER", "q"],
+          ["RIGHT_TOP_SHOULDER", "e"],
+          ["LEFT_BOTTOM_SHOULDER", "tab"],
+          ["RIGHT_BOTTOM_SHOULDER", "r"],
+        ];
+        function playerControls(includeKeyboard) {
+          var out = {};
+          for (var i = 0; i < STANDARD_PAD_BUTTONS.length; i++) {
+            var pair = STANDARD_PAD_BUTTONS[i];
+            out[i] = padButton(pair[0], includeKeyboard ? pair[1] : undefined);
+          }
+          return out;
+        }
+        window.EJS_defaultControls = {
+          0: playerControls(true),
+          1: playerControls(false),
+        };
+
         var s = document.createElement("script");
         s.src = "/emulatorjs/loader.js";
         document.body.appendChild(s);
