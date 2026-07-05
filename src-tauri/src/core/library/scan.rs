@@ -15,7 +15,7 @@ use crate::db::Db;
 use crate::error::AppResult;
 use std::path::Path;
 
-pub use super::dat::DatIndex;
+use super::dat::DatIndex;
 pub use crate::core::sources::rom::ScanReport;
 
 /// Scan one content folder rooted at `root` (the folder's `path`), persisting new
@@ -39,7 +39,7 @@ pub fn scan_folder_path(
 mod tests {
     use super::*;
     use crate::core::library::ines::{INES_HEADER_LEN, INES_MAGIC};
-    use crate::db::repo::library::{Game, LibraryRepo, NewContentFolder};
+    use crate::db::repo::library::NewContentFolder;
     use crate::db::repo::Repository;
     use std::fs;
     use std::path::PathBuf;
@@ -60,11 +60,17 @@ mod tests {
         v
     }
 
+    /// Thin delegation smoke test (W334): the real behavioural coverage
+    /// (dedup, identify stats, rescan convergence, ...) lives on
+    /// [`RomSource::scan_folder`] in `core::sources::rom` — this module is a
+    /// back-compat shim, so it only needs to prove the delegation itself
+    /// wires through and returns a real report, not re-litigate behaviour
+    /// already covered there.
     #[test]
-    fn scan_persists_dedupes_and_reports() {
+    fn scan_folder_path_delegates_to_rom_source() {
         let db = Db::open_in_memory().unwrap();
-        let repo = LibraryRepo::new(&db);
-        let root = temp_dir("persist");
+        let repo = crate::db::repo::library::LibraryRepo::new(&db);
+        let root = temp_dir("delegates");
         let fid = repo
             .add_folder(&NewContentFolder {
                 path: root.to_string_lossy().to_string(),
@@ -72,59 +78,13 @@ mod tests {
                 added_at: 1,
             })
             .unwrap();
-
-        // One NES ROM whose stripped body is "abc" (crc 352441c2), plus a snes ROM.
         fs::write(root.join("mario.nes"), nes_rom(b"abc")).unwrap();
-        fs::write(root.join("zelda.sfc"), b"snesbytes").unwrap();
-
-        // DAT identifies only the NES ROM by its stripped-body CRC.
-        let dat = DatIndex::from_xml(
-            r#"<datafile><game name="Mario (World)"><rom crc="352441c2"/></game></datafile>"#,
-        )
-        .unwrap();
-
-        let report = scan_folder_path(&db, fid, &root, Some(&dat)).unwrap();
-        assert_eq!(report.scanned, 2);
-        assert_eq!(report.identified, 1);
-        assert_eq!(report.unidentified, 1);
-        assert_eq!(report.added, 2);
-
-        let games = repo.list_games(None).unwrap();
-        assert_eq!(games.len(), 2);
-        let mario = games.iter().find(|g: &&Game| g.system.as_deref() == Some("nes")).unwrap();
-        assert_eq!(mario.clean_name, "Mario (World)");
-        assert!(mario.dat_matched);
-        assert_eq!(mario.crc32.as_deref(), Some("352441c2"));
-
-        // Rescan: nothing new added (dedup by path), stats unchanged.
-        let again = scan_folder_path(&db, fid, &root, Some(&dat)).unwrap();
-        assert_eq!(again.added, 0);
-        assert_eq!(again.scanned, 2);
-        assert_eq!(repo.list_games(None).unwrap().len(), 2);
-
-        fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn scan_without_dat_flags_all_unidentified() {
-        let db = Db::open_in_memory().unwrap();
-        let repo = LibraryRepo::new(&db);
-        let root = temp_dir("nodat");
-        let fid = repo
-            .add_folder(&NewContentFolder {
-                path: root.to_string_lossy().to_string(),
-                enabled: true,
-                added_at: 1,
-            })
-            .unwrap();
-        fs::write(root.join("Homebrew_Game.nes"), nes_rom(b"xyz")).unwrap();
 
         let report = scan_folder_path(&db, fid, &root, None).unwrap();
-        assert_eq!(report.unidentified, 1);
-        assert_eq!(report.identified, 0);
-        let g = &repo.list_games(None).unwrap()[0];
-        assert!(!g.dat_matched);
-        assert_eq!(g.clean_name, "Homebrew Game");
+        assert_eq!(report.folder_id, fid);
+        assert_eq!(report.scanned, 1);
+        assert_eq!(report.added, 1);
+        assert_eq!(repo.list_games(None).unwrap().len(), 1);
 
         fs::remove_dir_all(&root).ok();
     }

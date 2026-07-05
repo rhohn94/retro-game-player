@@ -1,12 +1,15 @@
 //! Termination observer abstraction for externally-launched titles (v0.31
-//! W311, `non-retro-library-design.md` §Launch descriptors).
+//! W311, `non-retro-library-design.md` §Launch descriptors; CrossOver kind
+//! added v0.33 W332, see `docs/design/crossover-integration-design.md`
+//! §Sessions).
 //!
 //! RetroArch's external play session ends by waiting on its own `Child`
-//! handle (see `commands::launch::spawn_session_watcher`), but `app`/`steam`
-//! descriptors launch through `open`, whose `Child` exits almost immediately
-//! — long before the actual game/Steam title does. There is no OS-blocking
-//! wait available for "the app the user is now playing has quit", so this
-//! module polls `pgrep`/`ps` for the target's process instead.
+//! handle (see `commands::launch::spawn_session_watcher`), but `app`/`steam`/
+//! `crossover` descriptors launch through `open`/`cxstart`, whose `Child`
+//! exits almost immediately — long before the actual game/Steam/Wine title
+//! does. There is no OS-blocking wait available for "the app the user is now
+//! playing has quit", so this module polls `pgrep`/`ps` for the target's
+//! process instead.
 //!
 //! **Accuracy caveat (documented per the acceptance criteria):** this is a
 //! best-effort observation, not an authoritative signal. Failure modes:
@@ -16,6 +19,19 @@
 //! - Steam titles running through Proton-less native launches usually match
 //!   by name, but Steam itself relaunching the same appid quickly could
 //!   read as one continuous session instead of two.
+//! - **Wine processes (`crossover` descriptor kind, W332):** a stub-less
+//!   CrossOver app runs under Wine inside its bottle, so the OS-visible
+//!   process may present as the target's own executable name, as a generic
+//!   Wine host process, or as `CrossOver` itself, depending on the bottle's
+//!   configuration — this module cannot distinguish those cases without
+//!   deeper CrossOver/Wine introspection RGP does not perform (the roadmap
+//!   boundary: RGP orchestrates CrossOver, it never inspects Wine
+//!   internals). We poll for the CrossOver application process itself
+//!   ([`CROSSOVER_PROCESS_NAME`]) as the best available signal; this can
+//!   under- or over-count relative to the actual Windows title's lifetime
+//!   (e.g. CrossOver staying resident after the title quits, or a shared
+//!   CrossOver process serving a second concurrently-launched title). Same
+//!   accepted tradeoff as the Steam gap above.
 //! - The poll interval (`POLL_INTERVAL`) means end-of-session is detected on
 //!   a delay, not instantly, so recorded duration is an approximation.
 //!
@@ -29,15 +45,28 @@ use std::time::Duration;
 /// How often the background thread polls for the target process's liveness.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
+/// The macOS process name CrossOver itself runs under — the best-effort
+/// observation target for stub-less `crossover` descriptors (see this
+/// module's Wine accuracy caveat above).
+const CROSSOVER_PROCESS_NAME: &str = "CrossOver";
+
 /// Derive the process (executable) name to watch for a given launch
 /// descriptor, or `None` if there is nothing meaningful to watch (the
 /// caller should skip observation entirely in that case rather than poll
 /// against a name that can never match).
 ///
 /// - `App { bundle_path }` — the bundle's own name, e.g. `Chess.app` → `Chess`
-///   (macOS's actual running-process name for a `.app` bundle).
+///   (macOS's actual running-process name for a `.app` bundle). This also
+///   covers stub-backed CrossOver rows (W331 emits the plain `App` shape
+///   when a launcher stub exists), so the observed name there is the stub's
+///   own name, not CrossOver's.
 /// - `Exec { program, .. }` — the program's file-name (basename), e.g.
 ///   `/usr/local/bin/mygame` → `mygame`.
+/// - `Crossover { .. }` — the stub-less fallback launch (W332); there is no
+///   predictable per-title process name to derive (the target is a Windows
+///   path run under Wine), so this watches for CrossOver's own process name
+///   instead — a best-effort proxy, not the title itself (module doc's Wine
+///   accuracy caveat).
 /// - `Steam { .. }` — Steam titles run as arbitrary child processes of the
 ///   Steam client under a name this code cannot predict without parsing the
 ///   installed title's own binary, so observation is skipped (`None`); the
@@ -54,6 +83,7 @@ pub fn process_name_for(descriptor: &LaunchDescriptor) -> Option<String> {
             let name = Path::new(program).file_name()?.to_str()?;
             Some(name.to_string())
         }
+        LaunchDescriptor::Crossover { .. } => Some(CROSSOVER_PROCESS_NAME.to_string()),
         LaunchDescriptor::Steam { .. } | LaunchDescriptor::Retroarch => None,
     }
 }
@@ -181,5 +211,16 @@ mod tests {
     #[test]
     fn process_name_for_retroarch_descriptor_is_none() {
         assert_eq!(process_name_for(&LaunchDescriptor::Retroarch), None);
+    }
+
+    #[test]
+    fn process_name_for_crossover_descriptor_watches_crossover_itself() {
+        // Best-effort proxy per the module's Wine accuracy caveat: no
+        // per-title process name is derivable for a stub-less launch.
+        let d = LaunchDescriptor::Crossover {
+            bottle: "Steam".to_string(),
+            target: r"C:\Games\hl2.exe".to_string(),
+        };
+        assert_eq!(process_name_for(&d), Some(CROSSOVER_PROCESS_NAME.to_string()));
     }
 }

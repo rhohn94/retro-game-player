@@ -1,23 +1,26 @@
 // GameSourcesPane — the Settings "Game sources" section (v0.31 W313; GOG +
-// itch added v0.32 W320; SteamGridDB API key field added v0.32 W321).
+// itch added v0.32 W320; SteamGridDB API key field added v0.32 W321;
+// CrossOver added v0.33 W331).
 //
-// Six affordances, per docs/design/non-retro-library-design.md §UI:
+// Seven affordances, per docs/design/non-retro-library-design.md §UI (and
+// crossover-integration-design.md §Enumeration for CrossOver):
 // - Steam: trigger a re-scan (button calls scan_steam_source; W312).
 // - Apps: run the /Applications + ~/Applications scan, then confirm a
 //   checklist of the shortlist before any row is created (no silent library
 //   flooding — see the design doc's confirm-gate requirement).
 // - GOG: trigger a re-scan (button calls scan_gog_source; W320).
 // - itch: trigger a re-scan (button calls scan_itch_source; W320).
+// - CrossOver: trigger a re-scan (button calls scan_crossover_source; W331).
 // - Manual: a name + file-picker form that adds an escape-hatch entry.
 // - SteamGridDB: an API key field for the art-fallback rung that covers
-//   non-Steam titles (apps, manual, GOG, itch). Blank/absent leaves the
-//   provider fully inert — scans and shelves behave exactly as v0.31 (§Art &
-//   metadata, W321).
+//   non-Steam titles (apps, manual, GOG, itch, CrossOver). Blank/absent
+//   leaves the provider fully inert — scans and shelves behave exactly as
+//   v0.31 (§Art & metadata, W321).
 //
-// GOG/itch mirror Steam exactly (an unconfirmed direct scan-and-upsert, no
-// shortlist) rather than the Apps confirm-gate shape, since both sources are
-// scoped installs (a Galaxy/itch-owned tree) rather than a broad system scan
-// that could pick up non-games.
+// GOG/itch/CrossOver mirror Steam exactly (an unconfirmed direct
+// scan-and-upsert, no shortlist) rather than the Apps confirm-gate shape,
+// since all three are scoped installs (a Galaxy/itch/bottle-owned tree)
+// rather than a broad system scan that could pick up non-games.
 //
 // Aura note: buttons fire native `click`, so this file uses React `onClick`
 // throughout (never a Grimoire `aura-click` listener); `AuraField` wraps a
@@ -30,6 +33,7 @@ import {
   addManualEntry,
   confirmAppEntries,
   scanAppSource,
+  scanCrossoverSource,
   scanGogSource,
   scanItchSource,
   scanSteamSource,
@@ -114,6 +118,18 @@ export function GameSourcesPane() {
       await runDirectScan("itch", scanItchSource);
     } finally {
       setItchScanning(false);
+    }
+  }
+
+  // --- CrossOver ---
+  const [crossoverScanning, setCrossoverScanning] = useState(false);
+
+  async function handleCrossoverScan() {
+    setCrossoverScanning(true);
+    try {
+      await runDirectScan("CrossOver", scanCrossoverSource);
+    } finally {
+      setCrossoverScanning(false);
     }
   }
 
@@ -307,6 +323,26 @@ export function GameSourcesPane() {
         </AuraButton>
       </div>
 
+      {/* CrossOver */}
+      <div
+        className="rgp-panel"
+        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
+      >
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>CrossOver</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+            Scans installed CrossOver bottles for their Windows applications.
+          </p>
+        </div>
+        <AuraButton
+          tabIndex={0}
+          disabled={crossoverScanning}
+          onClick={() => { void handleCrossoverScan(); }}
+        >
+          {crossoverScanning ? "Scanning…" : "Scan CrossOver bottles"}
+        </AuraButton>
+      </div>
+
       {/* Apps */}
       <div
         className="rgp-panel"
@@ -408,9 +444,9 @@ export function GameSourcesPane() {
         <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>SteamGridDB art</p>
         <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
           Fetches box/grid art for non-Steam titles (apps, manual entries,
-          GOG, itch) by name. Leave blank to leave this provider off — scans
-          and shelves work the same either way, just without this extra art
-          source.
+          GOG, itch, CrossOver) by name. Leave blank to leave this provider
+          off — scans and shelves work the same either way, just without this
+          extra art source.
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <AuraField tabIndex={0} style={{ flex: 1 }}>

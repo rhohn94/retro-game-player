@@ -236,7 +236,28 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.32 — Sources Complete (implementation complete — pending release)
+## v0.33 — Bottles (implementation complete — pending release)
+
+**Theme:** Horizon H2, first slice — CrossOver bottles on the shelves.
+
+- **Persisting-source trait** — the W322 follow-through so CrossOver lands
+  as just another `GameSource` (W330).
+- **CrossOver detection + bottle/app enumeration** as a `crossover` source,
+  migration 014 (W331).
+- **CrossOver launch** — descriptor kind → CrossOver CLI argv, app-focus
+  play sessions, "Launches via CrossOver" detail/TV copy (W332).
+- Carryover riders: `Db::open` busy_timeout + scanner guards + W322 test
+  dedup (W334); DMG-pipeline fix
+  [#45](https://github.com/rhohn94/retro-game-player/issues/45) (W335).
+- **Deferred:** the guided "run a Windows game" install flow (v0.34
+  candidate).
+
+Design: [`crossover-integration-design.md`](design/crossover-integration-design.md).
+Plan: [`release-planning-v0.33.md`](release-planning/release-planning-v0.33.md).
+
+---
+
+## v0.32 — Sources Complete (released — see version-history.md)
 
 **Theme:** Finish Horizon H1 — every game on the system discoverable, with art.
 

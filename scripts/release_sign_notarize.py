@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """release_sign_notarize.py — Developer-ID sign, notarize, staple, and verify
-the macOS release DMG (W300 "Passport").
+the macOS release DMG (W300 "Passport"; DMG assembly fixed under W335).
 
 Wraps `pnpm tauri build` with the Developer-ID signing + Apple notarization +
 stapling + Gatekeeper-verification chain described in
@@ -10,6 +10,18 @@ present in the environment, and logs a clear reason when it is skipped — so
 the existing unsigned-DMG build path keeps working end to end with zero
 credentials configured (this sandboxed environment and any CI-less local dev
 machine).
+
+DMG assembly (W335, see docs/design/notarization-distribution-design.md
+§DMG assembly): the build step stops Tauri at the `.app` bundle
+(`pnpm tauri build --bundles app`) instead of letting Tauri's generated
+`bundle_dmg.sh` build the DMG. That generated script derives its `rw.$$`
+temp-image path inside `bundle/macos/` — the same directory `hdiutil create
+-srcfolder` copies from — so the growing temp image ends up inside its own
+source folder and `hdiutil` fails with "No space left on device" (broken
+since v0.26, GitHub issue #45). Instead, this script assembles the DMG itself
+via a clean staging directory (the `.app` + an `/Applications` symlink, then
+`hdiutil create -srcfolder <staging>`) — never pointing `hdiutil` at
+`bundle/macos/` directly.
 
 Environment variables (all optional; see design doc §1/§5):
   RGP_SIGNING_IDENTITY  Keychain identity string for `codesign --sign` /
@@ -37,20 +49,23 @@ stdlib-only — no third-party dependencies, matching the project's other
 from __future__ import annotations
 
 import argparse
-import glob
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_TAURI_DIR = REPO_ROOT / "src-tauri"
-DMG_GLOB = str(SRC_TAURI_DIR / "target" / "release" / "bundle" / "dmg" / "*.dmg")
-APP_GLOB = str(SRC_TAURI_DIR / "target" / "release" / "bundle" / "macos" / "*.app")
+BUNDLE_MACOS_DIR = SRC_TAURI_DIR / "target" / "release" / "bundle" / "macos"
+DMG_OUT_DIR = SRC_TAURI_DIR / "target" / "release" / "bundle" / "dmg"
+
+PRODUCT_NAME = "Retro Game Player"
 
 # Gatekeeper's own acceptance check — the exact invocation macOS runs when a
-# user opens a downloaded DMG. See design doc §6.
+# user opens a downloaded DMG. See design doc §7.
 SPCTL_CONTEXT = "context:primary-signature"
 
 
@@ -106,7 +121,13 @@ class CommandRunner:
 class TauriBuildStep:
     """Runs `pnpm tauri build`, forwarding Developer-ID signing env vars
     into Tauri's own recognized variable names only when a signing identity
-    is configured (design doc §1)."""
+    is configured (design doc §1).
+
+    W335: builds with `--bundles app` so Tauri stops at the `.app` bundle and
+    never invokes its generated `bundle_dmg.sh` — that script is the root
+    cause of the "No space left on device" failure (issue #45; see module
+    docstring). The DMG itself is assembled afterwards by `DmgStagingBuilder`
+    via a clean staging directory."""
 
     def __init__(self, config: SigningConfig, runner: CommandRunner) -> None:
         self.config = config
@@ -132,10 +153,124 @@ class TauriBuildStep:
     def run(self) -> None:
         env = self.build_env()
         result = subprocess.run(
-            ["pnpm", "tauri", "build"], cwd=REPO_ROOT, env=env, check=False
+            ["pnpm", "tauri", "build", "--bundles", "app"],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
         )
         if result.returncode != 0:
             raise ReleaseSigningError(f"pnpm tauri build failed (exit {result.returncode})")
+
+
+class BundleMacosGuardError(ReleaseSigningError):
+    """Raised when bundle/macos/ contains anything other than the expected
+    single .app bundle right before DMG staging (design doc §DMG assembly)."""
+
+
+class BundleMacosGuard:
+    """Pre-DMG-build guard (W335 acceptance criterion (b)): asserts
+    `bundle/macos/` contains exactly the expected `.app` and nothing else,
+    and cleans stale `rw.*.dmg` temp-image leftovers from a previous failed
+    `bundle_dmg.sh` run — logging every removal. A dirty `bundle/macos/`
+    (accumulated stale `rw.*.dmg`s, a stale renamed `.app`) is exactly what
+    inflated every DMG since v0.26 (issue #45)."""
+
+    def __init__(self, bundle_macos_dir: Path = BUNDLE_MACOS_DIR) -> None:
+        self.bundle_macos_dir = bundle_macos_dir
+
+    def clean_stale_artifacts(self) -> list[Path]:
+        """Remove any leftover `rw.*.dmg` temp images from a previous failed
+        bundle_dmg.sh run. Returns the list of paths removed (also logged)."""
+        removed: list[Path] = []
+        if not self.bundle_macos_dir.exists():
+            return removed
+        for stale in sorted(self.bundle_macos_dir.glob("rw.*.dmg")):
+            print(
+                f"[release] removing stale temp DMG artifact: {stale}",
+                file=sys.stderr,
+            )
+            stale.unlink()
+            removed.append(stale)
+        return removed
+
+    def verify_single_app(self) -> Path:
+        """Asserts exactly one `.app` bundle exists in `bundle/macos/` after
+        cleanup, and nothing else. Raises BundleMacosGuardError otherwise."""
+        if not self.bundle_macos_dir.exists():
+            raise BundleMacosGuardError(
+                f"{self.bundle_macos_dir} does not exist — build did not produce a bundle"
+            )
+        entries = sorted(self.bundle_macos_dir.iterdir())
+        apps = [e for e in entries if e.suffix == ".app" and e.is_dir()]
+        unexpected = [e for e in entries if e not in apps]
+        if unexpected:
+            raise BundleMacosGuardError(
+                f"{self.bundle_macos_dir} contains unexpected entries "
+                f"(clean stale build artifacts first): "
+                f"{[str(e.name) for e in unexpected]}"
+            )
+        if len(apps) != 1:
+            raise BundleMacosGuardError(
+                f"expected exactly one .app in {self.bundle_macos_dir}, found "
+                f"{[str(a.name) for a in apps]}"
+            )
+        return apps[0]
+
+    def run(self) -> Path:
+        self.clean_stale_artifacts()
+        return self.verify_single_app()
+
+
+class DmgStagingBuilder:
+    """Assembles the release DMG via a clean staging directory instead of
+    Tauri's `bundle_dmg.sh` (W335, design doc §DMG assembly).
+
+    The staging directory contains ONLY the `.app` (copied, not moved — the
+    original bundle output is left intact for codesign/inspection) plus an
+    `/Applications` symlink for drag-to-install. `hdiutil create` then reads
+    `-srcfolder <staging>`, which is never the same directory hdiutil writes
+    its own growing temp image into — the self-swallow bug from issue #45
+    is structurally impossible with this layout."""
+
+    def __init__(self, runner: CommandRunner, *, product_name: str = PRODUCT_NAME) -> None:
+        self.runner = runner
+        self.product_name = product_name
+
+    def build(self, app_path: Path, out_dmg: Path) -> Path:
+        out_dmg.parent.mkdir(parents=True, exist_ok=True)
+        if out_dmg.exists():
+            out_dmg.unlink()
+
+        with tempfile.TemporaryDirectory(prefix="rgp-dmg-staging-") as staging_str:
+            staging = Path(staging_str)
+            staged_app = staging / app_path.name
+            # symlinks=True mirrors `cp -R`: preserve any internal symlinks
+            # (framework Versions/Current etc.) so the staged copy keeps the
+            # exact signed layout — dereferencing would break the signature.
+            shutil.copytree(app_path, staged_app, symlinks=True)
+            (staging / "Applications").symlink_to("/Applications")
+
+            result = self.runner.run(
+                [
+                    "hdiutil",
+                    "create",
+                    "-volname",
+                    self.product_name,
+                    "-srcfolder",
+                    str(staging),
+                    "-ov",
+                    "-format",
+                    "UDZO",
+                    str(out_dmg),
+                ],
+                check=False,
+            )
+            if result.returncode != 0:
+                raise ReleaseSigningError(
+                    f"hdiutil create failed for {out_dmg}: {result.stderr}"
+                )
+        print(f"[release] DMG assembled via clean staging: {out_dmg}", file=sys.stderr)
+        return out_dmg
 
 
 class CodesignVerifyStep:
@@ -257,11 +392,6 @@ class GatekeeperVerifyStep:
         return accepted
 
 
-def _find_first(pattern: str) -> str | None:
-    matches = sorted(glob.glob(pattern))
-    return matches[-1] if matches else None
-
-
 class ReleaseOrchestrator:
     """Coordinates build -> sign-verify -> notarize -> staple -> gatekeeper-
     verify as one release pipeline. Each step owns its own skip/fail logic;
@@ -276,8 +406,13 @@ class ReleaseOrchestrator:
             if not skip_build:
                 TauriBuildStep(self.config, self.runner).run()
 
-            app_path = _find_first(APP_GLOB)
-            dmg_path = _find_first(DMG_GLOB)
+            app_path_str = BundleMacosGuard().run()
+            app_path = str(app_path_str)
+
+            out_dmg = DMG_OUT_DIR / f"{PRODUCT_NAME}.dmg"
+            dmg_path = str(
+                DmgStagingBuilder(self.runner).build(Path(app_path), out_dmg)
+            )
 
             CodesignVerifyStep(self.config, self.runner).run(app_path)
             notarized = NotarizeStep(self.config, self.runner).run(dmg_path)
@@ -310,8 +445,11 @@ def _self_test() -> int:
     invocation. Mirrors the `sync_deps.py --self-test` convention."""
 
     failures: list[str] = []
+    checked = 0
 
     def check(label: str, condition: bool) -> None:
+        nonlocal checked
+        checked += 1
         if not condition:
             failures.append(label)
 
@@ -388,6 +526,86 @@ def _self_test() -> int:
         and SPCTL_CONTEXT in runner5.invocations[0],
     )
 
+    # --- W335: BundleMacosGuard + DmgStagingBuilder -------------------------
+    # All exercised against real temp directories (stdlib tempfile), never
+    # against the real src-tauri/target build output, and never invoking a
+    # real `hdiutil` (the CommandRunner subprocess seam stays dry_run=True).
+    with tempfile.TemporaryDirectory(prefix="rgp-selftest-bundle-") as tmp:
+        bundle_dir = Path(tmp) / "bundle" / "macos"
+        bundle_dir.mkdir(parents=True)
+
+        # Missing bundle/macos entirely -> guard raises, doesn't crash.
+        missing_guard = BundleMacosGuard(bundle_macos_dir=bundle_dir / "does-not-exist")
+        try:
+            missing_guard.run()
+            check("guard raises when bundle/macos is missing", False)
+        except BundleMacosGuardError:
+            check("guard raises when bundle/macos is missing", True)
+
+        # Empty bundle/macos (no .app yet) -> guard raises.
+        empty_guard = BundleMacosGuard(bundle_macos_dir=bundle_dir)
+        try:
+            empty_guard.run()
+            check("guard raises when no .app is present", False)
+        except BundleMacosGuardError:
+            check("guard raises when no .app is present", True)
+
+        # Stale rw.*.dmg leftovers get cleaned, then a single .app passes.
+        app_dir = bundle_dir / "Retro Game Player.app"
+        app_dir.mkdir()
+        (app_dir / "Contents").mkdir()
+        stale = bundle_dir / "rw.12345.dmg"
+        stale.write_text("stale temp image")
+        clean_guard = BundleMacosGuard(bundle_macos_dir=bundle_dir)
+        removed = clean_guard.clean_stale_artifacts()
+        check("guard removes stale rw.*.dmg artifacts", removed == [stale])
+        check("guard actually deletes the stale file", not stale.exists())
+        verified_app = clean_guard.verify_single_app()
+        check("guard finds the single .app after cleanup", verified_app == app_dir)
+
+        # A second, unexpected .app (or any other file) still fails the guard
+        # even after stale-artifact cleanup — ambiguous bundle/macos is a
+        # hard stop, not a "pick one" heuristic.
+        (bundle_dir / "Old Retro Game Player.app").mkdir()
+        ambiguous_guard = BundleMacosGuard(bundle_macos_dir=bundle_dir)
+        ambiguous_guard.clean_stale_artifacts()
+        try:
+            ambiguous_guard.verify_single_app()
+            check("guard rejects more than one .app", False)
+        except BundleMacosGuardError:
+            check("guard rejects more than one .app", True)
+
+    with tempfile.TemporaryDirectory(prefix="rgp-selftest-dmg-") as tmp:
+        tmp_path = Path(tmp)
+        fake_app = tmp_path / "Retro Game Player.app"
+        fake_app.mkdir()
+        (fake_app / "Contents").mkdir()
+        (fake_app / "Contents" / "Info.plist").write_text("<plist/>")
+
+        out_dmg = tmp_path / "out" / "Retro Game Player.dmg"
+        dmg_runner = CommandRunner(dry_run=True)
+        built = DmgStagingBuilder(dmg_runner).build(fake_app, out_dmg)
+        check("staging builder returns the requested out_dmg path", built == out_dmg)
+        check(
+            "hdiutil invocation never points -srcfolder at the .app's own parent",
+            dmg_runner.invocations
+            and dmg_runner.invocations[0][0] == "hdiutil"
+            and dmg_runner.invocations[0][1] == "create",
+        )
+        srcfolder_idx = dmg_runner.invocations[0].index("-srcfolder") + 1
+        staging_arg = Path(dmg_runner.invocations[0][srcfolder_idx])
+        check(
+            "hdiutil -srcfolder is a staging dir, never the .app's own bundle/macos parent",
+            staging_arg != fake_app.parent,
+        )
+        check(
+            "hdiutil invocation uses UDZO + -ov + the product volname",
+            "-format" in dmg_runner.invocations[0]
+            and "UDZO" in dmg_runner.invocations[0]
+            and "-ov" in dmg_runner.invocations[0]
+            and PRODUCT_NAME in dmg_runner.invocations[0],
+        )
+
     # A failed build must surface via the same "[release] ERROR: ..." +
     # return-1 path as codesign/notarize/staple failures, not as an
     # uncaught exception — TauriBuildStep.run() is invoked from inside
@@ -415,7 +633,7 @@ def _self_test() -> int:
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
         return 1
-    print(f"[self-test] all {5 + 8 + 1} checks passed.", file=sys.stderr)
+    print(f"[self-test] all {checked} checks passed.", file=sys.stderr)
     return 0
 
 

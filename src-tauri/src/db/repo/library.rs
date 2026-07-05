@@ -21,8 +21,9 @@ pub struct ContentFolder {
 /// `docs/design/non-retro-library-design.md`). `Rom` is the pre-v0.31 default;
 /// the rest are non-retro library rows that launch externally via a
 /// `launch_descriptor` rather than through a ROM + core. `Gog`/`Itch` were
-/// added in v0.32 W320 (migration `013_gog_itch_sources.sql` extends the
-/// `games.source` CHECK list to match).
+/// added in v0.32 W320 (migration `013_gog_itch_sources.sql`); `Crossover`
+/// was added in v0.33 W331 (migration `014_crossover_source.sql`) — each
+/// extends the `games.source` CHECK list to match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameSource {
@@ -33,6 +34,7 @@ pub enum GameSource {
     Manual,
     Gog,
     Itch,
+    Crossover,
 }
 
 impl GameSource {
@@ -45,6 +47,7 @@ impl GameSource {
             GameSource::Manual => "manual",
             GameSource::Gog => "gog",
             GameSource::Itch => "itch",
+            GameSource::Crossover => "crossover",
         }
     }
 
@@ -59,6 +62,7 @@ impl GameSource {
             "manual" => Some(GameSource::Manual),
             "gog" => Some(GameSource::Gog),
             "itch" => Some(GameSource::Itch),
+            "crossover" => Some(GameSource::Crossover),
             _ => None,
         }
     }
@@ -977,8 +981,9 @@ mod tests {
     // --- v0.32 W320: GOG + itch sources ---
 
     /// `GameSource::as_db_str` / `from_db_str` round-trip for every variant,
-    /// including the two W320 additions — this is the single place both the
-    /// migration's CHECK list and the enum's wire mapping must agree.
+    /// including the W320 GOG/itch and W331 CrossOver additions — this is the
+    /// single place both the migration's CHECK list and the enum's wire
+    /// mapping must agree.
     #[test]
     fn game_source_db_str_round_trips_every_variant() {
         for source in [
@@ -988,6 +993,7 @@ mod tests {
             GameSource::Manual,
             GameSource::Gog,
             GameSource::Itch,
+            GameSource::Crossover,
         ] {
             let db_str = source.as_db_str();
             assert_eq!(GameSource::from_db_str(db_str), Some(source));

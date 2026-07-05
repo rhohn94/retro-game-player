@@ -32,13 +32,13 @@
 //! required. Binding is best-effort: on failure an unavailable handle is returned
 //! and in-page play degrades to the native external-RetroArch launch.
 
+use crate::db::DB_BUSY_TIMEOUT;
 use crate::error::{AppError, AppResult};
 use crate::play::saves::{GameSaves, PlayPath};
 use include_dir::{include_dir, Dir};
 use rusqlite::{Connection, OpenFlags};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 /// Upper bound on a POSTed save body. NES SRAM is 8 KiB and EmulatorJS NES
 /// states are well under a megabyte; 32 MiB leaves room for heavier future
@@ -59,10 +59,6 @@ const BIND_HOST: &str = "127.0.0.1";
 /// URL prefix under which the embedded EmulatorJS data dir is served. The player
 /// page sets `EJS_pathtodata` to this, so every runtime asset is same-origin.
 const EJS_PREFIX: &str = "/emulatorjs/";
-
-/// How long a `/rom/<id>` read-only connection waits on a busy database before
-/// giving up (the main app is the only writer; reads are brief).
-const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Shared, cheaply-cloneable handle to the running play server: the loopback
 /// origin the frontend embeds in its player `<iframe>`. `origin` is empty when

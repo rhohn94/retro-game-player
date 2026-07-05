@@ -1,10 +1,12 @@
 //! IPC commands for W7 — RetroArch launch (architecture-design.md §2.3),
 //! generalized by v0.31 W311 to dispatch on the game's launch descriptor
-//! (`docs/design/non-retro-library-design.md` §Launch descriptors).
+//! (`docs/design/non-retro-library-design.md` §Launch descriptors); the
+//! `crossover` kind added v0.33 W332 (`docs/design/crossover-integration-design.md`
+//! §Launch).
 //!
 //! Three commands:
 //! - `launch_game`        — dispatch on descriptor: RetroArch, or an
-//!   external launch (`app`/`steam`/`exec`).
+//!   external launch (`app`/`steam`/`exec`/`crossover`).
 //! - `locate_retroarch`   — probe and return the current RetroArch path.
 //! - `set_retroarch_path` — persist a user-chosen path to AppConfig.
 //!
@@ -16,7 +18,10 @@
 //! v0.31 W311 extends the same start/end bracketing to `app`/`steam`/`exec`
 //! launches, using a best-effort process-termination poll instead of a
 //! `Child` wait where `open` itself exits immediately (see
-//! `core::launch::observer`'s accuracy caveat).
+//! `core::launch::observer`'s accuracy caveat). v0.33 W332 extends the same
+//! poll-based bracketing to `crossover` (stub-less CrossOver apps spawned via
+//! `cxstart`), with an additional Wine-process accuracy caveat documented in
+//! `core::launch::observer`'s module doc.
 
 use crate::commands::play_stats::PlayStatsState;
 use crate::config::{paths::Paths, AppConfig};
@@ -162,17 +167,19 @@ async fn launch_via_retroarch(
     Ok(())
 }
 
-/// Launch a non-RetroArch (`app`/`steam`/`exec`) descriptor and track its
-/// play session (v0.31 W311).
+/// Launch a non-RetroArch (`app`/`steam`/`exec`/`crossover`) descriptor and
+/// track its play session (v0.31 W311; `crossover` kind added v0.33 W332).
 ///
 /// Session end detection differs by kind: `exec` spawns the game directly,
 /// so its `Child` can be waited on exactly like the RetroArch path; `app`/
-/// `steam` spawn through `open`, which exits immediately, so those two use
-/// the best-effort `observer` poll instead (see `core::launch::observer`'s
-/// accuracy caveat). Steam titles have no predictable process name to poll
-/// (`observer::process_name_for` returns `None`), so their session is ended
-/// immediately after launch rather than tracked indefinitely — better an
-/// undercount than a session that never closes.
+/// `steam`/`crossover` spawn through `open`/`cxstart`, which exit
+/// immediately, so those three use the best-effort `observer` poll instead
+/// (see `core::launch::observer`'s accuracy caveat, including the
+/// Wine-process caveat specific to `crossover`). Steam titles have no
+/// predictable process name to poll (`observer::process_name_for` returns
+/// `None`), so their session is ended immediately after launch rather than
+/// tracked indefinitely — better an undercount than a session that never
+/// closes.
 async fn launch_externally(
     game_id: i64,
     descriptor: &LaunchDescriptor,
@@ -191,7 +198,9 @@ async fn launch_externally(
             // like the RetroArch path.
             spawn_session_watcher(app, db_path, session_id, child);
         }
-        LaunchDescriptor::App { .. } | LaunchDescriptor::Steam { .. } => {
+        LaunchDescriptor::App { .. }
+        | LaunchDescriptor::Steam { .. }
+        | LaunchDescriptor::Crossover { .. } => {
             match observer::process_name_for(descriptor) {
                 Some(process_name) => {
                     spawn_external_observer_watcher(
