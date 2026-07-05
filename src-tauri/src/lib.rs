@@ -37,6 +37,12 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     let _config = config::AppConfig::load_or_init(&paths)?;
     telemetry::record_run_start(&paths, env!("CARGO_PKG_VERSION"))?;
 
+    // --- W360: unhandled-panic observability. Installed as early as possible
+    // (right after run-start telemetry has a resolved `Paths`) so it covers
+    // the rest of setup too. Additive only — chains to the previous default
+    // hook, so stderr output is unaffected (error-telemetry-design.md). ---
+    telemetry::install_panic_hook(paths.clone(), env!("CARGO_PKG_VERSION"));
+
     // --- W3: database (path comes from W4's resolver — reconciliation seam) ---
     let db_path = paths.db_file()?;
     let database = db::Db::open(&db_path)?;

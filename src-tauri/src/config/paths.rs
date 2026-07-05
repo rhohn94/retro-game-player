@@ -34,6 +34,11 @@ pub const APP_CONFIG_FILE_NAME: &str = "app-config.json";
 /// `run.json` telemetry filename in the deployed version dir (§4.2).
 pub const RUN_FILE_NAME: &str = "run.json";
 
+/// `panic.json` telemetry filename in the deployed version dir (§4.2; W360,
+/// error-telemetry-design.md) — last-panic-wins, written by the
+/// `panic::set_hook` installed in [`crate::telemetry::install_panic_hook`].
+pub const PANIC_FILE_NAME: &str = "panic.json";
+
 /// Per-session native-play perf telemetry filename under `logs/` (§4.1;
 /// W274 — macOS discards stderr for Finder-launched apps, so the
 /// `[rgp-native] perf:` line is also persisted here, fresh each session).
