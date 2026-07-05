@@ -32,6 +32,7 @@
 //! required. Binding is best-effort: on failure an unavailable handle is returned
 //! and in-page play degrades to the native external-RetroArch launch.
 
+use crate::db::repo::library;
 use crate::db::DB_BUSY_TIMEOUT;
 use crate::error::{AppError, AppResult};
 use crate::play::saves::{GameSaves, PlayPath};
@@ -245,18 +246,27 @@ fn payload_too_large(request: tiny_http::Request) -> std::io::Result<()> {
     request.respond(tiny_http::Response::from_string("save too large").with_status_code(413))
 }
 
-/// Resolve a game id to its [`GameSaves`] layout via the server's read-only
-/// connection (`system` + ROM path give the save dir + stem).
+/// Open a fresh, short-lived **read-only** connection to `db_path`. Both
+/// [`game_saves`] and [`serve_rom`] (via [`rom_path`]) call this rather than
+/// each carrying their own open-plus-`busy_timeout` boilerplate — but each
+/// still gets its **own** connection, one per call: SQLite permits concurrent
+/// readers, so this never blocks (or is blocked by) the app's single managed
+/// writer connection ([`crate::db::Db`]) beyond the brief busy window. Never
+/// centralize these onto a shared connection/handle — that would reintroduce
+/// the very contention this design avoids.
+fn open_readonly(db_path: &Path) -> AppResult<Connection> {
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    conn.busy_timeout(DB_BUSY_TIMEOUT)
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    Ok(conn)
+}
+
+/// Resolve a game id to its [`GameSaves`] layout via the server's own
+/// read-only connection (`system` + ROM path give the save dir + stem).
 fn game_saves(db_path: &Path, saves_root: &Path, id: i64) -> Option<GameSaves> {
-    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    conn.busy_timeout(DB_BUSY_TIMEOUT).ok()?;
-    let (system, path): (String, String) = conn
-        .query_row(
-            "SELECT system, path FROM games WHERE id = ?1",
-            [id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .ok()?;
+    let conn = open_readonly(db_path).ok()?;
+    let (system, path) = library::system_and_path_by_id(&conn, id).ok()??;
     Some(GameSaves::new(saves_root, &system, Path::new(&path)))
 }
 
@@ -277,20 +287,11 @@ fn serve_rom(request: tiny_http::Request, db_path: &Path, id_str: &str) -> std::
     }
 }
 
-/// Resolve a game id to its stored ROM path using a read-only connection to the
-/// same database file the app manages. SQLite permits concurrent readers, so
-/// this never blocks the main connection beyond the brief busy window.
+/// Resolve a game id to its stored ROM path using the server's own read-only
+/// connection (see [`open_readonly`]).
 fn rom_path(db_path: &Path, id: i64) -> AppResult<Option<String>> {
-    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| AppError::Db(e.to_string()))?;
-    conn.busy_timeout(DB_BUSY_TIMEOUT)
-        .map_err(|e| AppError::Db(e.to_string()))?;
-    conn.query_row("SELECT path FROM games WHERE id = ?1", [id], |row| row.get(0))
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(AppError::Db(other.to_string())),
-        })
+    let conn = open_readonly(db_path)?;
+    library::path_by_id(&conn, id).map_err(|e| AppError::Db(e.to_string()))
 }
 
 /// MIME type for an embedded asset by extension. Workers/`<script>`/`<link>`
@@ -309,15 +310,26 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 
+/// Build a `name: value` header, or `None` if either side is somehow not
+/// valid header bytes. Every call site here passes a fixed name and a value
+/// drawn from [`content_type`]'s static table (or a fixed literal), so this
+/// never actually fails in practice — but a malformed header must degrade to
+/// "response without that header" rather than take down the serve thread.
+fn try_header(name: &'static [u8], value: &[u8]) -> Option<tiny_http::Header> {
+    tiny_http::Header::from_bytes(name, value).ok()
+}
+
 /// Respond `200` with `body` and the given `Content-Type`.
 fn respond_bytes(
     request: tiny_http::Request,
     body: &[u8],
     ctype: &str,
 ) -> std::io::Result<()> {
-    let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], ctype.as_bytes())
-        .expect("static content-type header");
-    request.respond(tiny_http::Response::from_data(body.to_vec()).with_header(header))
+    let mut response = tiny_http::Response::from_data(body.to_vec());
+    if let Some(header) = try_header(b"Content-Type", ctype.as_bytes()) {
+        response = response.with_header(header);
+    }
+    request.respond(response)
 }
 
 /// Like [`respond_bytes`] but marks the asset immutably cacheable. The vendored
@@ -329,23 +341,79 @@ fn respond_cached(
     body: &[u8],
     ctype: &str,
 ) -> std::io::Result<()> {
-    let ct = tiny_http::Header::from_bytes(&b"Content-Type"[..], ctype.as_bytes())
-        .expect("static content-type header");
-    let cc = tiny_http::Header::from_bytes(
-        &b"Cache-Control"[..],
-        &b"public, max-age=31536000, immutable"[..],
-    )
-    .expect("static cache-control header");
-    request.respond(
-        tiny_http::Response::from_data(body.to_vec())
-            .with_header(ct)
-            .with_header(cc),
-    )
+    let mut response = tiny_http::Response::from_data(body.to_vec());
+    if let Some(header) = try_header(b"Content-Type", ctype.as_bytes()) {
+        response = response.with_header(header);
+    }
+    if let Some(header) = try_header(b"Cache-Control", b"public, max-age=31536000, immutable") {
+        response = response.with_header(header);
+    }
+    request.respond(response)
 }
 
 /// Respond `404 not found`.
 fn not_found(request: tiny_http::Request) -> std::io::Result<()> {
     request.respond(tiny_http::Response::from_string("not found").with_status_code(404))
+}
+
+/// The `playerControls(<arg>)` argument configured for player slot `slot`
+/// (`"0"` or `"1"`) inside the served page's `EJS_defaultControls` block, or
+/// `None` if the slot isn't wired to a `playerControls(...)` call at all.
+///
+/// Reads the *structure* of the assignment (a `playerControls` call keyed to
+/// this slot number) rather than matching a literal formatted string — free
+/// whitespace around `:`/`(`/`)`, alternate quoting of the slot key (`0` vs
+/// `"0"`), and a trailing comma all still match. What must NOT change
+/// unnoticed is *which boolean* each slot passes (W353: slot 1 needs
+/// `false`/no keyboard, or a second connected pad's presses are silently
+/// dropped) — this is exactly the regression the test built on this function
+/// guards against, while tolerating a pure reformat of the same call.
+#[cfg(test)]
+fn player_controls_arg(html: &str, slot: &str) -> Option<String> {
+    // Match `<slot key> : playerControls ( <arg> )`, keys optionally quoted,
+    // arbitrary whitespace around each token — the "structural" part.
+    let quoted = format!(r#""{slot}""#);
+    for key in [slot, quoted.as_str()] {
+        let mut search_from = 0;
+        while let Some(rel) = html[search_from..].find(key) {
+            let key_start = search_from + rel;
+            let after_key = key_start + key.len();
+            // Reject a match inside a longer number (e.g. slot "1" inside a
+            // "10" key) — the digit immediately before/after the bare (not
+            // quote-wrapped) key must not extend it.
+            if key == slot {
+                let prev_is_digit = html[..key_start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_digit());
+                if prev_is_digit {
+                    search_from = after_key;
+                    continue;
+                }
+            }
+            let rest = html[after_key..].trim_start();
+            let Some(rest) = rest.strip_prefix(':') else {
+                search_from = after_key;
+                continue;
+            };
+            let rest = rest.trim_start();
+            let Some(rest) = rest.strip_prefix("playerControls") else {
+                search_from = after_key;
+                continue;
+            };
+            let rest = rest.trim_start();
+            let Some(rest) = rest.strip_prefix('(') else {
+                search_from = after_key;
+                continue;
+            };
+            let Some(close) = rest.find(')') else {
+                search_from = after_key;
+                continue;
+            };
+            return Some(rest[..close].trim().to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -458,8 +526,16 @@ mod tests {
         // just that the config key exists) so a `{0: ..., 1: {}}` regression
         // — which would still leave player 2 unplayable — would fail here.
         assert!(player_html.contains("EJS_defaultControls"));
-        assert!(player_html.contains("0: playerControls(true)"));
-        assert!(player_html.contains("1: playerControls(false)"));
+        assert_eq!(
+            player_controls_arg(&player_html, "0").as_deref(),
+            Some("true"),
+            "player 1 slot must include the keyboard fallback"
+        );
+        assert_eq!(
+            player_controls_arg(&player_html, "1").as_deref(),
+            Some("false"),
+            "player 2 slot must NOT bind the keyboard (it would steal player 1's keys)"
+        );
 
         // embedded runtime asset (present in every EmulatorJS release)
         let (status, _) = http_get(port, "/emulatorjs/loader.js");
@@ -555,6 +631,52 @@ mod tests {
         assert_eq!(content_type("libunrar.wasm"), "application/wasm");
         assert_eq!(content_type("cores/fceumm-wasm.data"), "application/octet-stream");
         assert_eq!(content_type("cores/reports/fceumm.json"), "application/json; charset=utf-8");
+    }
+
+    // ---- W364 (v0.35 review follow-up): player_controls_arg structural test ----
+
+    #[test]
+    fn player_controls_arg_reads_the_exact_source_the_page_ships() {
+        let html = "window.EJS_defaultControls = {\n  0: playerControls(true),\n  1: playerControls(false),\n};";
+        assert_eq!(player_controls_arg(html, "0").as_deref(), Some("true"));
+        assert_eq!(player_controls_arg(html, "1").as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn player_controls_arg_tolerates_reformatting() {
+        // Minified (no whitespace), quoted keys, and a trailing comma are all
+        // pure reformats of the same assignment — none of these are the W353
+        // regression, so all must still resolve correctly.
+        let minified = r#"{0:playerControls(true),1:playerControls(false)}"#;
+        assert_eq!(player_controls_arg(minified, "0").as_deref(), Some("true"));
+        assert_eq!(player_controls_arg(minified, "1").as_deref(), Some("false"));
+
+        let quoted_keys = r#"{ "0" : playerControls( true ), "1" : playerControls( false ), }"#;
+        assert_eq!(player_controls_arg(quoted_keys, "0").as_deref(), Some("true"));
+        assert_eq!(player_controls_arg(quoted_keys, "1").as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn player_controls_arg_catches_the_w353_regression() {
+        // The actual bug this test guards against: both player slots wired to
+        // the SAME argument (here both `false`) — player 1 would silently
+        // lose its keyboard fallback, or player 2 would steal it.
+        let regressed = "0: playerControls(false),\n1: playerControls(false),";
+        assert_eq!(player_controls_arg(regressed, "0").as_deref(), Some("false"));
+        assert_eq!(player_controls_arg(regressed, "1").as_deref(), Some("false"));
+        assert_eq!(
+            player_controls_arg(regressed, "0"),
+            player_controls_arg(regressed, "1"),
+            "a real regression collapses both slots to the same argument"
+        );
+    }
+
+    #[test]
+    fn player_controls_arg_is_none_when_the_slot_is_missing_entirely() {
+        // The W353 "empty map" failure mode: slot 1 dropped from the config
+        // altogether (not just given the wrong argument).
+        let missing_slot = "window.EJS_defaultControls = {\n  0: playerControls(true),\n};";
+        assert!(player_controls_arg(missing_slot, "1").is_none());
     }
 
     #[test]
