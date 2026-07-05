@@ -139,7 +139,7 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.35 |
 |---|---|---|---|---|
-| `w350-per-port-native-input` (W350) | ☐ | ☐ | ☐ | ☐ |
+| `w350-per-port-native-input-v035p1-00` (W350) | ☑ | ☑ | ☑ | ☑ |
 | `w353-ejs-two-player-v035p1-01` (W353) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
@@ -167,3 +167,12 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
   three `setNativeInput(0)` release sites in `NativePlayer.tsx` (≈lines
   188, 202, 487) to `releaseAllNativeInput()` — until then port 1 input
   would survive overlay-open/teardown once a port-1 writer exists.
+- Reviewer (W350, blocking — **fixed on branch, fa5e709**): session start
+  did not clear ports (stale between-session input ghosted into the next
+  boot); `callbacks::install` now routes through release-all, with a
+  proven-failing regression test; the announce loop is now directly
+  covered (ports 0+1 announced as RETRO_DEVICE_JOYPAD after load_game).
+- Reviewer (W350, non-blocking): Tauri deserialization of an omitted
+  `port` key → `None` is assumed (tested only at the Rust fn boundary);
+  `load_optional_symbol` duplicates the NUL-name derivation of
+  `load_symbol`.
