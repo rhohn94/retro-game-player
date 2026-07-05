@@ -35,6 +35,17 @@ fn load_symbol<T: Copy>(lib: &Library, name: &str) -> AppResult<T> {
     }
 }
 
+/// Like [`load_symbol`], but a missing export is `None` rather than an error
+/// — for symbols libretro cores are not strictly required to provide (W350:
+/// `retro_set_controller_port_device` is exported by every real core Harmony
+/// bundles, but the handful of hand-rolled test-stub `.dylib`s in this crate
+/// predate it, and a core missing it should still load — the announce call
+/// simply becomes a no-op rather than refusing to boot).
+fn load_optional_symbol<T: Copy>(lib: &Library, name: &str) -> Option<T> {
+    let cname = format!("{name}\0");
+    unsafe { lib.get::<T>(cname.as_bytes()).ok().map(|sym| *sym) }
+}
+
 fn read_c_str(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
@@ -94,6 +105,10 @@ impl LibretroCore {
             retro_unserialize: load_symbol(&library, "retro_unserialize")?,
             retro_get_memory_data: load_symbol(&library, "retro_get_memory_data")?,
             retro_get_memory_size: load_symbol(&library, "retro_get_memory_size")?,
+            retro_set_controller_port_device: load_optional_symbol(
+                &library,
+                "retro_set_controller_port_device",
+            ),
         };
 
         let api_version = unsafe { (symbols.retro_api_version)() };
@@ -186,6 +201,21 @@ impl LibretroCore {
     pub fn set_input_state(&self, cb: RetroInputStateFn) {
         unsafe {
             (self.symbols.retro_set_input_state)(cb);
+        }
+    }
+
+    /// Announces which controller `port` carries (`RETRO_DEVICE_JOYPAD` etc.,
+    /// W350). Call after [`Self::load_game`] — RetroArch's own convention,
+    /// since a core may only finalize its per-port state once a game (and
+    /// therefore its controller requirements) is known. A no-op when the
+    /// core's `.dylib` doesn't export `retro_set_controller_port_device`
+    /// (see [`load_optional_symbol`]'s doc): libretro already defaults every
+    /// port to joypad, so skipping the announce changes nothing observable.
+    pub fn set_controller_port_device(&self, port: u32, device: u32) {
+        if let Some(f) = self.symbols.retro_set_controller_port_device {
+            unsafe {
+                f(port, device);
+            }
         }
     }
 
@@ -336,10 +366,173 @@ impl Drop for LibretroCore {
     }
 }
 
+/// Test-only stub-core support shared beyond this module's own tests —
+/// `runtime`'s test for `bring_up_core`'s per-port announce loop (W350)
+/// drives the same port-aware stub, so the C source and its probe decoder
+/// live here once instead of being duplicated per test module. `#[cfg(test)]`
+/// so none of it ships in a release build.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::Path;
+    use std::process::Command;
+
+    /// Shared compile step for the stub cores in this module's tests. Returns
+    /// `None` (the caller should skip, not fail) if no C toolchain is on
+    /// `PATH` — keeps the tests environment-independent rather than asserting
+    /// one is present.
+    pub(crate) fn build_c_source_as_dylib(
+        dir: &Path,
+        c_file_name: &str,
+        dylib_file_name: &str,
+        source: &str,
+    ) -> Option<std::path::PathBuf> {
+        let c_path = dir.join(c_file_name);
+        std::fs::write(&c_path, source).ok()?;
+        let dylib_path = dir.join(dylib_file_name);
+        let status = Command::new("cc")
+            .arg("-dynamiclib")
+            .arg("-o")
+            .arg(&dylib_path)
+            .arg(&c_path)
+            .status()
+            .ok()?;
+        status.success().then_some(dylib_path)
+    }
+
+    /// Otherwise identical to `tests::STUB_CORE_C`, but exports
+    /// `retro_set_controller_port_device` (as every real core Harmony bundles
+    /// does — fceumm, snes9x, etc.) and records EVERY `(port, device)` pair it
+    /// is announced — not just the last — plus how many announces arrived
+    /// before `retro_load_game`, exposed via `retro_get_memory_data`/`_size`.
+    /// Recording all calls is what lets `bring_up_core`'s per-port announce
+    /// loop (W350) be proven to announce port 0 AND port 1 after load — a
+    /// last-call-only probe could only ever see the loop's final iteration.
+    pub(crate) const STUB_PORT_AWARE_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+static retro_environment_t env_cb = 0;
+/* Announce log: [0] = total call count, [1] = calls that arrived before
+ * retro_load_game, then (port, device) pairs in call order. Every call is
+ * recorded, not just the last — the frontend's per-port announce loop can
+ * only be proven correct by seeing all of its iterations. */
+#define MAX_ANNOUNCES 8
+static unsigned announce_log[2 + MAX_ANNOUNCES * 2] = {0};
+static bool game_loaded = false;
+
+void retro_init(void) {
+    bool can_dupe = false;
+    env_cb(3 /* RETRO_ENVIRONMENT_GET_CAN_DUPE */, &can_dupe);
+}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Port-Aware Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "nes";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 256;
+    info->geometry.base_height = 240;
+    info->geometry.max_width = 256;
+    info->geometry.max_height = 240;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0;
+    info->timing.sample_rate = 44100.0;
+}
+
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) {}
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+void retro_set_controller_port_device(unsigned port, unsigned device) {
+    unsigned n = announce_log[0];
+    if (n < MAX_ANNOUNCES) {
+        announce_log[2 + n * 2] = port;
+        announce_log[2 + n * 2 + 1] = device;
+    }
+    announce_log[0] = n + 1;
+    if (!game_loaded) announce_log[1] += 1;
+}
+
+bool retro_load_game(const struct retro_game_info *game) { game_loaded = true; return true; }
+void retro_unload_game(void) {}
+void retro_run(void) {}
+
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+
+/* Reuses the save-memory hooks purely as a test probe: id 0 exposes
+ * announce_log so the Rust test can read back what was announced without a
+ * dedicated FFI surface. */
+void *retro_get_memory_data(unsigned id) { return id == 0 ? (void *)announce_log : 0; }
+size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(announce_log) : 0; }
+"#;
+
+    /// Compiles [`STUB_PORT_AWARE_CORE_C`] to a `.dylib` in `dir`.
+    pub(crate) fn build_stub_port_aware_core(dir: &Path) -> Option<std::path::PathBuf> {
+        build_c_source_as_dylib(
+            dir,
+            "stub_port_aware_core.c",
+            "stub_port_aware_core.dylib",
+            STUB_PORT_AWARE_CORE_C,
+        )
+    }
+
+    /// The announce log [`STUB_PORT_AWARE_CORE_C`] exposes through its
+    /// save-memory probe, decoded to native types.
+    pub(crate) struct AnnounceProbe {
+        /// Every `(port, device)` announce call, in call order.
+        pub(crate) calls: Vec<(u32, u32)>,
+        /// How many of those arrived before `retro_load_game` succeeded.
+        pub(crate) calls_before_load: u32,
+    }
+
+    /// Decodes the stub's raw probe bytes — `[count, before-load count,
+    /// (port, device) pairs...]` as native-endian `u32`s — into an
+    /// [`AnnounceProbe`].
+    pub(crate) fn decode_announce_probe(bytes: &[u8]) -> AnnounceProbe {
+        let word = |i: usize| {
+            u32::from_ne_bytes(bytes[i * 4..i * 4 + 4].try_into().expect("u32-aligned probe"))
+        };
+        let count = word(0) as usize;
+        AnnounceProbe {
+            calls: (0..count).map(|n| (word(2 + n * 2), word(3 + n * 2))).collect(),
+            calls_before_load: word(1),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::{
+        build_c_source_as_dylib, build_stub_port_aware_core, decode_announce_probe,
+    };
     use super::*;
-    use std::process::Command;
 
     /// A minimal libretro core implementing only the 13 functions
     /// [`LibretroCore`] calls — enough to exercise the real load → init →
@@ -537,28 +730,6 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_pat
         )
     }
 
-    /// Shared compile step for the stub cores above. Returns `None` (the
-    /// caller should skip, not fail) if no C toolchain is on `PATH` — keeps
-    /// this test environment-independent rather than asserting one is present.
-    fn build_c_source_as_dylib(
-        dir: &Path,
-        c_file_name: &str,
-        dylib_file_name: &str,
-        source: &str,
-    ) -> Option<std::path::PathBuf> {
-        let c_path = dir.join(c_file_name);
-        std::fs::write(&c_path, source).ok()?;
-        let dylib_path = dir.join(dylib_file_name);
-        let status = Command::new("cc")
-            .arg("-dynamiclib")
-            .arg("-o")
-            .arg(&dylib_path)
-            .arg(&c_path)
-            .status()
-            .ok()?;
-        status.success().then_some(dylib_path)
-    }
-
     /// Minimal environment callback for lifecycle tests — answers nothing,
     /// but is a valid registered target for the stub core's init-time query.
     unsafe extern "C" fn test_environment(_cmd: u32, _data: *mut std::os::raw::c_void) -> bool {
@@ -593,8 +764,50 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_pat
         core.run_frame().expect("run frame 1");
         core.run_frame().expect("run frame 2");
 
+        // W350: STUB_CORE_C doesn't export retro_set_controller_port_device
+        // (real cores like fceumm/snes9x do; this stub predates the
+        // announce call) — calling it must be a silent no-op, never a panic.
+        core.set_controller_port_device(0, ffi::RETRO_DEVICE_JOYPAD);
+        core.set_controller_port_device(1, ffi::RETRO_DEVICE_JOYPAD);
+
         core.unload_game();
         // Drop runs retro_deinit; nothing further to assert beyond "doesn't panic".
+    }
+
+    /// W350: a core that DOES export `retro_set_controller_port_device`
+    /// (every real core Harmony bundles) actually receives the announced
+    /// `(port, device)` pairs — the mirror image of the no-op case above. The
+    /// stub records every call (pre-merge review follow-up), so the assertion
+    /// covers both calls in order, not just the most recent one.
+    #[test]
+    fn set_controller_port_device_reaches_a_core_that_implements_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_port_aware_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+
+        let mut core = LibretroCore::load(&dylib).expect("load stub port-aware core");
+        core.set_environment(test_environment);
+        core.init().expect("init after set_environment");
+        let rom = dir.path().join("game.nes");
+        std::fs::write(&rom, b"fake rom bytes").expect("write rom");
+        core.load_game(&rom).expect("load_game");
+
+        core.set_controller_port_device(1, ffi::RETRO_DEVICE_JOYPAD);
+        let probe =
+            decode_announce_probe(&core.sram().expect("stub exposes its announce log via sram()"));
+        assert_eq!(probe.calls, vec![(1, ffi::RETRO_DEVICE_JOYPAD)]);
+
+        core.set_controller_port_device(0, ffi::RETRO_DEVICE_JOYPAD);
+        let probe =
+            decode_announce_probe(&core.sram().expect("stub exposes its announce log via sram()"));
+        assert_eq!(
+            probe.calls,
+            vec![(1, ffi::RETRO_DEVICE_JOYPAD), (0, ffi::RETRO_DEVICE_JOYPAD)],
+            "every announce call must be recorded, in call order"
+        );
+        assert_eq!(probe.calls_before_load, 0, "both announces happened after load_game");
     }
 
     #[test]

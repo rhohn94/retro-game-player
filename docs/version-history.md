@@ -7,6 +7,27 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.35 — Player Two (2026-07-05)
+
+Grab a second controller — it just works. Two-player NES and SNES, with the
+second pad picked up automatically by the emulators.
+
+- **Plug in and play.** A second connected controller is assigned to
+  player 2 automatically — no settings, no mapping screen. First pad in is
+  player 1, second is player 2; the keyboard always backs player 1.
+- **A quiet P1 / P2 indicator** on the player and in the pause menu shows
+  the pickup happen — including when the second pad plugs in while the
+  game is paused.
+- **Unplug-safe.** Yanking a pad releases its buttons instantly (no ghost
+  input), and plugging back in reclaims the open player slot.
+- **Works on both play paths.** The native engine now feeds each player's
+  buttons to the core separately (announced on ports 1–2 the way real
+  hardware would), and the in-page EmulatorJS fallback gets two-player
+  default controls too.
+
+On-device two-pad verification (native + EJS paths) is a tracked human
+follow-up.
+
 ## v0.34 — Engines (2026-07-05)
 
 Every popular platform now plays on the native emulation engine — the

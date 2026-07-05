@@ -370,15 +370,32 @@ pub fn get_native_frame(last_seq: u64, session: State<'_, NativeSession>) -> tau
     tauri::ipc::Response::new(encode_frame_response(last_seq, frame))
 }
 
-/// Pushes the current joypad bitmask (bit `n` = `RETRO_DEVICE_ID_JOYPAD_*`
-/// value `n`, computed frontend-side in `nativeInput.ts`, W216) into the
-/// running core's input state via `play::native::set_joypad_state`. No
-/// session check: the target is process-global by FFI necessity (see
-/// `play::native::callbacks`'s module doc) and a stray call with nothing
-/// running is a harmless no-op, matching that module's existing contract.
+/// Pushes `bits` (bit `n` = `RETRO_DEVICE_ID_JOYPAD_*` value `n`, computed
+/// frontend-side in `nativeInput.ts`, W216) into `port`'s input state via
+/// `play::native::set_joypad_state` (W350 multiplayer input: `port` is a new,
+/// optional argument — an omitted `port` behaves exactly as it did before
+/// ports existed, i.e. port 0, so every pre-W350 caller keeps working
+/// unmodified). No session check: the target is process-global by FFI
+/// necessity (see `play::native::callbacks`'s module doc) and a stray call
+/// with nothing running is a harmless no-op, matching that module's existing
+/// contract.
 #[tauri::command]
-pub fn set_native_input(bits: u16) -> AppResult<()> {
-    native::set_joypad_state(bits);
+pub fn set_native_input(bits: u16, port: Option<u16>) -> AppResult<()> {
+    native::set_joypad_state(bits, port.unwrap_or(0) as usize);
+    Ok(())
+}
+
+/// Releases every port's held buttons in one call — the overlay-open and
+/// session-stop "let go of everything" contract (W350,
+/// native-emulation-design.md §Multiplayer input). Kept as a dedicated
+/// command rather than overloading `set_native_input(0)` with an all-ports
+/// meaning: `set_native_input` always means "one port", so a caller that
+/// wants port 0 alone released still gets exactly that, and a caller that
+/// wants every port released (the overlay/session-teardown case) says so
+/// explicitly.
+#[tauri::command]
+pub fn release_all_native_input() -> AppResult<()> {
+    native::release_all_native_input();
     Ok(())
 }
 
@@ -409,6 +426,63 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    /// `RETRO_DEVICE_JOYPAD`, transcribed from libretro.h (see
+    /// `play::native::ffi`'s own copy — that module isn't `pub` outside
+    /// `play::native`, so this test-only mirror lets `input_state` be
+    /// exercised directly from here rather than only through a live core).
+    const TEST_RETRO_DEVICE_JOYPAD: u32 = 1;
+
+    /// `set_native_input`/`release_all_native_input` write directly into
+    /// `play::native::callbacks`'s process-global joypad state (see that
+    /// module's doc) — the same lock every other test touching it uses, so a
+    /// panicked test can't wedge these.
+    fn lock_native_input_tests() -> std::sync::MutexGuard<'static, ()> {
+        native::lock_tests()
+    }
+
+    #[test]
+    fn set_native_input_without_a_port_behaves_as_port_0() {
+        let _guard = lock_native_input_tests();
+        set_native_input(1, None).expect("set_native_input succeeds");
+        assert_eq!(
+            unsafe { native::input_state(0, TEST_RETRO_DEVICE_JOYPAD, 0, 0) }, // RETRO_DEVICE_ID_JOYPAD_B
+            1
+        );
+        release_all_native_input().expect("release succeeds");
+    }
+
+    #[test]
+    fn set_native_input_with_an_explicit_port_targets_only_that_port() {
+        let _guard = lock_native_input_tests();
+        set_native_input(1, Some(1)).expect("set_native_input(port=1) succeeds");
+        assert_eq!(
+            unsafe { native::input_state(0, TEST_RETRO_DEVICE_JOYPAD, 0, 0) },
+            0,
+            "port 0 must be untouched by a port-1 write"
+        );
+        assert_eq!(
+            unsafe { native::input_state(1, TEST_RETRO_DEVICE_JOYPAD, 0, 0) },
+            1
+        );
+        release_all_native_input().expect("release succeeds");
+    }
+
+    #[test]
+    fn release_all_native_input_clears_both_ports() {
+        let _guard = lock_native_input_tests();
+        set_native_input(u16::MAX, Some(0)).expect("set port 0");
+        set_native_input(u16::MAX, Some(1)).expect("set port 1");
+        release_all_native_input().expect("release succeeds");
+        assert_eq!(
+            unsafe { native::input_state(0, TEST_RETRO_DEVICE_JOYPAD, 0, 0) },
+            0
+        );
+        assert_eq!(
+            unsafe { native::input_state(1, TEST_RETRO_DEVICE_JOYPAD, 0, 0) },
+            0
+        );
     }
 
     #[test]

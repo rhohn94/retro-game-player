@@ -6,6 +6,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { DUR, dialogPop } from "../../lib/motion";
+import { PlayerCountIndicator } from "./PlayerCountIndicator";
 
 /** One overlay menu entry. `disabled` rows render but don't activate. */
 export interface OverlayItem {
@@ -29,6 +30,11 @@ export interface PlayerOverlayProps {
   /** Volume slider row (W243) — mouse-driven; keyboard/controller users get
    * the Mute item the players add to `items`. */
   volume?: { value: number; onChange: (volume: number) => void };
+  /** How many gamepads are currently assigned a native-input port (v0.35
+   * W351) — `undefined` (the in-page/EmulatorJS path, which doesn't track
+   * per-port assignment) omits the indicator entirely rather than showing a
+   * misleading "P1". */
+  connectedPadCount?: number;
 }
 
 /** The overlay scrim + panel; renders nothing while closed. */
@@ -42,6 +48,7 @@ export function PlayerOverlay({
   status,
   hint,
   volume,
+  connectedPadCount,
 }: PlayerOverlayProps) {
   return (
     <AnimatePresence>
@@ -63,7 +70,10 @@ export function PlayerOverlay({
             aria-label={`${gameName} menu`}
             {...dialogPop}
           >
-            <p className="rgp-overlay__title">{gameName}</p>
+            <div className="rgp-overlay__title-row">
+              <p className="rgp-overlay__title">{gameName}</p>
+              {connectedPadCount != null && <PlayerCountIndicator connectedPadCount={connectedPadCount} />}
+            </div>
             <div className="rgp-overlay__actions" role="menu">
               {items.map((it, i) => (
                 <button

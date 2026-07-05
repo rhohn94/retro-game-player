@@ -7,8 +7,9 @@
 //! narrow — only the functions [`super::host::LibretroCore`] actually calls:
 //! the original ~13 lifecycle/callback functions plus the five
 //! serialize/memory functions save persistence needs (v0.23 W230, see
-//! docs/design/save-persistence-design.md). Still no controller-port/device
-//! switching.
+//! docs/design/save-persistence-design.md), plus `retro_set_controller_port_device`
+//! for announcing per-port joypads (v0.35 W350, see
+//! docs/design/native-emulation-design.md §Multiplayer input).
 
 #![allow(dead_code)]
 
@@ -204,6 +205,7 @@ pub type RetroInputPollFn = unsafe extern "C" fn();
 pub type RetroInputStateFn =
     unsafe extern "C" fn(port: u32, device: u32, index: u32, id: u32) -> i16;
 pub type RetroEnvironmentFn = unsafe extern "C" fn(cmd: u32, data: *mut c_void) -> bool;
+pub type RetroSetControllerPortDeviceFn = unsafe extern "C" fn(port: u32, device: u32);
 
 /// The raw exported symbol table, loaded once at [`super::host::LibretroCore::load`]
 /// time. Every field is `unsafe extern "C" fn` because calling into a
@@ -230,4 +232,11 @@ pub struct RawSymbols {
     pub retro_unserialize: unsafe extern "C" fn(*const c_void, usize) -> bool,
     pub retro_get_memory_data: unsafe extern "C" fn(u32) -> *mut c_void,
     pub retro_get_memory_size: unsafe extern "C" fn(u32) -> usize,
+    /// Announces which controller a port carries (`RETRO_DEVICE_JOYPAD` etc.,
+    /// W350 multiplayer input). Optional in [`super::host::LibretroCore::load`]
+    /// (`None` when a core's `.dylib` doesn't export it) — libretro defaults
+    /// every port to joypad, so a core missing this symbol keeps working
+    /// exactly as it did before ports were announced explicitly; only the
+    /// announce call itself becomes a no-op.
+    pub retro_set_controller_port_device: Option<RetroSetControllerPortDeviceFn>,
 }
