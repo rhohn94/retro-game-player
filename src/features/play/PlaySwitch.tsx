@@ -10,6 +10,7 @@
 // (in-page-play-design.md §6). One notice per session per cause.
 
 import { useCallback, useState } from "react";
+import { ExternalOnlyNotice } from "./ExternalOnlyNotice";
 import { GetCorePanel } from "./GetCorePanel";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
@@ -48,9 +49,10 @@ export interface PlaySwitchProps {
 }
 
 /**
- * Picks the player for one game's detail screen. Renders nothing for a
- * system with no in-page path at all (native external RetroArch launch only
- * — unaffected by this switch).
+ * Picks the player for one game's detail screen. Renders an honest
+ * "plays externally" notice (`ExternalOnlyNotice`, v0.34 W346) for a system
+ * with no in-page or native path at all — the actual launch (native external
+ * RetroArch) happens via the Play button, unaffected by this switch.
  */
 export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: PlaySwitchProps) {
   // The native-capability table (W340): a game is a native CANDIDATE once
@@ -150,7 +152,16 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
   }
 
   const availability = inPageAvailability(system, cores);
-  if (availability.kind === "none") return noticeEl;
+  if (availability.kind === "none") {
+    // No in-page or native path exists at all (e.g. GameCube/Wii, W346) —
+    // say so honestly rather than leaving the player slot silently empty.
+    return (
+      <>
+        {noticeEl}
+        <ExternalOnlyNotice system={system} />
+      </>
+    );
+  }
   if (availability.kind === "ready" || justInstalled) {
     // The EmulatorJS iframe cannot become a page background (explicit v0.23
     // non-goal), so attract's "background" degrades to plain foreground here;

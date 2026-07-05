@@ -680,6 +680,23 @@
     color: var(--aura-on-surface-muted);
   }
 
+  /* External-only notice (v0.34 W346) — the player slot's affordance for a
+     system with no in-page or native path at all (e.g. GameCube/Wii). */
+  .rgp-external-only {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--aura-space-3);
+    padding: var(--aura-space-5) var(--aura-space-5);
+    border-radius: var(--rgp-radius-card);
+    background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
+    color: var(--aura-on-surface);
+  }
+  .rgp-external-only__message {
+    margin: 0;
+    font-size: 14px;
+  }
+
   /* Overlay volume row (v0.24 W243). */
   .rgp-overlay__volume {
     display: flex;

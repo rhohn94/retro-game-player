@@ -46,9 +46,39 @@ const SYSTEM_LABELS: Readonly<Record<string, string>> = {
   ps1: "PlayStation",
   atari2600: "Atari 2600",
   pcengine: "PC Engine",
+  gamecube: "GameCube",
+  wii: "Wii",
 };
 
 /** A human-readable console name for `system` (falls back to the key). */
 export function systemLabel(system: string): string {
   return Object.hasOwn(SYSTEM_LABELS, system) ? SYSTEM_LABELS[system] : system;
+}
+
+/** Display name of the emulator a `kind: "none"` system's ROMs actually run
+ * under inside RetroArch, keyed by Retro Game Player system (v0.34 W346 —
+ * native-emulation-design.md §HW-render GC/Wii note: dolphin-libretro stays
+ * external-launch-only, so the detail page names it honestly instead of the
+ * generic "RetroArch" wording). Absent for a system with no single curated
+ * emulator to name. */
+const EXTERNAL_EMULATOR_LABELS: Readonly<Record<string, string>> = {
+  gamecube: "Dolphin",
+  wii: "Dolphin",
+};
+
+/**
+ * Honest "plays externally" copy for a `kind: "none"` system (no in-page or
+ * native path exists at all — RetroArch launch only, `ExternalOnlyNotice`'s
+ * caller). Names the actual emulator RetroArch loads when one is curated
+ * (e.g. "Dolphin" for GameCube/Wii) rather than leaving the console
+ * unexplained on the detail page.
+ */
+export function externalOnlyMessage(system: string): string {
+  const label = systemLabel(system);
+  const emulator = Object.hasOwn(EXTERNAL_EMULATOR_LABELS, system)
+    ? EXTERNAL_EMULATOR_LABELS[system]
+    : undefined;
+  return emulator
+    ? `${label} titles launch in RetroArch (${emulator} core) — a separate window opens to play.`
+    : `${label} titles launch in RetroArch — a separate window opens to play.`;
 }
