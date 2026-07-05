@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { SPRING, listContainer } from "../../lib/motion";
 import { SystemList } from "./SystemList";
-import { CoreRow } from "./CoreRow";
+import { CoreRowList } from "./CoreRowList";
 import { useCores } from "./useCores";
 import { filterCores, flattenCores, groupBySystem } from "./coreFilter";
 import { LoadingState } from "../../components/LoadingState";
@@ -128,17 +128,14 @@ export function CoresPage() {
                   >
                     {sys}
                   </h3>
-                  {matchesBySystem[sys].map((core) => (
-                    <CoreRow
-                      key={core.coreId}
-                      core={core}
-                      action={actionState(core.system, core.coreId)}
-                      error={actionError(core.system, core.coreId)}
-                      onInstall={() => void install(core.system, core.coreId)}
-                      onUpdate={() => void update(core)}
-                      onActivate={() => void activate(core.system, core.coreId)}
-                    />
-                  ))}
+                  <CoreRowList
+                    cores={matchesBySystem[sys]}
+                    actionState={actionState}
+                    actionError={actionError}
+                    install={install}
+                    update={update}
+                    activate={activate}
+                  />
                 </motion.div>
               ))
           )}
@@ -202,19 +199,14 @@ export function CoresPage() {
                       No cores available for this system.
                     </div>
                   ) : (
-                    cores.map((core) => (
-                      <CoreRow
-                        key={core.coreId}
-                        core={core}
-                        action={actionState(core.system, core.coreId)}
-                        error={actionError(core.system, core.coreId)}
-                        onInstall={() => void install(core.system, core.coreId)}
-                        onUpdate={() => void update(core)}
-                        onActivate={() =>
-                          void activate(core.system, core.coreId)
-                        }
-                      />
-                    ))
+                    <CoreRowList
+                      cores={cores}
+                      actionState={actionState}
+                      actionError={actionError}
+                      install={install}
+                      update={update}
+                      activate={activate}
+                    />
                   )}
                 </motion.div>
               )}
