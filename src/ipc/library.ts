@@ -8,9 +8,10 @@ import { invoke } from "./invoke";
  * A game's source (mirrors Rust `GameSource`, v0.31 W310 "Frontier" — see
  * `docs/design/non-retro-library-design.md`). `"rom"` is the pre-v0.31
  * default; the others are non-retro library rows that launch externally via
- * a `launchDescriptor` rather than through a ROM + core.
+ * a `launchDescriptor` rather than through a ROM + core. `"gog"`/`"itch"`
+ * were added in v0.32 W320.
  */
-export type GameSource = "rom" | "steam" | "app" | "manual";
+export type GameSource = "rom" | "steam" | "app" | "manual" | "gog" | "itch";
 
 /** A scanned/identified game row (mirrors Rust `GameDto`). */
 export interface Game {

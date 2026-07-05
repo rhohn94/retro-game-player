@@ -1,11 +1,19 @@
-// GameSourcesPane — the Settings "Game sources" section (v0.31 W313).
+// GameSourcesPane — the Settings "Game sources" section (v0.31 W313; GOG +
+// itch added v0.32 W320).
 //
-// Three affordances, per docs/design/non-retro-library-design.md §UI:
+// Five affordances, per docs/design/non-retro-library-design.md §UI:
 // - Steam: trigger a re-scan (button calls scan_steam_source; W312).
 // - Apps: run the /Applications + ~/Applications scan, then confirm a
 //   checklist of the shortlist before any row is created (no silent library
 //   flooding — see the design doc's confirm-gate requirement).
+// - GOG: trigger a re-scan (button calls scan_gog_source; W320).
+// - itch: trigger a re-scan (button calls scan_itch_source; W320).
 // - Manual: a name + file-picker form that adds an escape-hatch entry.
+//
+// GOG/itch mirror Steam exactly (an unconfirmed direct scan-and-upsert, no
+// shortlist) rather than the Apps confirm-gate shape, since both sources are
+// scoped installs (a Galaxy/itch-owned tree) rather than a broad system scan
+// that could pick up non-games.
 //
 // Aura note: buttons fire native `click`, so this file uses React `onClick`
 // throughout (never a Grimoire `aura-click` listener); `AuraField` wraps a
@@ -18,9 +26,12 @@ import {
   addManualEntry,
   confirmAppEntries,
   scanAppSource,
+  scanGogSource,
+  scanItchSource,
   scanSteamSource,
   type DiscoveredGame,
   type ManualTarget,
+  type SourceScanReport,
 } from "../../../ipc/sources";
 import { openFileDialog } from "../../../ipc/dialog";
 import { isAppError } from "../../../ipc/commands";
@@ -45,22 +56,59 @@ export function GameSourcesPane() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  /**
+   * Shared shape for the direct scan-and-upsert sources (Steam, GOG, itch):
+   * run `scan`, report the `{ discovered, added, updated }` counts as the
+   * pane status, and surface any AppError. Kept as one function so the three
+   * sources' handlers stay one-liners instead of duplicating this try/catch
+   * (Apps has its own confirm-gated shape below and doesn't use this).
+   */
+  async function runDirectScan(label: string, scan: () => Promise<SourceScanReport>) {
+    setError(null);
+    setStatus(null);
+    try {
+      const report = await scan();
+      setStatus(
+        `${label} scan found ${report.discovered} game(s) — ${report.added} added, ${report.updated} updated.`,
+      );
+    } catch (e: unknown) {
+      setError(isAppError(e) ? e.detail : String(e));
+    }
+  }
+
   // --- Steam ---
   const [steamScanning, setSteamScanning] = useState(false);
 
   async function handleSteamScan() {
     setSteamScanning(true);
-    setError(null);
-    setStatus(null);
     try {
-      const report = await scanSteamSource();
-      setStatus(
-        `Steam scan found ${report.discovered} game(s) — ${report.added} added, ${report.updated} updated.`,
-      );
-    } catch (e: unknown) {
-      setError(isAppError(e) ? e.detail : String(e));
+      await runDirectScan("Steam", scanSteamSource);
     } finally {
       setSteamScanning(false);
+    }
+  }
+
+  // --- GOG ---
+  const [gogScanning, setGogScanning] = useState(false);
+
+  async function handleGogScan() {
+    setGogScanning(true);
+    try {
+      await runDirectScan("GOG", scanGogSource);
+    } finally {
+      setGogScanning(false);
+    }
+  }
+
+  // --- itch ---
+  const [itchScanning, setItchScanning] = useState(false);
+
+  async function handleItchScan() {
+    setItchScanning(true);
+    try {
+      await runDirectScan("itch", scanItchSource);
+    } finally {
+      setItchScanning(false);
     }
   }
 
@@ -157,8 +205,8 @@ export function GameSourcesPane() {
     <div className="settings-pane" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <h3 style={{ margin: 0 }}>Game Sources</h3>
       <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
-        Bring in games that live outside your ROM folders — Steam installs,
-        native Mac apps, or anything else you launch by hand.
+        Bring in games that live outside your ROM folders — Steam, GOG, or
+        itch installs, native Mac apps, or anything else you launch by hand.
       </p>
 
       {error && (
@@ -181,6 +229,38 @@ export function GameSourcesPane() {
         </div>
         <AuraButton tabIndex={0} disabled={steamScanning} onClick={() => { void handleSteamScan(); }}>
           {steamScanning ? "Scanning…" : "Scan Steam library"}
+        </AuraButton>
+      </div>
+
+      {/* GOG */}
+      <div
+        className="rgp-panel"
+        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
+      >
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>GOG</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+            Scans installed GOG Galaxy titles from your local GOG library.
+          </p>
+        </div>
+        <AuraButton tabIndex={0} disabled={gogScanning} onClick={() => { void handleGogScan(); }}>
+          {gogScanning ? "Scanning…" : "Scan GOG library"}
+        </AuraButton>
+      </div>
+
+      {/* itch */}
+      <div
+        className="rgp-panel"
+        style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, borderRadius: 8 }}
+      >
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>itch</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+            Scans installed itch titles from your local itch app installs.
+          </p>
+        </div>
+        <AuraButton tabIndex={0} disabled={itchScanning} onClick={() => { void handleItchScan(); }}>
+          {itchScanning ? "Scanning…" : "Scan itch library"}
         </AuraButton>
       </div>
 

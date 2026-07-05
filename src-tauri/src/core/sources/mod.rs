@@ -13,6 +13,8 @@ use crate::error::AppResult;
 use serde_json::Value;
 
 pub mod app_scan; // W313 — /Applications + ~/Applications game-category scan
+pub mod gog; // W320 — GOG Galaxy manifest + install-root scan
+pub mod itch; // W320 — itch receipt + install-dir scan
 pub mod rom; // W322 — legacy ROM folder scanner migrated onto GameSource
 pub mod steam; // W312 — Steam appmanifest scan
 

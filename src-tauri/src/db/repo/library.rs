@@ -19,8 +19,10 @@ pub struct ContentFolder {
 
 /// A game's source (`games.source`, v0.31 W310 "Frontier" — see
 /// `docs/design/non-retro-library-design.md`). `Rom` is the pre-v0.31 default;
-/// the other three are non-retro library rows that launch externally via a
-/// `launch_descriptor` rather than through a ROM + core.
+/// the rest are non-retro library rows that launch externally via a
+/// `launch_descriptor` rather than through a ROM + core. `Gog`/`Itch` were
+/// added in v0.32 W320 (migration `013_gog_itch_sources.sql` extends the
+/// `games.source` CHECK list to match).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameSource {
@@ -29,6 +31,8 @@ pub enum GameSource {
     Steam,
     App,
     Manual,
+    Gog,
+    Itch,
 }
 
 impl GameSource {
@@ -39,6 +43,8 @@ impl GameSource {
             GameSource::Steam => "steam",
             GameSource::App => "app",
             GameSource::Manual => "manual",
+            GameSource::Gog => "gog",
+            GameSource::Itch => "itch",
         }
     }
 
@@ -51,6 +57,8 @@ impl GameSource {
             "steam" => Some(GameSource::Steam),
             "app" => Some(GameSource::App),
             "manual" => Some(GameSource::Manual),
+            "gog" => Some(GameSource::Gog),
+            "itch" => Some(GameSource::Itch),
             _ => None,
         }
     }
@@ -964,6 +972,58 @@ mod tests {
         assert_eq!(g.source, GameSource::Steam);
         assert_eq!(g.external_id.as_deref(), Some("12345"));
         assert!(g.launch_descriptor.is_some());
+    }
+
+    // --- v0.32 W320: GOG + itch sources ---
+
+    /// `GameSource::as_db_str` / `from_db_str` round-trip for every variant,
+    /// including the two W320 additions — this is the single place both the
+    /// migration's CHECK list and the enum's wire mapping must agree.
+    #[test]
+    fn game_source_db_str_round_trips_every_variant() {
+        for source in [
+            GameSource::Rom,
+            GameSource::Steam,
+            GameSource::App,
+            GameSource::Manual,
+            GameSource::Gog,
+            GameSource::Itch,
+        ] {
+            let db_str = source.as_db_str();
+            assert_eq!(GameSource::from_db_str(db_str), Some(source));
+        }
+    }
+
+    #[test]
+    fn from_db_str_rejects_unrecognized_values() {
+        assert_eq!(GameSource::from_db_str("epic"), None);
+        assert_eq!(GameSource::from_db_str(""), None);
+    }
+
+    #[test]
+    fn a_gog_row_persists_with_no_folder_path_or_system() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = repo
+            .add_game(&non_rom_game(GameSource::Gog, "gog-1207658930", "The Witcher 3"))
+            .unwrap();
+        let g = repo.get_game(gid).unwrap();
+        assert_eq!(g.folder_id, None);
+        assert_eq!(g.source, GameSource::Gog);
+        assert_eq!(g.external_id.as_deref(), Some("gog-1207658930"));
+    }
+
+    #[test]
+    fn an_itch_row_persists_with_no_folder_path_or_system() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = repo
+            .add_game(&non_rom_game(GameSource::Itch, "user/celeste", "Celeste"))
+            .unwrap();
+        let g = repo.get_game(gid).unwrap();
+        assert_eq!(g.folder_id, None);
+        assert_eq!(g.source, GameSource::Itch);
+        assert_eq!(g.external_id.as_deref(), Some("user/celeste"));
     }
 
     /// Acceptance: "either-rom-or-descriptor CHECK invariant enforced with a

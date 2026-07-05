@@ -88,6 +88,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/012_romless_games.sql"),
         requires_fk_off: true,
     },
+    Migration {
+        version: 13,
+        sql: include_str!("migrations/013_gog_itch_sources.sql"),
+        requires_fk_off: true,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -739,6 +744,40 @@ mod tests {
             [],
         );
         assert!(dup.is_err(), "duplicate (source, external_id) must be rejected");
+    }
+
+    /// Acceptance (v0.32 W320): the `source` CHECK list is extended to accept
+    /// `'gog'` and `'itch'` without disturbing the existing values.
+    #[test]
+    fn migration_013_check_accepts_gog_and_itch_sources() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Gwent', 0, 'gog', '{\"kind\":\"app\",\"bundle_path\":\"/Applications/Gwent.app\"}', 'gog-1')",
+            [],
+        )
+        .expect("a 'gog' source row must be accepted");
+        conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Celeste', 0, 'itch', '{\"kind\":\"app\",\"bundle_path\":\"/Applications/Celeste.app\"}', 'itch-1')",
+            [],
+        )
+        .expect("an 'itch' source row must be accepted");
+    }
+
+    /// The CHECK list is still exhaustive: an unrecognized `source` value
+    /// must keep being rejected after the 013 rebuild.
+    #[test]
+    fn migration_013_check_still_rejects_unknown_sources() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let result = conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Bad Source', 0, 'epic', '{}', 'x')",
+            [],
+        );
+        assert!(result.is_err(), "an unrecognized source value must violate the CHECK");
     }
 
     #[test]
