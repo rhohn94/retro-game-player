@@ -140,7 +140,7 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.35 |
 |---|---|---|---|---|
 | `w350-per-port-native-input` (W350) | ☐ | ☐ | ☐ | ☐ |
-| `w353-ejs-two-player` (W353) | ☐ | ☐ | ☐ | ☐ |
+| `w353-ejs-two-player-v035p1-01` (W353) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -150,4 +150,20 @@ lands the full IPC surface (Rust + TS binding) so W351 consumes, not edits.
 
 ### Follow-ups discovered during implementation
 
-(populated as branches land)
+- **Pass-1 note:** dispatched via the write-capable workflow
+  (`release-phase-model: Auto`); branch names carry the `-v035p1-NN` suffix.
+- Reviewer (W353, non-blocking): the player-0 `EJS_defaultControls` entry
+  covers gameplay control ids 0–13 only — EmulatorJS's built-in ids 14–26
+  keyboard hotkeys (quick save/load/state-slot) are dropped by the
+  override; low impact (Harmony's overlay save bridge covers saves) but the
+  doc/comment should say "gameplay buttons 0–13", not full parity.
+- Reviewer (W353, non-blocking): per-game localStorage `controlSettings`
+  outrank `EJS_defaultControls`; neutralized today by the ephemeral loopback
+  port (fresh origin per launch) — document the precedence; `EJS_gameID` +
+  a stable policy or `EJS_disableLocalStorage` would make it deterministic.
+- Reviewer (W353, cosmetic): `server.rs` test asserts literal
+  `playerControls(true/false)` source strings — brittle to reformatting.
+- **P2 hand-off (from W350 review, MUST be done in W351):** migrate the
+  three `setNativeInput(0)` release sites in `NativePlayer.tsx` (≈lines
+  188, 202, 487) to `releaseAllNativeInput()` — until then port 1 input
+  would survive overlay-open/teardown once a port-1 writer exists.
