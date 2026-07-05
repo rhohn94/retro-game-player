@@ -150,8 +150,8 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.32 |
 |---|---|---|---|---|
-| `feat/w320-gog-itch-sources` (W320) | ☐ | ☐ | ☐ | ☐ |
-| `perf/w323-art-fetch-detach` (W323) | n/a | ☐ | ☐ | ☐ |
+| `w320-gog-itch-sources-v032p2-00` (W320) | ☑ | ☑ | ☑ | ☑ |
+| `w323-art-fetch-detach-v032p2-01` (W323) | n/a | ☑ | ☑ | ☑ |
 
 ### Pass 3
 
@@ -182,3 +182,27 @@ surface (W320–W323) additionally pass `recipe.py smoke`.
   play-tracking) — W324 scoped only the three W310 source fields; a future
   item should have familiar.ts reuse the canonical `Game` from `library.ts`
   instead of a hand-copied partial mirror.
+- **Merge note (Pass 2):** W320/W323 conflicted on `commands/sources.rs` as
+  predicted — resolved as the additive union (W323's background-thread art
+  fetch + W320's Gog/Itch match arms). One semantic conflict git missed:
+  W320's tests called `acquire_art_best_effort`, renamed by W323 to
+  `spawn_art_acquisition`; fixed on `version/0.32` (74f1cf5).
+- Reviewer (W323, non-blocking, strongest): `Db::open` sets no
+  `busy_timeout`/WAL, so the detached art thread's writes racing the main
+  connection can hit SQLITE_BUSY and silently drop art (degrades to
+  placeholder, no panic). Fix pattern already exists in `play/server.rs`
+  (`busy_timeout` 5s) — thread it into `Db::open`.
+- Reviewer (W323, non-blocking): art acquisition spawns one OS thread per
+  upserted row, uncapped (unlike the bounded `downloads` pattern it cites) —
+  bounded pool / in-flight cap is the more defensible shape.
+- Reviewer (W323, informational): the promptness test proves detachment, not
+  cross-connection contention (in-memory DB vs the thread's on-disk DB).
+- Reviewer (W320, non-blocking): itch `scan_install_dir` fallback classifies
+  every non-`.app` top-level entry as an `exec` program (data files included)
+  — gate on is-file + executable-bit to avoid unlaunchable rows.
+- Reviewer (W320, non-blocking): GOG/itch manifests with empty or relative
+  `installPath` are persisted verbatim (clean spawn failure at launch) — an
+  empty/relative-path guard at discovery time would avoid dead rows.
+- Reviewer (W320, informational): `is_steam_owned` matches the literal
+  `/steam/steamapps/` substring — custom Steam library folders aren't
+  excluded; pre-existing W313 posture.
