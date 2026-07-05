@@ -158,6 +158,8 @@ macro_rules! register_commands {
             // GOG + itch game sources (v0.32 W320)
             $crate::commands::sources::scan_gog_source,
             $crate::commands::sources::scan_itch_source,
+            // CrossOver game source (v0.33 W331)
+            $crate::commands::sources::scan_crossover_source,
             // SteamGridDB API key settings (v0.32 W321)
             $crate::commands::steamgriddb::get_steamgriddb_api_key,
             $crate::commands::steamgriddb::set_steamgriddb_api_key,

@@ -93,6 +93,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/013_gog_itch_sources.sql"),
         requires_fk_off: true,
     },
+    Migration {
+        version: 14,
+        sql: include_str!("migrations/014_crossover_source.sql"),
+        requires_fk_off: true,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -778,6 +783,61 @@ mod tests {
             [],
         );
         assert!(result.is_err(), "an unrecognized source value must violate the CHECK");
+    }
+
+    /// Acceptance (v0.33 W331): the `source` CHECK list is extended to accept
+    /// `'crossover'` without disturbing the existing values.
+    #[test]
+    fn migration_014_check_accepts_crossover_source() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Half-Life 2', 0, 'crossover', \
+             '{\"kind\":\"app\",\"bundle_path\":\"/Users/me/Applications/CrossOver/Steam/Half-Life 2.app\"}', \
+             'Steam/half-life-2')",
+            [],
+        )
+        .expect("a 'crossover' source row must be accepted");
+    }
+
+    /// The CHECK list is still exhaustive after the 014 rebuild: an
+    /// unrecognized `source` value must keep being rejected.
+    #[test]
+    fn migration_014_check_still_rejects_unknown_sources() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let result = conn.execute(
+            "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+             VALUES ('Bad Source', 0, 'epic', '{}', 'x')",
+            [],
+        );
+        assert!(result.is_err(), "an unrecognized source value must violate the CHECK");
+    }
+
+    /// Every pre-014 source value must still be accepted after the rebuild —
+    /// pins that extending the CHECK list is additive, never a narrowing.
+    /// Every row here satisfies the identity CHECK via `launch_descriptor`
+    /// (simplest for non-ROM sources); ROM's `path`/`system` identity is
+    /// already covered by the dedicated ROM-row tests above.
+    #[test]
+    fn migration_014_check_still_accepts_prior_sources() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        for (source, external_id) in [
+            ("steam", "620"),
+            ("app", "com.example.app"),
+            ("manual", "/Applications/Manual.app"),
+            ("gog", "gog-1"),
+            ("itch", "itch-1"),
+        ] {
+            conn.execute(
+                "INSERT INTO games (clean_name, added_at, source, launch_descriptor, external_id) \
+                 VALUES (?1, 0, ?2, '{}', ?3)",
+                rusqlite::params![format!("{source} row"), source, external_id],
+            )
+            .unwrap_or_else(|e| panic!("existing source '{source}' must still be accepted: {e}"));
+        }
     }
 
     #[test]

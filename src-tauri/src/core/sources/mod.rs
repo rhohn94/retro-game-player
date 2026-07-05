@@ -9,8 +9,8 @@
 //! - [`GameSourceScanner`] — discover-only. A scanner returns
 //!   [`DiscoveredGame`]s without touching the database; the IPC command layer
 //!   (`commands::sources`) maps them onto `LibraryRepo::upsert_game_by_source`.
-//!   Every non-ROM source (steam, app, manual, gog, itch — and crossover,
-//!   W331) is this tier.
+//!   Every non-ROM source (steam, app, manual, gog, itch, crossover) is this
+//!   tier.
 //! - [`PersistingSource`] — owns its own persistence. A ROM folder scan must
 //!   walk a specific content folder, hash each candidate, consult the DAT,
 //!   and dedupe against already-known paths in one pass, so the scan and the
@@ -29,6 +29,7 @@ use crate::error::AppResult;
 use serde_json::Value;
 
 pub mod app_scan; // W313 — /Applications + ~/Applications game-category scan
+pub mod crossover; // W331 — CrossOver bottle + Windows-app enumeration
 pub mod gog; // W320 — GOG Galaxy manifest + install-root scan
 pub mod itch; // W320 — itch receipt + install-dir scan
 pub mod rom; // W322 — legacy ROM folder scanner migrated onto GameSource
@@ -135,7 +136,8 @@ impl SourceKind {
             | GameSource::App
             | GameSource::Manual
             | GameSource::Gog
-            | GameSource::Itch => SourceKind::Discovering,
+            | GameSource::Itch
+            | GameSource::Crossover => SourceKind::Discovering,
         }
     }
 }
@@ -145,9 +147,10 @@ mod tests {
     use super::*;
 
     /// Every `GameSource` variant must resolve to a tier — this test is the
-    /// living documentation that a new source (e.g. `crossover`, W331) must
-    /// be added to `SourceKind::of` explicitly rather than falling through a
-    /// wildcard arm (there is none, by design: the match is exhaustive).
+    /// living documentation that a new source must be added to
+    /// `SourceKind::of` explicitly rather than falling through a wildcard arm
+    /// (there is none, by design: the match is exhaustive). `crossover`
+    /// (W331) landed as `Discovering`, matching the design doc's tier-1 call.
     #[test]
     fn source_kind_of_covers_every_source() {
         assert_eq!(SourceKind::of(GameSource::Rom), SourceKind::Persisting);
@@ -156,6 +159,7 @@ mod tests {
         assert_eq!(SourceKind::of(GameSource::Manual), SourceKind::Discovering);
         assert_eq!(SourceKind::of(GameSource::Gog), SourceKind::Discovering);
         assert_eq!(SourceKind::of(GameSource::Itch), SourceKind::Discovering);
+        assert_eq!(SourceKind::of(GameSource::Crossover), SourceKind::Discovering);
     }
 
     /// Only `rom` is a persisting source today (design doc: CrossOver arrives
@@ -170,6 +174,7 @@ mod tests {
             GameSource::Manual,
             GameSource::Gog,
             GameSource::Itch,
+            GameSource::Crossover,
         ]
         .into_iter()
         .filter(|s| SourceKind::of(*s) == SourceKind::Persisting)
