@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.36 — Spring Cleaning (in flight)
+## v0.36 — Spring Cleaning (implementation complete — pending release)
 
 **Theme:** Code quality (user directive, 2026-07-05) — unhandled-error
 observability, decomposition of the two worst oversized modules, duplication
