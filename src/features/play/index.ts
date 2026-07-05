@@ -7,4 +7,5 @@ export { PlaySwitch } from "./PlaySwitch";
 export type { PlaySwitchProps } from "./PlaySwitch";
 export { NativePlayer } from "./NativePlayer";
 export type { NativePlayerProps } from "./NativePlayer";
-export { NATIVE_SYSTEM, isNativePathEligible } from "./nativePath";
+export { NATIVE_SYSTEM, fetchNativeCapabilities, isNativePathEligible } from "./nativePath";
+export type { NativeCapabilities } from "./nativePath";

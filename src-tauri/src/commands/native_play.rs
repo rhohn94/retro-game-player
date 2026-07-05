@@ -36,6 +36,42 @@ pub fn set_native_play_enabled(enabled: bool) -> AppResult<()> {
     config.save(&paths)
 }
 
+/// One row of [`native::NATIVE_SYSTEMS`] crossing the IPC seam (v0.34
+/// "Engines" W340), paired with whether its core is currently installed —
+/// the frontend's native-path gate (`nativePath.ts`) consults this instead of
+/// a hard-coded `system === "nes"` comparison, so a system routes to
+/// [`NativePlayer`](crate) only when it is BOTH in the table AND has a
+/// resolvable core, falling back to EJS/external otherwise exactly as today.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeSystemDto {
+    pub system: String,
+    pub core_id: String,
+    pub core_installed: bool,
+}
+
+/// Lists every native-hostable system (W340's table) with its current
+/// install state. DB-only (no FFI probe), so this is cheap enough to call on
+/// every detail-page mount without a loading flicker.
+#[tauri::command]
+pub fn list_native_systems(db: State<'_, Db>) -> AppResult<Vec<NativeSystemDto>> {
+    native::NATIVE_SYSTEMS
+        .iter()
+        .map(|row| {
+            let core_installed = match native::resolve_native_core_path(&db, row.system) {
+                Ok(_) => true,
+                Err(AppError::NotFound(_)) => false,
+                Err(e) => return Err(e),
+            };
+            Ok(NativeSystemDto {
+                system: row.system.to_string(),
+                core_id: row.core_id.to_string(),
+                core_installed,
+            })
+        })
+        .collect()
+}
+
 /// Holds the single in-flight native session, if any. Harmony only ever
 /// plays one game natively at a time; starting a new session replaces (and,
 /// via `NativeRuntime`'s `Drop`, stops) whatever was running.
@@ -100,8 +136,9 @@ fn seed_persisted_core_variables(db: &Db, system: &str, core_id: &str, core_path
 }
 
 /// Starts a native session for `game_id`, replacing any session already
-/// running. Resolves the installed `fceumm` core path (W213) and the game's
-/// ROM path (the library row), then spawns the runtime (W212).
+/// running. Resolves the game's native-hostable system row (W340's
+/// [`native::NATIVE_SYSTEMS`] table) and installed core path, plus the
+/// game's ROM path (the library row), then spawns the runtime (W212).
 ///
 /// `preview` (v0.27 W273, default false so existing callers are unchanged):
 /// start as a NO-TRACE preview — no save wiring, no perf log (see
@@ -130,15 +167,12 @@ pub fn start_native_play(
     let path = game.path.clone().ok_or_else(|| {
         AppError::Unsupported(format!("game {game_id} has no ROM path to natively host"))
     })?;
-    if system != native::NATIVE_SYSTEM {
-        return Err(AppError::Unsupported(format!(
-            "native hosting only supports {} — game {} is {}",
-            native::NATIVE_SYSTEM,
-            game_id,
-            system
-        )));
-    }
-    let core_path = native::resolve_native_core_path(&db)?;
+    let support = native::native_support_for(&system).ok_or_else(|| {
+        AppError::Unsupported(format!(
+            "native hosting does not support {system} — game {game_id} has no native-hostable system"
+        ))
+    })?;
+    let core_path = native::resolve_native_core_path(&db, &system)?;
     let rom_path = PathBuf::from(&path);
     // Save persistence (W230): best-effort — an unavailable saves dir means
     // the session plays without persistence rather than failing to boot.
@@ -184,7 +218,7 @@ pub fn start_native_play(
     // its own retro_init see exactly what the Cores screen has saved. A
     // core with no declared options (or a probe failure) seeds nothing,
     // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
-    seed_persisted_core_variables(&db, &system, native::NATIVE_CORE_ID, &core_path);
+    seed_persisted_core_variables(&db, &system, support.core_id, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
     *guard = Some(runtime);
     Ok(())
@@ -338,8 +372,63 @@ pub fn set_native_input(bits: u16) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::repo::cores::NewCore;
     use std::process::Command;
     use std::time::Duration;
+
+    /// Mirrors `list_native_systems`'s exact body against a plain `&Db` (its
+    /// real signature takes `State<'_, Db>`, which — like every other command
+    /// module in this crate — cannot be constructed outside a running
+    /// `tauri::App`).
+    fn list_native_systems_at(db: &Db) -> AppResult<Vec<NativeSystemDto>> {
+        native::NATIVE_SYSTEMS
+            .iter()
+            .map(|row| {
+                let core_installed = match native::resolve_native_core_path(db, row.system) {
+                    Ok(_) => true,
+                    Err(AppError::NotFound(_)) => false,
+                    Err(e) => return Err(e),
+                };
+                Ok(NativeSystemDto {
+                    system: row.system.to_string(),
+                    core_id: row.core_id.to_string(),
+                    core_installed,
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn list_native_systems_reports_every_table_row_uninstalled_by_default() {
+        let db = Db::open_in_memory().unwrap();
+        let systems = list_native_systems_at(&db).expect("lists cleanly with an empty db");
+        assert_eq!(systems.len(), native::NATIVE_SYSTEMS.len());
+        assert!(systems.iter().all(|s| !s.core_installed));
+        assert!(systems.iter().any(|s| s.system == native::NATIVE_SYSTEM));
+    }
+
+    #[test]
+    fn list_native_systems_reflects_an_installed_core() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = crate::db::repo::cores::CoresRepo::new(&db);
+        repo.add(&NewCore {
+            system: native::NATIVE_SYSTEM.into(),
+            core_id: native::NATIVE_CORE_ID.into(),
+            installed_path: Some("/cores/nes/fceumm_libretro.dylib".into()),
+            version: None,
+            last_modified: None,
+            active: true,
+        })
+        .expect("seed installed core");
+
+        let systems = list_native_systems_at(&db).expect("lists cleanly");
+        let nes = systems
+            .iter()
+            .find(|s| s.system == native::NATIVE_SYSTEM)
+            .expect("nes row present");
+        assert!(nes.core_installed);
+        assert_eq!(nes.core_id, native::NATIVE_CORE_ID);
+    }
 
     /// A minimal libretro core good enough to boot a real [`NativeRuntime`] —
     /// mirrors `core::core_options::probe`'s own `STUB_CORE_WITH_OPTIONS_C`/

@@ -19,7 +19,8 @@ import { canPlayInPage, isEmbeddedInPage } from "./ejs";
 import { inPageAvailability, systemLabel } from "./inPageAvailability";
 import { describeDegradation, recordDegradation } from "./degradation";
 import type { DegradationNotice } from "./degradation";
-import { NATIVE_SYSTEM } from "./nativePath";
+import { fetchNativeCapabilities } from "./nativePath";
+import type { NativeCapabilities } from "./nativePath";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { listInPageCores } from "../../ipc/inpage-cores";
 import type { InPageCore } from "../../ipc/inpage-cores";
@@ -50,7 +51,11 @@ export interface PlaySwitchProps {
  * — unaffected by this switch).
  */
 export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: PlaySwitchProps) {
-  const isNativeCandidate = system === NATIVE_SYSTEM;
+  // The native-capability table (W340): a game is a native CANDIDATE once
+  // its system is in the table with an installed core — replaces the old
+  // hard-coded `system === "nes"` comparison. `null` = still resolving.
+  const [nativeCapabilities, setNativeCapabilities] = useState<NativeCapabilities | null>(null);
+  const isNativeCandidate = nativeCapabilities?.get(system)?.coreInstalled ?? false;
   // null = still resolving the flag; true/false once known. Only matters for
   // the native-candidate system — every other system ignores it entirely.
   const [nativeEnabled, setNativeEnabled] = useState<boolean | null>(null);
@@ -70,6 +75,14 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
     if (recordDegradation("play-server-unavailable")) {
       setNotice(describeDegradation("play-server-unavailable"));
     }
+  }, []);
+
+  // Resolves the native-capability table once per mount — independent of
+  // `isNativeCandidate` (which is DERIVED from this state), so there is no
+  // chicken-and-egg gate: every system's candidacy becomes knowable as soon
+  // as this answers, not just the ones already suspected native.
+  useCancellableEffect((isCancelled) => {
+    fetchNativeCapabilities().then((caps) => !isCancelled() && setNativeCapabilities(caps));
   }, []);
 
   useCancellableEffect(
@@ -106,8 +119,10 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
     [needsCatalog],
   );
 
-  // Resolving the flag for a system that *could* go native — wait rather
-  // than flash EmulatorJS only to immediately swap to the native player.
+  // Resolving the capability table, or (once a candidate is known) the
+  // opt-in flag — wait rather than flash EmulatorJS only to immediately swap
+  // to the native player.
+  if (nativeCapabilities === null) return null;
   if (isNativeCandidate && nativeEnabled === null) return null;
 
   const noticeEl = notice ? <PlayNotice notice={notice} /> : null;

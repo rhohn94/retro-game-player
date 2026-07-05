@@ -397,6 +397,119 @@ front-end presentation-state change plus one new backend affordance (volume).
 - Hysteresis prevents flapping at the boundary; reduced-motion crossfades.
 - `set_native_volume` is covered by a unit test (clamping, atomic application).
 
+## Multi-system engine (v0.34 "Engines", W340)
+
+v0.21 through v0.29 hard-wired the native host to exactly one system:
+`play::native::core_path::NATIVE_SYSTEM = "nes"` and `NATIVE_CORE_ID =
+"fceumm"` were plain constants, and `commands::native_play::start_native_play`
+rejected any other system outright. W340 generalizes the hosting layer into a
+table-driven multi-system engine — with **zero** behavior change for NES —
+so later items (W341's handheld/Wii cohort, W344's PS1 enable, W345's N64
+enable) only ever add a table row, never touch `host.rs`/`runtime.rs`/
+`callbacks.rs`/`clock.rs`/`audio.rs` again.
+
+### The table
+
+`play::native::systems` replaces the two constants with:
+
+```rust
+pub struct NativeSystemSupport {
+    pub system: &'static str,   // e.g. "nes"
+    pub core_id: &'static str,  // e.g. "fceumm"
+}
+
+pub const NATIVE_SYSTEMS: &[NativeSystemSupport] = &[
+    NativeSystemSupport { system: "nes", core_id: "fceumm" },
+    // later items append rows here
+];
+```
+
+`resolve_native_core_path(db, system)` now takes the system as a parameter:
+it looks up `system` in `NATIVE_SYSTEMS` (an `AppError::Unsupported` for a
+system outside the table entirely — a future/unreleased cohort system, never
+prompted to install anything) and, for a table hit, resolves the installed
+core `.dylib` through the **same** `CoresRepo::installed_path` lookup v0.21
+established (`AppError::NotFound` when the row exists but nothing is
+installed yet — the existing "surface the Cores install prompt" contract,
+unchanged). `NATIVE_SYSTEM`/`NATIVE_CORE_ID` stay as backward-compatible
+aliases to the table's first row (`NATIVE_SYSTEMS[0]`) — the Core Options
+pane and Cores screen are still NES-only surfaces this release, so they keep
+comparing against the named constant rather than iterating the table.
+
+### Geometry and timing come from the core, never a per-system constant
+
+Before W340, nothing in `runtime.rs`/`clock.rs`/`audio.rs` actually
+hard-coded NES's 256×240 or 60.0988 Hz — an audit of the frame pipe
+(`bring_up_core`, `FrameClock::new`, `StereoResampler::new`,
+`to_rgba8_into`) confirmed every one of them already reads its shape from
+the loaded core's own `retro_get_system_av_info` (`av.timing.fps`,
+`av.timing.sample_rate`, and per-frame `width`/`height`/`pitch` off each
+`VideoFrame`) — the "NES-first" framing in earlier sections above described
+the *scope* (which systems were wired up), not a hidden assumption baked into
+the pacing/pixel math. W340's contribution is:
+
+- **Proving it in a test**, not just by inspection: `runtime.rs`'s
+  `native_runtime_hosts_a_non_nes_geometry_and_timing_stub` boots a stub core
+  reporting an 8×6 frame at 50 fps / 22050 Hz (nothing like NES) through the
+  exact same `NativeRuntime::start` entrypoint and asserts both the delivered
+  frame's dimensions AND the run loop's tick rate: the frame-sequence delta
+  over a measured window must be consistent with the stub's declared 50 fps
+  and inconsistent with NES's ~60.0988 fps, proving the loop paces itself off
+  `av_info().timing.fps` — the acceptance-mandated "a second software-rendered
+  system boots through the same host in a test with a stub core reporting
+  non-NES geometry/timing."
+- **Mid-game geometry renegotiation** — `RETRO_ENVIRONMENT_SET_GEOMETRY`
+  (some systems change resolution/aspect ratio between titles or scenes) was
+  the one genuinely missing piece: `callbacks.rs` now decodes it into an
+  `EnvironmentEvent::GeometryChanged` event the run loop observes. No
+  explicit frame-buffer resize is needed to act on it: every `VideoFrame`
+  callback already carries its own `width`/`height`/`pitch`, and
+  `frame::to_rgba8_into` (the video-drain conversion step) resizes its output
+  buffer to match whatever frame it is converting, every call — so the very
+  next frame at the new geometry is handled with no special-casing. The
+  event is still surfaced (and logged) for observability/future UI reaction,
+  covered by `environment_forwards_a_mid_game_geometry_change`.
+
+### Frontend: capability map, not a hard-coded system check
+
+`commands::native_play` adds `list_native_systems` — a cheap, DB-only IPC
+command returning every `NATIVE_SYSTEMS` row paired with its live
+`core_installed` state (via the same `resolve_native_core_path` resolution,
+translating `NotFound` to `false` rather than surfacing an error for "known
+but not installed"). `src/features/play/nativePath.ts`'s
+`fetchNativeCapabilities()` calls it once and builds a `system →
+{coreId, coreInstalled}` map (degrading to an empty map on any fetch
+failure, so a transient IPC error just means "nothing is native-eligible
+right now" — never a crash). `isNativePathEligible(system, nativeEnabled,
+capabilities)` is now a pure function over three inputs instead of a
+`system === "nes"` string comparison: eligible iff the opt-in is on AND the
+system has a table row AND that row's core is installed.
+
+`PlaySwitch.tsx` and `TvHome.tsx` (the hover-attract preview gate) both fetch
+the capability map once per mount and pass it through; a system with a table
+row but no installed core is treated exactly like any other native-start
+failure — it falls through to the EmulatorJS/external path, never a blank
+screen. `start_native_play` mirrors the same table lookup server-side
+(`native::native_support_for`), so a frontend that somehow raced the
+capability fetch still gets a clean `AppError::Unsupported`/`NotFound`
+instead of silently hosting the wrong core.
+
+### Acceptance (W340)
+
+- NES behaves exactly as today — the full pre-W340 native-path regression
+  suite (FFI lifecycle, callbacks, clock, audio, frame conversion, save
+  persistence, the IPC contract tests) is unchanged and green; the only
+  modified call sites are the ones that now thread a `system` parameter
+  through, which is NES for every existing caller.
+- A second software-rendered system boots through the same host in a test
+  with a stub core reporting non-NES geometry/timing
+  (`native_runtime_hosts_a_non_nes_geometry_and_timing_stub`).
+- The frontend routes a native-capable system with an installed core to
+  `NativePlayer`, and falls back to EJS/external when the core is missing or
+  native init fails — covered by `nativePath.test.ts`'s table-driven
+  eligibility cases (present-but-uninstalled, absent-from-table, empty-table
+  degradation, and a second independently-eligible table row).
+
 ## Follow-ups
 
 - Broaden the native core catalog beyond NES once the hosting layer is proven.
