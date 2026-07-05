@@ -222,7 +222,7 @@ consumed by later items (append-only rows).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.34 |
 |---|---|---|---|---|
-| `w344-ps1-native` (W344) | ☐ | ☐ | ☐ | ☐ |
+| `w344-ps1-native-v034p3-00` (W344) | ☑ | ☑ | ☑ | ☑ |
 | `w346-gamecube-wii-native` (W346) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
@@ -307,3 +307,11 @@ consumed by later items (append-only rows).
   [#48](https://github.com/rhohn94/retro-game-player/issues/48).
 - W345 addressed the W340 follow-up: aspect-ratio now propagates through
   the frame header (16→20-byte, additive) into NativePlayer rendering.
+- Reviewer (W344, non-blocking): `Ps1BiosNotice` duplicates `PlayNotice`
+  markup verbatim — extract a shared presentational banner.
+- Reviewer (W344, non-blocking): positional NATIVE_SYSTEMS tests
+  (`n64_precedes_ps1…`, `ps1_is_the_last_row…`) will break on any future
+  row append — make them order-insensitive when next touched.
+- Reviewer (W344, follow-up): `mock-ipc.mjs` `list_native_systems` fixture
+  stale (nes-only) since W342/W345 — smoke never exercises non-NES native
+  routing or the PS1 notice; sync the fixture with NATIVE_SYSTEMS.
