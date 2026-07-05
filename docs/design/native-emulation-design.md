@@ -1109,9 +1109,14 @@ calls. A **separate** command, `release_all_native_input`, covers the
 overloaded onto `set_native_input(0)`, so `set_native_input` always means
 "one specific port" and a caller that wants every port released says so
 explicitly rather than relying on a magic bits-value/no-port combination.
-Session start/stop and the FFI callback teardown (`uninstall`) all route
+Session start (`callbacks::install`, the first thing `NativeRuntime::start`
+does), session stop, and the FFI callback teardown (`uninstall`) all route
 through the same `release_all_native_input` helper in `callbacks.rs`, so
-there is exactly one place that clears every port.
+there is exactly one place that clears every port. The start-side clear
+closes a real between-sessions hole: `set_native_input` is deliberately a
+no-session no-op, so a stray keydown landing after one session stops (the
+keydown race) would otherwise leave ghost held buttons the next session's
+core reads at its very first poll.
 
 ### Extensibility note
 
@@ -1133,6 +1138,11 @@ them later — only the constant and the frontend's port-assignment policy.
   (`release_all_native_input_clears_every_port`,
   `uninstall_releases_all_ports_alongside_sinks`) and the command layer
   (`release_all_native_input_clears_both_ports`).
+- Session start clears stale between-session port state, at the callback
+  layer (`install_clears_stale_port_state_left_between_sessions`) and
+  end-to-end through a real stub session whose core polls input on its first
+  `retro_run` tick
+  (`a_fresh_session_reads_all_zero_input_despite_stale_between_session_state`).
 - Ports at or beyond `NUM_NATIVE_INPUT_PORTS` report not-pressed rather than
   panicking (`ports_at_or_beyond_num_native_input_ports_report_not_pressed`).
 - The announce call reaches a core that implements

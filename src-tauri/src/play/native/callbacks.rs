@@ -249,7 +249,14 @@ pub struct CallbackChannels {
 /// Replaces any previously-registered sinks and returns fresh receivers. Call
 /// once per native playback session, before wiring the returned function
 /// pointers up via `LibretroCore::set_video_refresh` etc.
+///
+/// Also clears every port's joypad state — the session-start half of the
+/// release-all contract (W350, native-emulation-design.md §Multiplayer
+/// input): `set_native_input` is deliberately a no-session no-op, so a stray
+/// keydown landing between sessions (the keydown race after a stop) would
+/// otherwise leave ghost held buttons the next session's core reads at boot.
 pub fn install() -> CallbackChannels {
+    release_all_native_input();
     let (video_tx, video_rx) = mpsc::channel();
     let (audio_tx, audio_rx) = mpsc::channel();
     let (environment_tx, environment_rx) = mpsc::channel();
@@ -288,11 +295,11 @@ pub fn set_joypad_state(bits: u16, port: usize) {
 }
 
 /// Releases every port's held buttons (all-zero bitmask) — the overlay
-/// open / session-stop contract (W350, native-emulation-design.md
-/// §Multiplayer input): a single call clears both players' input rather than
-/// requiring one release call per port, so the existing single-call release
-/// sites (overlay open, session teardown) keep working unmodified as
-/// multiplayer lands.
+/// open / session start ([`install`]) / session-stop ([`uninstall`]) contract
+/// (W350, native-emulation-design.md §Multiplayer input): a single call
+/// clears both players' input rather than requiring one release call per
+/// port, so the existing single-call release sites (overlay open, session
+/// start, session teardown) keep working unmodified as multiplayer lands.
 pub fn release_all_native_input() {
     for state in &JOYPAD_STATE {
         state.store(0, Ordering::Relaxed);
@@ -870,6 +877,30 @@ mod tests {
                 0
             );
         }
+    }
+
+    /// Pre-merge review follow-up on W350: a stray `set_native_input` landing
+    /// between sessions (the keydown race after a stop — the command is a
+    /// no-session no-op by design) must not leave ghost held buttons the next
+    /// session's core reads at boot. `install` (session start) clears every
+    /// port, so the first poll of a fresh session always reads all-zero.
+    #[test]
+    fn install_clears_stale_port_state_left_between_sessions() {
+        let _guard = lock_tests();
+        uninstall(); // no session running
+        set_joypad_state(u16::MAX, 0); // the stray between-session keydown
+        set_joypad_state(u16::MAX, 1);
+        let _channels = install(); // session start
+        for port in 0..NUM_NATIVE_INPUT_PORTS as u32 {
+            assert_eq!(
+                unsafe {
+                    input_state(port, ffi::RETRO_DEVICE_JOYPAD, 0, ffi::RETRO_DEVICE_ID_JOYPAD_A)
+                },
+                0,
+                "session start must clear port {port}'s stale between-session input"
+            );
+        }
+        uninstall();
     }
 
     #[test]
