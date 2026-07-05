@@ -125,7 +125,7 @@ Game-sources pane gains the crossover scan row via W331.
 - [ ] W331: fixture-driven bottle+app enumeration (stubs primary, links
       fallback); migration 014 CHECK-extends idempotently on a v0.32 DB;
       re-scan duplicates none; no CrossOver ⇒ zero-count clean scan.
-- [ ] W332: stub rows launch via `open -a`; stubless rows build a correct
+- [x] W332: stub rows launch via `open -a`; stubless rows build a correct
       `cxstart --bottle` argv (unit-tested, no shell strings); session
       recorded on launch; detail/TV copy correct; full suite +
       `recipe.py smoke` green.

@@ -38,15 +38,20 @@
 //! cannot overlap the Steam/app/GOG/itch scanners' claimed trees; asserted by
 //! a fixture test anyway.
 //!
-//! **Launch-descriptor shape produced here (W331 only documents/emits it —
-//! W332 implements the launcher):**
+//! **Launch-descriptor shape produced here (v0.33 W332 implements the
+//! launcher — `core::launch::crossover_launcher`):**
 //! - Stub exists: `{ "kind": "app", "bundle_path": "<stub .app path>" }` —
 //!   identical shape to every other app-launched source, so it reuses the
-//!   `app` launcher unmodified once W332 lands.
+//!   `app` launcher unmodified.
 //! - No stub (link-record fallback only): `{ "kind": "crossover", "bottle":
 //!   "<bottle id>", "target": "<link target path from the .cxmenu record>" }`
-//!   — a new descriptor kind `core/launch` does not yet interpret; W332 adds
-//!   that.
+//!   — interpreted by `LaunchDescriptor::Crossover`.
+//!
+//! [`default_app_bundle_candidates`] / [`locate_app_bundle`] are the single
+//! source of truth for "where does `CrossOver.app` live" — both this
+//! scanner's presence check and `core::launch::crossover_launcher`'s
+//! `cxstart` path resolution call through them rather than each keeping its
+//! own candidate list.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -134,10 +139,8 @@ impl CrossoverScanner {
     /// locations.
     pub fn default_location() -> Self {
         let home = dirs_home();
-        let mut app_bundle_candidates = vec![PathBuf::from("/Applications/CrossOver.app")];
-        app_bundle_candidates.push(home.join("Applications/CrossOver.app"));
         Self::new(
-            app_bundle_candidates,
+            default_app_bundle_candidates(),
             home.join(BOTTLES_SUBPATH),
             home.join(LAUNCHER_STUBS_SUBPATH),
         )
@@ -270,6 +273,38 @@ fn dirs_home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// The standard install locations for `CrossOver.app` (design doc
+/// §Detection: `/Applications/CrossOver.app` or
+/// `~/Applications/CrossOver.app`), in lookup-preference order.
+///
+/// Shared by [`CrossoverScanner::default_location`] (detection-only — is
+/// CrossOver installed at all) and `core::launch::crossover_launcher` (v0.33
+/// W332 — needs the actual bundle path to build the `cxstart` CLI path), so
+/// the candidate-roots list is defined exactly once.
+pub fn default_app_bundle_candidates() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/Applications/CrossOver.app"),
+        dirs_home().join("Applications/CrossOver.app"),
+    ]
+}
+
+/// Locate the installed `CrossOver.app` bundle, or `None` if it is absent
+/// from every standard candidate root ([`default_app_bundle_candidates`]).
+/// Never launches or queries a running CrossOver — a plain filesystem check,
+/// same contract as scanner detection.
+pub fn locate_app_bundle() -> Option<PathBuf> {
+    first_existing_dir(default_app_bundle_candidates())
+}
+
+/// The first candidate that exists as a directory, or `None` if none do.
+/// Pure/parameterized so [`locate_app_bundle`]'s selection logic is
+/// unit-testable against synthetic paths, independent of whatever
+/// CrossOver-install state happens to be true of the machine running the
+/// tests (design doc: "no CrossOver required on the build machine").
+fn first_existing_dir(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|p| p.is_dir())
 }
 
 /// Build the stable `(source, external_id)` dedup key for one bottle+app pair
@@ -753,5 +788,43 @@ mod tests {
     #[test]
     fn parse_cxmenu_link_on_empty_text_yields_default() {
         assert_eq!(parse_cxmenu_link(""), CxMenuLink::default());
+    }
+
+    // --- Shared CrossOver.app detection helper (v0.33 W332) ---
+
+    #[test]
+    fn default_app_bundle_candidates_includes_the_system_and_user_roots() {
+        let candidates = default_app_bundle_candidates();
+        assert!(candidates.contains(&PathBuf::from("/Applications/CrossOver.app")));
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("Applications/CrossOver.app") && p != &PathBuf::from(
+                "/Applications/CrossOver.app"
+            )));
+    }
+
+    #[test]
+    fn first_existing_dir_is_none_when_no_candidate_exists() {
+        // Design doc's "absence ⇒ clean, not an error" contract, exercised
+        // against synthetic non-existent paths rather than real disk state
+        // (a dev machine may or may not have CrossOver installed).
+        let tmp = tempfile::tempdir().unwrap();
+        let candidates = vec![
+            tmp.path().join("does-not-exist-1/CrossOver.app"),
+            tmp.path().join("does-not-exist-2/CrossOver.app"),
+        ];
+        assert_eq!(first_existing_dir(candidates), None);
+    }
+
+    #[test]
+    fn first_existing_dir_returns_the_first_matching_candidate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist/CrossOver.app");
+        let present = tmp.path().join("CrossOver.app");
+        std::fs::create_dir_all(&present).unwrap();
+
+        let found = first_existing_dir(vec![missing, present.clone()]);
+
+        assert_eq!(found, Some(present));
     }
 }
