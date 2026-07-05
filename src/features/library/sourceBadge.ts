@@ -1,10 +1,11 @@
 // sourceBadge — pure helpers for the non-retro "Frontier" source badge and
 // launch-affordance copy (v0.31 W315, non-retro-library-design.md §UI; GOG +
-// itch added v0.32 W320). A ROM row keeps its existing console badge
-// (unchanged); a non-`"rom"` row shows a source badge (Steam / App / GOG /
-// itch / Manual) instead — there is no console to show (`Game.system` is
-// null for those rows, W310). Kept framework-free so the badge/label mapping
-// is unit-testable without a DOM.
+// itch added v0.32 W320; CrossOver added v0.33 W331, see
+// crossover-integration-design.md §UI). A ROM row keeps its existing console
+// badge (unchanged); a non-`"rom"` row shows a source badge (Steam / App /
+// GOG / itch / CrossOver / Manual) instead — there is no console to show
+// (`Game.system` is null for those rows, W310). Kept framework-free so the
+// badge/label mapping is unit-testable without a DOM.
 
 import type { Game, GameSource } from "../../ipc/library";
 
@@ -18,6 +19,7 @@ const SOURCE_BADGE_LABELS: Readonly<Record<GameSource, string>> = {
   manual: "Manual",
   gog: "GOG",
   itch: "itch",
+  crossover: "CrossOver",
 };
 
 /** Whether a game is a first-class non-retro ("Frontier") library row — i.e.
@@ -47,6 +49,8 @@ export function launchesViaLabel(source: GameSource): string {
       return "Launches via GOG";
     case "itch":
       return "Launches via itch";
+    case "crossover":
+      return "Launches via CrossOver";
     case "app":
     case "manual":
       return "Launches via macOS";

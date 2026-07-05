@@ -11,6 +11,8 @@
 //! - `add_manual_entry` — the manual-entry escape hatch (name + app/exec target).
 //! - `scan_gog_source` — scan + upsert GOG Galaxy installs, return counts (W320).
 //! - `scan_itch_source` — scan + upsert itch installs, return counts (W320).
+//! - `scan_crossover_source` — scan + upsert CrossOver bottle apps, return
+//!   counts (W331).
 //!
 //! After each upsert, `upsert_discovered` best-effort-fetches art for the row
 //! via `core::metadata::art_fallback_chain::resolve_art` — the deterministic
@@ -35,6 +37,7 @@ use crate::config::paths::Paths;
 use crate::config::AppConfig;
 use crate::core::metadata::art_fallback_chain::{resolve_art, ArtFallbackInput};
 use crate::core::sources::app_scan::AppScanner;
+use crate::core::sources::crossover::CrossoverScanner;
 use crate::core::sources::gog::GogScanner;
 use crate::core::sources::itch::ItchScanner;
 use crate::core::sources::steam::SteamScanner;
@@ -97,8 +100,11 @@ fn now_epoch_secs() -> i64 {
 /// command, since by the time it happens the command has already returned.
 /// `art_hint` is the scanner-supplied hint (`DiscoveredGame::art_hint`): a
 /// Steam appid for `steam` rows, or an app-bundle path for
-/// `app`/`manual`/`gog`/`itch` rows. A missing hint (e.g. an exec-target
-/// manual entry) short-circuits before spawning anything, same as pre-W321 —
+/// `app`/`manual`/`gog`/`itch`/`crossover` rows (for `crossover`, the
+/// launcher-stub `.app` path when one exists — a stub-less fallback row
+/// carries no hint at all, see `core::sources::crossover`). A missing hint
+/// (e.g. an exec-target manual entry) short-circuits before spawning
+/// anything, same as pre-W321 —
 /// SteamGridDB's name-based rung still runs whenever *some* hint is present
 /// (it only needs the game's title, read from the DB once the thread is
 /// already spawned), it just isn't reason enough on its own to spawn a
@@ -164,9 +170,11 @@ fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<Stri
 
             let (steam_appid, bundle_path) = match source {
                 GameSource::Steam => (Some(hint.as_str()), None),
-                GameSource::App | GameSource::Manual | GameSource::Gog | GameSource::Itch => {
-                    (None, Some(hint.as_str()))
-                }
+                GameSource::App
+                | GameSource::Manual
+                | GameSource::Gog
+                | GameSource::Itch
+                | GameSource::Crossover => (None, Some(hint.as_str())),
                 GameSource::Rom => unreachable!("returned above"),
             };
 
@@ -282,6 +290,21 @@ pub async fn scan_gog_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto
 pub async fn scan_itch_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
     let repo = LibraryRepo::new(&db);
     let scanner = ItchScanner::default_location();
+    let discovered = scanner.scan()?;
+    upsert_discovered(&repo, discovered).await
+}
+
+/// Scan for installed CrossOver bottles and their Windows applications
+/// (bottle inventory under `~/Library/Application Support/CrossOver/Bottles`
+/// plus launcher-stub bundles under `~/Applications/CrossOver`, falling back
+/// to `.cxmenu` desktop-link records per bottle; no CrossOver process is
+/// launched or queried) and upsert each into the library. A missing
+/// CrossOver install yields a report with `discovered: 0` rather than an
+/// error (W331).
+#[tauri::command]
+pub async fn scan_crossover_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
+    let repo = LibraryRepo::new(&db);
+    let scanner = CrossoverScanner::default_location();
     let discovered = scanner.scan()?;
     upsert_discovered(&repo, discovered).await
 }
@@ -597,5 +620,64 @@ mod tests {
         assert!(game.system.is_none());
         assert!(game.launch_descriptor.is_some());
         assert_eq!(game.source, GameSource::Itch);
+    }
+
+    // --- spawn_art_acquisition / new_game_for_source (W331: crossover) ---
+
+    /// A missing art hint for a `crossover` row (the stub-less `.cxmenu`
+    /// fallback path) must short-circuit before touching the filesystem,
+    /// same as every other non-ROM source.
+    #[test]
+    fn spawn_art_acquisition_is_noop_for_crossover_without_hint() {
+        spawn_art_acquisition(1, GameSource::Crossover, None);
+    }
+
+    /// `new_game_for_source` never leaves a `crossover` row with a rom
+    /// identity — mirrors the App-source invariant test above.
+    #[test]
+    fn new_game_for_source_crossover_has_no_rom_identity() {
+        let game = new_game_for_source(
+            "Half-Life 2".to_string(),
+            GameSource::Crossover,
+            Some("Steam/Half-Life 2".to_string()),
+            serde_json::json!({
+                "kind": "app",
+                "bundle_path": "/Users/me/Applications/CrossOver/Steam/Half-Life 2.app",
+            }),
+            None,
+        )
+        .unwrap();
+        assert!(game.folder_id.is_none());
+        assert!(game.path.is_none());
+        assert!(game.system.is_none());
+        assert!(game.launch_descriptor.is_some());
+        assert_eq!(game.source, GameSource::Crossover);
+    }
+
+    /// `upsert_discovered` accepts the stub-less `crossover` launch-descriptor
+    /// shape (`{ kind: "crossover", bottle, target }`, W331 — W332
+    /// implements its launcher) without choking on the unfamiliar `kind`;
+    /// this command layer treats `launch_descriptor` as an opaque JSON blob.
+    #[test]
+    fn upsert_discovered_accepts_the_stubless_crossover_descriptor_shape() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+
+        let discovered = vec![DiscoveredGame {
+            name: "Old Game".to_string(),
+            source: GameSource::Crossover,
+            external_id: Some("Legacy/Old Game".to_string()),
+            launch_descriptor: serde_json::json!({
+                "kind": "crossover",
+                "bottle": "Legacy",
+                "target": r"C:\Program Files\Old Game\oldgame.exe",
+            }),
+            art_hint: None,
+        }];
+
+        let report = tauri::async_runtime::block_on(upsert_discovered(&repo, discovered)).unwrap();
+
+        assert_eq!(report.discovered, 1);
+        assert_eq!(report.added, 1);
     }
 }

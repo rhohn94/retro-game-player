@@ -1,5 +1,5 @@
 // Unit tests for the non-retro source badge + launch-affordance helpers
-// (v0.31 W315; GOG + itch added v0.32 W320).
+// (v0.31 W315; GOG + itch added v0.32 W320; CrossOver added v0.33 W331).
 
 import { describe, it, expect } from "vitest";
 import { isNonRetro, launchesViaLabel, sourceBadgeLabel } from "./sourceBadge";
@@ -11,7 +11,7 @@ describe("isNonRetro", () => {
   });
 
   it("is true for every non-rom source", () => {
-    const sources: GameSource[] = ["steam", "app", "manual", "gog", "itch"];
+    const sources: GameSource[] = ["steam", "app", "manual", "gog", "itch", "crossover"];
     for (const source of sources) {
       expect(isNonRetro({ source })).toBe(true);
     }
@@ -26,6 +26,7 @@ describe("sourceBadgeLabel", () => {
     expect(sourceBadgeLabel("manual")).toBe("Manual");
     expect(sourceBadgeLabel("gog")).toBe("GOG");
     expect(sourceBadgeLabel("itch")).toBe("itch");
+    expect(sourceBadgeLabel("crossover")).toBe("CrossOver");
   });
 });
 
@@ -40,6 +41,10 @@ describe("launchesViaLabel", () => {
 
   it("attributes itch rows to itch", () => {
     expect(launchesViaLabel("itch")).toBe("Launches via itch");
+  });
+
+  it("attributes CrossOver rows to CrossOver", () => {
+    expect(launchesViaLabel("crossover")).toBe("Launches via CrossOver");
   });
 
   it("attributes app and manual rows to macOS", () => {
