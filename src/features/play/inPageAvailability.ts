@@ -39,15 +39,30 @@ export function describeCoreSize(sizeBytes: number): string {
 
 /** Display names for the get-core panel copy, keyed by Retro Game Player system. */
 const SYSTEM_LABELS: Readonly<Record<string, string>> = {
+  nes: "NES",
   snes: "SNES",
   genesis: "Genesis",
   mastersystem: "Master System",
   n64: "Nintendo 64",
   ps1: "PlayStation",
   atari2600: "Atari 2600",
+  atari5200: "Atari 5200",
+  atari7800: "Atari 7800",
   pcengine: "PC Engine",
   gamecube: "GameCube",
   wii: "Wii",
+  gb: "Game Boy",
+  gbc: "Game Boy Color",
+  gba: "Game Boy Advance",
+  dreamcast: "Dreamcast",
+  neogeo: "Neo Geo",
+  jaguar: "Atari Jaguar",
+  intellivision: "Intellivision",
+  colecovision: "ColecoVision",
+  odyssey2: "Odyssey²",
+  saturn: "Saturn",
+  "3do": "3DO",
+  ps2: "PlayStation 2",
 };
 
 /** A human-readable console name for `system` (falls back to the key). */
@@ -75,6 +90,7 @@ const EXTERNAL_EMULATOR_LABELS: Readonly<Record<string, string>> = {
  */
 export function externalOnlyMessage(system: string): string {
   const label = systemLabel(system);
+  if (!label.trim()) return "";
   const emulator = Object.hasOwn(EXTERNAL_EMULATOR_LABELS, system)
     ? EXTERNAL_EMULATOR_LABELS[system]
     : undefined;

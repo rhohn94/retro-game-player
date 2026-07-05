@@ -61,6 +61,10 @@ describe("systemLabel", () => {
     expect(systemLabel("atari2600")).toBe("Atari 2600");
     expect(systemLabel("gamecube")).toBe("GameCube");
     expect(systemLabel("wii")).toBe("Wii");
+    expect(systemLabel("gb")).toBe("Game Boy");
+    expect(systemLabel("gbc")).toBe("Game Boy Color");
+    expect(systemLabel("gba")).toBe("Game Boy Advance");
+    expect(systemLabel("dreamcast")).toBe("Dreamcast");
     expect(systemLabel("weird")).toBe("weird");
     expect(systemLabel("constructor")).toBe("constructor"); // prototype-safe
   });
@@ -77,8 +81,16 @@ describe("externalOnlyMessage", () => {
   });
 
   it("falls back to generic RetroArch wording with no curated emulator name", () => {
-    expect(externalOnlyMessage("dreamcast")).toBe(
-      "dreamcast titles launch in RetroArch — a separate window opens to play.",
+    expect(externalOnlyMessage("saturn")).toBe(
+      "Saturn titles launch in RetroArch — a separate window opens to play.",
     );
+    expect(externalOnlyMessage("unknown-key")).toBe(
+      "unknown-key titles launch in RetroArch — a separate window opens to play.",
+    );
+  });
+
+  it("returns empty copy for a blank system key", () => {
+    expect(externalOnlyMessage("")).toBe("");
+    expect(externalOnlyMessage("  ")).toBe("");
   });
 });

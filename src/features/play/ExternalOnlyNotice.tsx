@@ -13,11 +13,15 @@ export interface ExternalOnlyNoticeProps {
   system: string;
 }
 
-/** Renders the "plays externally" explanation for a `kind: "none"` system. */
+/** Renders the "plays externally" explanation for a `kind: "none"` system.
+ * Renders nothing for a blank system key (a retro row with no system would
+ * otherwise produce malformed copy). */
 export function ExternalOnlyNotice({ system }: ExternalOnlyNoticeProps) {
+  const message = externalOnlyMessage(system);
+  if (!message) return null;
   return (
     <div className="rgp-external-only" role="status">
-      <p className="rgp-external-only__message">{externalOnlyMessage(system)}</p>
+      <p className="rgp-external-only__message">{message}</p>
     </div>
   );
 }
