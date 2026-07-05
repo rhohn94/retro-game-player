@@ -30,6 +30,7 @@ pub mod core_options; // v0.29 W282 — per-core libretro option GUI backend
 pub mod crt_filter; // v0.29 W280 — CRT presentation filter config (get/set)
 pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI panel reads
 pub mod sources; // v0.31 W312/W313 — non-ROM game-source scans (Steam, app) + manual entries; v0.32 W320 adds GOG/itch
+pub mod steamgriddb; // v0.32 W321 — SteamGridDB API key settings (get/set)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -157,6 +158,9 @@ macro_rules! register_commands {
             // GOG + itch game sources (v0.32 W320)
             $crate::commands::sources::scan_gog_source,
             $crate::commands::sources::scan_itch_source,
+            // SteamGridDB API key settings (v0.32 W321)
+            $crate::commands::steamgriddb::get_steamgriddb_api_key,
+            $crate::commands::steamgriddb::set_steamgriddb_api_key,
         ])
     };
 }
