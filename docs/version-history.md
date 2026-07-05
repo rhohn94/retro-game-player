@@ -7,6 +7,40 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.34 — Engines (2026-07-05)
+
+Every popular platform now plays on the native emulation engine — the
+clean-audio, fast-boot path that used to be NES-only.
+
+- **Ten systems on the native engine.** SNES, Genesis, Master System,
+  Game Boy, Game Boy Color, Game Boy Advance, Atari 2600, PC Engine, and
+  PlayStation join NES on the natively-hosted libretro path (CoreAudio
+  audio, no WASM compile, instant boot). The in-page EmulatorJS player and
+  external RetroArch launch remain automatic fallbacks.
+- **Nintendo 64, natively.** A new hardware-render subsystem (headless
+  OpenGL) hosts mupen64plus_next in the backend, with correct aspect-ratio
+  handling in the player.
+- **Handhelds join the library.** Game Boy / Color / Advance (and Wii) are
+  now in the console catalog: scanning, cores, console browse, and TV
+  shelves all know them.
+- **PS1 discs are found and played.** `.cue`/`.bin` disc images are
+  identified by content signature and enter the library as PlayStation
+  games; they boot natively on pcsx_rearmed's emulated (HLE) BIOS, with an
+  honest notice about titles that need a real BIOS. (Real `.chd` support:
+  [#49](https://github.com/rhohn94/retro-game-player/issues/49); single-disc
+  scope this release.)
+- **GameCube/Wii: honest outcome.** Native hosting is blocked by Apple's
+  OpenGL driver missing extensions dolphin requires
+  ([#50](https://github.com/rhohn94/retro-game-player/issues/50)); GC/Wii
+  titles launch externally via RetroArch's Dolphin core, and the detail
+  page now says so plainly.
+- CrossOver polish riders from v0.33 review (safer launch argv, stable
+  bundle-id game identity across stub renames).
+
+On-device verification of N64
+([#48](https://github.com/rhohn94/retro-game-player/issues/48)), SNES/GBA,
+and PS1 native boots is a tracked human follow-up.
+
 ## v0.33 — Bottles (2026-07-04)
 
 Windows games join the shelves. If you run CrossOver, your bottles' installed
