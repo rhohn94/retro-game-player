@@ -9,6 +9,12 @@
 //!
 //! Game *content* is decoupled: a console's browsable title list comes from the
 //! bundled catalog in [`super::titles`]; this file is metadata only.
+//!
+//! Handhelds + Wii (v0.34): the v0.10 sweep scoped home consoles gens 2–6; this
+//! release adds the Game Boy family (Game Boy, Game Boy Color, Game Boy
+//! Advance — handheld entries within their respective home-console
+//! generations) and the Wii (gen 7), following the identical static-spec
+//! pattern — see `console-catalog-design.md` §Handhelds + Wii.
 
 use crate::error::{AppError, AppResult};
 
@@ -24,7 +30,8 @@ pub struct ConsoleInfo {
     pub manufacturer: &'static str,
     /// Short tag / abbreviation (e.g. "NES").
     pub abbreviation: &'static str,
-    /// Console generation (2–6).
+    /// Console generation (2–7; handhelds are grouped with the home-console
+    /// generation of their contemporaries).
     pub generation: u8,
     /// Debut year (earliest regional release).
     pub year: u16,
@@ -56,6 +63,7 @@ const CONSOLES: &[ConsoleInfo] = &[
     // --- Generation 4 (1987–1993) ---
     ConsoleInfo { key: "pcengine", name: "PC Engine / TurboGrafx-16", manufacturer: "NEC", abbreviation: "PCE", generation: 4, year: 1987, cpu: "Hudson HuC6280 @ 7.16 MHz", gpu: "HuC6270 VDC", ram: "8 KB", wikipedia_title: "TurboGrafx-16" },
     ConsoleInfo { key: "genesis", name: "Sega Genesis / Mega Drive", manufacturer: "Sega", abbreviation: "MD", generation: 4, year: 1988, cpu: "Motorola 68000 @ 7.6 MHz", gpu: "Sega 315-5313 VDP", ram: "64 KB", wikipedia_title: "Sega Genesis" },
+    ConsoleInfo { key: "gb", name: "Game Boy", manufacturer: "Nintendo", abbreviation: "GB", generation: 4, year: 1989, cpu: "Sharp LR35902 @ 4.19 MHz", gpu: "Custom 2-bit PPU", ram: "8 KB", wikipedia_title: "Game Boy" },
     ConsoleInfo { key: "snes", name: "Super Nintendo Entertainment System", manufacturer: "Nintendo", abbreviation: "SNES", generation: 4, year: 1990, cpu: "Ricoh 5A22 @ 3.58 MHz", gpu: "S-PPU1 / S-PPU2", ram: "128 KB", wikipedia_title: "Super Nintendo Entertainment System" },
     ConsoleInfo { key: "neogeo", name: "Neo Geo", manufacturer: "SNK", abbreviation: "NEO", generation: 4, year: 1990, cpu: "Motorola 68000 @ 12 MHz", gpu: "LSPC2-A2 / NEO-B1", ram: "64 KB", wikipedia_title: "Neo Geo (system)" },
     // --- Generation 5 (1993–1998) ---
@@ -64,10 +72,14 @@ const CONSOLES: &[ConsoleInfo] = &[
     ConsoleInfo { key: "ps1", name: "Sony PlayStation", manufacturer: "Sony", abbreviation: "PS1", generation: 5, year: 1994, cpu: "MIPS R3000A @ 33.9 MHz", gpu: "Sony GPU", ram: "2 MB", wikipedia_title: "PlayStation (console)" },
     ConsoleInfo { key: "saturn", name: "Sega Saturn", manufacturer: "Sega", abbreviation: "SAT", generation: 5, year: 1994, cpu: "2× Hitachi SH-2 @ 28.6 MHz", gpu: "VDP1 + VDP2", ram: "2 MB", wikipedia_title: "Sega Saturn" },
     ConsoleInfo { key: "n64", name: "Nintendo 64", manufacturer: "Nintendo", abbreviation: "N64", generation: 5, year: 1996, cpu: "NEC VR4300 @ 93.75 MHz", gpu: "SGI RCP @ 62.5 MHz", ram: "4 MB RDRAM", wikipedia_title: "Nintendo 64" },
+    ConsoleInfo { key: "gbc", name: "Game Boy Color", manufacturer: "Nintendo", abbreviation: "GBC", generation: 5, year: 1998, cpu: "Sharp CPU (CGB) @ 8.4 MHz", gpu: "Custom 4-bit-plane PPU", ram: "32 KB", wikipedia_title: "Game Boy Color" },
     // --- Generation 6 (1998–2005) ---
     ConsoleInfo { key: "dreamcast", name: "Sega Dreamcast", manufacturer: "Sega", abbreviation: "DC", generation: 6, year: 1998, cpu: "Hitachi SH-4 @ 200 MHz", gpu: "PowerVR2 CLX2", ram: "16 MB", wikipedia_title: "Dreamcast" },
     ConsoleInfo { key: "ps2", name: "Sony PlayStation 2", manufacturer: "Sony", abbreviation: "PS2", generation: 6, year: 2000, cpu: "Emotion Engine @ 294 MHz", gpu: "Graphics Synthesizer @ 147 MHz", ram: "32 MB RDRAM", wikipedia_title: "PlayStation 2" },
     ConsoleInfo { key: "gamecube", name: "Nintendo GameCube", manufacturer: "Nintendo", abbreviation: "GCN", generation: 6, year: 2001, cpu: "IBM Gekko @ 486 MHz", gpu: "ATI Flipper @ 162 MHz", ram: "24 MB 1T-SRAM", wikipedia_title: "GameCube" },
+    ConsoleInfo { key: "gba", name: "Game Boy Advance", manufacturer: "Nintendo", abbreviation: "GBA", generation: 6, year: 2001, cpu: "ARM7TDMI @ 16.78 MHz", gpu: "Custom 2D PPU", ram: "288 KB", wikipedia_title: "Game Boy Advance" },
+    // --- Generation 7 (2005–2012) ---
+    ConsoleInfo { key: "wii", name: "Wii", manufacturer: "Nintendo", abbreviation: "Wii", generation: 7, year: 2006, cpu: "IBM Broadway @ 729 MHz", gpu: "ATI Hollywood @ 243 MHz", ram: "24 MB 1T-SRAM + 64 MB GDDR3", wikipedia_title: "Wii" },
 ];
 
 /// Every console, in catalog order (generation then year).
@@ -91,8 +103,8 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn catalog_has_twenty_consoles() {
-        assert_eq!(CONSOLES.len(), 20);
+    fn catalog_has_twenty_four_consoles() {
+        assert_eq!(CONSOLES.len(), 24); // 20 home consoles + gb/gbc/gba/wii (v0.34)
     }
 
     #[test]
@@ -119,7 +131,17 @@ mod tests {
     #[test]
     fn generations_are_in_range() {
         for c in CONSOLES {
-            assert!((2..=6).contains(&c.generation), "{} bad gen", c.key);
+            assert!((2..=7).contains(&c.generation), "{} bad gen", c.key);
+        }
+    }
+
+    #[test]
+    fn catalog_covers_handhelds_and_wii() {
+        // v0.34: Game Boy family + Wii are all present with a resolvable
+        // Wikipedia title for the media fetch.
+        for key in ["gb", "gbc", "gba", "wii"] {
+            let c = require(key).unwrap_or_else(|_| panic!("missing console '{key}'"));
+            assert!(!c.wikipedia_title.is_empty(), "{key} missing wikipedia_title");
         }
     }
 
