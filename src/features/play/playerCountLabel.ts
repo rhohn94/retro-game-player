@@ -10,3 +10,12 @@
 export function playerCountLabel(connectedPadCount: number): string {
   return connectedPadCount >= 2 ? "P1 P2" : "P1";
 }
+
+/** Screen-reader description for the indicator — unlike the visual label it
+ * distinguishes zero pads (keyboard alone drives player one) from one pad,
+ * so it never announces a controller that isn't there. */
+export function playerCountAriaLabel(connectedPadCount: number): string {
+  if (connectedPadCount >= 2) return "Two controllers connected";
+  if (connectedPadCount === 1) return "One controller connected";
+  return "No controller connected — keyboard plays as player one";
+}
