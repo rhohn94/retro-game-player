@@ -82,14 +82,19 @@ validate field names against real fixtures checked into the test tree):
 
 Row shape: `source = "crossover"` (migration **014** extends the CHECK
 exactly like 013 did — 12-step rebuild, `requires_fk_off`), `art_hint` =
-launcher-stub path when available. `external_id` prefers the launcher stub's
-`CFBundleIdentifier` when present (v0.33 reviewer rider, W347 — a stable
-macOS-assigned id that survives a display-name rename), falling back to
-`"<bottle>/<app-key>"` when absent (the only option for the `.cxmenu`
-fallback path, which has no bundle to read a plist from); dedup is always on
-`(source, external_id)`. No DB migration accompanies the bundle-id
-preference — a re-scan simply mints the new stable id and the existing
-dedup handles the one-time transition per row. Steam-owned/app-source-owned
+launcher-stub path when available. `external_id` is `"<bottle>/<app-key>"`,
+where `<app-key>` prefers the launcher stub's `CFBundleIdentifier` when
+present (v0.33 reviewer rider, W347 — a stable macOS-assigned id that
+survives a display-name rename) and falls back to the display name when
+absent (the only option for the `.cxmenu` fallback path, which has no
+bundle to read a plist from); keeping the `<bottle>/` prefix means the
+same app installed in two bottles stays two distinct rows. Dedup is always
+on `(source, external_id)`. No DB migration accompanies the bundle-id
+preference — before its upsert pass, the CrossOver scan command re-keys a
+legacy `"<bottle>/<display-name>"` row in place onto the new key
+(`LibraryRepo::rekey_game_external_id`, preserving the row id and its play
+history), so an existing v0.33 row transitions instead of the upsert-only
+scan pipeline inserting a permanent duplicate. Steam-owned/app-source-owned
 bundles are not double-imported (launcher stubs live under
 `~/Applications/CrossOver/` only, so overlap is already structurally
 excluded; assert it in tests anyway).
@@ -143,9 +148,11 @@ Game-sources pane gains the crossover scan row via W331.
       `cxstart` argv gains a `--` terminator before `target`
       (unit-tested); doc comments reconciled to the actual
       `core::launch::external` module and `AppError::Dependency` (not `Io`);
-      `external_id` prefers the launcher stub's `CFBundleIdentifier` when
-      present, falling back to `<bottle>/<app-key>` (unit-tested,
-      re-scan-stable, no DB migration).
+      `external_id` becomes `<bottle>/<CFBundleIdentifier>` when the stub
+      carries a bundle id, falling back to `<bottle>/<display-name>`
+      (unit-tested, re-scan-stable; no DB migration — the scan command
+      re-keys legacy display-name-keyed rows in place, DB-level
+      transition-tested).
 - [ ] On-device verification with a real CrossOver install is a **human
       follow-up** (none available in this environment) — file it, don't
       claim it.

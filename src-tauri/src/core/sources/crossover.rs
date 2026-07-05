@@ -33,12 +33,18 @@
 //! (`docs/design/crossover-integration-design.md` §Follow-ups).
 //!
 //! Row shape (design doc §Enumeration): `source = "crossover"`,
-//! `external_id` = the stub's `CFBundleIdentifier` when present
-//! ([`stub_bundle_identifier`] — v0.33 reviewer rider, W347), else
-//! `"<bottle>/<app-key>"` ([`external_id`], stable across re-scans, dedup
-//! key; the only option for the `.cxmenu`-fallback path). No DB migration
-//! accompanies the bundle-id preference — a re-scan mints the new stable id
-//! and the existing `(source, external_id)` dedup handles the transition.
+//! `external_id` = `"<bottle>/<app-key>"` ([`external_id`], stable across
+//! re-scans, dedup key), where `<app-key>` is the stub's
+//! `CFBundleIdentifier` when present ([`stub_bundle_identifier`] — v0.33
+//! reviewer rider, W347; survives a display-name rename) and the display
+//! name otherwise (the only option for the `.cxmenu`-fallback path). The
+//! `<bottle>/` prefix keeps the same app installed in two bottles as two
+//! distinct rows. No DB migration accompanies the bundle-id preference —
+//! before its upsert pass, the scan command re-keys any legacy
+//! `"<bottle>/<display-name>"` row in place to the new key
+//! ([`legacy_external_id`] + `LibraryRepo::rekey_game_external_id`,
+//! preserving the row id and play history) so an existing row transitions
+//! instead of duplicating.
 //! Launcher-stub bundles live only under `~/Applications/CrossOver/`, so they
 //! cannot overlap the Steam/app/GOG/itch scanners' claimed trees; asserted by
 //! a fixture test anyway.
@@ -117,9 +123,10 @@ struct CxMenuLink {
 /// The single `Info.plist` field this module reads from a launcher-stub
 /// bundle (v0.33 reviewer rider, W347): the stub's `CFBundleIdentifier`,
 /// when present, is a stable macOS-assigned id CrossOver mints once per
-/// installed app — preferred over the `<bottle>/<display-name>` key because
-/// it survives a display-name rename, unlike the fallback key. Every other
-/// `Info.plist` field is ignored by `plist`'s serde support, same pattern as
+/// installed app — preferred as the app-key half of the
+/// `<bottle>/<app-key>` external id because it survives a display-name
+/// rename, unlike the display-name fallback. Every other `Info.plist` field
+/// is ignored by `plist`'s serde support, same pattern as
 /// `sources::app_scan::InfoPlist`.
 #[derive(Debug, Deserialize)]
 struct StubInfoPlist {
@@ -226,8 +233,9 @@ impl CrossoverScanner {
                 continue; // non-UTF8 stub name — skip this entry, don't fail the scan
             };
             let stub_path = path.to_string_lossy().into_owned();
-            let id = stub_bundle_identifier(&path)
-                .unwrap_or_else(|| external_id(bottle_id, app_name));
+            let app_key =
+                stub_bundle_identifier(&path).unwrap_or_else(|| app_name.to_string());
+            let id = external_id(bottle_id, &app_key);
             games.push(DiscoveredGame {
                 name: app_name.to_string(),
                 source: GameSource::Crossover,
@@ -330,23 +338,39 @@ fn first_existing_dir(candidates: Vec<PathBuf>) -> Option<PathBuf> {
 }
 
 /// Build the stable `(source, external_id)` dedup key for one bottle+app pair
-/// (design doc §Enumeration: `"<bottle>/<app-key>"`). This is the fallback
-/// key used when the launcher stub carries no `CFBundleIdentifier`
-/// ([`stub_bundle_identifier`] returns `None`), and the only key available
-/// for the `.cxmenu`-fallback path (no bundle to read a plist from).
+/// (design doc §Enumeration: `"<bottle>/<app-key>"`). `app_key` is the stub's
+/// `CFBundleIdentifier` when it carries one ([`stub_bundle_identifier`]) and
+/// the display name otherwise — the only option for the `.cxmenu`-fallback
+/// path (no bundle to read a plist from). Bottle directory names cannot
+/// contain `/`, so the `<bottle>/` prefix is unambiguous.
 fn external_id(bottle_id: &str, app_key: &str) -> String {
     format!("{bottle_id}/{app_key}")
 }
 
+/// The legacy pre-W347 external id (`"<bottle>/<display-name>"`) a
+/// discovery's library row may still be keyed under from a v0.33 scan, or
+/// `None` when it would equal the current key (display-name-keyed
+/// discoveries never changed shape, so there is nothing to re-key). The
+/// bottle id is recovered from the current key's `<bottle>/` prefix — safe
+/// because bottle ids are directory names, which cannot contain `/`. Used
+/// by the scan command's re-key pass (`commands::sources`) so a
+/// bundle-id-keyed re-scan moves the old row in place instead of letting
+/// the `(source, external_id)` upsert insert a duplicate.
+pub fn legacy_external_id(current_external_id: &str, display_name: &str) -> Option<String> {
+    let (bottle_id, _) = current_external_id.split_once('/')?;
+    let legacy = external_id(bottle_id, display_name);
+    (legacy != current_external_id).then_some(legacy)
+}
+
 /// Read a launcher-stub bundle's `CFBundleIdentifier` from its
 /// `Contents/Info.plist`, if present and non-empty (v0.33 reviewer rider,
-/// W347). Preferred over the `<bottle>/<display-name>` key
-/// ([`external_id`]) because it is a stable macOS-assigned id that survives
-/// a display-name rename; `None` on any missing/unparseable plist or an
-/// absent/blank identifier field, in which case the caller falls back to
-/// [`external_id`]. No DB migration accompanies this change — a re-scan
-/// mints the (now bundle-id-keyed) stable id, and the existing
-/// `(source, external_id)` dedup handles the one-time transition per row.
+/// W347). Preferred as [`external_id`]'s app-key half over the display name
+/// because it is a stable macOS-assigned id that survives a display-name
+/// rename; `None` on any missing/unparseable plist or an absent/blank
+/// identifier field, in which case the caller keys on the display name
+/// instead. No DB migration accompanies this change — the scan command's
+/// re-key pass ([`legacy_external_id`]) moves a legacy display-name-keyed
+/// row onto the bundle-id key in place before the upsert.
 fn stub_bundle_identifier(stub_path: &Path) -> Option<String> {
     let plist_path = stub_path.join("Contents/Info.plist");
     let info: StubInfoPlist = plist::from_file(&plist_path).ok()?;
@@ -682,7 +706,7 @@ mod tests {
     // --- external_id: bundle-id preference (v0.33 reviewer rider, W347) ---
 
     #[test]
-    fn a_stub_with_a_bundle_id_keys_external_id_on_the_bundle_id() {
+    fn a_stub_with_a_bundle_id_keys_external_id_on_the_bottle_and_bundle_id() {
         let tmp = tempfile::tempdir().unwrap();
         let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
         write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
@@ -696,7 +720,31 @@ mod tests {
         let games = scanner.scan().unwrap();
 
         assert_eq!(games.len(), 1);
-        assert_eq!(games[0].external_id.as_deref(), Some("com.valve.halflife2"));
+        assert_eq!(
+            games[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    #[test]
+    fn the_same_bundle_id_in_two_bottles_yields_two_distinct_external_ids() {
+        // The <bottle>/ prefix is what keeps the same app installed in two
+        // bottles as two library rows rather than one colliding key.
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_bottle_conf(&bottles_root, "Origin", "Origin", "win10");
+        write_launcher_stub_with_bundle_id(&stubs_root, "Steam", "Half-Life 2", "com.valve.hl2");
+        write_launcher_stub_with_bundle_id(&stubs_root, "Origin", "Half-Life 2", "com.valve.hl2");
+
+        let games = scanner.scan().unwrap();
+
+        let mut ids: Vec<&str> = games
+            .iter()
+            .filter_map(|g| g.external_id.as_deref())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["Origin/com.valve.hl2", "Steam/com.valve.hl2"]);
     }
 
     #[test]
@@ -743,8 +791,33 @@ mod tests {
         let second = scanner.scan().unwrap();
 
         assert_eq!(first, second);
-        assert_eq!(first[0].external_id.as_deref(), Some("com.valve.halflife2"));
-        assert_eq!(second[0].external_id.as_deref(), Some("com.valve.halflife2"));
+        assert_eq!(
+            first[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+        assert_eq!(
+            second[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    #[test]
+    fn legacy_external_id_recovers_the_display_name_key_for_a_bundle_id_key() {
+        assert_eq!(
+            legacy_external_id("Steam/com.valve.halflife2", "Half-Life 2").as_deref(),
+            Some("Steam/Half-Life 2")
+        );
+    }
+
+    #[test]
+    fn legacy_external_id_is_none_when_the_key_is_already_display_name_shaped() {
+        // Fallback-keyed discoveries never changed shape — nothing to re-key.
+        assert_eq!(legacy_external_id("Steam/Half-Life 2", "Half-Life 2"), None);
+    }
+
+    #[test]
+    fn legacy_external_id_is_none_for_a_key_without_a_bottle_prefix() {
+        assert_eq!(legacy_external_id("com.valve.halflife2", "Half-Life 2"), None);
     }
 
     #[test]

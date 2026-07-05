@@ -37,7 +37,7 @@ use crate::config::paths::Paths;
 use crate::config::AppConfig;
 use crate::core::metadata::art_fallback_chain::{resolve_art, ArtFallbackInput};
 use crate::core::sources::app_scan::AppScanner;
-use crate::core::sources::crossover::CrossoverScanner;
+use crate::core::sources::crossover::{legacy_external_id, CrossoverScanner};
 use crate::core::sources::gog::GogScanner;
 use crate::core::sources::itch::ItchScanner;
 use crate::core::sources::steam::SteamScanner;
@@ -294,18 +294,43 @@ pub async fn scan_itch_source(db: State<'_, Db>) -> AppResult<SourceScanReportDt
     upsert_discovered(&repo, discovered).await
 }
 
+/// Re-key legacy CrossOver library rows before the upsert pass (v0.34 W347):
+/// a pre-bundle-id scan keyed rows on `<bottle>/<display-name>`, so a
+/// bundle-id-keyed discovery for the same app must move that row to the new
+/// `<bottle>/<CFBundleIdentifier>` key in place (preserving the row id and
+/// its play history) rather than let `upsert_discovered` insert a duplicate.
+/// Per row this is a no-op when the row is already new-keyed, never existed,
+/// or the discovery's key is still display-name shaped
+/// (`legacy_external_id` returns `None`).
+fn rekey_legacy_crossover_rows(
+    repo: &LibraryRepo<'_>,
+    discovered: &[DiscoveredGame],
+) -> AppResult<()> {
+    for game in discovered {
+        let Some(current) = game.external_id.as_deref() else {
+            continue;
+        };
+        if let Some(legacy) = legacy_external_id(current, &game.name) {
+            repo.rekey_game_external_id(GameSource::Crossover, &legacy, current)?;
+        }
+    }
+    Ok(())
+}
+
 /// Scan for installed CrossOver bottles and their Windows applications
 /// (bottle inventory under `~/Library/Application Support/CrossOver/Bottles`
 /// plus launcher-stub bundles under `~/Applications/CrossOver`, falling back
 /// to `.cxmenu` desktop-link records per bottle; no CrossOver process is
-/// launched or queried) and upsert each into the library. A missing
-/// CrossOver install yields a report with `discovered: 0` rather than an
-/// error (W331).
+/// launched or queried) and upsert each into the library, re-keying any
+/// legacy display-name-keyed row onto its bundle-id key first
+/// ([`rekey_legacy_crossover_rows`]). A missing CrossOver install yields a
+/// report with `discovered: 0` rather than an error (W331).
 #[tauri::command]
 pub async fn scan_crossover_source(db: State<'_, Db>) -> AppResult<SourceScanReportDto> {
     let repo = LibraryRepo::new(&db);
     let scanner = CrossoverScanner::default_location();
     let discovered = scanner.scan()?;
+    rekey_legacy_crossover_rows(&repo, &discovered)?;
     upsert_discovered(&repo, discovered).await
 }
 
@@ -679,5 +704,117 @@ mod tests {
 
         assert_eq!(report.discovered, 1);
         assert_eq!(report.added, 1);
+    }
+
+    // --- rekey_legacy_crossover_rows (v0.34 W347: legacy-key transition) ---
+
+    /// A bundle-id-keyed discovery for a stub the scanner produces.
+    fn crossover_discovery(external_id: &str, name: &str) -> DiscoveredGame {
+        DiscoveredGame {
+            name: name.to_string(),
+            source: GameSource::Crossover,
+            external_id: Some(external_id.to_string()),
+            launch_descriptor: serde_json::json!({
+                "kind": "app",
+                "bundle_path": format!("/Users/me/Applications/CrossOver/Steam/{name}.app"),
+            }),
+            art_hint: None,
+        }
+    }
+
+    /// A legacy v0.33 `crossover` row keyed on `<bottle>/<display-name>`,
+    /// seeded through the repo the same way the pre-W347 scan created it.
+    fn seed_legacy_crossover_row(repo: &LibraryRepo<'_>, external_id: &str, name: &str) -> i64 {
+        let game = new_game_for_source(
+            name.to_string(),
+            GameSource::Crossover,
+            Some(external_id.to_string()),
+            serde_json::json!({
+                "kind": "app",
+                "bundle_path": format!("/Users/me/Applications/CrossOver/Steam/{name}.app"),
+            }),
+            None,
+        )
+        .unwrap();
+        repo.upsert_game_by_source(&game).unwrap()
+    }
+
+    /// The W347 transition contract end-to-end at the DB level: a legacy
+    /// `<bottle>/<display-name>` row re-scanned as a bundle-id discovery must
+    /// end up as exactly ONE row, keyed on the new id, with the original row
+    /// id (and therefore its play history / FK references) intact — not a
+    /// permanent launchable duplicate.
+    #[test]
+    fn a_legacy_keyed_row_is_rekeyed_not_duplicated_by_a_bundle_id_rescan() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let legacy_id = seed_legacy_crossover_row(&repo, "Steam/Half-Life 2", "Half-Life 2");
+        repo.record_play_session(legacy_id, 1_000, 5_000).unwrap();
+
+        let discovered = vec![crossover_discovery(
+            "Steam/com.valve.halflife2",
+            "Half-Life 2",
+        )];
+        rekey_legacy_crossover_rows(&repo, &discovered).unwrap();
+        let report = tauri::async_runtime::block_on(upsert_discovered(&repo, discovered)).unwrap();
+
+        assert_eq!(report.discovered, 1);
+        assert_eq!(report.added, 0, "the re-keyed row must not count as new");
+        assert_eq!(report.updated, 1);
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1, "exactly one row must remain");
+        assert_eq!(games[0].id, legacy_id, "the original row id must survive");
+        assert_eq!(
+            games[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+        assert_eq!(games[0].last_played_at, Some(1_000));
+        assert_eq!(games[0].play_count, 1);
+        assert_eq!(games[0].total_play_time_ms, 5_000);
+    }
+
+    /// A second bundle-id re-scan after the transition is a plain update —
+    /// the re-key pass no-ops once the row is already new-keyed.
+    #[test]
+    fn a_second_bundle_id_rescan_after_the_transition_is_a_plain_update() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        seed_legacy_crossover_row(&repo, "Steam/Half-Life 2", "Half-Life 2");
+
+        for _ in 0..2 {
+            let discovered = vec![crossover_discovery(
+                "Steam/com.valve.halflife2",
+                "Half-Life 2",
+            )];
+            rekey_legacy_crossover_rows(&repo, &discovered).unwrap();
+            tauri::async_runtime::block_on(upsert_discovered(&repo, discovered)).unwrap();
+        }
+
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1);
+        assert_eq!(
+            games[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    /// A display-name-keyed discovery (stub without a bundle id, or the
+    /// `.cxmenu` fallback) has nothing to re-key — the pass must leave the
+    /// row alone and the upsert must dedupe onto it as before.
+    #[test]
+    fn a_display_name_keyed_discovery_is_untouched_by_the_rekey_pass() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let gid = seed_legacy_crossover_row(&repo, "Steam/Half-Life 2", "Half-Life 2");
+
+        let discovered = vec![crossover_discovery("Steam/Half-Life 2", "Half-Life 2")];
+        rekey_legacy_crossover_rows(&repo, &discovered).unwrap();
+        let report = tauri::async_runtime::block_on(upsert_discovered(&repo, discovered)).unwrap();
+
+        assert_eq!(report.updated, 1);
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].id, gid);
+        assert_eq!(games[0].external_id.as_deref(), Some("Steam/Half-Life 2"));
     }
 }
