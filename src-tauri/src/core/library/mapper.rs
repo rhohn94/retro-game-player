@@ -15,6 +15,16 @@
 //! for which systems Harmony offers cores for. Each `default_core` below is the
 //! recommended (first) core for that system in that catalog; the consistency
 //! test pins the two together.
+//!
+//! Handhelds + Wii (v0.34): Game Boy / Color / Advance each carry a distinct
+//! extension (`gb`/`gbc`/`gba`) and scan unambiguously; Wii's `.wbfs` container
+//! is likewise distinct (`.rvz` stays GameCube-only per the v0.10 note above).
+//!
+//! Disc images (v0.34 W343): `.cue`/`.chd`/`.bin` remain deliberately absent
+//! from this table (still ambiguous by extension) but are no longer entirely
+//! unscanned — [`super::disc_ident`] content-sniffs them for a positive PS1
+//! signature and the scanner (`core::sources::rom`) routes them through it
+//! before falling back to "unscanned" for anything not positively identified.
 
 /// Canonical system id for the Nintendo Entertainment System.
 pub const SYSTEM_NES: &str = "nes";
@@ -22,6 +32,11 @@ pub const SYSTEM_NES: &str = "nes";
 pub const SYSTEM_SNES: &str = "snes";
 /// Canonical system id for the Nintendo 64.
 pub const SYSTEM_N64: &str = "n64";
+/// Canonical system id for the Sony PlayStation. Re-exported from
+/// [`super::disc_ident`] (the module that owns PS1 disc-image sniffing) so
+/// there is exactly one `"ps1"` string literal in the crate; kept visible
+/// here too since this table's `.pbp` row needs it (W343).
+pub use super::disc_ident::SYSTEM_PS1;
 
 /// One scan-mappable system: its canonical key, the recommended default core,
 /// and the lowercased, dot-less ROM extensions that uniquely identify it.
@@ -52,11 +67,16 @@ const SYSTEMS: &[SystemDef] = &[
     SystemDef { system: "pcengine", default_core: "mednafen_pce", extensions: &["pce"] },
     SystemDef { system: "neogeo", default_core: "fbneo", extensions: &["neo"] },
     // Gen 5.
-    SystemDef { system: "ps1", default_core: "pcsx_rearmed", extensions: &["pbp"] },
+    SystemDef { system: SYSTEM_PS1, default_core: "pcsx_rearmed", extensions: &["pbp"] },
     SystemDef { system: "jaguar", default_core: "virtualjaguar", extensions: &["j64", "jag"] },
     // Gen 6.
     SystemDef { system: "dreamcast", default_core: "flycast", extensions: &["gdi", "cdi"] },
     SystemDef { system: "gamecube", default_core: "dolphin", extensions: &["rvz", "gcm"] },
+    SystemDef { system: "wii", default_core: "dolphin", extensions: &["wbfs"] },
+    // Handhelds (v0.34).
+    SystemDef { system: "gb", default_core: "gambatte", extensions: &["gb"] },
+    SystemDef { system: "gbc", default_core: "gambatte", extensions: &["gbc"] },
+    SystemDef { system: "gba", default_core: "mgba", extensions: &["gba"] },
 ];
 
 /// The resolved mapping for a recognized ROM file.
@@ -144,6 +164,21 @@ mod tests {
         assert_eq!(map_extension("j64").unwrap().system, "jaguar");
         assert_eq!(map_extension("gdi").unwrap().system, "dreamcast");
         assert_eq!(map_extension("rvz").unwrap().system, "gamecube");
+    }
+
+    #[test]
+    fn maps_handhelds_and_wii() {
+        // v0.34: Game Boy family + Wii each map to their own system + default
+        // core, and never collide with each other or with GameCube's `.rvz`.
+        assert_eq!(map_extension("gb").unwrap().system, "gb");
+        assert_eq!(map_extension("gb").unwrap().core_hint, "gambatte");
+        assert_eq!(map_extension(".GBC").unwrap().system, "gbc");
+        assert_eq!(map_extension("gbc").unwrap().core_hint, "gambatte");
+        assert_eq!(map_extension("GBA").unwrap().system, "gba");
+        assert_eq!(map_extension("gba").unwrap().core_hint, "mgba");
+        assert_eq!(map_extension("wbfs").unwrap().system, "wii");
+        assert_eq!(map_extension("wbfs").unwrap().core_hint, "dolphin");
+        assert_eq!(map_extension("rvz").unwrap().system, "gamecube"); // unchanged
     }
 
     #[test]

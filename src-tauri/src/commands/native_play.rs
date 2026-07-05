@@ -36,6 +36,42 @@ pub fn set_native_play_enabled(enabled: bool) -> AppResult<()> {
     config.save(&paths)
 }
 
+/// One row of [`native::NATIVE_SYSTEMS`] crossing the IPC seam (v0.34
+/// "Engines" W340), paired with whether its core is currently installed —
+/// the frontend's native-path gate (`nativePath.ts`) consults this instead of
+/// a hard-coded `system === "nes"` comparison, so a system routes to
+/// [`NativePlayer`](crate) only when it is BOTH in the table AND has a
+/// resolvable core, falling back to EJS/external otherwise exactly as today.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeSystemDto {
+    pub system: String,
+    pub core_id: String,
+    pub core_installed: bool,
+}
+
+/// Lists every native-hostable system (W340's table) with its current
+/// install state. DB-only (no FFI probe), so this is cheap enough to call on
+/// every detail-page mount without a loading flicker.
+#[tauri::command]
+pub fn list_native_systems(db: State<'_, Db>) -> AppResult<Vec<NativeSystemDto>> {
+    native::NATIVE_SYSTEMS
+        .iter()
+        .map(|row| {
+            let core_installed = match native::resolve_native_core_path(&db, row.system) {
+                Ok(_) => true,
+                Err(AppError::NotFound(_)) => false,
+                Err(e) => return Err(e),
+            };
+            Ok(NativeSystemDto {
+                system: row.system.to_string(),
+                core_id: row.core_id.to_string(),
+                core_installed,
+            })
+        })
+        .collect()
+}
+
 /// Holds the single in-flight native session, if any. Harmony only ever
 /// plays one game natively at a time; starting a new session replaces (and,
 /// via `NativeRuntime`'s `Drop`, stops) whatever was running.
@@ -100,8 +136,9 @@ fn seed_persisted_core_variables(db: &Db, system: &str, core_id: &str, core_path
 }
 
 /// Starts a native session for `game_id`, replacing any session already
-/// running. Resolves the installed `fceumm` core path (W213) and the game's
-/// ROM path (the library row), then spawns the runtime (W212).
+/// running. Resolves the game's native-hostable system row (W340's
+/// [`native::NATIVE_SYSTEMS`] table) and installed core path, plus the
+/// game's ROM path (the library row), then spawns the runtime (W212).
 ///
 /// `preview` (v0.27 W273, default false so existing callers are unchanged):
 /// start as a NO-TRACE preview — no save wiring, no perf log (see
@@ -130,15 +167,12 @@ pub fn start_native_play(
     let path = game.path.clone().ok_or_else(|| {
         AppError::Unsupported(format!("game {game_id} has no ROM path to natively host"))
     })?;
-    if system != native::NATIVE_SYSTEM {
-        return Err(AppError::Unsupported(format!(
-            "native hosting only supports {} — game {} is {}",
-            native::NATIVE_SYSTEM,
-            game_id,
-            system
-        )));
-    }
-    let core_path = native::resolve_native_core_path(&db)?;
+    let support = native::native_support_for(&system).ok_or_else(|| {
+        AppError::Unsupported(format!(
+            "native hosting does not support {system} — game {game_id} has no native-hostable system"
+        ))
+    })?;
+    let core_path = native::resolve_native_core_path(&db, &system)?;
     let rom_path = PathBuf::from(&path);
     // Save persistence (W230): best-effort — an unavailable saves dir means
     // the session plays without persistence rather than failing to boot.
@@ -184,7 +218,7 @@ pub fn start_native_play(
     // its own retro_init see exactly what the Cores screen has saved. A
     // core with no declared options (or a probe failure) seeds nothing,
     // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
-    seed_persisted_core_variables(&db, &system, native::NATIVE_CORE_ID, &core_path);
+    seed_persisted_core_variables(&db, &system, support.core_id, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
     *guard = Some(runtime);
     Ok(())
@@ -289,14 +323,26 @@ pub fn stop_native_play(session: State<'_, NativeSession>) -> AppResult<()> {
 }
 
 /// How many bytes of header precede the RGBA payload in a non-empty
-/// `get_native_frame` response: `[seq: u64 LE][width: u32 LE][height: u32 LE]`.
-/// Mirrored by the frontend parser (`nativeFrame.ts`).
-const FRAME_HEADER_BYTES: usize = 16;
+/// `get_native_frame` response: `[seq: u64 LE][width: u32 LE][height: u32
+/// LE][aspect_ratio: f32 LE]`. Mirrored by the frontend parser
+/// (`nativeFrame.ts`). The `aspect_ratio` field is a W345 addition (fixing
+/// the W340 reviewer note that `GeometryChanged.aspect_ratio` was logged but
+/// never propagated to the frontend) — purely additive to the existing
+/// 16-byte header, so it's still `[seq][width][height]` followed by 4 more
+/// bytes, never a reordering.
+const FRAME_HEADER_BYTES: usize = 20;
 
-/// Encodes a frame poll answer for the raw-bytes IPC channel (W239).
-/// An empty body means "nothing to paint" — no session, no frame yet, or the
-/// caller already holds this sequence number. Otherwise: the 16-byte header
-/// followed by the tightly-packed RGBA8888 pixels.
+/// `0.0` in the wire header means "unset — derive the aspect ratio from
+/// `width`/`height`", matching libretro's own non-positive-aspect-ratio
+/// convention (see `play::native::runtime`'s `positive_aspect_ratio`) —
+/// shared here so the encoder and any future decoder agree on the sentinel.
+const ASPECT_RATIO_UNSET: f32 = 0.0;
+
+/// Encodes a frame poll answer for the raw-bytes IPC channel (W239, header
+/// extended for aspect ratio in W345). An empty body means "nothing to
+/// paint" — no session, no frame yet, or the caller already holds this
+/// sequence number. Otherwise: the 20-byte header followed by the
+/// tightly-packed RGBA8888 pixels.
 fn encode_frame_response(last_seq: u64, frame: Option<(u64, Rgba8Frame)>) -> Vec<u8> {
     match frame {
         Some((seq, frame)) if seq != last_seq => {
@@ -304,6 +350,7 @@ fn encode_frame_response(last_seq: u64, frame: Option<(u64, Rgba8Frame)>) -> Vec
             out.extend_from_slice(&seq.to_le_bytes());
             out.extend_from_slice(&frame.width.to_le_bytes());
             out.extend_from_slice(&frame.height.to_le_bytes());
+            out.extend_from_slice(&frame.aspect_ratio.unwrap_or(ASPECT_RATIO_UNSET).to_le_bytes());
             out.extend_from_slice(&frame.data);
             out
         }
@@ -338,8 +385,63 @@ pub fn set_native_input(bits: u16) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::repo::cores::NewCore;
     use std::process::Command;
     use std::time::Duration;
+
+    /// Mirrors `list_native_systems`'s exact body against a plain `&Db` (its
+    /// real signature takes `State<'_, Db>`, which — like every other command
+    /// module in this crate — cannot be constructed outside a running
+    /// `tauri::App`).
+    fn list_native_systems_at(db: &Db) -> AppResult<Vec<NativeSystemDto>> {
+        native::NATIVE_SYSTEMS
+            .iter()
+            .map(|row| {
+                let core_installed = match native::resolve_native_core_path(db, row.system) {
+                    Ok(_) => true,
+                    Err(AppError::NotFound(_)) => false,
+                    Err(e) => return Err(e),
+                };
+                Ok(NativeSystemDto {
+                    system: row.system.to_string(),
+                    core_id: row.core_id.to_string(),
+                    core_installed,
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn list_native_systems_reports_every_table_row_uninstalled_by_default() {
+        let db = Db::open_in_memory().unwrap();
+        let systems = list_native_systems_at(&db).expect("lists cleanly with an empty db");
+        assert_eq!(systems.len(), native::NATIVE_SYSTEMS.len());
+        assert!(systems.iter().all(|s| !s.core_installed));
+        assert!(systems.iter().any(|s| s.system == native::NATIVE_SYSTEM));
+    }
+
+    #[test]
+    fn list_native_systems_reflects_an_installed_core() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = crate::db::repo::cores::CoresRepo::new(&db);
+        repo.add(&NewCore {
+            system: native::NATIVE_SYSTEM.into(),
+            core_id: native::NATIVE_CORE_ID.into(),
+            installed_path: Some("/cores/nes/fceumm_libretro.dylib".into()),
+            version: None,
+            last_modified: None,
+            active: true,
+        })
+        .expect("seed installed core");
+
+        let systems = list_native_systems_at(&db).expect("lists cleanly");
+        let nes = systems
+            .iter()
+            .find(|s| s.system == native::NATIVE_SYSTEM)
+            .expect("nes row present");
+        assert!(nes.core_installed);
+        assert_eq!(nes.core_id, native::NATIVE_CORE_ID);
+    }
 
     /// A minimal libretro core good enough to boot a real [`NativeRuntime`] —
     /// mirrors `core::core_options::probe`'s own `STUB_CORE_WITH_OPTIONS_C`/
@@ -457,6 +559,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
                 data: vec![1, 2, 3, 4, 5, 6, 7, 8],
                 width: 2,
                 height: 1,
+                aspect_ratio: None,
             },
         ))
     }
@@ -468,7 +571,25 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         assert_eq!(u64::from_le_bytes(out[0..8].try_into().unwrap()), 7);
         assert_eq!(u32::from_le_bytes(out[8..12].try_into().unwrap()), 2);
         assert_eq!(u32::from_le_bytes(out[12..16].try_into().unwrap()), 1);
-        assert_eq!(&out[16..], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        // No aspect ratio was set on this frame — the wire sentinel (0.0,
+        // "derive from width/height") is encoded, not a garbage value.
+        assert_eq!(f32::from_le_bytes(out[16..20].try_into().unwrap()), 0.0);
+        assert_eq!(&out[20..], &[1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn encodes_a_real_aspect_ratio_when_the_frame_carries_one() {
+        let frame = Some((
+            7,
+            Rgba8Frame {
+                data: vec![9, 9, 9, 9],
+                width: 1,
+                height: 1,
+                aspect_ratio: Some(16.0 / 9.0),
+            },
+        ));
+        let out = encode_frame_response(0, frame);
+        assert_eq!(f32::from_le_bytes(out[16..20].try_into().unwrap()), 16.0 / 9.0);
     }
 
     #[test]
@@ -658,7 +779,7 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         *lock(&session) = Some(runtime);
 
         // Poll until a real frame lands, then assert get_native_frame's
-        // exact encoding: a non-empty body carrying the 16-byte header +
+        // exact encoding: a non-empty body carrying the header (FRAME_HEADER_BYTES) +
         // real, non-blank RGBA8888 pixels for a fresh sequence number.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut body = Vec::new();

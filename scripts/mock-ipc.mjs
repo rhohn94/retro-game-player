@@ -210,6 +210,23 @@ export const MOCK_FIXTURES = {
   //     path is taken, matching a fresh install), and the session/input writes
   //     are void. ---
   get_native_play_enabled: false,
+  // W340 multi-system engine: PlaySwitch fetches the native capability map on
+  // mount. Mirrors the full NATIVE_SYSTEMS table (play/native/systems.rs) so
+  // the smoke walk exercises the real capability shape; only NES has its core
+  // installed, matching a fresh install.
+  list_native_systems: [
+    { system: "nes", coreId: "fceumm", coreInstalled: true },
+    { system: "snes", coreId: "snes9x", coreInstalled: false },
+    { system: "genesis", coreId: "genesis_plus_gx", coreInstalled: false },
+    { system: "mastersystem", coreId: "genesis_plus_gx", coreInstalled: false },
+    { system: "gb", coreId: "gambatte", coreInstalled: false },
+    { system: "gbc", coreId: "gambatte", coreInstalled: false },
+    { system: "gba", coreId: "mgba", coreInstalled: false },
+    { system: "atari2600", coreId: "stella", coreInstalled: false },
+    { system: "pcengine", coreId: "mednafen_pce", coreInstalled: false },
+    { system: "n64", coreId: "mupen64plus_next", coreInstalled: false },
+    { system: "ps1", coreId: "pcsx_rearmed", coreInstalled: false },
+  ],
   set_native_play_enabled: null,
   start_native_play: null,
   stop_native_play: null,

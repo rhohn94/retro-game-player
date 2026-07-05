@@ -110,6 +110,24 @@ pub const CATALOG: &[EjsCoreEntry] = &[
         size_bytes: 994_844,
         license: "GPL-2.0",
     },
+    // Handhelds (v0.34, W341) — pinned 2026-07-05 against the same
+    // version-locked CDN. Wii has no EJS entry (external launch only).
+    EjsCoreEntry {
+        core: "gambatte",
+        systems: &["gb", "gbc"],
+        archive_sha256: "ad67c7bf57f8f8b62606048e6ea498afac5b5abc76ad8de5f9dfc2a6719374bb",
+        report_sha256: "a240a47bd6b2a38a6c46ee63c80bdcd24befbd50474453df4898d49282bd5f57",
+        size_bytes: 967_156,
+        license: "GPLv2+",
+    },
+    EjsCoreEntry {
+        core: "mgba",
+        systems: &["gba"],
+        archive_sha256: "01fcaf6d4296ef1db6676e0c69400c4474e24572d0b2b99cc097e4ae885e02d7",
+        report_sha256: "08219f6c855a9d996f04ed21169bb0c5ac64d469a8a536468b9876205b5c268d",
+        size_bytes: 1_055_616,
+        license: "MPL-2.0",
+    },
 ];
 
 /// The catalog entry covering `system`, if any.
@@ -230,6 +248,16 @@ mod tests {
         assert_eq!(entry_for_system("mastersystem").unwrap().core, "genesis_plus_gx");
         assert!(entry_for_system("nes").is_none()); // embedded, not on-demand
         assert!(entry_for_system("dreamcast").is_none());
+    }
+
+    #[test]
+    fn entry_for_system_covers_handhelds_and_excludes_wii() {
+        // v0.34: gb/gbc share gambatte; gba gets mgba. Wii is external-launch
+        // only and must resolve to no on-demand entry.
+        assert_eq!(entry_for_system("gb").unwrap().core, "gambatte");
+        assert_eq!(entry_for_system("gbc").unwrap().core, "gambatte");
+        assert_eq!(entry_for_system("gba").unwrap().core, "mgba");
+        assert!(entry_for_system("wii").is_none());
     }
 
     #[test]

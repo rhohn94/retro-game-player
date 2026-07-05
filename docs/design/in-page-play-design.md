@@ -174,11 +174,20 @@ frozen together and a vendored-EJS bump forces re-curation by construction.
 | `pcsx_rearmed` | ps1 | 1.0 MB | GPL-2.0 |
 | `stella2014` | atari2600 | 1.1 MB | GPL-2.0 |
 | `mednafen_pce` | pcengine | 1.0 MB | GPL-2.0 |
+| `gambatte` | gb, gbc | 0.9 MB | GPLv2+ |
+| `mgba` | gba | 1.0 MB | MPL-2.0 |
 
-NES stays embedded (`fceumm`, unchanged). All six cores are single-threaded
+NES stays embedded (`fceumm`, unchanged). All eight cores are single-threaded
 (EmulatorJS `requiresThreads` lists only `ppsspp`/`dosbox_pure`), so the
 loopback server still needs **no COOP/COEP headers** and no
 `SharedArrayBuffer`.
+
+> **v0.34 (W341) note:** `gambatte`/`mgba` were added and SHA-256-pinned
+> 2026-07-05 against the same version-pinned CDN, extending in-page fallback to
+> the new handheld systems (Game Boy / Color / Advance — see
+> `console-catalog-design.md` §7). **Wii is deliberately excluded** — Dolphin
+> has no browser/WASM build, so Wii stays external-RetroArch-launch only; there
+> is no "get core" panel path for it.
 
 ### Acquisition + serving
 

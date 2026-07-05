@@ -16,6 +16,24 @@ export function setNativePlayEnabled(enabled: boolean): Promise<void> {
   return invoke<void>("set_native_play_enabled", { enabled });
 }
 
+/**
+ * One native-hostable system (v0.34 "Engines" W340), mirroring Rust's
+ * `NativeSystemDto` — the table-driven successor to the old hard-coded
+ * `system === "nes"` check. `coreInstalled` reflects `CoresRepo` state at
+ * call time (not re-checked live), matching every other cores-adjacent
+ * listing in this app.
+ */
+export interface NativeSystemInfo {
+  system: string;
+  coreId: string;
+  coreInstalled: boolean;
+}
+
+/** Lists every native-hostable system and its current core-install state. */
+export function listNativeSystems(): Promise<NativeSystemInfo[]> {
+  return invoke<NativeSystemInfo[]>("list_native_systems");
+}
+
 /** Options for `startNativePlay` (v0.27 W273). */
 export interface StartNativePlayOptions {
   /** Start the session as a NO-TRACE preview (the TV hover-attract surface,

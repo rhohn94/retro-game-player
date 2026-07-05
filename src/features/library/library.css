@@ -450,7 +450,14 @@
   .rgp-player__frame {
     width: 100%;
     max-width: 760px;
-    aspect-ratio: 4 / 3;
+    /* v0.34 W345: --rgp-player-aspect-ratio is set inline by the player
+       (NativePlayer.tsx) from the polled frame's real display aspect ratio
+       (falling back to 4/3 for systems that never report one, e.g. NES) —
+       fixes the W340 reviewer note that N64/PS1 (whose display aspect
+       differs from their pixel dimensions) rendered stretched into a fixed
+       4:3 box. InPagePlayer never sets the variable, so it keeps the 4/3
+       default unchanged. */
+    aspect-ratio: var(--rgp-player-aspect-ratio, 4 / 3);
     border: 0;
     background: black;
     border-radius: var(--aura-radius-md);
@@ -671,6 +678,23 @@
     margin: 0;
     font-size: 13px;
     color: var(--aura-on-surface-muted);
+  }
+
+  /* External-only notice (v0.34 W346) — the player slot's affordance for a
+     system with no in-page or native path at all (e.g. GameCube/Wii). */
+  .rgp-external-only {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--aura-space-3);
+    padding: var(--aura-space-5) var(--aura-space-5);
+    border-radius: var(--rgp-radius-card);
+    background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
+    color: var(--aura-on-surface);
+  }
+  .rgp-external-only__message {
+    margin: 0;
+    font-size: 14px;
   }
 
   /* Overlay volume row (v0.24 W243). */

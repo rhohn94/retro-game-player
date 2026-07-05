@@ -83,7 +83,7 @@ pub async fn list_core_options(
 ) -> AppResult<Vec<CoreOptionDto>> {
     require_native_system(&system)?;
     reject_if_session_active(is_session_active(&session))?;
-    let core_path = native::resolve_native_core_path(&db)?;
+    let core_path = native::resolve_native_core_path(&db, &system)?;
     let declared = off_thread(move || core_options::probe_declared_options(&core_path)).await?;
     let values = core_options::resolve_session_variables(&db, &system, native::NATIVE_CORE_ID, &declared)?;
     let options: Vec<CoreOptionDto> = declared

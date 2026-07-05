@@ -27,6 +27,18 @@ const TV_SYSTEM_LABELS: Readonly<Record<string, string>> = {
   ps1: "PlayStation",
   saturn: "Saturn",
   dreamcast: "Dreamcast",
+  gb: "Game Boy",
+  gbc: "Game Boy Color",
+  gba: "Game Boy Advance",
+  wii: "Wii",
+  atari5200: "Atari 5200",
+  atari7800: "Atari 7800",
+  intellivision: "Intellivision",
+  colecovision: "ColecoVision",
+  odyssey2: "Odyssey²",
+  jaguar: "Atari Jaguar",
+  "3do": "3DO",
+  ps2: "PlayStation 2",
 };
 
 /**

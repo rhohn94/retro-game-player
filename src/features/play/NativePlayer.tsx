@@ -113,6 +113,12 @@ export function NativePlayer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
+  // v0.34 W345: the polled frame's real display aspect ratio (fixing the
+  // W340 reviewer note that this was logged backend-side but never reached
+  // the frontend) — `null` until the first frame lands (or for a system
+  // that never sets one, e.g. NES), in which case the CSS default (4/3)
+  // applies via `--rgp-player-aspect-ratio`'s fallback (library.css).
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   // v0.28 W279: live progress (0..1) toward the hold-to-open-menu threshold —
   // drives MenuHoldIndicator below; reported by useExclusiveControllerScope's
   // raw-poll trigger, reset to 0 on release/chord/open.
@@ -288,6 +294,10 @@ export function NativePlayer({
     let frameHandle = 0;
     const heldKeys = new Set<string>();
     let lastSentBits = -1; // -1 never matches a real bitmask, so the first tick always sends
+    // v0.34 W345: a fresh session starts back at "unknown aspect" (the CSS
+    // 4/3 default) until its first real frame reports one — a game switch
+    // must never keep rendering the PREVIOUS game's aspect box.
+    setAspectRatio(null);
 
     const onKeyDown = (e: KeyboardEvent) => {
       // Spectator (attract background / TV preview): the page owns the
@@ -381,6 +391,12 @@ export function NativePlayer({
     let lastFpsPublished = 0;
     const FPS_PUBLISH_INTERVAL_MS = 500; // matches FpsCounter's own recompute cadence
 
+    // v0.34 W345: the last aspect ratio published to React state, so a
+    // steady 60 Hz stream of identical-aspect frames (the overwhelming
+    // common case — aspect only changes on a genuine geometry
+    // renegotiation) never re-renders this component every tick.
+    let lastPublishedAspectRatio: number | null = null;
+
     // Raw-bytes frame polling (W239). The rAF tick is scheduled up-front so a
     // slow IPC round trip degrades to a skipped paint, never a halved frame
     // rate; the in-flight guard keeps at most one request crossing the
@@ -402,6 +418,10 @@ export function NativePlayer({
           lastSeq = frame.seq;
           if (canvas.width !== frame.width) canvas.width = frame.width;
           if (canvas.height !== frame.height) canvas.height = frame.height;
+          if (frame.aspectRatio !== lastPublishedAspectRatio) {
+            lastPublishedAspectRatio = frame.aspectRatio;
+            setAspectRatio(frame.aspectRatio);
+          }
 
           if (!webglAttempted) {
             webglAttempted = true;
@@ -479,9 +499,14 @@ export function NativePlayer({
   // W273: a preview is a pure spectator surface — the bare canvas only. No
   // Continue button, no chip bar, no overlay (the overlay could save/load
   // state, which a no-trace session must never offer).
+  // v0.34 W345: only override the CSS aspect-ratio custom property once a
+  // real ratio is known — `undefined` leaves the CSS default (4/3) in
+  // effect, matching every pre-W345 system (NES included) exactly.
+  const frameStyle = aspectRatio ? ({ "--rgp-player-aspect-ratio": aspectRatio } as React.CSSProperties) : undefined;
+
   return (
     <div className={playerShellClass(presentation)}>
-      <div className="rgp-player__frame">
+      <div className="rgp-player__frame" style={frameStyle}>
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
       {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}

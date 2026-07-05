@@ -12,6 +12,15 @@ pub struct Rgba8Frame {
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
+    /// The core's declared display aspect ratio (`retro_game_geometry`'s
+    /// `aspect_ratio`, W340's `RETRO_ENVIRONMENT_SET_GEOMETRY` included) —
+    /// `None`/non-positive means "derive it from `width`/`height`", the
+    /// libretro-defined meaning of an unset aspect ratio (many
+    /// square-pixel systems, NES included, never set one). Threaded through
+    /// so systems whose display aspect differs from their pixel dimensions
+    /// (N64, PS1 — the W340 reviewer note this field exists to fix) render
+    /// correctly instead of being stretched to a fixed 4:3 box.
+    pub aspect_ratio: Option<f32>,
 }
 
 /// Bytes per RGBA8888 output pixel.
@@ -28,6 +37,7 @@ fn to_rgba8(frame: &VideoFrame, format: PixelFormat) -> Rgba8Frame {
         data,
         width: frame.width,
         height: frame.height,
+        aspect_ratio: None,
     }
 }
 
@@ -109,6 +119,7 @@ mod tests {
             width,
             height,
             pitch,
+            is_hw_frame: false,
         }
     }
 

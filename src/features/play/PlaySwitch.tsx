@@ -10,16 +10,20 @@
 // (in-page-play-design.md §6). One notice per session per cause.
 
 import { useCallback, useState } from "react";
+import { ExternalOnlyNotice } from "./ExternalOnlyNotice";
 import { GetCorePanel } from "./GetCorePanel";
 import { InPagePlayer } from "./InPagePlayer";
 import { NativePlayer } from "./NativePlayer";
 import { PlayNotice } from "./PlayNotice";
+import { Ps1BiosNotice } from "./Ps1BiosNotice";
+import { shouldShowPs1BiosNotice } from "./ps1BiosCopy";
 import type { PlayerPresentation } from "./presentation";
 import { canPlayInPage, isEmbeddedInPage } from "./ejs";
 import { inPageAvailability, systemLabel } from "./inPageAvailability";
 import { describeDegradation, recordDegradation } from "./degradation";
 import type { DegradationNotice } from "./degradation";
-import { NATIVE_SYSTEM } from "./nativePath";
+import { fetchNativeCapabilities } from "./nativePath";
+import type { NativeCapabilities } from "./nativePath";
 import { getNativePlayEnabled } from "../../ipc/native-play";
 import { listInPageCores } from "../../ipc/inpage-cores";
 import type { InPageCore } from "../../ipc/inpage-cores";
@@ -45,12 +49,17 @@ export interface PlaySwitchProps {
 }
 
 /**
- * Picks the player for one game's detail screen. Renders nothing for a
- * system with no in-page path at all (native external RetroArch launch only
- * — unaffected by this switch).
+ * Picks the player for one game's detail screen. Renders an honest
+ * "plays externally" notice (`ExternalOnlyNotice`, v0.34 W346) for a system
+ * with no in-page or native path at all — the actual launch (native external
+ * RetroArch) happens via the Play button, unaffected by this switch.
  */
 export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: PlaySwitchProps) {
-  const isNativeCandidate = system === NATIVE_SYSTEM;
+  // The native-capability table (W340): a game is a native CANDIDATE once
+  // its system is in the table with an installed core — replaces the old
+  // hard-coded `system === "nes"` comparison. `null` = still resolving.
+  const [nativeCapabilities, setNativeCapabilities] = useState<NativeCapabilities | null>(null);
+  const isNativeCandidate = nativeCapabilities?.get(system)?.coreInstalled ?? false;
   // null = still resolving the flag; true/false once known. Only matters for
   // the native-candidate system — every other system ignores it entirely.
   const [nativeEnabled, setNativeEnabled] = useState<boolean | null>(null);
@@ -70,6 +79,14 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
     if (recordDegradation("play-server-unavailable")) {
       setNotice(describeDegradation("play-server-unavailable"));
     }
+  }, []);
+
+  // Resolves the native-capability table once per mount — independent of
+  // `isNativeCandidate` (which is DERIVED from this state), so there is no
+  // chicken-and-egg gate: every system's candidacy becomes knowable as soon
+  // as this answers, not just the ones already suspected native.
+  useCancellableEffect((isCancelled) => {
+    fetchNativeCapabilities().then((caps) => !isCancelled() && setNativeCapabilities(caps));
   }, []);
 
   useCancellableEffect(
@@ -106,16 +123,23 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
     [needsCatalog],
   );
 
-  // Resolving the flag for a system that *could* go native — wait rather
-  // than flash EmulatorJS only to immediately swap to the native player.
+  // Resolving the capability table, or (once a candidate is known) the
+  // opt-in flag — wait rather than flash EmulatorJS only to immediately swap
+  // to the native player.
+  if (nativeCapabilities === null) return null;
   if (isNativeCandidate && nativeEnabled === null) return null;
 
   const noticeEl = notice ? <PlayNotice notice={notice} /> : null;
 
   if (isNativeCandidate && nativeEnabled && !nativeFailed) {
+    // PS1 honesty notice (W344): the native path is what's about to run, on
+    // pcsx_rearmed's HLE BIOS by default — a standing notice, not a
+    // degradation, so it renders independently of `noticeEl` above.
+    const ps1NoticeEl = shouldShowPs1BiosNotice(system, true) ? <Ps1BiosNotice /> : null;
     return (
       <>
         {noticeEl}
+        {ps1NoticeEl}
         <NativePlayer
           gameId={gameId}
           gameName={gameName}
@@ -128,7 +152,16 @@ export function PlaySwitch({ gameId, system, gameName, presentation, onExit }: P
   }
 
   const availability = inPageAvailability(system, cores);
-  if (availability.kind === "none") return noticeEl;
+  if (availability.kind === "none") {
+    // No in-page or native path exists at all (e.g. GameCube/Wii, W346) —
+    // say so honestly rather than leaving the player slot silently empty.
+    return (
+      <>
+        {noticeEl}
+        <ExternalOnlyNotice system={system} />
+      </>
+    );
+  }
   if (availability.kind === "ready" || justInstalled) {
     // The EmulatorJS iframe cannot become a page background (explicit v0.23
     // non-goal), so attract's "background" degrades to plain foreground here;

@@ -440,9 +440,115 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(sram) : 0; }
     /// caller should skip, not fail) if no C toolchain is on `PATH` — keeps
     /// this test environment-independent rather than asserting one is present.
     fn build_stub_core(dir: &Path) -> Option<std::path::PathBuf> {
-        let c_path = dir.join("stub_core.c");
-        std::fs::write(&c_path, STUB_CORE_C).ok()?;
-        let dylib_path = dir.join("stub_core.dylib");
+        build_c_source_as_dylib(dir, "stub_core.c", "stub_core.dylib", STUB_CORE_C)
+    }
+
+    /// A `need_fullpath = true` stub core (W344, PS1/pcsx_rearmed's own
+    /// declared requirement) that copies the exact `path` byte string
+    /// `retro_load_game` received into a static buffer `retro_get_memory_data`
+    /// exposes back to the test — proving Harmony hands the core a real path
+    /// string, never `NULL`/raw bytes, for a core that declares this need.
+    /// Otherwise identical to [`STUB_CORE_C`].
+    const STUB_FULLPATH_CORE_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+#include <string.h>
+
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+static retro_environment_t env_cb = 0;
+static char received_path[4096] = {0};
+
+void retro_init(void) {
+    bool can_dupe = false;
+    env_cb(3 /* RETRO_ENVIRONMENT_GET_CAN_DUPE */, &can_dupe);
+}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Fullpath Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "cue|bin";
+    info->need_fullpath = true; /* pcsx_rearmed's real declared value */
+    info->block_extract = false;
+}
+
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 320;
+    info->geometry.base_height = 240;
+    info->geometry.max_width = 320;
+    info->geometry.max_height = 240;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0;
+    info->timing.sample_rate = 44100.0;
+}
+
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) {}
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {}
+void retro_set_input_poll(retro_input_poll_t cb) {}
+void retro_set_input_state(retro_input_state_t cb) {}
+
+/* need_fullpath = true means Harmony must supply `path` (a real file path)
+ * with `data`/`size` empty — exactly what a disc-image core like
+ * pcsx_rearmed requires (it opens/seeks the .cue itself). Records the path
+ * it was actually handed so the test can assert on it. */
+bool retro_load_game(const struct retro_game_info *game) {
+    if (game == 0 || game->path == 0 || game->data != 0 || game->size != 0) return false;
+    strncpy(received_path, game->path, sizeof(received_path) - 1);
+    return true;
+}
+
+void retro_unload_game(void) {}
+void retro_run(void) {}
+
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+
+void *retro_get_memory_data(unsigned id) { return id == 0 ? received_path : 0; }
+size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_path) : 0; }
+"#;
+
+    /// Compiles [`STUB_FULLPATH_CORE_C`] to a `.dylib` in `dir`.
+    fn build_stub_fullpath_core(dir: &Path) -> Option<std::path::PathBuf> {
+        build_c_source_as_dylib(
+            dir,
+            "stub_fullpath_core.c",
+            "stub_fullpath_core.dylib",
+            STUB_FULLPATH_CORE_C,
+        )
+    }
+
+    /// Shared compile step for the stub cores above. Returns `None` (the
+    /// caller should skip, not fail) if no C toolchain is on `PATH` — keeps
+    /// this test environment-independent rather than asserting one is present.
+    fn build_c_source_as_dylib(
+        dir: &Path,
+        c_file_name: &str,
+        dylib_file_name: &str,
+        source: &str,
+    ) -> Option<std::path::PathBuf> {
+        let c_path = dir.join(c_file_name);
+        std::fs::write(&c_path, source).ok()?;
+        let dylib_path = dir.join(dylib_file_name);
         let status = Command::new("cc")
             .arg("-dynamiclib")
             .arg("-o")
@@ -607,5 +713,37 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(sram) : 0; }
         let err = LibretroCore::load(Path::new("/nonexistent/path/core.dylib"))
             .expect_err("missing file must error");
         assert!(matches!(err, AppError::Dependency(_)));
+    }
+
+    /// W344 (PS1/pcsx_rearmed): a `need_fullpath = true` core must receive
+    /// the exact ROM path Harmony was asked to load — `data`/`size` empty,
+    /// `path` set — never the file's raw bytes. This is the same
+    /// [`LibretroCore::load_game`] call site every other system already uses
+    /// (it has never branched on `need_fullpath`); this test proves the
+    /// existing single code path already satisfies a real `need_fullpath`
+    /// core's contract, which is why PS1's enable needed no host change.
+    #[test]
+    fn a_need_fullpath_core_receives_the_disc_image_path_not_bytes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_fullpath_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let mut core = LibretroCore::load(&dylib).expect("load stub fullpath core");
+        core.set_environment(test_environment);
+        core.init().expect("init");
+
+        // The canonical disc file for a .cue/.bin pair (disc_ident.rs) — the
+        // path a PS1 library row actually stores and passes through.
+        let cue_path = dir.path().join("game.cue");
+        std::fs::write(&cue_path, b"FILE \"game.bin\" BINARY\n").expect("write cue");
+
+        core.load_game(&cue_path).expect("load_game accepts a full path");
+        let received = core.sram().expect("stub reports the path it received");
+        assert_eq!(
+            String::from_utf8(received).expect("path is valid UTF-8"),
+            cue_path.to_string_lossy(),
+            "the core must receive the exact .cue path, not its bytes"
+        );
     }
 }
