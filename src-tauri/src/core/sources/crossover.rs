@@ -33,13 +33,24 @@
 //! (`docs/design/crossover-integration-design.md` §Follow-ups).
 //!
 //! Row shape (design doc §Enumeration): `source = "crossover"`,
-//! `external_id = "<bottle>/<app-key>"` (stable across re-scans, dedup key).
+//! `external_id` = `"<bottle>/<app-key>"` ([`external_id`], stable across
+//! re-scans, dedup key), where `<app-key>` is the stub's
+//! `CFBundleIdentifier` when present ([`stub_bundle_identifier`] — v0.33
+//! reviewer rider, W347; survives a display-name rename) and the display
+//! name otherwise (the only option for the `.cxmenu`-fallback path). The
+//! `<bottle>/` prefix keeps the same app installed in two bottles as two
+//! distinct rows. No DB migration accompanies the bundle-id preference —
+//! before its upsert pass, the scan command re-keys any legacy
+//! `"<bottle>/<display-name>"` row in place to the new key
+//! ([`legacy_external_id`] + `LibraryRepo::rekey_game_external_id`,
+//! preserving the row id and play history) so an existing row transitions
+//! instead of duplicating.
 //! Launcher-stub bundles live only under `~/Applications/CrossOver/`, so they
 //! cannot overlap the Steam/app/GOG/itch scanners' claimed trees; asserted by
 //! a fixture test anyway.
 //!
 //! **Launch-descriptor shape produced here (v0.33 W332 implements the
-//! launcher — `core::launch::crossover_launcher`):**
+//! launcher — `core::launch::external`):**
 //! - Stub exists: `{ "kind": "app", "bundle_path": "<stub .app path>" }` —
 //!   identical shape to every other app-launched source, so it reuses the
 //!   `app` launcher unmodified.
@@ -49,12 +60,14 @@
 //!
 //! [`default_app_bundle_candidates`] / [`locate_app_bundle`] are the single
 //! source of truth for "where does `CrossOver.app` live" — both this
-//! scanner's presence check and `core::launch::crossover_launcher`'s
+//! scanner's presence check and `core::launch::external`'s
 //! `cxstart` path resolution call through them rather than each keeping its
 //! own candidate list.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
 
 use super::{DiscoveredGame, GameSourceScanner};
 use crate::db::repo::library::GameSource;
@@ -105,6 +118,20 @@ struct BottleConf {
 struct CxMenuLink {
     name: Option<String>,
     target: Option<String>,
+}
+
+/// The single `Info.plist` field this module reads from a launcher-stub
+/// bundle (v0.33 reviewer rider, W347): the stub's `CFBundleIdentifier`,
+/// when present, is a stable macOS-assigned id CrossOver mints once per
+/// installed app — preferred as the app-key half of the
+/// `<bottle>/<app-key>` external id because it survives a display-name
+/// rename, unlike the display-name fallback. Every other `Info.plist` field
+/// is ignored by `plist`'s serde support, same pattern as
+/// `sources::app_scan::InfoPlist`.
+#[derive(Debug, Deserialize)]
+struct StubInfoPlist {
+    #[serde(rename = "CFBundleIdentifier")]
+    bundle_identifier: Option<String>,
 }
 
 /// Scans CrossOver's bottle root and launcher-stub tree for installed
@@ -206,10 +233,13 @@ impl CrossoverScanner {
                 continue; // non-UTF8 stub name — skip this entry, don't fail the scan
             };
             let stub_path = path.to_string_lossy().into_owned();
+            let app_key =
+                stub_bundle_identifier(&path).unwrap_or_else(|| app_name.to_string());
+            let id = external_id(bottle_id, &app_key);
             games.push(DiscoveredGame {
                 name: app_name.to_string(),
                 source: GameSource::Crossover,
-                external_id: Some(external_id(bottle_id, app_name)),
+                external_id: Some(id),
                 launch_descriptor: serde_json::json!({
                     "kind": "app",
                     "bundle_path": stub_path,
@@ -280,7 +310,7 @@ fn dirs_home() -> PathBuf {
 /// `~/Applications/CrossOver.app`), in lookup-preference order.
 ///
 /// Shared by [`CrossoverScanner::default_location`] (detection-only — is
-/// CrossOver installed at all) and `core::launch::crossover_launcher` (v0.33
+/// CrossOver installed at all) and `core::launch::external` (v0.33
 /// W332 — needs the actual bundle path to build the `cxstart` CLI path), so
 /// the candidate-roots list is defined exactly once.
 pub fn default_app_bundle_candidates() -> Vec<PathBuf> {
@@ -308,9 +338,43 @@ fn first_existing_dir(candidates: Vec<PathBuf>) -> Option<PathBuf> {
 }
 
 /// Build the stable `(source, external_id)` dedup key for one bottle+app pair
-/// (design doc §Enumeration: `"<bottle>/<app-key>"`).
+/// (design doc §Enumeration: `"<bottle>/<app-key>"`). `app_key` is the stub's
+/// `CFBundleIdentifier` when it carries one ([`stub_bundle_identifier`]) and
+/// the display name otherwise — the only option for the `.cxmenu`-fallback
+/// path (no bundle to read a plist from). Bottle directory names cannot
+/// contain `/`, so the `<bottle>/` prefix is unambiguous.
 fn external_id(bottle_id: &str, app_key: &str) -> String {
     format!("{bottle_id}/{app_key}")
+}
+
+/// The legacy pre-W347 external id (`"<bottle>/<display-name>"`) a
+/// discovery's library row may still be keyed under from a v0.33 scan, or
+/// `None` when it would equal the current key (display-name-keyed
+/// discoveries never changed shape, so there is nothing to re-key). The
+/// bottle id is recovered from the current key's `<bottle>/` prefix — safe
+/// because bottle ids are directory names, which cannot contain `/`. Used
+/// by the scan command's re-key pass (`commands::sources`) so a
+/// bundle-id-keyed re-scan moves the old row in place instead of letting
+/// the `(source, external_id)` upsert insert a duplicate.
+pub fn legacy_external_id(current_external_id: &str, display_name: &str) -> Option<String> {
+    let (bottle_id, _) = current_external_id.split_once('/')?;
+    let legacy = external_id(bottle_id, display_name);
+    (legacy != current_external_id).then_some(legacy)
+}
+
+/// Read a launcher-stub bundle's `CFBundleIdentifier` from its
+/// `Contents/Info.plist`, if present and non-empty (v0.33 reviewer rider,
+/// W347). Preferred as [`external_id`]'s app-key half over the display name
+/// because it is a stable macOS-assigned id that survives a display-name
+/// rename; `None` on any missing/unparseable plist or an absent/blank
+/// identifier field, in which case the caller keys on the display name
+/// instead. No DB migration accompanies this change — the scan command's
+/// re-key pass ([`legacy_external_id`]) moves a legacy display-name-keyed
+/// row onto the bundle-id key in place before the upsert.
+fn stub_bundle_identifier(stub_path: &Path) -> Option<String> {
+    let plist_path = stub_path.join("Contents/Info.plist");
+    let info: StubInfoPlist = plist::from_file(&plist_path).ok()?;
+    info.bundle_identifier.filter(|s| !s.is_empty())
 }
 
 /// Parse a minimal subset of `cxbottle.conf`'s INI-style syntax: `[Section]`
@@ -413,10 +477,32 @@ mod crossover_fixtures {
     }
 
     /// Write a launcher-stub `.app` bundle under
-    /// `<stubs_root>/<bottle_id>/<app_name>.app`.
+    /// `<stubs_root>/<bottle_id>/<app_name>.app`, with no `Info.plist` (the
+    /// plain "no bundle id" shape most fixtures want).
     pub fn write_launcher_stub(stubs_root: &Path, bottle_id: &str, app_name: &str) -> PathBuf {
         let stub = stubs_root.join(bottle_id).join(format!("{app_name}.app"));
         fs::create_dir_all(stub.join("Contents")).unwrap();
+        stub
+    }
+
+    /// Write a launcher-stub `.app` bundle whose `Contents/Info.plist`
+    /// declares `bundle_id` as its `CFBundleIdentifier` (v0.33 reviewer
+    /// rider, W347 — exercises the bundle-id-preferred `external_id` path).
+    pub fn write_launcher_stub_with_bundle_id(
+        stubs_root: &Path,
+        bottle_id: &str,
+        app_name: &str,
+        bundle_id: &str,
+    ) -> PathBuf {
+        let stub = write_launcher_stub(stubs_root, bottle_id, app_name);
+        let plist = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\"><dict>\n\
+             <key>CFBundleIdentifier</key><string>{bundle_id}</string>\n\
+             </dict></plist>"
+        );
+        fs::write(stub.join("Contents/Info.plist"), plist).unwrap();
         stub
     }
 
@@ -615,6 +701,140 @@ mod tests {
         let games = scanner.scan().unwrap();
 
         assert_eq!(games.len(), 1);
+    }
+
+    // --- external_id: bundle-id preference (v0.33 reviewer rider, W347) ---
+
+    #[test]
+    fn a_stub_with_a_bundle_id_keys_external_id_on_the_bottle_and_bundle_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_launcher_stub_with_bundle_id(
+            &stubs_root,
+            "Steam",
+            "Half-Life 2",
+            "com.valve.halflife2",
+        );
+
+        let games = scanner.scan().unwrap();
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(
+            games[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    #[test]
+    fn the_same_bundle_id_in_two_bottles_yields_two_distinct_external_ids() {
+        // The <bottle>/ prefix is what keeps the same app installed in two
+        // bottles as two library rows rather than one colliding key.
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_bottle_conf(&bottles_root, "Origin", "Origin", "win10");
+        write_launcher_stub_with_bundle_id(&stubs_root, "Steam", "Half-Life 2", "com.valve.hl2");
+        write_launcher_stub_with_bundle_id(&stubs_root, "Origin", "Half-Life 2", "com.valve.hl2");
+
+        let games = scanner.scan().unwrap();
+
+        let mut ids: Vec<&str> = games
+            .iter()
+            .filter_map(|g| g.external_id.as_deref())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["Origin/com.valve.hl2", "Steam/com.valve.hl2"]);
+    }
+
+    #[test]
+    fn a_stub_without_a_bundle_id_falls_back_to_the_bottle_app_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_launcher_stub(&stubs_root, "Steam", "Half-Life 2");
+
+        let games = scanner.scan().unwrap();
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].external_id.as_deref(), Some("Steam/Half-Life 2"));
+    }
+
+    #[test]
+    fn a_stub_with_a_blank_bundle_id_falls_back_to_the_bottle_app_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_launcher_stub_with_bundle_id(&stubs_root, "Steam", "Half-Life 2", "");
+
+        let games = scanner.scan().unwrap();
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].external_id.as_deref(), Some("Steam/Half-Life 2"));
+    }
+
+    #[test]
+    fn rescanning_a_bundle_id_stub_keys_on_the_bundle_id_each_time() {
+        // Acceptance criterion (release-planning-v0.34.md §2 W347): "CrossOver
+        // re-scan with a bundle-id stub keys on the bundle id."
+        let tmp = tempfile::tempdir().unwrap();
+        let (bottles_root, stubs_root, scanner) = scanner_with_roots(tmp.path());
+        write_bottle_conf(&bottles_root, "Steam", "Steam", "win10");
+        write_launcher_stub_with_bundle_id(
+            &stubs_root,
+            "Steam",
+            "Half-Life 2",
+            "com.valve.halflife2",
+        );
+
+        let first = scanner.scan().unwrap();
+        let second = scanner.scan().unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+        assert_eq!(
+            second[0].external_id.as_deref(),
+            Some("Steam/com.valve.halflife2")
+        );
+    }
+
+    #[test]
+    fn legacy_external_id_recovers_the_display_name_key_for_a_bundle_id_key() {
+        assert_eq!(
+            legacy_external_id("Steam/com.valve.halflife2", "Half-Life 2").as_deref(),
+            Some("Steam/Half-Life 2")
+        );
+    }
+
+    #[test]
+    fn legacy_external_id_is_none_when_the_key_is_already_display_name_shaped() {
+        // Fallback-keyed discoveries never changed shape — nothing to re-key.
+        assert_eq!(legacy_external_id("Steam/Half-Life 2", "Half-Life 2"), None);
+    }
+
+    #[test]
+    fn legacy_external_id_is_none_for_a_key_without_a_bottle_prefix() {
+        assert_eq!(legacy_external_id("com.valve.halflife2", "Half-Life 2"), None);
+    }
+
+    #[test]
+    fn stub_bundle_identifier_returns_none_for_a_stub_with_no_info_plist() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stub = write_launcher_stub(tmp.path(), "Steam", "Half-Life 2");
+
+        assert_eq!(stub_bundle_identifier(&stub), None);
+    }
+
+    #[test]
+    fn stub_bundle_identifier_reads_the_plist_field_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stub =
+            write_launcher_stub_with_bundle_id(tmp.path(), "Steam", "Half-Life 2", "com.valve.hl2");
+
+        assert_eq!(stub_bundle_identifier(&stub), Some("com.valve.hl2".to_string()));
     }
 
     // --- .cxmenu fallback (no launcher-stub directory) ---
