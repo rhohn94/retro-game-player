@@ -1315,6 +1315,54 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         drop(runtime); // stops + joins both threads
     }
 
+    /// W350 pre-merge review follow-up: direct multi-port coverage of
+    /// [`bring_up_core`]'s announce loop itself — not just
+    /// `LibretroCore::set_controller_port_device` in isolation, which
+    /// `host.rs`'s own tests already cover. Drives the real `bring_up_core`
+    /// against the shared port-aware stub (which records EVERY announce call,
+    /// not just the last) and asserts every hosted port was announced as
+    /// `RETRO_DEVICE_JOYPAD`, in port order, all after `retro_load_game`.
+    #[test]
+    fn bring_up_core_announces_a_joypad_on_every_hosted_port_after_load() {
+        use crate::play::native::host::test_support::{
+            build_stub_port_aware_core, decode_announce_probe,
+        };
+        let _guard = crate::play::native::lock_tests();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_port_aware_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let rom_path = dir.path().join("game.nes");
+        std::fs::write(&rom_path, [0u8; 16]).expect("write stub rom");
+
+        let _channels = callbacks::install();
+        let result = match bring_up_core(&dylib, &rom_path, &None) {
+            Ok(result) => result,
+            Err(e) => {
+                callbacks::uninstall();
+                panic!("bring_up_core must succeed against the port-aware stub: {e}");
+            }
+        };
+        let probe = decode_announce_probe(
+            &result.core.sram().expect("stub exposes its announce log via sram()"),
+        );
+        drop(result);
+        callbacks::uninstall();
+
+        let expected: Vec<(u32, u32)> = (0..callbacks::NUM_NATIVE_INPUT_PORTS as u32)
+            .map(|port| (port, RETRO_DEVICE_JOYPAD))
+            .collect();
+        assert_eq!(
+            probe.calls, expected,
+            "every hosted port must be announced as a joypad, in port order"
+        );
+        assert_eq!(
+            probe.calls_before_load, 0,
+            "the announce loop must only run after retro_load_game"
+        );
+    }
+
     /// W350 pre-merge review follow-up (session-start release-all): a stub
     /// core that polls Harmony's real `input_state` callback on its FIRST
     /// `retro_run` tick and encodes what it read into every frame it emits —

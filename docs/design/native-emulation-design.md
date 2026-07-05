@@ -1149,7 +1149,11 @@ them later — only the constant and the frontend's port-assignment policy.
   `retro_set_controller_port_device`
   (`set_controller_port_device_reaches_a_core_that_implements_it`) and is a
   silent no-op against one that doesn't (extended into
-  `loads_a_stub_core_and_runs_the_lifecycle`).
+  `loads_a_stub_core_and_runs_the_lifecycle`). The stub records every
+  announce call (not just the last), so `bring_up_core`'s announce loop
+  itself has direct multi-port coverage: ports 0 and 1 are both announced as
+  `RETRO_DEVICE_JOYPAD`, in port order, after `retro_load_game`
+  (`bring_up_core_announces_a_joypad_on_every_hosted_port_after_load`).
 - NES + SNES cohort behavior is unchanged for single-pad sessions — the
   announce call and per-port storage are additive; a session that never
   touches port 1 behaves exactly as the pre-W350 single-mask design did.
