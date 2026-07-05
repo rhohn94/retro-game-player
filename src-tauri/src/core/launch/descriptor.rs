@@ -54,7 +54,7 @@ pub enum LaunchDescriptor {
     /// no macOS launcher-stub bundle for this app (the `.cxmenu` fallback
     /// path — `sources::crossover`'s scanner emits this shape only when a
     /// stub is unavailable), so launching goes through CrossOver's own CLI
-    /// (`cxstart --bottle <bottle> <target>`) instead of `open -a`. Rows with
+    /// (`cxstart --bottle <bottle> -- <target>`) instead of `open -a`. Rows with
     /// a stub instead use the ordinary `App` variant above and reuse its
     /// `open -a` launch path unmodified.
     Crossover {
