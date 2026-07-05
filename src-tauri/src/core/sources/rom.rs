@@ -1,5 +1,7 @@
 //! ROM folder scanner as a `GameSource` (v0.32 W322 — see
-//! `docs/design/non-retro-library-design.md` §ROM scanner on GameSource).
+//! `docs/design/non-retro-library-design.md` §ROM scanner on GameSource;
+//! reconciled onto [`PersistingSource`] in v0.33 W330 — see
+//! `docs/design/crossover-integration-design.md` §Trait shape).
 //!
 //! Migrates the legacy ROM folder scan (formerly `core::library::scan`) onto
 //! the same source abstraction the non-retro scanners (`SteamScanner`,
@@ -8,12 +10,14 @@
 //! discovers stateless [`super::DiscoveredGame`]s the IPC layer upserts
 //! generically), a ROM scan must walk a specific content folder, hash each
 //! candidate, consult the DAT, and dedupe against already-known paths — so it
-//! owns persistence itself via [`RomSource::scan_folder`], exactly as the
-//! legacy `scan_folder_path` did. Behaviour parity (identical rows: hashes,
-//! systems, core hints, art) with the legacy path is the acceptance bar for
-//! this migration; see the regression tests below and in
-//! `core::library::scan`.
+//! owns persistence itself via [`PersistingSource::scan_and_persist`]
+//! (backed by the same logic as the legacy `scan_folder_path`). Behaviour
+//! parity (identical rows: hashes, systems, core hints, art) with the legacy
+//! path is the acceptance bar for this migration; see the regression tests
+//! below and in `core::library::scan`.
 
+use super::PersistingSource;
+pub use super::ScanReport;
 use crate::core::library::dat::DatIndex;
 use crate::core::library::matcher::Matcher;
 use crate::core::library::{hasher, walker};
@@ -23,22 +27,6 @@ use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use std::collections::HashSet;
 use std::path::Path;
-
-/// Summary of a single folder scan, mirroring the TS `ScanReport` (§2.1).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScanReport {
-    /// The content folder that was scanned.
-    pub folder_id: i64,
-    /// Total ROM files the walker found.
-    pub scanned: usize,
-    /// ROMs matched against the DAT (`dat_matched = true`).
-    pub identified: usize,
-    /// ROMs with no DAT match (flagged for the UI).
-    pub unidentified: usize,
-    /// New game rows inserted this scan (excludes already-present paths).
-    pub added: usize,
-}
 
 /// Current Unix epoch seconds, for `added_at`. Centralized so the time source is
 /// named once rather than inlined at each call site.
@@ -75,12 +63,35 @@ impl<'a> RomSource<'a> {
     /// Existing `games.path` rows are skipped (dedup), so repeated scans
     /// converge. A per-file read/hash failure is logged into the `scanned`
     /// count but does not abort the scan.
+    ///
+    /// Thin, back-compat wrapper over [`PersistingSource::scan_and_persist`]
+    /// (v0.33 W330) — kept as an inherent method so existing call sites
+    /// (`core::library::scan::scan_folder_path`, this module's own tests)
+    /// don't need the trait in scope or a tuple-args call shape.
     pub fn scan_folder(
         &self,
         folder_id: i64,
         root: &Path,
         dat: Option<&DatIndex>,
     ) -> AppResult<ScanReport> {
+        self.scan_and_persist(RomScanArgs { folder_id, root, dat })
+    }
+}
+
+/// Scan input for [`RomSource`]'s [`PersistingSource`] implementation: the
+/// folder id new rows attach to, the folder's root path to walk, and the
+/// optional DAT index for identification.
+pub struct RomScanArgs<'a> {
+    pub folder_id: i64,
+    pub root: &'a Path,
+    pub dat: Option<&'a DatIndex>,
+}
+
+impl<'a> PersistingSource for RomSource<'a> {
+    type Args<'b> = RomScanArgs<'b>;
+
+    fn scan_and_persist(&self, args: Self::Args<'_>) -> AppResult<ScanReport> {
+        let RomScanArgs { folder_id, root, dat } = args;
         let repo = LibraryRepo::new(self.db);
 
         // Existing paths under this folder — the dedup set. We also dedup within

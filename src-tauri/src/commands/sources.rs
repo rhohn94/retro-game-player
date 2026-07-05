@@ -38,7 +38,7 @@ use crate::core::sources::app_scan::AppScanner;
 use crate::core::sources::gog::GogScanner;
 use crate::core::sources::itch::ItchScanner;
 use crate::core::sources::steam::SteamScanner;
-use crate::core::sources::{DiscoveredGame, GameSourceScanner};
+use crate::core::sources::{DiscoveredGame, GameSourceScanner, SourceKind};
 use crate::db::repo::library::{GameSource, LibraryRepo, NewGame};
 use crate::db::repo::Repository;
 use crate::db::Db;
@@ -127,8 +127,12 @@ fn now_epoch_secs() -> i64 {
 fn spawn_art_acquisition(game_id: i64, source: GameSource, art_hint: Option<String>) {
     // ROM art goes through the libretro-thumbnails pipeline
     // (`core::metadata::fallback`), not this non-retro path — bail before
-    // spawning anything so a `rom` row never touches this thread/dir at all.
-    if source == GameSource::Rom {
+    // spawning anything so a persisting-tier row (today only `rom`) never
+    // touches this thread/dir at all. Dispatches on the shared `SourceKind`
+    // tier (v0.33 W330) rather than naming `GameSource::Rom` directly, so a
+    // future persisting source is excluded from this discover-only art path
+    // automatically.
+    if SourceKind::of(source) == SourceKind::Persisting {
         return;
     }
     // No scanner-supplied hint means neither the Steam-CDN rung (needs an
