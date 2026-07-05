@@ -7,6 +7,24 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.36 — Spring Cleaning (2026-07-05)
+
+A quality release: nothing new to click, everything sturdier underneath.
+
+- **Crashes are no longer invisible.** The app now records unexpected errors
+  on both sides of the house — a native panic hook, browser-side error
+  handlers, and a safety net that shows a friendly fallback instead of a
+  blank screen if a page ever fails to render.
+- **Errors that used to vanish are now logged.** Dozens of quiet failure
+  points (art lookups, scans, link probes) now report what went wrong
+  instead of swallowing it.
+- **Faster, safer changes ahead.** The two largest source files — the search
+  page and the native emulation runtime — were split into focused modules,
+  duplicated code across settings panes and the data layer was collapsed,
+  and dead code was removed.
+- **More tests.** 90 new unit tests across search logic, library import, the
+  IPC bridge, and native command handlers (1,438 total).
+
 ## v0.35 — Player Two (2026-07-05)
 
 Grab a second controller — it just works. Two-player NES and SNES, with the
