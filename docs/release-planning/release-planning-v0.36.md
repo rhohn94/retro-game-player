@@ -247,7 +247,7 @@ branch names carry the `-v036pN-NN` suffix.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.36 |
 |---|---|---|---|---|
 | `w361-silent-catch-remediation-v036p2-00` (W361) | ☑ n/a | ☑ | ☑ | ☑ |
-| `w367-test-depth` (W367) | ☐ | ☐ | ☐ | ☐ |
+| `w367-test-depth-v036p2-01` (W367) | ☑ n/a | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -299,6 +299,14 @@ branch names carry the `-v036pN-NN` suffix.
   bare try/catch (outside the `.catch` audit scope); a few high-frequency
   sites route at 'info' severity — revisit levels once real telemetry volume
   is observed post-release.
+- W367 notes: `player_prefs.rs` gained a minimal testability seam
+  (`clamp_volume` extracted, behavior unchanged); `metadata.rs` command-adapter
+  coverage stops at the shared game-lookup branch — CDN-fallback/Wikipedia
+  enrichment stays covered at the `core::metadata` layer only (network +
+  `State<Db>` constructability limits); `cargo clippy --all-targets` still
+  fails on the two pre-existing `type_complexity` findings
+  (`core/search/download.rs:293`, `runtime/tests/hw_render.rs:264`) — clean up
+  separately to unblock a stricter `--tests` lint pass.
 - W366 follow-up: `inputStyle` duplication across
   CoreOptionsPane/GameSourcesPane/ProvidersPane is a candidate for a future
   dedup pass; no React hook/component render-test harness exists (vitest is
