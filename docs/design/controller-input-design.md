@@ -301,17 +301,29 @@ export function connectedPortCount(assignments): number;
 
 `NativePlayer`'s poll tick (the same `requestAnimationFrame` loop that already
 pushed one shared mask pre-W351) now: (1) recomputes `assignPorts` against the
-previous tick's table, (2) for every port `releasedPorts` reports, pushes
-`setNativeInput(0, port)` **exactly once** (not every subsequent tick — the
-zero mask is a one-time release, and the port then simply reports nothing
-until reassigned), then (3) computes and pushes each currently-assigned port's
-mask as before. A later reconnect (the same physical pad or a different one)
-claims the **lowest free port**, not necessarily the port it previously held —
-there is no per-pad memory across a disconnect.
+previous tick's table **every tick — even while the overlay is open or the
+session is a spectator surface** (the recompute feeds the live indicator, see
+§Indicator), then (2) recomputes every port's mask and hands it to a memoized
+per-port pusher (`portInputPusher.ts`): an unchanged mask never re-sends, and
+a port whose pad just disconnected recomputes to a zero mask pushed **exactly
+once** (the one-time release — the port then simply reports nothing until
+reassigned). A push the IPC layer rejects rolls the pusher's memo back so a
+later tick **retries**; a failed release can never leave the previous mask
+held backend-side. A same-tick swap (one pad out, another in, in the same
+tick) hands the port over directly — `releasedPorts` is empty and no
+intermediate zero mask is sent. Only the PUSHES are gated while the
+overlay/spectator state holds: those transitions already released every port
+via `releaseAllNativeInput()`, so the gated poll just marks the pusher's memo
+all-zero (`markAllReleased`) instead of sending — resuming re-sends any mask
+still physically held, and a pad that left while paused owes no push of its
+own. A later reconnect (the same physical pad or a different one) claims the
+**lowest free port**, not necessarily the port it previously held — there is
+no per-pad memory across a disconnect.
 
 Two release paths matter and stay independent:
-- **A per-port zero-mask push** (above) is the disconnect signal for the
-  now-unassigned port specifically.
+- **A per-port zero-mask push** (above — the pusher sending the recomputed
+  zero mask) is the disconnect signal for the now-unassigned port
+  specifically.
 - **`releaseAllNativeInput()`** (W350's IPC surface) is the "let go of
   everything" signal for overlay-open, spectator handoff, and session
   teardown — `NativePlayer.tsx` migrated its three pre-W351
@@ -337,6 +349,13 @@ state (updated every poll tick from `connectedPortCount`):
 already drives port 0; it becomes "P1 P2" the tick a second pad is assigned a
 port, and reverts live on disconnect — no dedicated event listener, since the
 same poll tick that recomputes assignments also recomputes the label input.
+The recompute is **not** gated on the pause menu — only the input pushes stop
+while the overlay is open — so a second player plugging in at the pause menu
+(the natural moment) sees "P2" appear in the overlay-hosted indicator
+immediately, without closing the menu first. The screen-reader label
+(`playerCountAriaLabel`, playerCountLabel.ts) additionally distinguishes the
+zero-pad state ("keyboard plays as player one") from one connected
+controller.
 
 ### Non-goals (explicit)
 
