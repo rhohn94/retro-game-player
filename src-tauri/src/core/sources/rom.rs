@@ -27,7 +27,7 @@ use crate::db::repo::Repository;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Current Unix epoch seconds, for `added_at`. Centralized so the time source is
 /// named once rather than inlined at each call site.
@@ -178,33 +178,45 @@ impl<'a> PersistingSource for RomSource<'a> {
         // that a `.cue` already claimed — stays unscanned, exactly as today.
         let disc_candidates = walker::walk_disc_candidates(root);
 
-        // `.bin` files referenced by any `.cue` in this folder are the cue
-        // set's own track data, not independent candidates — a `.cue`
-        // (identified or not) always claims its first data track, so that
-        // `.bin` is never separately sniffed/counted/persisted. This is what
-        // collapses a cue/bin pair to exactly one row keyed on the `.cue`.
-        let claimed_bins: HashSet<PathBuf> = disc_candidates
+        // Files referenced by any `.cue` in this folder are that cue set's
+        // own track data, not independent candidates — a `.cue` (identified
+        // or not) claims EVERY file its `FILE` lines reference, so none of
+        // them is separately sniffed/counted/persisted. This is what
+        // collapses a cue/bin set to exactly one row keyed on the `.cue`.
+        // Claims are compared case-insensitively via [`claim_key`] (macOS's
+        // default filesystem is case-insensitive, so a cue's `FILE`
+        // reference may spell the on-disk name differently).
+        let claimed_bins: HashSet<String> = disc_candidates
             .iter()
             .filter(|cand| is_cue(&cand.path))
-            .filter_map(|cand| disc_ident::first_referenced_bin(&cand.path))
+            .flat_map(|cand| disc_ident::referenced_files(&cand.path))
+            .map(|path| claim_key(&path))
             .collect();
 
         let identifications: Vec<DiscIdentification> = disc_candidates
             .iter()
-            .filter(|cand| !(is_bin(&cand.path) && claimed_bins.contains(&cand.path)))
+            .filter(|cand| !(is_bin(&cand.path) && claimed_bins.contains(&claim_key(&cand.path))))
             .filter_map(|cand| disc_ident::sniff_disc_image(&cand.path))
             .collect();
 
         for ident in &identifications {
             scanned += 1;
-            identified += 1;
 
             let path_str = ident.canonical_path.to_string_lossy().to_string();
-            let bytes = match std::fs::read(&ident.canonical_path) {
+            // Disc-row hashes are PREFIX-WINDOW hashes: only the leading
+            // [`DISC_HASH_PREFIX_BYTES`] are hashed (a `.bin`/`.chd` can be
+            // multi-GB, and DAT matching does not apply to disc rows this
+            // release); a `.cue` is tiny text far below the window, so it is
+            // still hashed in full.
+            let bytes = match read_disc_hash_window(&ident.canonical_path) {
                 Ok(b) => b,
-                Err(_) => continue,
+                Err(_) => continue, // unreadable — counted as scanned, never identified
             };
-            let size_bytes = bytes.len() as i64;
+            identified += 1;
+            // Row size is the file's true on-disk size, not the hash window's.
+            let size_bytes = std::fs::metadata(&ident.canonical_path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(bytes.len() as i64);
             let hashes = hasher::hash_rom(&bytes, &ident.system);
             let outcome = matcher.match_rom(&hashes, &ident.canonical_path);
             let core_hint = mapper::core_hint_for_system(&ident.system).map(str::to_string);
@@ -272,6 +284,35 @@ fn persist_new_game(
         Err(AppError::Conflict(_)) => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// How many leading bytes of an identified disc image are hashed for its
+/// library row's `crc32`/`md5`. A `.bin`/`.chd` can be multi-GB, so hashing
+/// the whole file is prohibitive — and DAT matching does not apply to disc
+/// rows this release, so a stable dedup/change fingerprint is all the hash
+/// needs to be. Every real `.cue` is far smaller than the window and is
+/// therefore hashed in full.
+const DISC_HASH_PREFIX_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB
+
+/// Read the bounded hash window from the start of `path`: at most
+/// [`DISC_HASH_PREFIX_BYTES`], or the whole file when it is smaller.
+fn read_disc_hash_window(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let mut buf = Vec::new();
+    file.take(DISC_HASH_PREFIX_BYTES).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Case-folded canonical key for cue-claim comparisons: the path is
+/// canonicalized when it exists (resolving `.`/symlinks) and lowercased, so
+/// a cue `FILE` reference and the walker's on-disk spelling compare equal on
+/// a case-insensitive filesystem (macOS's default) regardless of case.
+fn claim_key(path: &Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_lowercase()
 }
 
 /// True when `path`'s extension (case-insensitive) is `.cue`.
@@ -437,43 +478,25 @@ mod tests {
 
     // --- Disc-image identification (W343) -----------------------------
 
-    /// Bytes for a minimal, sparse ISO9660 image carrying the PS1 licence
-    /// string, matching the fixture in `core::library::disc_ident`'s tests.
+    use crate::core::library::disc_ident::fixtures as disc_fixtures;
+
+    /// A raw MODE2/2352 PS1 dump, byte-faithful to a real cue/bin dump
+    /// (shared fixture builder from `core::library::disc_ident`).
     fn ps1_disc_bytes() -> Vec<u8> {
-        const SECTOR: usize = 2048;
-        const PVD_SECTOR: usize = 16;
-        let mut image = vec![0u8; (PVD_SECTOR + 1) * SECTOR];
-        image[0..b"PLAYSTATION".len()].copy_from_slice(b"PLAYSTATION");
-        let pvd_start = PVD_SECTOR * SECTOR;
-        image[pvd_start] = 1;
-        image[pvd_start + 1..pvd_start + 6].copy_from_slice(b"CD001");
-        image
+        disc_fixtures::ps1_raw_bin()
     }
 
     /// Bytes for a `.bin` with no PS1 signature at all.
     fn non_ps1_disc_bytes() -> Vec<u8> {
-        vec![0xABu8; 4096]
+        disc_fixtures::non_ps1_bytes()
     }
 
-    /// Bytes for a minimal CHD v5 file whose metadata embeds the PS1 licence
-    /// string, matching `core::library::disc_ident`'s CHD fixture shape.
-    fn ps1_chd_bytes() -> Vec<u8> {
-        const HEADER_LEN: usize = 124;
-        const METAOFFSET_OFFSET: usize = 48;
-        let mut file = vec![0u8; HEADER_LEN];
-        file[0..8].copy_from_slice(b"MComprHD");
-        file[8..12].copy_from_slice(&(HEADER_LEN as u32).to_be_bytes());
-        file[12..16].copy_from_slice(&5u32.to_be_bytes());
-        let metaoffset = file.len() as u64;
-        file[METAOFFSET_OFFSET..METAOFFSET_OFFSET + 8].copy_from_slice(&metaoffset.to_be_bytes());
-
-        let payload = b"TRACK:1 TYPE:MODE2/2352 PLAYSTATION disc image";
-        file.extend_from_slice(b"CHT2");
-        let length_and_flags = payload.len() as u32 & 0x00FF_FFFF;
-        file.extend_from_slice(&length_and_flags.to_be_bytes());
-        file.extend_from_slice(&0u64.to_be_bytes());
-        file.extend_from_slice(payload);
-        file
+    /// A **synthetic** CHD v5 file whose hand-tagged metadata embeds a PS1
+    /// marker. Real chdman metadata never carries one — real PS1 `.chd`
+    /// images are NOT identified in v0.34 (issue #49); this only exercises
+    /// the scan wiring over `disc_ident`'s header/metadata parser.
+    fn synthetic_ps1_chd_bytes() -> Vec<u8> {
+        disc_fixtures::synthetic_chd_v5(b"HAND-TAGGED: PLAYSTATION disc image")
     }
 
     fn add_folder(repo: &LibraryRepo<'_>, root: &Path) -> i64 {
@@ -510,13 +533,15 @@ mod tests {
     }
 
     #[test]
-    fn chd_ps1_fixture_scans_to_a_ps1_row() {
+    fn synthetic_chd_metadata_fixture_scans_to_a_ps1_row() {
+        // SYNTHETIC metadata fixture — real PS1 `.chd` images return None in
+        // v0.34 (see `disc_ident`'s module-doc limitation / issue #49).
         let db = Db::open_in_memory().unwrap();
         let repo = LibraryRepo::new(&db);
         let root = temp_dir("chd-ps1");
         let fid = add_folder(&repo, &root);
 
-        fs::write(root.join("Game.chd"), ps1_chd_bytes()).unwrap();
+        fs::write(root.join("Game.chd"), synthetic_ps1_chd_bytes()).unwrap();
 
         let report = RomSource::new(&db).scan_folder(fid, &root, None).unwrap();
         assert_eq!(report.identified, 1);
@@ -599,6 +624,101 @@ mod tests {
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].system.as_deref(), Some("nes"));
         assert_eq!(games[0].clean_name, "Mario (World)");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn multi_file_cue_claims_every_referenced_track() {
+        // Track 2 would independently sniff positive if it were its own
+        // candidate — every FILE-line reference must be claimed, not just
+        // the first, so the set still collapses to one row on the cue.
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let root = temp_dir("multi-file-cue-claims");
+        let fid = add_folder(&repo, &root);
+
+        fs::write(root.join("track01.bin"), ps1_disc_bytes()).unwrap();
+        fs::write(root.join("track02.bin"), ps1_disc_bytes()).unwrap();
+        fs::write(
+            root.join("Game.cue"),
+            "FILE \"track01.bin\" BINARY\n  TRACK 01 MODE2/2352\n\
+             FILE \"track02.bin\" BINARY\n  TRACK 02 MODE2/2352\n",
+        )
+        .unwrap();
+
+        let report = RomSource::new(&db).scan_folder(fid, &root, None).unwrap();
+        assert_eq!(report.added, 1, "every FILE-referenced track is claimed by the cue");
+
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1);
+        assert!(games[0].path.as_deref().unwrap().ends_with("Game.cue"));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn case_mismatched_cue_file_reference_still_claims_the_bin() {
+        // macOS's default filesystem is case-insensitive: the cue references
+        // "track01.bin" while the on-disk file is "TRACK01.BIN" — the claim
+        // comparison must be case-insensitive so the bin never becomes its
+        // own candidate row.
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let root = temp_dir("case-mismatch-claim");
+        let fid = add_folder(&repo, &root);
+
+        fs::write(root.join("TRACK01.BIN"), ps1_disc_bytes()).unwrap();
+        fs::write(root.join("Game.cue"), "FILE \"track01.bin\" BINARY\n  TRACK 01 MODE2/2352\n")
+            .unwrap();
+
+        let report = RomSource::new(&db).scan_folder(fid, &root, None).unwrap();
+        assert_eq!(report.added, 1, "case-mismatched reference still collapses to one row");
+
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1);
+        assert!(games[0].path.as_deref().unwrap().ends_with("Game.cue"));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn claim_key_is_case_insensitive_for_the_same_file() {
+        let root = temp_dir("claim-key");
+        fs::write(root.join("A.BIN"), b"x").unwrap();
+        assert_eq!(claim_key(&root.join("A.BIN")), claim_key(&root.join("a.bin")));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn read_disc_hash_window_reads_small_files_whole() {
+        let root = temp_dir("hash-window");
+        let path = root.join("small.cue");
+        fs::write(&path, b"FILE \"a.bin\" BINARY\n").unwrap();
+        assert_eq!(read_disc_hash_window(&path).unwrap(), fs::read(&path).unwrap());
+        assert!(read_disc_hash_window(&root.join("ghost.bin")).is_err());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn disc_row_size_is_true_file_size_and_hash_is_prefix_window() {
+        // The row's size_bytes must be the on-disk size even though the hash
+        // is computed over a bounded prefix window.
+        let db = Db::open_in_memory().unwrap();
+        let repo = LibraryRepo::new(&db);
+        let root = temp_dir("disc-size");
+        let fid = add_folder(&repo, &root);
+
+        let bin = ps1_disc_bytes();
+        fs::write(root.join("Game.bin"), &bin).unwrap();
+        fs::write(root.join("Game.cue"), "FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n")
+            .unwrap();
+
+        RomSource::new(&db).scan_folder(fid, &root, None).unwrap();
+        let games = repo.list_games(None).unwrap();
+        assert_eq!(games.len(), 1);
+        let cue_len = fs::metadata(root.join("Game.cue")).unwrap().len() as i64;
+        assert_eq!(games[0].size_bytes, cue_len);
 
         fs::remove_dir_all(&root).ok();
     }
