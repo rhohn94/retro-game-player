@@ -59,12 +59,13 @@ import { useCrtFilter } from "./useCrtFilter";
 import { FpsCounter } from "./fpsCounter";
 import { FpsCounterOverlay } from "./FpsCounterOverlay";
 import { useShowFpsCounter } from "./useShowFpsCounter";
-import { assignPorts, connectedPortCount, emptyAssignments, padForPort, releasedPorts } from "./gamepadAssignment";
+import { assignPorts, connectedPortCount, emptyAssignments, padForPort } from "./gamepadAssignment";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { parseFrameBuffer } from "./nativeFrame";
 import { computeJoypadBits, isBoundKey } from "./nativeInput";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { PlayerCountIndicator } from "./PlayerCountIndicator";
+import { PortInputPusher } from "./portInputPusher";
 import {
   playerShellClass,
   presentationIsSpectator,
@@ -137,7 +138,10 @@ export function NativePlayer({
   // a slot) — drives the quiet "P1"/"P1 P2" indicator
   // (controller-input-design.md §Two-player capture). Updated live from the
   // same poll tick that computes per-port input, so it tracks
-  // connect/disconnect without a separate listener.
+  // connect/disconnect without a separate listener — and unlike the input
+  // PUSHES it is never gated on the overlay/spectator state, so a second pad
+  // plugging in at the pause menu updates the overlay-hosted indicator
+  // immediately.
   const [connectedPadCount, setConnectedPadCount] = useState(0);
 
   // W273: a preview session is a no-trace spectator session end-to-end —
@@ -309,11 +313,12 @@ export function NativePlayer({
     let cancelled = false;
     let frameHandle = 0;
     const heldKeys = new Set<string>();
-    // v0.35 W351: one last-sent bitmask per port (index = port), so each
-    // port's IPC push is independently short-circuited — a change on port 1
-    // must not force a redundant re-send on port 0's unchanged mask.
-    // -1 never matches a real bitmask, so the first tick always sends.
-    const lastSentBits = [-1, -1];
+    // v0.35 W351: memoized per-port mask delivery (portInputPusher.ts, sized
+    // from NUM_NATIVE_PLAY_PORTS) — each port's IPC push is independently
+    // short-circuited (a change on port 1 must not force a redundant re-send
+    // on port 0's unchanged mask), a disconnected port's zero-mask release
+    // sends exactly once, and a push the IPC layer rejects retries next tick.
+    const inputPusher = new PortInputPusher(setNativeInput);
     let portAssignments = emptyAssignments();
     // v0.34 W345: a fresh session starts back at "unknown aspect" (the CSS
     // 4/3 default) until its first real frame reports one — a game switch
@@ -381,36 +386,42 @@ export function NativePlayer({
     window.addEventListener("focus", onFocus);
 
     const pollInput = () => {
-      // Paused behind the overlay or spectating — nothing reaches the core.
-      if (overlayOpenRef.current || spectatorRef.current) return;
-      // v0.35 W351: poll ALL connected pads and assign them to ports
-      // (gamepadAssignment.ts — first-connected -> port 0, second -> port 1,
-      // keyed by stable Gamepad.index). A pad unplugged mid-game releases its
-      // port exactly once (`releasedPorts`); a later reconnect claims the
-      // lowest free port.
+      // v0.35 W351: poll ALL connected pads and assign them to ports EVERY
+      // tick (gamepadAssignment.ts — first-connected -> port 0, second ->
+      // port 1, keyed by stable Gamepad.index; a later reconnect claims the
+      // lowest free port). This recompute deliberately runs above the
+      // overlay/spectator gate below: the pause menu hosts the live
+      // PlayerCountIndicator, and a second player plugging in AT the menu
+      // (the natural moment to do so) must see "P2" appear without having to
+      // close it first.
       const connected = navigator.getGamepads?.() ?? [];
-      const nextAssignments = assignPorts(connected, portAssignments);
-      for (const port of releasedPorts(portAssignments, nextAssignments)) {
-        lastSentBits[port] = 0;
-        void setNativeInput(0, port).catch(() => undefined);
-      }
-      portAssignments = nextAssignments;
+      portAssignments = assignPorts(connected, portAssignments);
       setConnectedPadCount((count) => {
         const next = connectedPortCount(portAssignments);
         return next === count ? count : next;
       });
 
+      // Paused behind the overlay or spectating — nothing reaches the core.
+      // Both transitions already released every port (releaseAllNativeInput
+      // in openOverlay / the spectator effect), so a pad disconnecting while
+      // gated owes no zero push of its own; marking the pusher released
+      // keeps its per-port memo aligned with that all-zero backend state, so
+      // ungating re-sends any mask still physically held (and a port whose
+      // pad left while gated correctly re-sends nothing).
+      if (overlayOpenRef.current || spectatorRef.current) {
+        inputPusher.markAllReleased();
+        return;
+      }
+
       for (let port = 0; port < portAssignments.length; port++) {
         const gamepad = padForPort(connected, portAssignments, port);
         // Keyboard always merges into port 0 alongside pad 0 (controller-input-design.md
         // §Two-player capture) — every other port reflects its pad alone.
+        // A port whose pad just disconnected recomputes to a zero mask here,
+        // which the pusher sends exactly once (and retries if the IPC push
+        // rejects — a failed release must never leave a stale mask held).
         const bits = computeJoypadBits(port === 0 ? heldKeys : EMPTY_HELD_KEYS, gamepad);
-        if (bits !== lastSentBits[port]) {
-          lastSentBits[port] = bits;
-          void setNativeInput(bits, port).catch(() => {
-            /* a missed input tick isn't fatal — the next poll retries */
-          });
-        }
+        inputPusher.push(port, bits);
       }
     };
 
