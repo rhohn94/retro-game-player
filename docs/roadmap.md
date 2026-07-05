@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.35 — Player Two (in flight)
+## v0.35 — Player Two (implementation complete — pending release)
 
 **Theme:** Two-controller multiplayer for NES and SNES (user directive,
 2026-07-05) — a second connected controller is picked up automatically by
