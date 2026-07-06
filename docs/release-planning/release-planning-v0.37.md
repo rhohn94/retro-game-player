@@ -143,6 +143,33 @@ art; document that limit honestly in `tv-mode-design.md`.
 - **Branch:** `w376-attract-all-consoles`
 - **Design:** `tv-mode-design.md` §W273 (extend in place).
 
+### W377 — TV-mode aesthetics: drop chrome header + scrims, drop-shadow legibility (user directive)
+
+User directive (2026-07-06, mid-release rider): "Revise aesthetics of TV
+mode: Remove 'Retro Game Player' header and the dark background overlay.
+Instead, give text a drop shadow to aid with legibility." Three parts:
+(1) remove the shell header row (`rgp-tv-shell__label` / `__header` in
+`TvShell.tsx` + `tv-shell.css`) — the freed vertical space goes to content
+(interacts with W375's banner-over-hero work; W377 runs after W375 lands).
+(2) Remove the dark background overlay layers: the full-bleed attract
+`preview-scrim` (`tv-home.css` — `color-mix(… 45%, transparent)` wash) and
+the hero gradient scrim treatment, so backdrop art / attract previews show
+un-washed. (3) Restore legibility with drop shadows on the text itself:
+extend the existing `text-shadow` precedent (`tv-home.css` hero copy) to
+all TV-mode copy over art — hero title/meta, rail titles, tile labels,
+shell chrome buttons. Keep controller-nav focus treatments intact; update
+`tv-mode-design.md` and the two-viewport screenshot check like W375.
+
+- **Acceptance:** the "Retro Game Player" header is gone (shell test
+  updated) and no vertical space is reserved for it; the preview scrim and
+  hero scrim washes are removed (backdrop/preview renders un-dimmed by
+  overlay layers); every TV-mode text surface over art carries a drop
+  shadow and stays legible at 1920×1080 and 1512×982 (visual-inspect
+  smoke); controller nav and existing rail/tile tests stay green;
+  `tv-mode-design.md` updated; all suites green; `recipe.py smoke` passes.
+- **Branch:** `w377-tv-aesthetics`
+- **Design:** `tv-mode-design.md` (extend §v0.37).
+
 ### W373 — Collections (closes #21)
 
 The unshipped half of issue #21. Migration `015_collections.sql`:
@@ -214,12 +241,21 @@ documented viewports (1920×1080, 1512×982).
 W371's client; its migration numbers after W373's 015; touches the player
 overlay and detail page) ∥ W376 (attract rider — TV attract surfaces +
 EJS preview glue: `useAttractDwell.ts`, `TvHome.tsx` attract wiring,
-`InPagePlayer`/`player.html` preview mode, `presentation.ts`; disjoint
-from W372's overlay-toast/detail/migration files, so both run in
-parallel; merge W372 first as a precaution).
+`InPagePlayer`/`player.html` preview mode, `presentation.ts`) ∥ W377
+(TV aesthetics — `TvShell.tsx`, `tv-shell.css`, `tv-home.css` scrim/
+text-shadow work). All three are dispatchable in parallel (W372 is fully
+disjoint; W376 and W377 overlap only in `tv-home.css`), but merge order
+is fixed: **W372 → W376 → W377**, because W377 removes the preview scrim
+that W376's EJS preview renders behind — W377's branch resolves that
+seam last, on top of W376's landed wiring.
 
 Conflict notes:
 
+- W377 depends on W375 having landed (both restyle the hero band in
+  `tv-home.css`; W375 keeps "the existing scrim treatment" for the banner
+  overlay, W377 then replaces scrims with drop shadows release-wide) and
+  on W376's preview glue (scrim removal changes what sits over the EJS
+  attract preview). Hence W377 merges last in Pass 2.
 - W373 and W375 both touch TV home: W373 adds rails via
   `useTvLibrary`/`buildRails`; W375 is hero/banner CSS + `TvHome.tsx`
   markup. Overlap risk is real but small — merge W375 before W373; if the
@@ -271,6 +307,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 |---|---|---|---|---|
 | `w372-unlock-experience` (W372) | ☐ | ☐ | ☐ | ☐ |
 | `w376-attract-all-consoles` (W376) | ☐ | ☐ | ☐ | ☐ |
+| `w377-tv-aesthetics` (W377) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
 
