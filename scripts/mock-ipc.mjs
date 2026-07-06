@@ -336,6 +336,12 @@ export const MOCK_FIXTURES = {
   report_ejs_perf_stats: null,
   read_native_perf_log: { lines: [], fpsSeries: [] },
   read_ejs_perf_log: { lines: [], fpsSeries: [] },
+  // v0.37 W371 — RetroAchievements account settings. A fresh install has no
+  // account configured, mirroring the SteamGridDB/Familiar "inert by
+  // default" fixtures above.
+  get_retroachievements_account: { username: null, hasKey: false },
+  save_retroachievements_account: null,
+  validate_retroachievements_account: { status: "notConfigured" },
 };
 
 /** Build the page-init script string that installs the mock IPC global before

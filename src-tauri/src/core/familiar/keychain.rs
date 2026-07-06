@@ -111,6 +111,20 @@ impl KeychainStore {
         Self::default()
     }
 
+    /// Build a store targeting an arbitrary account under the shared
+    /// [`KEYCHAIN_SERVICE`] — the seam later secrets (e.g. the
+    /// RetroAchievements Web API key, v0.37 W371) use to get their own
+    /// Keychain entry without duplicating this struct. No legacy-service
+    /// fallback applies to a brand-new account (that migration only concerns
+    /// the pre-rename Familiar key).
+    pub fn for_account(account: impl Into<String>) -> Self {
+        Self {
+            service: KEYCHAIN_SERVICE.to_string(),
+            legacy_service: LEGACY_KEYCHAIN_SERVICE.to_string(),
+            account: account.into(),
+        }
+    }
+
     fn entry_for(&self, service: &str) -> AppResult<keyring::Entry> {
         keyring::Entry::new(service, &self.account)
             .map_err(|e| AppError::Internal(format!("keychain entry: {e}")))
@@ -203,6 +217,14 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::MemoryKeyStore;
     use super::*;
+
+    #[test]
+    fn for_account_targets_the_shared_service_with_no_legacy_fallback_needed() {
+        let store = KeychainStore::for_account("some-other-account");
+        assert_eq!(store.service, KEYCHAIN_SERVICE);
+        assert_eq!(store.legacy_service, LEGACY_KEYCHAIN_SERVICE);
+        assert_eq!(store.account, "some-other-account");
+    }
 
     #[test]
     fn memory_store_roundtrips() {

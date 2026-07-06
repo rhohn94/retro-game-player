@@ -31,6 +31,7 @@ pub mod crt_filter; // v0.29 W280 — CRT presentation filter config (get/set)
 pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI panel reads
 pub mod sources; // v0.31 W312/W313 — non-ROM game-source scans (Steam, app) + manual entries; v0.32 W320 adds GOG/itch
 pub mod steamgriddb; // v0.32 W321 — SteamGridDB API key settings (get/set)
+pub mod retroachievements; // v0.37 W371 — RetroAchievements account settings (get/save/validate)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -167,6 +168,10 @@ macro_rules! register_commands {
             // SteamGridDB API key settings (v0.32 W321)
             $crate::commands::steamgriddb::get_steamgriddb_api_key,
             $crate::commands::steamgriddb::set_steamgriddb_api_key,
+            // RetroAchievements account settings (v0.37 W371)
+            $crate::commands::retroachievements::get_retroachievements_account,
+            $crate::commands::retroachievements::save_retroachievements_account,
+            $crate::commands::retroachievements::validate_retroachievements_account,
         ])
     };
 }
