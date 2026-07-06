@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.38 — Tune-Up (planning in flight)
+## v0.38 — Tune-Up (implementation complete — pending release)
 
 **Flagship: quality, performance, polish.** A measured pass over the
 engine and the v0.37 surfaces (user directive 2026-07-06): native
