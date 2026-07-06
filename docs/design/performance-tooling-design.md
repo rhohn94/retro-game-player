@@ -205,3 +205,78 @@ real measurement, and reduces `CrtWebglRenderer`'s own per-frame GPU work:
   surface rather than a new field on the Rust-owned `native-perf.log` (the
   IPC frame contract with this release's W380 is frozen, and the log file
   itself has no frontend-writable path).
+
+## Frame-path measurements (v0.38, W380)
+
+**Motivation.** Before this pass, publishing a decoded frame into the shared
+slot took two mutexes back-to-back every tick (`runtime/video.rs::
+publish_frame`: `aspect_ratio` then `latest_frame`), and the frontend's IPC
+poll (`NativeRuntime::latest_frame`, driven by `NativePlayer.tsx`'s rAF
+drain) took a lock on the same `latest_frame` mutex at roughly the same
+cadence the core thread publishes at. Two independent locks contended by two
+threads racing at the same frequency is strictly worse than one — the
+second lock buys no additional safety once the first is held, only a second
+chance to block.
+
+**Scheme chosen: fold the two into one struct behind one lock.** Rather than
+a lock-free atomic-seq + buffer-swap design (more moving parts, harder to
+review, and the risk profile of the frame loop — the riskiest surface in the
+native runtime — argues for the simplest correct thing), `FrameSlot`
+(`runtime/video.rs`) now carries the aspect ratio alongside the sequence
+number and the frame itself:
+
+```rust
+pub(super) struct FrameSlot {
+    pub(super) seq: u64,
+    pub(super) frame: Option<Rgba8Frame>,
+    pub(super) aspect_ratio: Option<f32>,
+}
+```
+
+`publish_frame` and `NativeRuntime::latest_frame()` (the IPC poll) each now
+take exactly one lock instead of two. `drain_environment`'s
+`GeometryChanged` handler (a rare mid-game renegotiation, not a hot path)
+writes `aspect_ratio` through this same lock rather than a dedicated one —
+free simplification, since that write was never itself a contention source.
+The frontend IPC contract (the `(seq, Rgba8Frame)` pair `latest_frame()`
+returns) is unchanged; this is purely an internal locking restructure.
+
+**Buffer pre-sizing.** `frame.rs::to_rgba8_into`'s scratch buffer previously
+grew to whatever geometry the current frame needed, so the very first frame
+after boot (and any frame following a mid-game
+`RETRO_ENVIRONMENT_SET_GEOMETRY` grow) paid a real reallocation. `frame.rs`
+now exposes `max_rgba8_capacity(max_width, max_height)`, and
+`run_core_loop` pre-sizes its `rgba_scratch` with
+`Vec::with_capacity(max_rgba8_capacity(ctx.max_width, ctx.max_height))`
+before the frame loop starts, using the core's own declared
+`retro_game_geometry.max_width`/`max_height` (the libretro contract's
+upper bound on any frame the core will ever deliver) — so steady-state
+conversion was already zero-allocation (pre-W380), and now the first frame
+is too.
+
+**Perf counters (measurable, not asserted).** Two new fields on
+`PerfCounters` (`audio.rs`), surfaced as additive fields on the existing
+`[rgp-native] perf:` line (same convention as W281's percentiles/dropped-video
+fields — appended, prefix untouched):
+
+- `frame_publish_contended` — incremented via a `try_lock` immediately
+  before `publish_frame`'s real (blocking) `lock()`; a failed `try_lock`
+  means the IPC poll held the slot at that instant. Reported as
+  `publish-contended +N` per interval.
+- `video_scratch_reallocs` — incremented inside `to_rgba8_into` whenever the
+  requested size exceeds the buffer's current capacity. Expected to be 0 in
+  steady state after the pre-sizing above; a nonzero count after boot means
+  a core exceeded its own declared max geometry (a core bug the counter now
+  surfaces, not a regression here). Reported as `scratch-realloc +N`.
+
+**Verification.** Frame pacing and A/V behavior are bit-identical — no
+change to `clock.rs`, the frame-time percentile math, or the dropped-video
+counter's semantics. New unit tests (`runtime/video.rs`,
+`play/native/frame.rs`) cover: the single-lock publish path still threads
+the aspect ratio through correctly; `GeometryChanged` writes land on the
+same slot a subsequent publish reads; the pre-sized-buffer fixture (boot at
+a smaller geometry, then a mid-game change up to the declared max) shows
+zero reallocations; and a buffer that must legitimately grow bumps the
+counter exactly once, not once per frame. All pre-existing pacing/video/
+session/stub-core end-to-end tests remain green unmodified in behavior
+(only the two-mutex-to-one-struct plumbing changed in their call sites).
