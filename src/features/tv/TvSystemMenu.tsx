@@ -52,6 +52,12 @@ export function TvSystemMenu() {
   const tvMode = useTvMode();
   const { claimExclusive, setFocus, focusedId } = useController();
 
+  // One real <button> ref per menu row, keyed by item id — lets the effect
+  // below mirror controller/virtual focus onto real DOM focus (issue #34 §1),
+  // mirroring App.tsx's FocusableNavItem `ref.focus()` bridge so Tab and
+  // screen readers track arrow nav here too, not just the visual highlight.
+  const itemRefs = useRef(new Map<string, HTMLButtonElement | null>());
+
   // The selected row lives as controller focus (like every other TV-mode
   // surface): each row registers its own focus id below, seeded onto the
   // first row on open so the panel is immediately controller-operable.
@@ -72,6 +78,18 @@ export function TvSystemMenu() {
   useEffect(() => {
     const idx = TV_MENU_ITEMS.findIndex((i) => i.id === focusedId);
     if (idx !== -1) selectedIndexRef.current = idx;
+  }, [focusedId]);
+
+  // Sync real DOM focus with the active row (issue #34 §1): arrow-key/
+  // gamepad nav only ever moved the virtual `focusedId` highlight, leaving
+  // native `:focus` (and therefore Tab order + screen-reader announcements)
+  // stuck on whatever was last clicked/tabbed. Mirroring it here — the same
+  // "controller focus drives ref.focus()" bridge App.tsx's FocusableNavItem
+  // already uses — keeps both focus models in lockstep.
+  useEffect(() => {
+    if (!focusedId) return;
+    const el = itemRefs.current.get(focusedId);
+    if (el && document.activeElement !== el) el.focus();
   }, [focusedId]);
 
   const closeRef = useRef(tvMode.closeMenu);
@@ -124,6 +142,9 @@ export function TvSystemMenu() {
           return (
             <li key={item.id} role="none">
               <button
+                ref={(el) => {
+                  itemRefs.current.set(item.id, el);
+                }}
                 type="button"
                 role="menuitem"
                 className="rgp-tv-system-menu__item"

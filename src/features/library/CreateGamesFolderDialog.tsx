@@ -10,12 +10,13 @@
  *
  * Reused by both empty states; each caller refreshes its own view in `onCreated`.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { revealItemInDir } from "../../ipc/opener";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { useController } from "../controller";
 import {
   addContentFolder,
   createGamesFolder,
@@ -41,6 +42,21 @@ export function CreateGamesFolderDialog({
   const [error, setError] = useState<string | null>(null);
   // The absolute path once creation succeeds — drives the success confirmation.
   const [createdPath, setCreatedPath] = useState<string | null>(null);
+
+  // Claim the "ui" exclusive slot for the dialog's whole open lifetime (issue
+  // #34 §3, TvSystemMenu precedent above): without this, Back/Escape falls
+  // through to the shell's `navigate(-1)` instead of this dialog's own
+  // onKeyDown Escape handler below — every other action is swallowed so
+  // nothing reaches whatever screen sits underneath while the dialog is up.
+  const { claimExclusive } = useController();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    return claimExclusive((action) => {
+      if (action === "back" || action === "quit") onCloseRef.current();
+    }, "ui");
+  }, [open, claimExclusive]);
 
   // Pre-fill the suggested default path each time the dialog opens, and reset
   // any prior success/error state so a reopen starts on the form.
