@@ -10,6 +10,7 @@ use super::perf::PerfLog;
 use super::session::{CoreAudio, CoreCommand, SRAM_FLUSH_INTERVAL};
 use super::video::{drain_environment, drain_video, FrameSlot};
 use crate::error::{AppError, AppResult};
+use crate::play::achievements::AchievementRuntime;
 use crate::play::native::callbacks::{self, PixelFormat};
 use crate::play::native::clock::FrameClock;
 use crate::play::native::host::LibretroCore;
@@ -60,6 +61,16 @@ pub(super) struct CoreLoop<'a> {
     pub(super) max_height: u32,
     pub(super) stop: &'a AtomicBool,
     pub(super) paused: &'a AtomicBool,
+    /// W370: the per-session RetroAchievements trigger evaluator. Always
+    /// present (constructed empty when no set is loaded — see
+    /// `session::NativeRuntime::start`) so [`AchievementRuntime::do_frame`]'s
+    /// no-set fast path is what every session runs by default.
+    pub(super) achievements: AchievementRuntime,
+    /// Monotonic per-session frame count, stamped onto achievement unlock
+    /// events (see [`AchievementRuntime::do_frame`]) — distinct from
+    /// `counters.frames_run` (a perf counter) so achievements' frame
+    /// numbering is never coupled to perf instrumentation being enabled.
+    pub(super) frame_counter: u64,
 }
 
 /// Drives `retro_run` on an absolute-deadline [`FrameClock`] (`1/fps`
@@ -130,6 +141,22 @@ pub(super) fn run_core_loop(mut ctx: CoreLoop<'_>) {
             break;
         }
         ctx.counters.frames_run.fetch_add(1, Ordering::Relaxed);
+        ctx.frame_counter = ctx.frame_counter.wrapping_add(1);
+        // W370: peek the core's live system RAM straight into rcheevos'
+        // evaluator, immediately after retro_run so achievements see this
+        // frame's memory before anything else (save/load commands,
+        // audio/video drain) has a chance to run. With no achievement set
+        // loaded, `do_frame` is the single `has_active_set` branch the
+        // design doc requires — no allocation, no FFI call.
+        if let Some((ptr, len)) = ctx.core.system_ram_pointer() {
+            // SAFETY: `ptr` was just returned by `system_ram_pointer` on the
+            // core this same call owns, valid for `len` bytes; the core is
+            // not touched again until this borrow ends a few lines below
+            // (achievements' peek callback only reads, never retains the
+            // pointer past `do_frame`'s synchronous return).
+            let system_ram = unsafe { std::slice::from_raw_parts(ptr, len) };
+            ctx.achievements.do_frame(ctx.frame_counter, system_ram);
+        }
         // Before video: a core typically negotiates its pixel format (or,
         // for N64/W345, its HW-render context) once near startup, before its
         // first real video_refresh call.
@@ -180,6 +207,10 @@ fn handle_commands(ctx: &mut CoreLoop<'_>) {
                 let result = load_state_now(ctx, &slot);
                 let _ = reply.send(result);
             }
+            CoreCommand::LoadAchievementSet { set, reply } => {
+                let result = ctx.achievements.load_set(&set);
+                let _ = reply.send(result);
+            }
         }
     }
 }
@@ -200,6 +231,13 @@ fn load_state_now(ctx: &mut CoreLoop<'_>, slot: &str) -> AppResult<()> {
         AppError::Unsupported("save persistence is not configured for this session".into())
     })?;
     let state = saves.read_state(slot)?;
+    // W370 (docs/design/retroachievements-design.md §Evaluation loop): a
+    // core is free to reallocate its backing memory on `retro_unserialize`,
+    // which would invalidate a cached `RETRO_MEMORY_SYSTEM_RAM` pointer.
+    // This wrapper never caches one across frames — the loop above calls
+    // `system_ram_pointer()` fresh every tick — so no explicit
+    // re-fetch/invalidation is needed here; the next tick's peek is already
+    // guaranteed to see whatever pointer the core reports post-restore.
     ctx.core.unserialize(&state)
 }
 

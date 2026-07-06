@@ -24,6 +24,10 @@ pub const RETRO_DEVICE_JOYPAD: u32 = 1;
 
 /// `retro_get_memory_data`/`_size` id for battery-backed save RAM (`.srm`).
 pub const RETRO_MEMORY_SAVE_RAM: u32 = 0;
+/// `retro_get_memory_data`/`_size` id for the emulated system's main work
+/// RAM — the region RetroAchievements' trigger definitions address (W370,
+/// see docs/design/retroachievements-design.md §Evaluation loop).
+pub const RETRO_MEMORY_SYSTEM_RAM: u32 = 2;
 
 pub const RETRO_DEVICE_ID_JOYPAD_B: u32 = 0;
 pub const RETRO_DEVICE_ID_JOYPAD_Y: u32 = 1;
