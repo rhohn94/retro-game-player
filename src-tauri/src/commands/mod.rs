@@ -32,6 +32,7 @@ pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI pane
 pub mod sources; // v0.31 W312/W313 — non-ROM game-source scans (Steam, app) + manual entries; v0.32 W320 adds GOG/itch
 pub mod steamgriddb; // v0.32 W321 — SteamGridDB API key settings (get/set)
 pub mod retroachievements; // v0.37 W371 — RetroAchievements account settings (get/save/validate)
+pub mod collections; // v0.37 W373 — user-created library collections (#21)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
 /// this macro exactly once (in `lib.rs`). Each domain contributes its command
@@ -172,6 +173,15 @@ macro_rules! register_commands {
             $crate::commands::retroachievements::get_retroachievements_account,
             $crate::commands::retroachievements::save_retroachievements_account,
             $crate::commands::retroachievements::validate_retroachievements_account,
+            // library collections (v0.37 W373, #21)
+            $crate::commands::collections::create_collection,
+            $crate::commands::collections::rename_collection,
+            $crate::commands::collections::delete_collection,
+            $crate::commands::collections::list_collections,
+            $crate::commands::collections::add_game_to_collection,
+            $crate::commands::collections::remove_game_from_collection,
+            $crate::commands::collections::list_games_by_collection,
+            $crate::commands::collections::list_collection_ids_for_game,
         ])
     };
 }

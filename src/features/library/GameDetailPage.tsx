@@ -29,6 +29,7 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
 import { artUrl } from "./art";
+import { CollectionPicker } from "./CollectionPicker";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { isNonRetro, launchesViaLabel, sourceBadgeLabel } from "./sourceBadge";
 import { useBoxart } from "./useBoxart";
@@ -217,6 +218,7 @@ export function GameDetailPage() {
               >
                 {game.favorite ? "♥" : "♡"}
               </button>
+              <CollectionPicker gameId={game.id} />
             </div>
             {nonRetro ? (
               <p className="rgp-detail__subtitle">{launchesViaLabel(game.source)}</p>

@@ -100,6 +100,30 @@ describe("mock-ipc fixtures", () => {
     expect(MOCK_FIXTURES.reset_bindings).toBeNull();
   });
 
+  it("shapes list_collections like the CollectionWithCount DTO (v0.37 W373)", () => {
+    expect(Array.isArray(MOCK_FIXTURES.list_collections)).toBe(true);
+    expect(MOCK_FIXTURES.list_collections.length).toBeGreaterThan(0);
+    for (const c of MOCK_FIXTURES.list_collections) {
+      expect(Object.keys(c).sort()).toEqual(["createdAt", "gameCount", "id", "name", "sort"].sort());
+    }
+  });
+
+  it("list_games_by_collection returns games shaped like the Game DTO (v0.37 W373)", () => {
+    expect(Array.isArray(MOCK_FIXTURES.list_games_by_collection)).toBe(true);
+    expect(MOCK_FIXTURES.list_games_by_collection.length).toBeGreaterThan(0);
+    for (const g of MOCK_FIXTURES.list_games_by_collection) {
+      expect(Object.keys(g).sort()).toEqual([...GAME_KEYS].sort());
+    }
+  });
+
+  it("list_collection_ids_for_game returns collection ids present in list_collections (v0.37 W373)", () => {
+    const knownIds = new Set(MOCK_FIXTURES.list_collections.map((c) => c.id));
+    expect(Array.isArray(MOCK_FIXTURES.list_collection_ids_for_game)).toBe(true);
+    for (const id of MOCK_FIXTURES.list_collection_ids_for_game) {
+      expect(knownIds.has(id)).toBe(true);
+    }
+  });
+
   it("builds an init script that installs the Tauri internals shim", () => {
     const script = buildMockIpcInitScript();
     expect(script).toContain("__TAURI_INTERNALS__");
