@@ -92,6 +92,17 @@ pub(crate) fn is_session_active(session: &NativeSession) -> bool {
     lock(session).is_some()
 }
 
+/// Drains every unlock event the running session's achievement runtime has
+/// produced since the last drain (v0.37 W372), or `None` if no session is
+/// running. Mirrors [`is_session_active`]'s "expose behavior, not the
+/// `NativeRuntime` internals" shape — `commands::achievements` needs this
+/// without reaching into `NativeSession`'s private mutex.
+pub(crate) fn drain_unlocks(
+    session: &NativeSession,
+) -> Option<Vec<crate::play::achievements::UnlockEvent>> {
+    lock(session).as_ref().map(native::NativeRuntime::drain_unlocks)
+}
+
 /// Resolves the session's side-effect wiring (v0.27 W273): a PREVIEW session
 /// (the TV hover-attract spectator surface) must leave no trace, so it drops
 /// both the save wiring — `saves: None` structurally disables the SRAM load/
@@ -151,6 +162,7 @@ pub fn start_native_play(
     preview: Option<bool>,
     db: State<'_, Db>,
     session: State<'_, NativeSession>,
+    active_achievements: State<'_, crate::commands::achievements::ActiveAchievementSet>,
 ) -> AppResult<()> {
     if !AppConfig::load(&Paths::app_support()?)?.native_play_enabled {
         return Err(AppError::Unsupported(
@@ -220,6 +232,26 @@ pub fn start_native_play(
     // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
     seed_persisted_core_variables(&db, &system, support.core_id, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
+    // v0.37 W372 (retroachievements-design.md §Unlock UX + persistence): a
+    // preview session (W273 no-trace spectator) never arms achievements —
+    // it must leave exactly as little trace as it does for saves/perf-log,
+    // so `disarm` runs unconditionally and the fetch/load only happens for a
+    // real session. Best-effort: any failure here (no credential, no RA set,
+    // network) leaves the session running achievement-free, never fails the
+    // boot — see `commands::achievements::arm_for_session`'s own doc.
+    if preview.unwrap_or(false) {
+        crate::commands::achievements::disarm(&active_achievements);
+    } else if let Ok(rom_bytes) = std::fs::read(&rom_path) {
+        crate::commands::achievements::arm_for_session(
+            &active_achievements,
+            &runtime,
+            game_id,
+            &system,
+            &rom_bytes,
+        );
+    } else {
+        crate::commands::achievements::disarm(&active_achievements);
+    }
     *guard = Some(runtime);
     Ok(())
 }

@@ -54,10 +54,12 @@ import {
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { AchievementToast } from "./AchievementToast";
 import { CrtWebglRenderer } from "./crtWebglRenderer";
 import { useCrtFilter } from "./useCrtFilter";
 import { FpsCounter } from "./fpsCounter";
 import { FpsCounterOverlay } from "./FpsCounterOverlay";
+import { useAchievementUnlocks } from "./useAchievementUnlocks";
 import { useShowFpsCounter } from "./useShowFpsCounter";
 import { assignPorts, connectedPortCount, emptyAssignments, padForPort } from "./gamepadAssignment";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
@@ -173,6 +175,11 @@ export function NativePlayer({
   // `gameId`/`preview` only — matching this hook's own dependencies).
   // Disabled for previews (W273 purity: no play count / recency / play-time).
   usePlaySession(gameId, presentationRecordsPlaySession(presentation));
+
+  // RetroAchievements unlock toasts (v0.37 W372): polls only for a real,
+  // non-spectator session — a preview never arms achievements backend-side
+  // (W273 purity), so polling it would only waste an IPC round trip.
+  const achievementToast = useAchievementUnlocks(!preview && !spectator);
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.
@@ -578,6 +585,7 @@ export function NativePlayer({
       </div>
       {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
       {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />}
+      {!preview && !spectator && <AchievementToast toast={achievementToast} />}
       {!preview && (
         <div className="rgp-player__bar">
           <PlayerCountIndicator connectedPadCount={connectedPadCount} />

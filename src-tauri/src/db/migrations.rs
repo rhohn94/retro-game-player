@@ -103,6 +103,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/015_collections.sql"),
         requires_fk_off: false,
     },
+    Migration {
+        version: 16,
+        sql: include_str!("migrations/016_achievement_unlocks.sql"),
+        requires_fk_off: false,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -1126,5 +1131,118 @@ mod tests {
             [],
         );
         assert!(dup.is_err(), "a double-add of the same game to the same collection must be rejected");
+    }
+
+    // --- v0.37 W372: RetroAchievements unlock persistence (migration 016) ---
+
+    /// Acceptance: "migration follows the additive-upgrade test convention
+    /// (fixture DB from pre-016)" — seed a v0.37-Pass-1-shaped database
+    /// (through migration 15) with a real game row, then apply the rest and
+    /// confirm 016 lands cleanly without disturbing the existing row.
+    #[test]
+    fn migration_016_applies_to_a_pre_016_fixture_db() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version <= 15) {
+            conn.execute_batch(migration.sql).expect("pre-016 migrate");
+        }
+        set_version(&conn, 15).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/old.nes', 'nes', 'Old Game', 1, 4096, 100)",
+            [],
+        )
+        .unwrap();
+
+        run(&mut conn).expect("apply migration 016 on a pre-016-shaped db");
+
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+        let clean_name: String = conn
+            .query_row(
+                "SELECT clean_name FROM games WHERE path = '/roms/old.nes'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(clean_name, "Old Game", "pre-existing data must survive");
+        let tables: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' \
+                 AND name = 'achievement_unlocks'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 1, "achievement_unlocks table must exist after migration 016");
+    }
+
+    #[test]
+    fn migration_016_is_idempotent() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("first migrate");
+        run(&mut conn).expect("second migrate must not error");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+    }
+
+    /// The `(game_id, achievement_id)` primary key rejects a double-unlock —
+    /// this is the idempotency the repo layer's `record_unlock` relies on
+    /// (`INSERT OR IGNORE` against this same constraint).
+    #[test]
+    fn migration_016_enforces_unique_unlock_per_game() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/a.nes', 'nes', 'A', 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO achievement_unlocks (game_id, achievement_id, unlocked_at) VALUES (1, 42, 100)",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO achievement_unlocks (game_id, achievement_id, unlocked_at) VALUES (1, 42, 200)",
+            [],
+        );
+        assert!(dup.is_err(), "a re-trigger of the same achievement must be rejected");
+    }
+
+    /// Deleting a game cleans up its unlock rows via cascade.
+    #[test]
+    fn migration_016_cascades_on_game_delete() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/a.nes', 'nes', 'A', 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO achievement_unlocks (game_id, achievement_id, unlocked_at) VALUES (1, 42, 100)",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM games WHERE id = 1", []).unwrap();
+        let remaining: i64 = conn
+            .query_row("SELECT count(*) FROM achievement_unlocks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0, "unlock rows must cascade-delete with their game");
     }
 }

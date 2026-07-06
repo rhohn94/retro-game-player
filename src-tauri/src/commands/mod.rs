@@ -32,6 +32,7 @@ pub mod perf_tools; // v0.29 W281 — FPS-counter toggle, EJS perf log, GUI pane
 pub mod sources; // v0.31 W312/W313 — non-ROM game-source scans (Steam, app) + manual entries; v0.32 W320 adds GOG/itch
 pub mod steamgriddb; // v0.32 W321 — SteamGridDB API key settings (get/set)
 pub mod retroachievements; // v0.37 W371 — RetroAchievements account settings (get/save/validate)
+pub mod achievements; // v0.37 W372 — RetroAchievements unlock experience (arm/poll/summary)
 pub mod collections; // v0.37 W373 — user-created library collections (#21)
 
 /// Single source of truth for the Tauri invoke_handler. The builder invokes
@@ -173,6 +174,9 @@ macro_rules! register_commands {
             $crate::commands::retroachievements::get_retroachievements_account,
             $crate::commands::retroachievements::save_retroachievements_account,
             $crate::commands::retroachievements::validate_retroachievements_account,
+            // RetroAchievements unlock experience (v0.37 W372)
+            $crate::commands::achievements::poll_achievement_unlocks,
+            $crate::commands::achievements::get_achievement_summary,
             // library collections (v0.37 W373, #21)
             $crate::commands::collections::create_collection,
             $crate::commands::collections::rename_collection,
