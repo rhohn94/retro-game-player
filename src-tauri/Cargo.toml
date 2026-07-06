@@ -14,6 +14,7 @@ crate-type = ["staticlib", "cdylib", "lib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"                                                   # W370 (static-compiles vendored rcheevos C sources)
 
 # SHARED (append-only): each backend work item adds the crates its domain needs
 # below. Keep one dependency per line, alphabetical, so parallel agents merge by
