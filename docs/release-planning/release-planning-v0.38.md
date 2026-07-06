@@ -326,9 +326,21 @@ variant Fast; branch names carry the `-v038pN-NN` suffix.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.38 |
 |---|---|---|---|---|
-| `w384-achievement-list` (W384) | ☐ | ☐ | ☐ | ☐ |
+| `w384-achievement-list` (W384) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
+
+**Pass 2 (W384; workflow review agent died on a session limit — the
+integration master performed the pre-merge review in-session, verdict
+no-blocking):**
+
+- **W384:** no GameDetailPage mount test (heavy IPC/router/motion deps);
+  AchievementList/AchievementBadge component tests cover
+  unlocked/locked/empty/unconfigured + badge cache-hit/offline instead.
+- **W384:** badge disk cache reuses the one-file-per-name "bounded" shape
+  — same no-hard-cap caveat as the W371 set cache (carried follow-up).
+- **W384:** badge fetch uses an empty-credential client (RA's badge CDN is
+  unauthenticated today) — design-doc note if RA ever adds auth there.
 
 **Pass 1 (one blocking finding — W381's missing durable perf-log field —
 fixed on its `-f1` branch; all else non-blocking):**
