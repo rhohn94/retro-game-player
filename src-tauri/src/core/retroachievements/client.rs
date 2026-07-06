@@ -416,6 +416,33 @@ mod tests {
     }
 
     #[test]
+    fn fetch_achievement_set_returns_none_when_game_info_reports_an_error() {
+        // A resolved game id whose `API_GetGameInfoAndUserProgress.php`
+        // response itself carries an `Error` field (e.g. a game RA has since
+        // delisted) — distinct from the "unrecognized hash" (`GameID: 0`)
+        // path below, and from the resolve-side error. Guards the
+        // `body.error.is_some()` branch in `fetch_achievement_set_by_game_id`
+        // that a mutation deleting it would miss (the test would then expect
+        // `None` but get `Some` with an empty achievement set).
+        let (port, _h) = fixture_server(|url| {
+            if url.starts_with("/API_GetGameID.php") {
+                (200, r#"{"GameID":99}"#.to_string())
+            } else if url.starts_with("/API_GetGameInfoAndUserProgress.php") {
+                (200, r#"{"Error":"Game not found"}"#.to_string())
+            } else {
+                (404, "not found".to_string())
+            }
+        });
+        let client = RetroAchievementsClient::with_base_url(
+            format!("http://127.0.0.1:{port}"),
+            "user",
+            "key",
+        );
+
+        assert_eq!(client.fetch_achievement_set("some-hash").unwrap(), None);
+    }
+
+    #[test]
     fn fetch_achievement_set_returns_none_for_unrecognized_hash() {
         let (port, _h) = fixture_server(|url| {
             if url.starts_with("/API_GetGameID.php") {
@@ -431,6 +458,28 @@ mod tests {
         );
 
         assert_eq!(client.fetch_achievement_set("unknown-hash").unwrap(), None);
+    }
+
+    #[test]
+    fn fetch_achievement_set_returns_none_when_game_id_lookup_reports_an_error() {
+        // `API_GetGameID.php` can carry an explicit `Error` field with a
+        // non-zero `GameID` left at its default (0) — the `body.error.is_some()`
+        // half of `resolve_game_id`'s guard, as opposed to the plain
+        // `GameID: 0` case exercised by the unrecognized-hash test above.
+        let (port, _h) = fixture_server(|url| {
+            if url.starts_with("/API_GetGameID.php") {
+                (200, r#"{"Error":"Hash lookup failed"}"#.to_string())
+            } else {
+                (404, "should not be called".to_string())
+            }
+        });
+        let client = RetroAchievementsClient::with_base_url(
+            format!("http://127.0.0.1:{port}"),
+            "user",
+            "key",
+        );
+
+        assert_eq!(client.fetch_achievement_set("bad-hash").unwrap(), None);
     }
 
     #[test]
