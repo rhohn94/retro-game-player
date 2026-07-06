@@ -15,6 +15,11 @@
 
 export type PlayerPresentation = "foreground" | "background" | "takeover" | "preview";
 
+/** Ducked audio gain applied to any spectator presentation (W235 attract,
+ * W273/W376 TV preview) — shared by both players so the two play paths can
+ * never drift apart on how much a backgrounded/previewed game is ducked. */
+export const ATTRACT_GAIN = 0.3;
+
 /**
  * Whether a presentation is a SPECTATOR surface: the player only shows the
  * running game — input (keyboard + gamepad poll) detaches entirely and audio
@@ -23,6 +28,15 @@ export type PlayerPresentation = "foreground" | "background" | "takeover" | "pre
  */
 export function presentationIsSpectator(presentation: PlayerPresentation): boolean {
   return presentation === "background" || presentation === "preview";
+}
+
+/**
+ * The gain a player should actually output: the user's volume, ducked to
+ * `ATTRACT_GAIN` for any spectator presentation. One place computes this so
+ * NativePlayer and InPagePlayer can never apply the duck differently.
+ */
+export function effectivePlayerGain(volume: number, presentation: PlayerPresentation): number {
+  return volume * (presentationIsSpectator(presentation) ? ATTRACT_GAIN : 1);
 }
 
 /**
@@ -42,6 +56,21 @@ export function presentationOwnsController(presentation: PlayerPresentation): bo
  * session re-presented mid-play, not a synthetic preview.
  */
 export function presentationRecordsPlaySession(presentation: PlayerPresentation): boolean {
+  return presentation !== "preview";
+}
+
+/**
+ * Whether a presentation may write saves at all — SRAM flushes, save states,
+ * an exit auto-save. Only "preview" opts out (v0.37 W376 extends the W273
+ * purity contract to the EJS path: `InPagePlayer` threads this into
+ * player.html's `?preview=1` query flag, which the save bridge there gates
+ * on end-to-end — no SRAM POST, no save-state POST, no restore-on-boot read).
+ * Named separately from `presentationRecordsPlaySession` even though both
+ * currently answer identically, because a save-suppressing but session-
+ * recording presentation is a real future shape (e.g. a "rewind-only"
+ * spectator) this predicate must not conflate away.
+ */
+export function presentationAllowsSaves(presentation: PlayerPresentation): boolean {
   return presentation !== "preview";
 }
 

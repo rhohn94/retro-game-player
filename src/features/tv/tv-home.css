@@ -123,6 +123,16 @@
        "gameplay as a backdrop" reads identically across the app. */
     filter: brightness(0.45) saturate(0.85);
   }
+  /* v0.37 W376: the EJS preview path renders inside CrtCssOverlay's iframe
+     wrapper (crt-overlay.css's `.rgp-crt-tilt > iframe` already fills the
+     frame edge-to-edge) — cover-fit it and apply the SAME dim/desaturate
+     recipe as the native preview canvas above, so the two preview paths read
+     identically as a backdrop. This is wiring parity, not new legibility
+     styling (the scrim wash below still does the legibility work). */
+  .rgp-player--preview .rgp-crt-tilt > iframe {
+    object-fit: cover;
+    filter: brightness(0.45) saturate(0.85);
+  }
 
   /* Dim wash over the running game so rails and hero copy stay legible at 3m —
      the hero's own gradient scrim still layers on top inside the hero band.

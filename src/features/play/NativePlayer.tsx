@@ -67,6 +67,7 @@ import { PlayerOverlay } from "./PlayerOverlay";
 import { PlayerCountIndicator } from "./PlayerCountIndicator";
 import { PortInputPusher } from "./portInputPusher";
 import {
+  effectivePlayerGain,
   playerShellClass,
   presentationIsSpectator,
   presentationRecordsPlaySession,
@@ -78,9 +79,6 @@ import { continueSlot } from "./saveSlots";
 import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
 import { swallow } from "../../ipc/swallow";
-
-/** Ducked audio gain while the game plays as the page background (W235). */
-const ATTRACT_GAIN = 0.3;
 
 /** Shared empty key set for ports other than 0 — keyboard only ever drives
  * port 0 (v0.35 W351, controller-input-design.md §Two-player capture), so
@@ -187,11 +185,12 @@ export function NativePlayer({
   const pauseOnBlurRef = useRef(true);
   pauseOnBlurRef.current = prefs.pauseOnBlur;
 
-  // One place computes what the core should output: the user's volume,
-  // ducked while the game plays as a spectator surface — the W235 page
-  // background and the W273 TV preview share the same attract gain.
+  // The user's volume, ducked while the game plays as a spectator surface —
+  // the W235 page background and the W273/W376 TV preview share the same
+  // attract gain (effectivePlayerGain, presentation.ts, shared with
+  // InPagePlayer so the two play paths can never duck differently).
   // Re-applied whenever either input changes and after a session (re)starts.
-  const effectiveGain = prefs.volume * (spectator ? ATTRACT_GAIN : 1);
+  const effectiveGain = effectivePlayerGain(prefs.volume, presentation);
   const effectiveGainRef = useRef(effectiveGain);
   effectiveGainRef.current = effectiveGain;
   useEffect(() => {
