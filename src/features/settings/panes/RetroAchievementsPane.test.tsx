@@ -166,4 +166,72 @@ describe("RetroAchievementsPane", () => {
       apiKey: "ra-key-abc",
     });
   });
+
+  it("auto-validates once a save leaves a key on file (issue #34 §6)", async () => {
+    await renderPane();
+    saveRetroAchievementsAccount.mockResolvedValue(undefined);
+    getRetroAchievementsAccount.mockResolvedValue({ username: "NewUser", hasKey: true });
+    validateRetroAchievementsAccount.mockResolvedValue({ status: "valid" });
+
+    const usernameInput = container.querySelector<HTMLInputElement>('input[type="text"]')!;
+    const keyInput = container.querySelector<HTMLInputElement>('input[type="password"]')!;
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      nativeInputValueSetter.call(usernameInput, "NewUser");
+      usernameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      nativeInputValueSetter.call(keyInput, "ra-key-abc");
+      keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const saveButton = Array.from(container.querySelectorAll("aura-button")).find((b) =>
+      b.textContent?.includes("Save"),
+    )!;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(validateRetroAchievementsAccount).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Connected.");
+  });
+
+  it("does not auto-validate a save that clears the account (no key left)", async () => {
+    await renderPane();
+    saveRetroAchievementsAccount.mockResolvedValue(undefined);
+    getRetroAchievementsAccount.mockResolvedValue({ username: null, hasKey: false });
+
+    const saveButton = Array.from(container.querySelectorAll("aura-button")).find((b) =>
+      b.textContent?.includes("Save"),
+    )!;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(validateRetroAchievementsAccount).not.toHaveBeenCalled();
+  });
+
+  it("clarifies the key is already in the Keychain once one is on file", async () => {
+    getRetroAchievementsAccount.mockReset().mockResolvedValue({
+      username: "RaUser",
+      hasKey: true,
+    });
+    await act(async () => {
+      root.render(<RetroAchievementsPane />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("stored in the system Keychain");
+  });
+
+  it("hides the Keychain help text when no key is on file yet", async () => {
+    await renderPane();
+    expect(container.textContent).not.toContain("stored in the system Keychain");
+  });
 });
