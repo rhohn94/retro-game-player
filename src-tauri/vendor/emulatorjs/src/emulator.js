@@ -537,40 +537,75 @@ class EmulatorJS {
             console.warn("Threads is set to true, but the SharedArrayBuffer function is not exposed. Threads requires 2 headers to be set when sending you html page. See https://stackoverflow.com/a/68630724");
             return;
         }
+        // Harmony (v0.37 W374, #31): pulled out of the old inline decompress
+        // `.then()` so the same file-map handling runs whether `data` came
+        // from decompressing the 7z archive (upstream path, unchanged) OR
+        // from `fetchPreExtracted` below (Harmony's Rust-side pre-extraction
+        // cache — already-decompressed named files, no 7z Worker involved).
+        const useCoreFiles = (data) => {
+            let js, thread, wasm;
+            for (let k in data) {
+                if (k.endsWith(".wasm")) {
+                    wasm = data[k];
+                } else if (k.endsWith(".worker.js")) {
+                    thread = data[k];
+                } else if (k.endsWith(".js")) {
+                    js = data[k];
+                } else if (k === "build.json") {
+                    this.checkCoreCompatibility(JSON.parse(new TextDecoder().decode(data[k])));
+                } else if (k === "core.json") {
+                    let core = JSON.parse(new TextDecoder().decode(data[k]));
+                    this.extensions = core.extensions;
+                    this.coreName = core.name;
+                    this.repository = core.repo;
+                    this.defaultCoreOpts = core.options;
+                    this.enableMouseLock = core.options.supportsMouse;
+                    this.retroarchOpts = core.retroarchOpts;
+                    this.saveFileExt = core.save;
+                } else if (k === "license.txt") {
+                    this.license = new TextDecoder().decode(data[k]);
+                }
+            }
+
+            if (this.saveFileExt === false) {
+                this.elements.bottomBar.saveSavFiles[0].style.display = "none";
+                this.elements.bottomBar.loadSavFiles[0].style.display = "none";
+            }
+
+            this.initGameCore(js, wasm, thread);
+        }
         const gotCore = (data) => {
             this.defaultCoreOpts = {};
-            this.checkCompression(new Uint8Array(data), this.localization("Decompress Game Core")).then((data) => {
-                let js, thread, wasm;
-                for (let k in data) {
-                    if (k.endsWith(".wasm")) {
-                        wasm = data[k];
-                    } else if (k.endsWith(".worker.js")) {
-                        thread = data[k];
-                    } else if (k.endsWith(".js")) {
-                        js = data[k];
-                    } else if (k === "build.json") {
-                        this.checkCoreCompatibility(JSON.parse(new TextDecoder().decode(data[k])));
-                    } else if (k === "core.json") {
-                        let core = JSON.parse(new TextDecoder().decode(data[k]));
-                        this.extensions = core.extensions;
-                        this.coreName = core.name;
-                        this.repository = core.repo;
-                        this.defaultCoreOpts = core.options;
-                        this.enableMouseLock = core.options.supportsMouse;
-                        this.retroarchOpts = core.retroarchOpts;
-                        this.saveFileExt = core.save;
-                    } else if (k === "license.txt") {
-                        this.license = new TextDecoder().decode(data[k]);
-                    }
-                }
-
-                if (this.saveFileExt === false) {
-                    this.elements.bottomBar.saveSavFiles[0].style.display = "none";
-                    this.elements.bottomBar.loadSavFiles[0].style.display = "none";
-                }
-
-                this.initGameCore(js, wasm, thread);
-            });
+            this.checkCompression(new Uint8Array(data), this.localization("Decompress Game Core")).then(useCoreFiles);
+        }
+        // Harmony (v0.37 W374, #31): ask the loopback server whether THIS
+        // exact archive filename has already been decompressed on disk (the
+        // server's on-demand + embedded core caches are pre-extracted once;
+        // see docs/design/boot-latency-spike.md "Technique B" and
+        // play/core_extract.rs). A hit is a small JSON manifest mapping each
+        // archive-internal filename to a same-origin URL; fetching those
+        // directly and handing the resulting map to `useCoreFiles` skips the
+        // 7z Worker entirely. A miss (404 — server too old, or this exact
+        // archive genuinely isn't cached yet) returns null and the caller
+        // falls through to the ORIGINAL archive-download-then-`gotCore` path
+        // unchanged, so first-boot behavior is byte-for-byte the same as
+        // before this patch.
+        const fetchPreExtracted = async (filename) => {
+            const manifestPath = "cores/extracted/" + filename + ".json";
+            const manifest = await this.downloadFile(manifestPath, null, false, { responseType: "text", method: "GET" });
+            if (manifest === -1 || typeof manifest.data !== "object" || manifest.data === null) {
+                return null;
+            }
+            // Manifest values are dataPath-relative (e.g.
+            // "cores/extracted/<filename>/core.json"), same convention as
+            // `report`/`corePath` above — notWithPath stays false.
+            const entries = await Promise.all(Object.entries(manifest.data).map(async ([name, relPath]) => {
+                const res = await this.downloadFile(relPath, null, false, { responseType: "arraybuffer", method: "GET" });
+                if (res === -1) return null;
+                return [name, new Uint8Array(res.data)];
+            }));
+            if (entries.some((e) => e === null)) return null;
+            return Object.fromEntries(entries);
         }
         const report = "cores/reports/" + this.getCore() + ".json";
         this.downloadFile(report, null, false, { responseType: "text", method: "GET" }).then(async rep => {
@@ -601,6 +636,17 @@ class EmulatorJS {
 
             let legacy = (this.supportsWebgl2 && this.webgl2Enabled ? "" : "-legacy");
             let filename = this.getCore() + (threads ? "-thread" : "") + legacy + "-wasm.data";
+            // Harmony (v0.37 W374, #31): try the server's pre-extraction cache
+            // FIRST, ahead of the browser's compressed-archive IndexedDB cache
+            // below — a hit here means EVERY repeat boot skips the 7z Worker,
+            // not just ones that also happen to redownload the archive.
+            if (!this.debug) {
+                const preExtracted = await fetchPreExtracted(filename);
+                if (preExtracted) {
+                    useCoreFiles(preExtracted);
+                    return;
+                }
+            }
             if (!this.debug) {
                 const result = await this.storage.core.get(filename);
                 if (result && result.version === rep.buildStart) {

@@ -153,6 +153,14 @@
     flex-direction: column;
     gap: var(--aura-space-3);
   }
+  /* Console tabs + the collection select, side by side (v0.37 W373 —
+     collections-design.md §UI: "beside the system filter"). */
+  .rgp-filters__system-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--aura-space-3);
+  }
   .rgp-filters__row {
     display: flex;
     flex-wrap: wrap;
@@ -346,9 +354,77 @@
     white-space: nowrap;
     align-self: center;
   }
+  /* "Add to collection" picker, beside the favorite heart (v0.37 W373 —
+     collections-design.md §UI). */
+  .rgp-collection-picker {
+    position: relative;
+    align-self: center;
+  }
+  .rgp-collection-picker__toggle {
+    border: none;
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    border-radius: var(--aura-radius-full);
+    padding: 2px var(--aura-space-2);
+    font-size: var(--rgp-font-caption);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .rgp-collection-picker__panel {
+    position: absolute;
+    top: calc(100% + var(--aura-space-1));
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-1);
+    min-width: 200px;
+    padding: var(--aura-space-2);
+    border-radius: var(--aura-radius-md);
+    background: var(--aura-panel-alpha);
+    box-shadow: var(--aura-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.35));
+  }
+  .rgp-collection-picker__empty {
+    margin: 0;
+    color: var(--aura-on-surface-muted);
+    font-size: var(--rgp-font-caption);
+  }
+  .rgp-collection-picker__row {
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-2);
+    cursor: pointer;
+    font-size: var(--rgp-font-caption);
+  }
+  .rgp-collection-picker__name {
+    flex: 1;
+  }
+  .rgp-collection-picker__count {
+    color: var(--aura-on-surface-muted);
+  }
+  .rgp-collection-picker__new {
+    display: flex;
+    gap: var(--aura-space-1);
+    margin-top: var(--aura-space-1);
+    border-top: 1px solid var(--aura-shelf-alpha);
+    padding-top: var(--aura-space-2);
+  }
+  .rgp-collection-picker__error {
+    margin: 0;
+    color: var(--aura-error);
+    font-size: var(--rgp-font-caption);
+  }
   .rgp-detail__subtitle,
   .rgp-detail__core {
     margin: 0;
+    color: var(--aura-on-surface-muted);
+  }
+  /* RetroAchievements progress row (v0.37 W372) — only rendered when a set
+     is known for this game (GameDetailPage.tsx), so no empty-state styling
+     is needed here. */
+  .rgp-detail__achievements {
+    margin: var(--aura-space-1) 0 0;
+    font-size: 13px;
     color: var(--aura-on-surface-muted);
   }
   .rgp-detail__actions {
@@ -808,5 +884,66 @@
     font: 12px/1.4 ui-monospace, monospace;
     letter-spacing: 0.02em;
     pointer-events: none;
+  }
+
+  /* RetroAchievements unlock toast (v0.37 W372,
+     retroachievements-design.md §Unlock UX + persistence): a non-intrusive
+     banner over the running game, never over the pause overlay itself (it
+     shares this player's stacking context, but sits below the overlay's
+     z-index so an unlock during a paused menu queues silently behind it
+     rather than covering the menu). `pointer-events: none` plus no
+     focusable children is what "never captures input" means here — there is
+     nothing in this banner a controller/keyboard user could ever focus. */
+  .rgp-achievement-toast {
+    position: absolute;
+    top: var(--aura-space-4);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1080;
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-3);
+    max-width: min(420px, calc(100% - var(--aura-space-6)));
+    padding: var(--aura-space-3) var(--aura-space-4);
+    border-radius: var(--aura-radius-lg);
+    border: 1px solid var(--aura-border);
+    background: var(--aura-panel-alpha, var(--aura-surface-raised));
+    box-shadow: 0 8px 24px color-mix(in srgb, black 30%, transparent);
+    pointer-events: none;
+  }
+  .rgp-achievement-toast__icon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .rgp-achievement-toast__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .rgp-achievement-toast__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--aura-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rgp-achievement-toast__desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--aura-on-surface-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rgp-achievement-toast__points {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--aura-primary);
+    white-space: nowrap;
   }
 }

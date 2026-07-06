@@ -236,7 +236,29 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.36 — Spring Cleaning (implementation complete — pending release)
+## v0.37 — Trophies (implementation complete — pending release)
+
+**Theme:** RetroAchievements foundation (user directive 2026-07-06: autonomous
+next-release cycle; roadmap's "strongest unclaimed community differentiator")
+plus library collections, completing
+[#21](https://github.com/rhohn94/retro-game-player/issues/21).
+
+- **RetroAchievements, native NES/SNES** — rcheevos FFI + RA-correct hashing +
+  per-frame trigger evaluation (W370), account/client/settings pane (W371),
+  unlock toasts + local tracking (W372). Server submission, leaderboards, and
+  EJS-path support deferred.
+- **Collections** — schema, repo, IPC, detail-page picker, library filter, TV
+  rails (W373; closes #21).
+- **Small wins** — decompressed-core caching for in-page boots
+  ([#31](https://github.com/rhohn94/retro-game-player/issues/31), W374); TV
+  banner layered over hero art
+  ([#38](https://github.com/rhohn94/retro-game-player/issues/38), W375).
+
+Plan: [`release-planning-v0.37.md`](release-planning/release-planning-v0.37.md).
+
+---
+
+## v0.36 — Spring Cleaning (released — see version-history.md)
 
 **Theme:** Code quality (user directive, 2026-07-05) — unhandled-error
 observability, decomposition of the two worst oversized modules, duplication
@@ -263,7 +285,7 @@ Plan: [`release-planning-v0.36.md`](release-planning/release-planning-v0.36.md).
 
 ---
 
-## v0.35 — Player Two (implementation complete — pending release)
+## v0.35 — Player Two (released — see version-history.md)
 
 **Theme:** Two-controller multiplayer for NES and SNES (user directive,
 2026-07-05) — a second connected controller is picked up automatically by
@@ -285,7 +307,7 @@ Plan: [`release-planning-v0.35.md`](release-planning/release-planning-v0.35.md).
 
 ---
 
-## v0.34 — Engines (implementation complete — pending release)
+## v0.34 — Engines (released — see version-history.md)
 
 **Theme:** Every popular platform plays on the native emulation engine
 (user directive, 2026-07-05) — generalize the v0.21 NES-only native libretro

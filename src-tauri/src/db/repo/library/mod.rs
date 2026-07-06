@@ -5,22 +5,24 @@
 //!
 //! Split into query-domain submodules (v0.36 W364 cleanup) so no single file
 //! carries every `games`-table concern:
-//!   * [`model`]     — row shapes + row-mappers, shared by every submodule.
-//!   * [`folders`]   — `content_folders` CRUD.
-//!   * [`games`]     — `games` CRUD, lookup, and source-dedupe/re-key.
-//!   * [`play_life`] — favoriting + play-session recency/counts (v0.26 W264).
+//!   * [`model`]       — row shapes + row-mappers, shared by every submodule.
+//!   * [`folders`]     — `content_folders` CRUD.
+//!   * [`games`]       — `games` CRUD, lookup, and source-dedupe/re-key.
+//!   * [`play_life`]   — favoriting + play-session recency/counts (v0.26 W264).
+//!   * [`collections`] — user-created collections + membership (v0.37 W373).
 //!
-//! All four `impl LibraryRepo` blocks below combine into one type; callers
+//! All five `impl LibraryRepo` blocks below combine into one type; callers
 //! outside this module see no difference from the pre-split single file (every
 //! public item still resolves at `crate::db::repo::library::*`).
 
+mod collections;
 mod folders;
 mod games;
 mod model;
 mod play_life;
 
 pub use games::{path_by_id, system_and_path_by_id};
-pub use model::{ContentFolder, Game, GameSource, NewContentFolder, NewGame};
+pub use model::{Collection, CollectionWithCount, ContentFolder, Game, GameSource, NewContentFolder, NewGame};
 
 use super::Repository;
 use crate::db::Db;

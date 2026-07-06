@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ATTRACT_GAIN,
+  effectivePlayerGain,
   playerShellClass,
   presentationAllowsImmersive,
+  presentationAllowsSaves,
   presentationIsSpectator,
   presentationOwnsController,
   presentationRecordsPlaySession,
@@ -43,6 +46,35 @@ describe("presentationRecordsPlaySession (W273 preview purity)", () => {
 
   it("never records a session for a preview — no play count / recency / play-time", () => {
     expect(presentationRecordsPlaySession("preview")).toBe(false);
+  });
+});
+
+describe("presentationAllowsSaves (W273/W376 preview purity)", () => {
+  it("allows saves for every real play presentation", () => {
+    expect(presentationAllowsSaves("foreground")).toBe(true);
+    expect(presentationAllowsSaves("background")).toBe(true);
+    expect(presentationAllowsSaves("takeover")).toBe(true);
+  });
+
+  it("never allows saves for a preview — no SRAM / save-state writes", () => {
+    expect(presentationAllowsSaves("preview")).toBe(false);
+  });
+});
+
+describe("effectivePlayerGain (shared attract duck)", () => {
+  it("passes the user's volume through unducked on playing surfaces", () => {
+    expect(effectivePlayerGain(1, "foreground")).toBe(1);
+    expect(effectivePlayerGain(0.6, "takeover")).toBe(0.6);
+  });
+
+  it("ducks to ATTRACT_GAIN × volume on spectator surfaces", () => {
+    expect(effectivePlayerGain(1, "background")).toBeCloseTo(ATTRACT_GAIN);
+    expect(effectivePlayerGain(1, "preview")).toBeCloseTo(ATTRACT_GAIN);
+    expect(effectivePlayerGain(0.5, "preview")).toBeCloseTo(0.5 * ATTRACT_GAIN);
+  });
+
+  it("ducks a muted volume to zero regardless of presentation", () => {
+    expect(effectivePlayerGain(0, "preview")).toBe(0);
   });
 });
 

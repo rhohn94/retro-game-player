@@ -1,10 +1,10 @@
 // TvShell — the full-viewport leanback chrome TV mode renders instead of the
 // desktop sidebar+content tree (v0.26 W260 foundation; W261 fills the outlet
 // with the real TV home). TvShell owns the CHROME (full-bleed backdrop,
-// 5%-overscan safe-area frame, section-label header, pointer exit affordance)
-// and renders its `children` — the real `<TvHome/>` (or, since v0.28 W278, an
-// embedded desktop screen — see `Root` in App.tsx) from `Root` — into a
-// marked outlet region.
+// 5%-overscan safe-area frame, pointer exit/menu affordances) and renders its
+// `children` — the real `<TvHome/>` (or, since v0.28 W278, an embedded
+// desktop screen — see `Root` in App.tsx) from `Root` — into a marked outlet
+// region.
 //
 // Controller `back` + the "press Back again to exit" confirm gesture are owned
 // by the mounted home content (TvHome installs the controller's EXCLUSIVE
@@ -22,6 +22,18 @@
 // `tvMode.menuOpen`) above the outlet — the menu is a shell-level chrome
 // concern (like the exit button), not owned by whatever `children` happens to
 // be showing, so it survives a TvHome <-> embedded-screen swap underneath it.
+//
+// v0.37 W375 (issue #38): the section-label header no longer reserves its own
+// row above the outlet — it's grouped with the exit/menu buttons into one
+// absolutely-positioned top-right column (`.rgp-tv-shell__top-chrome`,
+// tv-shell.css) layered over the outlet's content instead, so TV home's hero
+// art fills the space the header used to reserve (more rail content visible
+// with no other layout change needed).
+//
+// v0.37 W377 (user directive): the "Retro Game Player" label itself (and its
+// scrim wash) is gone entirely — the top-chrome column now holds only the
+// Menu/Exit buttons, which carry their own drop shadow (tv-shell.css) for
+// legibility over the hero art instead of a dedicated background wash.
 
 import { AnimatePresence, motion } from "framer-motion";
 import { type ReactNode } from "react";
@@ -62,9 +74,9 @@ function TvHomePlaceholder() {
 
 /**
  * The leanback shell: full-bleed dark backdrop, a 5%-overscan safe-area frame,
- * a chunky retro-accent section label, and an outlet region for TV-home
- * content. `onExit` is called by the visible (pointer) exit button; controller
- * `back` exit is owned by the mounted home content (see file header).
+ * and an outlet region for TV-home content. `onExit` is called by the visible
+ * (pointer) exit button; controller `back` exit is owned by the mounted home
+ * content (see file header).
  */
 export function TvShell({
   children,
@@ -85,27 +97,31 @@ export function TvShell({
     >
       <HeroBackdrop game={null} variant="full-bleed" />
       <div className="rgp-tv-shell__frame">
-        <header className="rgp-tv-shell__header">
-          <span className="rgp-tv-shell__label">Retro Game Player</span>
-        </header>
         <main className="rgp-tv-shell__outlet">{children ?? <TvHomePlaceholder />}</main>
-        <div className="rgp-tv-shell__chrome-buttons">
-          <button
-            type="button"
-            className="rgp-tv-shell__menu"
-            onClick={tvMode.openMenu}
-            aria-label="Open TV menu"
-          >
-            ☰ Menu
-          </button>
-          <button
-            type="button"
-            className="rgp-tv-shell__exit"
-            onClick={onExit}
-            aria-label="Exit TV mode"
-          >
-            ⤢ Exit TV mode (Cmd+T)
-          </button>
+        {/* v0.37 W375 (issue #38): the pointer exit/menu buttons anchor to one
+            top-right corner group — see `.rgp-tv-shell__top-chrome`'s comment
+            (tv-shell.css) for why the top-RIGHT corner, specifically. v0.37
+            W377 removed the section-label header that used to share this
+            group; only the buttons remain. */}
+        <div className="rgp-tv-shell__top-chrome">
+          <div className="rgp-tv-shell__chrome-buttons">
+            <button
+              type="button"
+              className="rgp-tv-shell__menu"
+              onClick={tvMode.openMenu}
+              aria-label="Open TV menu"
+            >
+              ☰ Menu
+            </button>
+            <button
+              type="button"
+              className="rgp-tv-shell__exit"
+              onClick={onExit}
+              aria-label="Exit TV mode"
+            >
+              ⤢ Exit TV mode (Cmd+T)
+            </button>
+          </div>
         </div>
       </div>
       <AnimatePresence>{tvMode.menuOpen && <TvSystemMenu />}</AnimatePresence>

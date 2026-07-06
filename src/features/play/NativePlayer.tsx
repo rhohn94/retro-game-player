@@ -54,10 +54,12 @@ import {
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
+import { AchievementToast } from "./AchievementToast";
 import { CrtWebglRenderer } from "./crtWebglRenderer";
 import { useCrtFilter } from "./useCrtFilter";
 import { FpsCounter } from "./fpsCounter";
 import { FpsCounterOverlay } from "./FpsCounterOverlay";
+import { useAchievementUnlocks } from "./useAchievementUnlocks";
 import { useShowFpsCounter } from "./useShowFpsCounter";
 import { assignPorts, connectedPortCount, emptyAssignments, padForPort } from "./gamepadAssignment";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
@@ -67,6 +69,7 @@ import { PlayerOverlay } from "./PlayerOverlay";
 import { PlayerCountIndicator } from "./PlayerCountIndicator";
 import { PortInputPusher } from "./portInputPusher";
 import {
+  effectivePlayerGain,
   playerShellClass,
   presentationIsSpectator,
   presentationRecordsPlaySession,
@@ -78,9 +81,6 @@ import { continueSlot } from "./saveSlots";
 import { useExclusiveControllerScope } from "./useExclusiveControllerScope";
 import { useOverlayMenu } from "./useOverlayMenu";
 import { swallow } from "../../ipc/swallow";
-
-/** Ducked audio gain while the game plays as the page background (W235). */
-const ATTRACT_GAIN = 0.3;
 
 /** Shared empty key set for ports other than 0 — keyboard only ever drives
  * port 0 (v0.35 W351, controller-input-design.md §Two-player capture), so
@@ -174,6 +174,11 @@ export function NativePlayer({
   // Disabled for previews (W273 purity: no play count / recency / play-time).
   usePlaySession(gameId, presentationRecordsPlaySession(presentation));
 
+  // RetroAchievements unlock toasts (v0.37 W372): polls only for a real,
+  // non-spectator session — a preview never arms achievements backend-side
+  // (W273 purity), so polling it would only waste an IPC round trip.
+  const achievementToast = useAchievementUnlocks(!preview && !spectator);
+
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.
   const overlayOpenRef = useRef(overlayOpen);
@@ -187,11 +192,12 @@ export function NativePlayer({
   const pauseOnBlurRef = useRef(true);
   pauseOnBlurRef.current = prefs.pauseOnBlur;
 
-  // One place computes what the core should output: the user's volume,
-  // ducked while the game plays as a spectator surface — the W235 page
-  // background and the W273 TV preview share the same attract gain.
+  // The user's volume, ducked while the game plays as a spectator surface —
+  // the W235 page background and the W273/W376 TV preview share the same
+  // attract gain (effectivePlayerGain, presentation.ts, shared with
+  // InPagePlayer so the two play paths can never duck differently).
   // Re-applied whenever either input changes and after a session (re)starts.
-  const effectiveGain = prefs.volume * (spectator ? ATTRACT_GAIN : 1);
+  const effectiveGain = effectivePlayerGain(prefs.volume, presentation);
   const effectiveGainRef = useRef(effectiveGain);
   effectiveGainRef.current = effectiveGain;
   useEffect(() => {
@@ -578,6 +584,7 @@ export function NativePlayer({
       </div>
       {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
       {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />}
+      {!preview && !spectator && <AchievementToast toast={achievementToast} />}
       {!preview && (
         <div className="rgp-player__bar">
           <PlayerCountIndicator connectedPadCount={connectedPadCount} />

@@ -319,9 +319,14 @@ reaches the game or the overlay — none reaches the home underneath; the
 overlay is fully controller-drivable on the native path; desktop detail-page
 play is visually unchanged.
 
-### W273 — Hover-attract (5 s dwell boots a live preview)
+### W273 — Hover-attract (dwell boots a live preview)
 
-Dwelling on a shelf tile for 5 s (`--rgp-tv-attract-dwell-ms: 5000` — one
+**Dwell threshold lowered to 1 s in v0.37 W376** (see below) — this section's
+"5 s" originally described the v0.27 tuning; `TV_ATTRACT_DWELL_MS` /
+`--rgp-tv-attract-dwell-ms` are now both 1000. Everything else in this section
+holds unchanged at the new threshold.
+
+Dwelling on a shelf tile for the threshold (`--rgp-tv-attract-dwell-ms` — one
 constant, keyboard-focus and pointer-hover alike) boots that game as a
 **live full-bleed preview** behind the home: the hero backdrop layer hands
 off to real gameplay, dimmed under the existing scrim so rails stay legible,
@@ -334,10 +339,11 @@ surface; the controller keeps navigating the home.
   SRAM writes, no exit auto-save-state. The native session starts in a
   preview mode that omits save wiring end-to-end (frontend skips
   `usePlaySession`; the start command's preview flag passes `saves: None`).
-- **Scope v1: native-capable games only** (the purity guarantee is
-  structural there). EmulatorJS-only systems keep today's static art;
-  extending previews to the EJS path (needs save-suppression through the
-  iframe glue) is a recorded follow-up.
+- **Scope v1 (superseded — see v0.37 W376 below): native-capable games only**
+  (the purity guarantee was structural there in v0.27). EmulatorJS-only
+  systems kept static art; extending previews to the EJS path (save-
+  suppression through the iframe glue) was the recorded follow-up — now
+  implemented, W376.
 - **Lifecycle:** the dwell timer resets whenever the focused/hovered tile
   changes; moving away, launching anything, opening the exit-confirm, or
   leaving the home tears the preview down (short crossfade, central
@@ -345,11 +351,13 @@ surface; the controller keeps navigating the home.
   launch always boots fresh (the boot screen is the retro beat, and the
   preview session's core is torn down first).
 
-Acceptance: dwell 5 s on a native-capable tile → live gameplay fades in
-behind the home with ducked audio; play counts / Continue-playing / saves
-are byte-identical before and after a preview; input never leaks; moving
-focus tears it down within a frame's crossfade; external/EJS tiles never
-attempt a preview.
+Acceptance: dwell the threshold on a native-capable tile → live gameplay
+fades in behind the home with ducked audio; play counts / Continue-playing /
+saves are byte-identical before and after a preview; input never leaks;
+moving focus tears it down within a frame's crossfade; external-only tiles
+never attempt a preview (v0.37 W376 extends the previewable set to EJS-path
+games — see below — but the "no preview for a tile with no in-page surface at
+all" rule is unchanged).
 
 ### W275 — Gap audit (re-evaluate the whole feature)
 
@@ -381,7 +389,7 @@ Every contract and seam below was verified against the code on
 | 8 | W272: edge-to-edge fill on both players; desktop unchanged | OK | `.rgp-player--takeover` scoped rules; chip bar hidden; overlay at TV scale. |
 | 9 | W272: no controller action reaches the home under a running game | fixed | Held for a healthy player, but the single-ref exclusive slot left NO-OWNER windows (in-page origin resolution, native→EJS failure swap, GetCorePanel which claims nothing) where the base engine ran over the hidden home — the W272 defect resurfacing on degraded paths. Replaced with a layered claim stack (`exclusiveStack.ts`, unit-tested) + a surface-level swallow-all fallback claim on `TvGameSurface` for every path. |
 | 10 | W272: overlay controller-drivable on the native path | OK | `routeScopedAction` (unit-tested) via the shared scope. |
-| 11 | W273: 5 s dwell, one constant, hover + keyboard focus alike | OK | `TV_ATTRACT_DWELL_MS` ⇄ `--rgp-tv-attract-dwell-ms`; pointer hover folds into controller focus (one dwell key). |
+| 11 | W273: single dwell threshold constant, hover + keyboard focus alike (5 s at audit time; 1 s from v0.37 W376) | OK | `TV_ATTRACT_DWELL_MS` ⇄ `--rgp-tv-attract-dwell-ms`; pointer hover folds into controller focus (one dwell key). |
 | 12 | W273: purity (no play record / saves / perf log) | OK | `presentationRecordsPlaySession` (frontend) + `session_side_effects` (backend), both unit-tested; preview renders bare canvas, skips even the Continue read. |
 | 13 | W273: input never attaches; teardown rules; one session max | OK | Spectator gates keyboard + poll + claim; dwell hook clears on any key/eligibility/gate change; backend `NativeSession` is a replacing singleton, and the preview unmount-cleanup dispatches before the takeover's mount start (same commit). |
 | 14 | Seam: exit-confirm vs takeover | fixed | The armed confirm survived a launch — a quick play-and-return inside its 3 s window let a SINGLE `back` silently exit TV mode. `launch()` now disarms it (`useTvExitConfirm.cancel`). While a takeover runs, `back` never reaches the home (claim stack), so the two can no longer fight. |
@@ -715,6 +723,244 @@ treatments (e.g. `--harmony-attract-dim` on the native canvas,
 CRT shader/overlay rather than replacing it — both are just further
 transforms of the same painted frame.
 
+## v0.37 "Trophies" (W375) — banner over hero art (issue #38)
+
+**Complaint (#38).** `TvShell`'s section-label header (`.rgp-tv-shell__header`,
+"RETRO GAME PLAYER") reserved its own flex row above the outlet — a full row
+height plus `--rgp-tv-rail-row-gap` of dead space above the hero, on every TV
+screen, for one small label. That's the same shape of problem v0.28 W277 fixed
+for the hero/rail seam (a fixed chrome reservation eating into the couch's
+vertical budget) and the same fix family applies: stop reserving space for
+chrome that can legibly sit *over* full-bleed art instead.
+
+**Fix.** `.rgp-tv-shell__header` no longer gets its own flex row (or even its
+own absolute rule) — it's grouped with the existing pointer exit/menu buttons
+into ONE absolutely-positioned column, `.rgp-tv-shell__top-chrome`, anchored to
+the frame's top-RIGHT corner (the frame already insets by
+`--rgp-tv-safe-area`, so no extra offset is needed). The group layers on top of
+the hero via stacking order rather than DOM order: the hero (`.rgp-tv-hero`) is
+`isolation: isolate`, so its internal z-index stack never leaks past its own
+boundary, and the group's `z-index: 2` inside the shared `.rgp-tv-shell__frame`
+stacking context wins over the hero's (and the W273 attract-preview layer's)
+implicit `z-index: 0` — the same level the exit/menu buttons already used
+pre-W375. `.rgp-tv-shell__frame`'s `gap` (only ever spanning the header/outlet
+pair) is removed as dead weight now that the frame has a single flex child.
+
+**Top-right, not top-left (a real bug caught by measuring, not by reading the
+CSS).** The first pass anchored the header alone to the top-LEFT corner (the
+label's original position, just lifted out of flow) — this LOOKED right in a
+narrow viewport screenshot, but a real-browser measurement at the two
+acceptance viewports (a small Playwright probe reading
+`getBoundingClientRect()` for the header vs. the hero's title/meta blocks,
+mirroring the W277 aspect-ratio gotcha's own "measure it, don't just read the
+CSS" method) showed the header's box directly overlapping the hero title text
+at BOTH 1920×1080 and 1512×982: the hero copy (`.rgp-tv-hero__content`) is
+left-aligned, and at the tuned 26vh hero height its title/subtitle/chip stack
+can reach close to the hero's own top edge on that same left side (v0.28 W277
+already measured this margin as tight, not generous). Moving the whole group
+to the top-RIGHT corner — clear of the left-aligned copy at every viewport this
+hero geometry is tuned for, and already an established chrome corner (the
+exit/menu buttons) — resolved the overlap with zero measured collision at
+either viewport.
+
+**Legibility.** The hero's own gradient scrim is anchored bottom/left for the
+copy band and doesn't reach the top-right corner, so the label needed its own
+small wash rather than relying on the hero's: a new `--rgp-tv-banner-scrim`
+token (tv.css, the same `color-mix(in oklch, var(--aura-bg) …, transparent)`
+recipe as the hero scrim and the W273 preview scrim) is applied as the header's
+own background, scoped tightly to the label's own padded box — never a
+full-width/height gradient — so it reads over bright key art without dimming
+the cinematic frame the way a second full scrim would.
+
+**Gotcha carried forward from W277 (documented, not hit here):** CSS
+`aspect-ratio` needs a bare `<ratio>` (`320 / 440`), never `<length>`s
+(`320px / 440px` silently resolves to `auto`) — irrelevant to this change (no
+aspect-ratio box involved) but worth re-flagging since this item shares the
+overlap technique family with W277, and its own top-left/top-right lesson
+above is the same genre of "verify against a real render" mistake.
+
+**Verified (measured, both acceptance viewports — 1920×1080, 1512×982):** more
+rail content is visible immediately below the hero (no header-row band to
+scroll past); the hero copy band (title/subtitle/chips/play) is unaffected —
+it was never under the header's old row, and the relocated top-right group has
+zero measured bounding-box overlap with the hero's title or meta blocks at
+either viewport; controller nav is unaffected (the header was never a focus
+target, and the exit/menu buttons keep their same relative order/spacing,
+just regrouped under the shared column).
+
+**Files:** `src/features/tv/tv-shell.css` (header + chrome buttons regrouped
+into `.rgp-tv-shell__top-chrome`, off the flex flow and onto the hero's
+top-right corner), `src/features/tv/TvShell.tsx` (markup regrouped to match),
+`src/theme/tv.css` (`--rgp-tv-banner-scrim` token).
+
+## v0.37 "Trophies" (W376) — 1 s attract dwell + EJS-path previews (user directive)
+
+User directive (verbatim): *"Decrease attract mode timer to just 1 second.
+Make sure attract mode works on all consoles."* Two parts.
+
+**Part 1 — dwell threshold.** `TV_ATTRACT_DWELL_MS`
+(`src/features/tv/useAttractDwell.ts`) drops from 5000 to 1000, mirrored in
+`--rgp-tv-attract-dwell-ms` (theme/tv.css). No other part of the W273 dwell
+contract changes — reset-on-focus-change, teardown-on-disable, one-preview-
+max all hold at the new threshold; only the number is different, and the
+fake-timer unit tests (parametrized on the constant, not a literal) pass
+unchanged.
+
+**Part 2 — EJS-path previews.** W273 shipped v1 scoped to native-capable
+games only, because the purity guarantee (no play-session record, no saves)
+was structural on that path. This item extends previews to the EJS path,
+carrying the SAME purity contract end-to-end:
+
+- **Path resolution (`resolveAttractPreviewPath`,
+  `src/features/play/attractPreviewPath.ts`):** a new pure module that
+  answers "native, ejs, or none" for a dwelt game's system — preferring
+  native (the stronger, structural guarantee) and falling back to EJS via
+  the existing `inPageAvailability` resolver (embedded NES, or an on-demand
+  core that's actually installed — `needs-core` is correctly `"none"`, never
+  a false-ready preview that would need to show a get-core panel mid-dwell).
+  `TvHome` resolves this once per focus change alongside the existing
+  native-capability fetch, now also fetching the in-page core catalog
+  (`listInPageCores`) it previously had no reason to load.
+- **EJS-path purity, enforced in TWO places (not trusted to "the caller just
+  never asks"):**
+  - `InPagePlayer`'s `presentation="preview"` disables `usePlaySession`
+    (`presentationRecordsPlaySession`), skips the Continue-target read
+    entirely, renders no chip bar / overlay / FPS counter / hold indicator
+    (bare iframe only — mirrors `NativePlayer`'s own `!preview` guards), and
+    gates `requestSaveOp` itself on `presentationAllowsSaves` (a new
+    presentation.ts predicate, currently identical to
+    `presentationRecordsPlaySession` but named separately since a future
+    "records session but never saves" shape is real) — defense in depth even
+    though no rendered control in preview mode ever calls it.
+  - The iframe src carries a new `&preview=1` flag threaded to
+    `vendor/player.html`'s save bridge (v0.23 W231): `restoreSram` and
+    `flushSram` become no-ops, the periodic SRAM-flush interval is never
+    installed, and the `harmony-save-state`/`harmony-load-state` message
+    handlers answer an honest error instead of touching `/saves/...` at all.
+    This is the frontend-can't-forget half of the guarantee — the bridge
+    itself refuses the disk touch regardless of what asks.
+- **Audio ducking, shared:** `ATTRACT_GAIN` (0.3) and the gain computation
+  moved from `NativePlayer` (where it was a private constant) to
+  `presentation.ts` as `effectivePlayerGain(volume, presentation)`, so both
+  players duck identically. `InPagePlayer` threads the ducked value through
+  the existing `harmony-volume` bridge message instead of the raw persisted
+  volume.
+- **Input never attaches — no new code needed.** `presentationOwnsController`
+  already answers `false` for "preview" (presentation.ts, W273), so
+  `useExclusiveControllerScope`'s existing `owns` gate already keeps the EJS
+  path's controller claim from ever installing. The Escape-key listener and
+  the `harmony-overlay-toggle`/perf-stats message forwarding are additionally
+  gated off entirely for any spectator presentation (`spectator` check) —
+  there is no overlay to toggle in preview, and a no-trace session should not
+  report perf stats either.
+- **Visual parity, wiring only (not new legibility styling — that's W377's
+  surface):** `tv-home.css` adds one rule pairing the EJS iframe
+  (`.rgp-crt-tilt > iframe`, the CRT wrapper's fill target) with the SAME
+  `object-fit: cover` + `filter: brightness(0.45) saturate(0.85)` the native
+  preview canvas already carries, so the two preview paths read identically
+  as a backdrop. (At W376 time the `.rgp-tv-home__preview-scrim` wash still
+  did the legibility work over either path; W377, below, removed that scrim
+  in favor of text drop shadows.)
+- **External-only tiles are unaffected, by construction.** A system with
+  neither a native path nor any in-page core (GameCube/Wii — `inPageAvailability`
+  answers `"none"`) resolves `resolveAttractPreviewPath` to `"none"` too —
+  there is no in-page surface to mount at all, so these tiles correctly never
+  attempt a preview and keep static art. This was already true pre-W376 (the
+  native-only gate excluded them the same way); the extension changes WHICH
+  systems gain a preview, never whether an external-only system gets one.
+
+**Files:** `src/features/tv/useAttractDwell.ts` (dwell constant),
+`src/theme/tv.css` (`--rgp-tv-attract-dwell-ms`, unchanged token name),
+`src/features/play/attractPreviewPath.ts` (+ `.test.ts`, new — the two-path
+resolver), `src/features/play/presentation.ts` (+ `.test.ts` —
+`ATTRACT_GAIN`, `effectivePlayerGain`, `presentationAllowsSaves`),
+`src/features/play/NativePlayer.tsx` (adopts the shared gain helper, no
+behavior change), `src/features/play/InPagePlayer.tsx` (preview presentation
+support), `src-tauri/vendor/player.html` (`?preview=1` save-bridge gate),
+`src/features/tv/TvHome.tsx` (resolves + mounts the right player),
+`src/features/tv/tv-home.css` (EJS iframe visual parity rule),
+`src/features/play/index.ts` (barrel exports).
+## v0.37 "Trophies" (W377) — drop the chrome header + scrims, drop-shadow legibility
+
+User directive (verbatim, 2026-07-06): *"Revise aesthetics of TV mode: Remove
+Retro Game Player header and the dark background overlay. Instead, give text
+a drop shadow to aid with legibility."* Landed immediately after W375/W376 in
+the same release; three parts.
+
+**1 — the "Retro Game Player" label is gone.** W375 (above) had already pulled
+the section-label header out of the layout flow and grouped it with the
+Menu/Exit buttons into one top-right column (`.rgp-tv-shell__top-chrome`) so
+it no longer reserved its own row — W377 goes further and removes the label
+itself entirely: `<header className="rgp-tv-shell__header">` and its
+`<span className="rgp-tv-shell__label">Retro Game Player</span>` are deleted
+from `TvShell.tsx`, along with the `.rgp-tv-shell__header` / `.rgp-tv-shell__label`
+rules (tv-shell.css). The top-chrome column now holds only the Menu/Exit
+buttons — no chrome row reserves space for the label, and nothing replaces it
+(no new banner, no icon). The buttons keep their existing top-right position
+and relative order.
+
+**2 — both dark background overlays are gone.** Two scrim layers are deleted
+outright, not merely dimmed:
+
+- `.rgp-tv-hero__scrim` (tv-home.css) — the bottom/left gradient wash under
+  the hero copy — and its markup (`<div className="rgp-tv-hero__scrim" aria-hidden />`
+  in `TvHero.tsx`).
+- `.rgp-tv-home__preview-scrim` (tv-home.css) — the `color-mix(... 45% ...)`
+  dark wash over the W273 live attract preview — and its markup
+  (`<div className="rgp-tv-home__preview-scrim" />` in `TvHome.tsx`).
+
+Backdrop key art and attract previews now render un-dimmed, full-brightness,
+exactly as sourced — nothing between the art and the viewer.
+
+**3 — every TV text surface over art gets a drop shadow instead.** Rather than
+each surface re-deriving its own shadow recipe, one token,
+`--rgp-tv-text-shadow` (theme/tv.css), generalizes the recipe the hero title
+already used pre-W377 (`0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%,
+transparent)` — a soft shadow lifted from the same bg-token color-mix the
+removed scrims used, just applied to the glyph instead of a background rect).
+Applied to:
+
+- hero title (already had this exact shadow inline; now reads the shared
+  token instead of its own literal), subtitle, and play-time/last-played chips
+  (`.rgp-tv-hero__title` / `__subtitle` / `__chip`, tv-home.css);
+- rail titles (`.rgp-tv-rail__label`) — these sit in the rail-overlap band
+  directly over the hero's lower art band (v0.28 W277), which is now unwashed;
+- tile captions (`.rgp-tv-tile__caption`) — sit immediately under each tile's
+  cover art with no background of their own;
+- the shell's Menu/Exit chrome buttons (`.rgp-tv-shell__menu`,
+  `.rgp-tv-shell__exit`, tv-shell.css) — their semi-transparent
+  `--aura-shelf-alpha` fill alone can wash out over bright hero art now that
+  the header's own scrim (which used to sit right beside them) is gone.
+
+The hero's play button (`.rgp-tv-hero__play`) is intentionally left off this
+list — it sits on a solid `--aura-primary` pill background, not directly on
+art, so it was never scrim-dependent and a text-shadow there would look odd
+against its own opaque fill. The focus treatments (tile/hero scale, ring,
+glow, dim-opacity) and controller-nav behavior are untouched — this item only
+removed background layers and added foreground shadows, no focus-model
+change.
+
+**Not touched (owned by W376, concurrently in flight):** the attract-preview
+*wiring* (`useAttractDwell.ts`, `TvHome`'s dwell/session logic, the
+`NativePlayer` mount) — only the CSS/markup that painted the scrim OVER the
+preview was removed here, nothing that mounts or drives it.
+
+**Verified (screenshots, both acceptance viewports — 1920×1080, 1512×982):**
+`recipe.py smoke`'s `tv-home` / `tv-takeover` / `tv-system-menu` /
+`tv-embedded-screen` visual-inspection routes render with no "Retro Game
+Player" label, no chrome row reserved for it, un-dimmed backdrop art, and
+legible text (title/subtitle/chips/rail-labels/tile-captions/Menu/Exit) via
+drop shadow alone.
+
+**Files:** `src/features/tv/TvShell.tsx` (label markup removed), `src/features/tv/tv-shell.css`
+(`.rgp-tv-shell__header`/`__label` rules removed; text-shadow added to
+Menu/Exit buttons), `src/features/tv/TvHero.tsx` (scrim div removed),
+`src/features/tv/TvHome.tsx` (preview-scrim div removed), `src/features/tv/tv-home.css`
+(`.rgp-tv-hero__scrim` / `.rgp-tv-home__preview-scrim` rules removed;
+text-shadow added to hero title/subtitle/chips, rail label, tile caption),
+`src/theme/tv.css` (`--rgp-tv-banner-scrim` token removed; new
+`--rgp-tv-text-shadow` token added).
+
 ## Follow-ups
 
 - CRT display filters over gameplay (#23, v0.29) — **implemented, W280** (see
@@ -722,7 +968,11 @@ transforms of the same painted frame.
 - Attract-mode idle screensaver (rolling game art) in TV home.
 - Collections rail once full #21 lands.
 - EmulatorJS-path attract previews (save-suppression through the iframe glue)
-  — W273's recorded v1 scope cut.
+  — W273's recorded v1 scope cut — **implemented, v0.37 W376** (see above).
+  Remaining honest limit: external-only systems (GameCube/Wii — no native AND
+  no in-page core at all) still have no in-page surface to preview through
+  and keep static art; this is a structural limit (nothing to mount), not a
+  scope cut.
 - **Controller-drivable GetCorePanel in the takeover (W275 audit #23):** the
   panel's "Get core" button is pointer/keyboard-only; the takeover's fallback
   claim deliberately swallows `confirm` (only `back` exits). A 10-foot

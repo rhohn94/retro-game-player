@@ -22,22 +22,25 @@
 // launch transition in one place without touching any TV-home component.
 //
 // v0.27 W273 adds a fourth, self-contained concern: HOVER-ATTRACT. Dwelling on
-// a native-path-eligible tile for TV_ATTRACT_DWELL_MS boots that game as a
-// live, full-bleed, no-trace preview behind the home (NativePlayer in the
-// "preview" presentation — input never attaches, audio ducks, nothing is
+// an eligible tile for TV_ATTRACT_DWELL_MS boots that game as a live,
+// full-bleed, no-trace preview behind the home — NativePlayer or (v0.37 W376)
+// InPagePlayer, whichever `resolveAttractPreviewPath` picks, both mounted in
+// the "preview" presentation (input never attaches, audio ducks, nothing is
 // recorded or saved). The dwell rules live in useAttractDwell; this component
-// only resolves the dwelt candidate (focused tile → eligible game) and mounts
-// the preview layer. A failed preview start silently falls back to today's
-// static art and that game is not retried this mount.
+// only resolves the dwelt candidate (focused tile → eligible game + path) and
+// mounts the preview layer. A failed preview start silently falls back to
+// today's static art and that game is not retried this mount.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Game } from "../../ipc/library";
 import { getNativePlayEnabled } from "../../ipc/native-play";
+import { listInPageCores } from "../../ipc/inpage-cores";
+import type { InPageCore } from "../../ipc/inpage-cores";
 import { DUR, EASE_OUT } from "../../lib/motion";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { useWindowFocus } from "../../hooks/useWindowFocus";
-import { NativePlayer, fetchNativeCapabilities, isNativePathEligible } from "../play";
+import { InPagePlayer, NativePlayer, fetchNativeCapabilities, resolveAttractPreviewPath } from "../play";
 import type { NativeCapabilities } from "../play";
 import { navDirection, useController } from "../controller";
 import type { SemanticAction } from "../controller";
@@ -205,20 +208,26 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     [setFocus],
   );
 
-  // ── W273 hover-attract ────────────────────────────────────────────────────
-  // Previews are native-path-only in v1 (the purity guarantee is structural
-  // there), so resolve the opt-in flag AND the native-capability table
-  // (W340) once; until both answer, nothing is eligible and no preview can
-  // boot.
+  // ── W273/W376 hover-attract ───────────────────────────────────────────────
+  // Previews prefer the native path (the purity guarantee is structural
+  // there) and fall back to the EJS path since v0.37 W376
+  // (resolveAttractPreviewPath), so resolve everything both paths need once:
+  // the native opt-in flag, the native-capability table (W340), and the
+  // in-page core catalog (W241) — until all three answer, nothing is
+  // eligible and no preview can boot.
   const [nativeEnabled, setNativeEnabled] = useState(false);
   const [nativeCapabilities, setNativeCapabilities] = useState<NativeCapabilities>(
     () => new Map(),
   );
+  const [inPageCores, setInPageCores] = useState<InPageCore[] | null>(null);
   useCancellableEffect((isCancelled) => {
     getNativePlayEnabled()
       .then((enabled) => !isCancelled() && setNativeEnabled(enabled))
       .catch((err: unknown) => swallow(err, "TvHome.getNativePlayEnabled"));
     fetchNativeCapabilities().then((caps) => !isCancelled() && setNativeCapabilities(caps));
+    listInPageCores()
+      .then((list) => !isCancelled() && setInPageCores(list))
+      .catch((err: unknown) => swallow(err, "TvHome.listInPageCores"));
   }, []);
 
   // Games whose preview session failed to start this mount: silently fall
@@ -233,18 +242,20 @@ export function TvHome({ onExit }: { onExit: () => void }) {
 
   // The dwelt candidate: the CURRENTLY focused tile's game (pointer hover
   // funnels into controller focus — TvTile.onMouseEnter → focus — so this is
-  // the one shared notion of "dwelt upon"), and only when it would genuinely
-  // take the native play path. The hero play row is not a tile, so it never
-  // previews. Any focus change resets the dwell (useAttractDwell keys on the
-  // focus id).
+  // the one shared notion of "dwelt upon"), and only when it resolves to a
+  // real preview path (native or, since W376, EJS). The hero play row is not
+  // a tile, so it never previews. Any focus change resets the dwell
+  // (useAttractDwell keys on the focus id).
   const launched = tvMode.launched;
   const focusedTileGame = gameForFocus(rails, focusedId);
+  // A non-ROM game (v0.31 W310) has no `system` and is never preview-eligible
+  // (neither play path resolves without one).
+  const previewPath = focusedTileGame?.system
+    ? resolveAttractPreviewPath(focusedTileGame.system, nativeEnabled, nativeCapabilities, inPageCores)
+    : { kind: "none" as const };
   const dwellGame =
     focusedTileGame &&
-    // A non-ROM game (v0.31 W310) has no `system` and is never native-path
-    // eligible for the attract preview.
-    focusedTileGame.system &&
-    isNativePathEligible(focusedTileGame.system, nativeEnabled, nativeCapabilities) &&
+    previewPath.kind !== "none" &&
     !failedPreviewIds.has(focusedTileGame.id)
       ? focusedTileGame
       : null;
@@ -313,17 +324,21 @@ export function TvHome({ onExit }: { onExit: () => void }) {
     // pointer events. The takeover surface visually covers it anyway; inert
     // makes the coverage real for input too (W275).
     <div className="rgp-tv-home" inert={launched !== null || undefined}>
-      {/* W273 live attract preview — a full-bleed spectator layer BETWEEN the
-          hero backdrop and the rails (z-order: preview first in the DOM, hero/
-          rails positioned after it, tv-home.css). Crossfades in/out via the
-          central motion source; reduced motion is honoured automatically by
-          the app-level MotionConfig. The whole layer is conditional on NOT
-          being launched OUTSIDE AnimatePresence so a real launch unmounts the
-          preview session IMMEDIATELY (its stop is dispatched before the
-          takeover's start in the same commit — cleanup runs first); only
-          dwell-driven teardown gets the exit crossfade. At most one preview
-          ever exists: the dwell hook clears to null before a new game can
-          complete its own full dwell, so sessions never overlap. */}
+      {/* W273/W376 live attract preview — a full-bleed spectator layer
+          BETWEEN the hero backdrop and the rails (z-order: preview first in
+          the DOM, hero/rails positioned after it, tv-home.css). Crossfades
+          in/out via the central motion source; reduced motion is honoured
+          automatically by the app-level MotionConfig. The whole layer is
+          conditional on NOT being launched OUTSIDE AnimatePresence so a real
+          launch unmounts the preview session IMMEDIATELY (its stop is
+          dispatched before the takeover's start in the same commit — cleanup
+          runs first); only dwell-driven teardown gets the exit crossfade. At
+          most one preview ever exists: the dwell hook clears to null before a
+          new game can complete its own full dwell, so sessions never
+          overlap. Which player mounts is `previewPath` (resolved from the
+          SAME focused tile useAttractDwell keys on — the dwell contract
+          guarantees `previewGame`, while non-null, is still the currently
+          focused tile's game, so `previewPath` always describes it). */}
       {launched === null && (
         <AnimatePresence>
           {previewGame && (
@@ -337,14 +352,22 @@ export function TvHome({ onExit }: { onExit: () => void }) {
               aria-hidden
               data-testid="tv-attract-preview"
             >
-              <NativePlayer
-                gameId={previewGame.id}
-                gameName={previewGame.cleanName}
-                presentation="preview"
-                onStartFailed={() => markPreviewFailed(previewGame.id)}
-              />
-              {/* Dim wash so the rails/hero copy stay legible over gameplay. */}
-              <div className="rgp-tv-home__preview-scrim" />
+{previewPath.kind === "ejs" ? (
+                <InPagePlayer
+                  gameId={previewGame.id}
+                  ejsSystem={previewPath.ejsCore}
+                  gameName={previewGame.cleanName}
+                  presentation="preview"
+                  onUnavailable={() => markPreviewFailed(previewGame.id)}
+                />
+              ) : (
+                <NativePlayer
+                  gameId={previewGame.id}
+                  gameName={previewGame.cleanName}
+                  presentation="preview"
+                  onStartFailed={() => markPreviewFailed(previewGame.id)}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>

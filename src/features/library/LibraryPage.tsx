@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { launchGame, listGames } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { listCollections, listGamesByCollection, type CollectionWithCount } from "../../ipc/collections";
 import { listContainer, riseIn } from "../../lib/motion";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
@@ -79,6 +80,11 @@ export function LibraryPage() {
   const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
+  // Collections (v0.37 W373): every collection (for the filter select) plus
+  // the resolved member-id set for whichever collection is currently
+  // selected in `criteria.collectionId`.
+  const [collections, setCollections] = useState<CollectionWithCount[]>([]);
+  const [collectionMemberIds, setCollectionMemberIds] = useState<ReadonlySet<number> | null>(null);
 
   const loadGames = useCallback(() => {
     let cancelled = false;
@@ -102,6 +108,44 @@ export function LibraryPage() {
   }, []);
 
   useEffect(() => loadGames(), [loadGames]);
+
+  const loadCollections = useCallback(() => {
+    let cancelled = false;
+    listCollections()
+      .then((rows) => {
+        if (!cancelled) setCollections(rows);
+      })
+      .catch((err: unknown) => swallow(err, "LibraryPage.loadCollections"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => loadCollections(), [loadCollections]);
+
+  // Resolve the member-id set whenever the selected collection changes. Reset
+  // to null (not stale) the instant the selection changes so `filterGames`
+  // never briefly shows the PREVIOUS collection's members under the new
+  // selection while the fetch is in flight.
+  useEffect(() => {
+    if (criteria.collectionId == null) {
+      setCollectionMemberIds(null);
+      return;
+    }
+    let cancelled = false;
+    setCollectionMemberIds(null);
+    listGamesByCollection(criteria.collectionId)
+      .then((members) => {
+        if (!cancelled) setCollectionMemberIds(new Set(members.map((g) => g.id)));
+      })
+      .catch((err: unknown) => {
+        swallow(err, "LibraryPage.loadCollectionMembers");
+        if (!cancelled) setCollectionMemberIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [criteria.collectionId]);
 
   // Import a batch of file paths (from the picker or a drop), then refresh.
   const handleImport = useCallback(
@@ -160,7 +204,10 @@ export function LibraryPage() {
   }, [handleImport]);
 
   const facets = useMemo(() => facetValues(games), [games]);
-  const visible = useMemo(() => filterGames(games, criteria), [games, criteria]);
+  const visible = useMemo(
+    () => filterGames(games, criteria, collectionMemberIds),
+    [games, criteria, collectionMemberIds],
+  );
 
   return (
     <div className="rgp-library">
@@ -185,7 +232,12 @@ export function LibraryPage() {
           {importNote && <span className="rgp-library__note">{importNote}</span>}
         </div>
 
-        <LibraryFilters facets={facets} criteria={criteria} onChange={setCriteria} />
+        <LibraryFilters
+          facets={facets}
+          criteria={criteria}
+          onChange={setCriteria}
+          collections={collections}
+        />
 
         {loading && <LoadingState>Loading library…</LoadingState>}
         {error && <ErrorNotice>Could not load games: {error}</ErrorNotice>}

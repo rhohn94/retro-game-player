@@ -20,7 +20,10 @@
   }
 
   /* The safe-area frame: everything TV-mode renders sits inset from the true
-     viewport edge by the overscan margin (tv-mode-design.md §Tokens). */
+     viewport edge by the overscan margin (tv-mode-design.md §Tokens). The
+     top-chrome group (below) is absolutely positioned and no longer a flex
+     sibling of the outlet (v0.37 W375), so this frame has exactly one flex
+     child and needs no inter-child gap. */
   .rgp-tv-shell__frame {
     position: relative;
     z-index: 1;
@@ -28,28 +31,38 @@
     padding: var(--rgp-tv-safe-area);
     display: flex;
     flex-direction: column;
-    gap: var(--rgp-tv-rail-row-gap);
   }
 
-  .rgp-tv-shell__header {
-    flex: 0 0 auto;
-    /* Positioned + raised so the header label stays above the W273 attract
-       preview (a fixed full-bleed layer inside the home that would otherwise
-       paint over this non-positioned flex child — tv-home.css). */
-    position: relative;
-    z-index: 1;
-  }
-
-  /* Chunky retro-accent section-label treatment (tv-mode-design.md: "chunky
-     pixel-font accents for section labels") — expressed via existing Aura
-     tokens (secondary brand knob + generous letter-spacing), never a
-     hardcoded font-family or literal color. */
-  .rgp-tv-shell__label {
-    font-size: var(--rgp-tv-font-label);
-    font-weight: 700;
-    letter-spacing: var(--rgp-tv-label-tracking);
-    text-transform: uppercase;
-    color: var(--rgp-tv-label-color);
+  /* v0.37 W375 (issue #38): the header used to reserve its own flex row above
+     everything else — a fixed band eaten out of the couch's vertical budget
+     for one small label, the same shape of problem the rail-overlap
+     precedent (v0.28 W277, tv-home.css) already established a fix pattern
+     for: pull chrome OVER the hero art instead of budgeting space for it
+     above the art. It was grouped with the pointer exit/menu buttons in ONE
+     absolutely-positioned top-right column (below) rather than getting its
+     own absolute rule — TOP-RIGHT, not top-left: the hero copy
+     (`.rgp-tv-hero__content`) is LEFT-aligned and, at the acceptance
+     viewports' tighter margins (26vh hero, tv-home.css §v0.28 math), its
+     title/subtitle/chip stack can reach close to the hero's top edge on the
+     left side — measured colliding with a naive top-LEFT banner placement in
+     a real browser at both 1920×1080 and 1512×982 (not just read from the
+     CSS). v0.37 W377 (user directive) then removed the label itself entirely
+     (along with its `--rgp-tv-banner-scrim` wash) — this group now holds only
+     the Menu/Exit buttons, which stay in the same top-right corner (clear of
+     the hero copy at every viewport, and where the buttons already lived
+     pre-W375). */
+  .rgp-tv-shell__top-chrome {
+    position: absolute;
+    top: var(--rgp-tv-safe-area);
+    right: var(--rgp-tv-safe-area);
+    z-index: 2; /* above the hero (z-index 0/1 layers, isolated) and the W273
+                   attract-preview layer, matching the pre-W375 chrome-buttons
+                   level so this group behaves exactly as legible/clickable as
+                   it always was. */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--aura-space-3);
   }
 
   .rgp-tv-shell__outlet {
@@ -85,23 +98,12 @@
   }
 
   /* ---- chrome-level pointer affordances (exit + W278 menu) ----
-     A single positioned group anchors both buttons to the same safe-area
-     corner as a flex row, so their relative placement comes from normal flex
-     gap (a themeable spacing token) instead of a hand-measured absolute
-     offset between two independently positioned elements. `z-index: 2` (above
-     `.rgp-tv-shell__header`'s `1`): an absolutely-positioned element with no
-     explicit z-index stacks at its implicit level (0) among its siblings, so
-     without this the header — a later, higher-z-index positioned sibling in
-     the same `.rgp-tv-shell__frame` stacking context — visually sits ON TOP
-     of these buttons and intercepts their pointer events even though they are
-     visually placed over the header's row (caught by an actual click timing
-     out in scripts/visual-inspect.mjs's tv-system-menu route, not just by
-     reading the CSS). */
+     A plain flex row now (v0.37 W375 moved the outer positioning up to the
+     shared `.rgp-tv-shell__top-chrome` group above, which also holds the
+     section-label header) — relative button placement still comes from
+     normal flex gap (a themeable spacing token), not a hand-measured offset
+     between independently positioned elements. */
   .rgp-tv-shell__chrome-buttons {
-    position: absolute;
-    top: var(--rgp-tv-safe-area);
-    right: var(--rgp-tv-safe-area);
-    z-index: 2;
     display: flex;
     gap: var(--aura-space-3);
   }
@@ -116,6 +118,11 @@
     font-size: var(--rgp-tv-font-body);
     cursor: pointer;
     transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
+    /* v0.37 W377 (user directive): with the header's own scrim wash gone, the
+       buttons' semi-transparent `--aura-shelf-alpha` fill alone can wash out
+       over bright hero art — the shared drop-shadow token (tv.css) keeps the
+       glyph/label legible the same way every other TV text surface does now. */
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   /* The ring itself comes from the central rule (theme/focus-visible.css);
      this adds the extra background/color swap shared with :hover. */

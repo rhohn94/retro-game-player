@@ -138,8 +138,18 @@
         var core = q.get("core") || "nes";
         var game = q.get("game") || "";
         var name = q.get("name") || "Game";
+        // v0.37 W376: the TV hover-attract preview mounts this same page for
+        // the EJS path — a no-trace spectator session (tv-mode-design.md
+        // §v0.27 → W273, extended §v0.37 → W376). `preview=1` gates every
+        // disk-touching operation in the save bridge below to a same-shaped
+        // no-op: no SRAM restore-on-boot read, no periodic/pagehide SRAM
+        // flush, and any save-state/load-state request answers with an error
+        // instead of touching `/saves/...` at all. Purity holds even if a
+        // future caller somehow reaches the bridge in preview mode — the gate
+        // lives in the bridge itself, not just in what InPagePlayer.tsx sends.
+        var preview = q.get("preview") === "1";
         document.getElementById("diag").textContent =
-          "origin " + location.origin + " · core " + core;
+          "origin " + location.origin + " · core " + core + (preview ? " · preview" : "");
 
         // Load the single minified production bundle (emulator.min.js, built
         // locally from src/ via scripts/build-ejs-bundle.mjs). This is the fast
@@ -435,6 +445,14 @@
         // /saves/<id>/* routes into the same on-disk layout the native path
         // uses. Everything here is best-effort: any failure logs and play
         // continues — the bridge must never block the game.
+        //
+        // v0.37 W376: every function below is a no-op (or answers an honest
+        // error) when `preview` is set — restoreSram never reads, flushSram
+        // never writes, and the save-state handlers never touch `/saves/...`
+        // at all. This is the frontend half of the byte-identical-saves
+        // purity guarantee InPagePlayer.tsx's `?preview=1` flag asks for;
+        // gating it here (not just in the parent) means the guarantee holds
+        // even if a future caller reaches this bridge without checking first.
         var SRAM_FLUSH_MS = 30000;
         var lastSramB64 = null;
 
@@ -466,6 +484,7 @@
         }
 
         function flushSram() {
+          if (preview) return; // W376 purity: a preview never writes SRAM
           try {
             var m = gm();
             if (!m) return;
@@ -481,6 +500,7 @@
         }
 
         function restoreSram() {
+          if (preview) return; // W376 purity: a preview never reads a real save
           fetch("/saves/" + game + "/sram").then(function (r) {
             if (!r.ok) return; // nothing saved yet — fresh session
             return r.arrayBuffer().then(function (buf) {
@@ -508,6 +528,9 @@
           var m = gm();
           if (!m) return;
           if (d.type === "harmony-save-state") {
+            // W376 purity: a preview session never writes a save-state file —
+            // answer honestly instead of silently dropping the request.
+            if (preview) { answer("save", d.slot, "saves are disabled during preview"); return; }
             try {
               var state = m.getState();
               postBytes("/saves/" + game + "/state/" + d.slot, state)
@@ -517,6 +540,7 @@
               answer("save", d.slot, String(err));
             }
           } else if (d.type === "harmony-load-state") {
+            if (preview) { answer("load", d.slot, "saves are disabled during preview"); return; }
             fetch("/saves/" + game + "/state/" + d.slot)
               .then(function (r) {
                 if (!r.ok) throw new Error("no save in slot " + d.slot);
@@ -532,6 +556,9 @@
 
         // Wire the lifecycle once the emulator exists: restore on start,
         // flush periodically and when the page is torn down (iframe unmount).
+        // (restoreSram/flushSram are themselves preview no-ops, above — the
+        // interval is still harmless to install, but skipping it entirely
+        // for a preview avoids a pointless recurring no-op timer.)
         var wireTimer = setInterval(function () {
           if (!window.EJS_emulator || typeof EJS_emulator.on !== "function") return;
           clearInterval(wireTimer);
@@ -542,7 +569,7 @@
             if (wired) return;
             wired = true;
             restoreSram();
-            setInterval(flushSram, SRAM_FLUSH_MS);
+            if (!preview) setInterval(flushSram, SRAM_FLUSH_MS);
             // W243: apply a volume that arrived before the emulator existed.
             if (pendingVolume !== null) {
               var v = pendingVolume;
