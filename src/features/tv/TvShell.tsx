@@ -22,6 +22,13 @@
 // `tvMode.menuOpen`) above the outlet — the menu is a shell-level chrome
 // concern (like the exit button), not owned by whatever `children` happens to
 // be showing, so it survives a TvHome <-> embedded-screen swap underneath it.
+//
+// v0.37 W375 (issue #38): the section-label header no longer reserves its own
+// row above the outlet — it's grouped with the exit/menu buttons into one
+// absolutely-positioned top-right column (`.rgp-tv-shell__top-chrome`,
+// tv-shell.css) layered over the outlet's content instead, so TV home's hero
+// art fills the space the header used to reserve (more rail content visible
+// with no other layout change needed).
 
 import { AnimatePresence, motion } from "framer-motion";
 import { type ReactNode } from "react";
@@ -85,27 +92,34 @@ export function TvShell({
     >
       <HeroBackdrop game={null} variant="full-bleed" />
       <div className="rgp-tv-shell__frame">
-        <header className="rgp-tv-shell__header">
-          <span className="rgp-tv-shell__label">Retro Game Player</span>
-        </header>
         <main className="rgp-tv-shell__outlet">{children ?? <TvHomePlaceholder />}</main>
-        <div className="rgp-tv-shell__chrome-buttons">
-          <button
-            type="button"
-            className="rgp-tv-shell__menu"
-            onClick={tvMode.openMenu}
-            aria-label="Open TV menu"
-          >
-            ☰ Menu
-          </button>
-          <button
-            type="button"
-            className="rgp-tv-shell__exit"
-            onClick={onExit}
-            aria-label="Exit TV mode"
-          >
-            ⤢ Exit TV mode (Cmd+T)
-          </button>
+        {/* v0.37 W375 (issue #38): the section-label header + the pointer
+            exit/menu buttons share one top-right corner group (stacked in a
+            column) instead of the header owning its own reserved row above
+            everything else — see `.rgp-tv-shell__top-chrome`'s comment
+            (tv-shell.css) for why the top-RIGHT corner, specifically. */}
+        <div className="rgp-tv-shell__top-chrome">
+          <header className="rgp-tv-shell__header">
+            <span className="rgp-tv-shell__label">Retro Game Player</span>
+          </header>
+          <div className="rgp-tv-shell__chrome-buttons">
+            <button
+              type="button"
+              className="rgp-tv-shell__menu"
+              onClick={tvMode.openMenu}
+              aria-label="Open TV menu"
+            >
+              ☰ Menu
+            </button>
+            <button
+              type="button"
+              className="rgp-tv-shell__exit"
+              onClick={onExit}
+              aria-label="Exit TV mode"
+            >
+              ⤢ Exit TV mode (Cmd+T)
+            </button>
+          </div>
         </div>
       </div>
       <AnimatePresence>{tvMode.menuOpen && <TvSystemMenu />}</AnimatePresence>
