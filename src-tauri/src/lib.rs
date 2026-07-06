@@ -73,6 +73,11 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // detail-page mount doesn't re-read + re-hash the ROM every time. ---
     app.manage(commands::achievements::RomHashCache::default());
 
+    // --- v0.38 W384: session-scoped "already missed this badge" set backing
+    // get_achievement_badge_path, so an offline/removed badge isn't re-fetched
+    // on every render. ---
+    app.manage(commands::achievements::BadgeMissCache::default());
+
     // --- v0.26 "library life" W264: in-memory play-session tracker shared
     // across all three play paths (see commands::play_stats). ---
     app.manage(commands::play_stats::PlayStatsState::default());

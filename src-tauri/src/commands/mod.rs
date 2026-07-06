@@ -180,6 +180,9 @@ macro_rules! register_commands {
             // RetroAchievements unlock experience (v0.37 W372)
             $crate::commands::achievements::poll_achievement_unlocks,
             $crate::commands::achievements::get_achievement_summary,
+            // RetroAchievements detail-page achievement list + badge art (v0.38 W384)
+            $crate::commands::achievements::get_achievement_list,
+            $crate::commands::achievements::get_achievement_badge_path,
             // library collections (v0.37 W373, #21)
             $crate::commands::collections::create_collection,
             $crate::commands::collections::rename_collection,

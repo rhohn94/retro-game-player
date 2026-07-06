@@ -122,6 +122,7 @@ pub struct RaLoginResult {
 /// reqwest-defaults contract).
 pub struct RetroAchievementsClient {
     base_url: String,
+    media_base_url: String,
     username: String,
     api_key: String,
 }
@@ -133,7 +134,11 @@ impl RetroAchievementsClient {
     }
 
     /// Build a client against an arbitrary base URL — the seam tests use to
-    /// point at a local fixture server instead of the real API.
+    /// point at a local fixture server instead of the real API. The media
+    /// (badge art) base URL defaults to the production CDN
+    /// ([`super::RETROACHIEVEMENTS_MEDIA_BASE_URL`]); use
+    /// [`Self::with_media_base_url`] to override it too (v0.38 W384's own
+    /// fixture-server seam).
     pub fn with_base_url(
         base_url: impl Into<String>,
         username: impl Into<String>,
@@ -141,9 +146,18 @@ impl RetroAchievementsClient {
     ) -> Self {
         Self {
             base_url: base_url.into(),
+            media_base_url: super::RETROACHIEVEMENTS_MEDIA_BASE_URL.to_string(),
             username: username.into(),
             api_key: api_key.into(),
         }
+    }
+
+    /// Override the badge-media base URL (v0.38 W384) — chainable so tests can
+    /// point just this seam at a local fixture server while leaving the Web
+    /// API base URL alone (the two are independent RA hosts in production).
+    pub fn with_media_base_url(mut self, media_base_url: impl Into<String>) -> Self {
+        self.media_base_url = media_base_url.into();
+        self
     }
 
     fn http_client(&self) -> AppResult<reqwest::blocking::Client> {
@@ -261,6 +275,42 @@ impl RetroAchievementsClient {
         }))
     }
 
+    /// Fetch one badge image's raw PNG bytes from RA's badge media CDN (v0.38
+    /// W384, retroachievements-design.md §Achievement list) —
+    /// `<mediaBaseUrl>/Badge/<badgeName>.png`. Unauthenticated (RA serves
+    /// badge media as plain static files, unlike the query-string-authed Web
+    /// API endpoints above). `Ok(None)` for a `404` (an unrecognized or
+    /// since-removed badge name — not an error, matches
+    /// `fetch_achievement_set`'s "unknown ⇒ `None`, not `Err`" convention);
+    /// any other transport/HTTP failure surfaces as `Err`.
+    pub fn fetch_badge(&self, badge_name: &str) -> AppResult<Option<Vec<u8>>> {
+        let url = format!(
+            "{}/Badge/{}.png",
+            self.media_base_url,
+            urlencoding_encode(badge_name)
+        );
+        let client = self.http_client()?;
+        let resp = client
+            .get(&url)
+            .send()
+            .map_err(|e| AppError::Network(format!("RetroAchievements badge request failed: {e}")))?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Err(AppError::Network(format!(
+                "RetroAchievements returned HTTP {} for badge {}",
+                resp.status(),
+                url
+            )));
+        }
+        let bytes = resp
+            .bytes()
+            .map_err(|e| AppError::Network(format!("failed to read RetroAchievements badge bytes: {e}")))?;
+        Ok(Some(bytes.to_vec()))
+    }
+
     /// Issue a `GET` and deserialize the JSON body. Mirrors
     /// `SteamGridDbClient::get_json` exactly (no bearer header here — RA's
     /// auth is query-string based, already baked into `url`).
@@ -324,6 +374,28 @@ mod tests {
                 let _ = request.respond(
                     tiny_http::Response::from_string(body).with_status_code(status),
                 );
+            }
+        });
+        (port, handle)
+    }
+
+    /// Serves raw bytes rather than a text body — the badge-fetch tests need
+    /// to assert on the returned `Vec<u8>` verbatim (a PNG isn't valid UTF-8
+    /// in general), which [`fixture_server`]'s `String`-body signature can't
+    /// carry.
+    fn binary_fixture_server(
+        routes: impl Fn(&str) -> (u16, Vec<u8>) + Send + 'static,
+    ) -> (u16, std::thread::JoinHandle<()>) {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            for _ in 0..8 {
+                let Ok(request) = server.recv_timeout(StdDuration::from_secs(2)) else {
+                    break;
+                };
+                let Some(request) = request else { break };
+                let (status, body) = routes(request.url());
+                let _ = request.respond(tiny_http::Response::from_data(body).with_status_code(status));
             }
         });
         (port, handle)
@@ -534,5 +606,50 @@ mod tests {
     fn urlencoding_encode_escapes_reserved_characters() {
         assert_eq!(urlencoding_encode("plain"), "plain");
         assert_eq!(urlencoding_encode("a b&c"), "a%20b%26c");
+    }
+
+    #[test]
+    fn fetch_badge_returns_the_bytes_from_the_expected_path() {
+        let (port, _h) = binary_fixture_server(|url| {
+            assert_eq!(url, "/Badge/111.png");
+            (200, b"pretend-png-bytes".to_vec())
+        });
+        let client = RetroAchievementsClient::with_base_url(
+            "http://ignored.invalid",
+            "user",
+            "key",
+        )
+        .with_media_base_url(format!("http://127.0.0.1:{port}"));
+
+        let bytes = client.fetch_badge("111").unwrap().unwrap();
+        assert_eq!(bytes, b"pretend-png-bytes".to_vec());
+    }
+
+    #[test]
+    fn fetch_badge_returns_none_on_404() {
+        let (port, _h) = binary_fixture_server(|_url| (404, b"not found".to_vec()));
+        let client = RetroAchievementsClient::with_base_url("http://ignored.invalid", "user", "key")
+            .with_media_base_url(format!("http://127.0.0.1:{port}"));
+
+        assert_eq!(client.fetch_badge("missing").unwrap(), None);
+    }
+
+    #[test]
+    fn fetch_badge_surfaces_a_non_404_http_failure() {
+        let (port, _h) = binary_fixture_server(|_url| (500, b"boom".to_vec()));
+        let client = RetroAchievementsClient::with_base_url("http://ignored.invalid", "user", "key")
+            .with_media_base_url(format!("http://127.0.0.1:{port}"));
+
+        let err = client.fetch_badge("111").unwrap_err();
+        assert!(matches!(err, AppError::Network(_)));
+    }
+
+    #[test]
+    fn fetch_badge_surfaces_network_failure_gracefully() {
+        let client = RetroAchievementsClient::with_base_url("http://ignored.invalid", "user", "key")
+            .with_media_base_url("http://127.0.0.1:1");
+
+        let err = client.fetch_badge("111").unwrap_err();
+        assert!(matches!(err, AppError::Network(_)));
     }
 }

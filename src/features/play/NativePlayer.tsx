@@ -74,7 +74,9 @@ import {
   effectivePlayerGain,
   playerShellClass,
   presentationIsSpectator,
+  presentationPollsAchievements,
   presentationRecordsPlaySession,
+  presentationShowsAchievementToasts,
   type PlayerPresentation,
 } from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
@@ -182,10 +184,18 @@ export function NativePlayer({
   // Disabled for previews (W273 purity: no play count / recency / play-time).
   usePlaySession(gameId, presentationRecordsPlaySession(presentation));
 
-  // RetroAchievements unlock toasts (v0.37 W372): polls only for a real,
-  // non-spectator session — a preview never arms achievements backend-side
-  // (W273 purity), so polling it would only waste an IPC round trip.
-  const achievementToast = useAchievementUnlocks(!preview && !spectator);
+  // RetroAchievements unlock toasts (v0.37 W372; v0.38 W384 attract-backdrop
+  // unlock flush). Polling (and persistence) keeps running through the W235
+  // "background" attract backdrop — a real, recording session whose unlocks
+  // are genuinely the user's — but the toast itself stays queued, silent,
+  // until the presentation returns to foreground/takeover
+  // (presentationShowsAchievementToasts). Only "preview" (W273 purity) stops
+  // polling entirely — it never arms achievements backend-side, so polling it
+  // would only waste an IPC round trip.
+  const achievementToast = useAchievementUnlocks(
+    presentationPollsAchievements(presentation),
+    presentationShowsAchievementToasts(presentation),
+  );
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.

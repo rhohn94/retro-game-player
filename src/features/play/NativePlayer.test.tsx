@@ -174,4 +174,107 @@ describe("NativePlayer (presentation='preview')", () => {
     expect(startNativePlay).toHaveBeenCalledWith(7, { preview: false });
     expect(recordPlayStart).toHaveBeenCalledWith(7);
   });
+
+  it("keeps polling achievement unlocks while backgrounded (W235 attract), unlike preview (v0.38 W384)", async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <NativePlayer gameId={7} gameName="Real Game" presentation="background" />
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      pollAchievementUnlocks.mockClear();
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+      });
+
+      // A "background" attract session is a real, recording session — its
+      // unlocks are genuinely the user's, so polling (and persisting) must
+      // keep running even though the toast display is suppressed.
+      expect(pollAchievementUnlocks).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("queues an unlock earned while backgrounded and surfaces it as a toast on return to foreground", async () => {
+    vi.useFakeTimers();
+    try {
+      let presentation: "background" | "foreground" = "background";
+      const renderAt = () =>
+        act(async () => {
+          root.render(
+            <MemoryRouter>
+              <NativePlayer gameId={7} gameName="Real Game" presentation={presentation} />
+            </MemoryRouter>,
+          );
+          await Promise.resolve();
+        });
+
+      await renderAt();
+
+      pollAchievementUnlocks.mockResolvedValue([
+        {
+          achievementId: 1,
+          title: "Speed Runner",
+          description: "Finish fast",
+          points: 25,
+          badgeName: null,
+        },
+      ]);
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Suppressed while backgrounded — the unlock was persisted (polled) but
+      // must not pop a toast over an unattended attract backdrop.
+      expect(container.querySelector(".rgp-achievement-toast")).toBeNull();
+
+      presentation = "foreground";
+      pollAchievementUnlocks.mockResolvedValue([]);
+      await renderAt();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Now that the presentation returned to foreground, the queued toast
+      // must surface.
+      expect(container.querySelector(".rgp-achievement-toast")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never polls achievement unlocks for a no-trace preview session", async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <NativePlayer gameId={7} gameName="Preview Game" presentation="preview" />
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      pollAchievementUnlocks.mockClear();
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+      });
+
+      expect(pollAchievementUnlocks).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
