@@ -58,8 +58,9 @@ fn build_rcheevos() {
         .warnings(true);
 
     for source in sources {
-        build.file(format!("{vendor_dir}/{source}"));
-        println!("cargo:rerun-if-changed={source}", source = format!("{vendor_dir}/{source}"));
+        let path = format!("{vendor_dir}/{source}");
+        build.file(&path);
+        println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-changed={include_dir}");
 
