@@ -820,12 +820,35 @@ mod tests {
         assert_eq!(code, 404); // a hash with no cache dir at all
     }
 
+    /// Builds a real, decompressable one-entry 7z archive in memory holding
+    /// `contents` under `entry_name` — used to fabricate two genuinely
+    /// distinct, always-valid "core versions" for
+    /// [`extracted_cache_invalidates_when_the_on_disk_archive_bytes_change`]
+    /// so its invalidation assertion is never skipped behind a corrupt-archive
+    /// 404 (unlike flipping a raw byte in a real archive, which usually
+    /// corrupts the end-of-archive footer/CRC and fails to decompress).
+    fn build_valid_7z(entry_name: &str, contents: &[u8]) -> Vec<u8> {
+        let mut writer =
+            sevenz_rust::SevenZWriter::new(std::io::Cursor::new(Vec::new())).expect("new writer");
+        let mut entry = sevenz_rust::SevenZArchiveEntry::new();
+        entry.name = entry_name.to_string();
+        entry.has_stream = true;
+        writer
+            .push_archive_entry(entry, Some(std::io::Cursor::new(contents.to_vec())))
+            .expect("push entry");
+        writer.finish().expect("finish archive").into_inner()
+    }
+
     #[test]
     fn extracted_cache_invalidates_when_the_on_disk_archive_bytes_change() {
         // Acceptance criterion: cache invalidates on core version change.
         // Simulated here by swapping the installed archive bytes for a core
         // under one filename — a real re-vendor of a core would change the
-        // archive's bytes (and thus its hash) the same way.
+        // archive's bytes (and thus its hash) the same way. Both "versions"
+        // are real, independently-decompressable 7z archives (not a
+        // corrupted byte-flip of one), so the request for the bumped
+        // version always succeeds and the invalidation assertion below is
+        // never skipped.
         let rom = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(rom.path(), b"R").unwrap();
         let db = temp_db_with_game("extract-invalidate", rom.path());
@@ -833,8 +856,8 @@ mod tests {
         let cores_root = tempfile::tempdir().unwrap();
         let vdir = crate::play::ejs_cores::version_dir(cores_root.path());
         std::fs::create_dir_all(vdir.join("reports")).unwrap();
-        let fceumm_archive = include_bytes!("../../vendor/emulatorjs/cores/fceumm-wasm.data");
-        std::fs::write(vdir.join("snes9x-wasm.data"), fceumm_archive).unwrap();
+        let archive_v1 = build_valid_7z("core.json", b"{\"version\":1}");
+        std::fs::write(vdir.join("snes9x-wasm.data"), &archive_v1).unwrap();
         let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
 
         let (code, body_v1) = http_get(port, "/emulatorjs/cores/extracted/snes9x-wasm.data.json");
@@ -842,27 +865,29 @@ mod tests {
         let manifest_v1: serde_json::Value = serde_json::from_slice(&body_v1).unwrap();
         let hash_v1 = manifest_v1["core.json"].as_str().unwrap().to_string();
 
-        // "Bump the core": different bytes at the same installed filename.
-        let mut bumped = fceumm_archive.to_vec();
-        let flip_at = bumped.len() - 1;
-        bumped[flip_at] ^= 0xFF;
-        // A corrupted tail may not decompress; append harmless real bytes
-        // aren't meaningful here — the assertion under test is purely that
-        // the manifest for the OLD hash still works (nothing was mutated in
-        // place) and the filename route re-derives a NEW hash from the new
-        // bytes rather than reusing the stale manifest.
-        std::fs::write(vdir.join("snes9x-wasm.data"), &bumped).unwrap();
+        // "Bump the core": a second, distinct, equally-valid archive at the
+        // same installed filename.
+        let archive_v2 = build_valid_7z("core.json", b"{\"version\":2}");
+        assert_ne!(archive_v1, archive_v2, "test fixture sanity: the two archives must differ");
+        std::fs::write(vdir.join("snes9x-wasm.data"), &archive_v2).unwrap();
 
         let (code, body_v2) = http_get(port, "/emulatorjs/cores/extracted/snes9x-wasm.data.json");
-        if code == 200 {
-            let manifest_v2: serde_json::Value = serde_json::from_slice(&body_v2).unwrap();
-            let hash_v2 = manifest_v2["core.json"].as_str().unwrap().to_string();
-            assert_ne!(hash_v1, hash_v2, "changed archive bytes must key a different cache entry");
-        }
+        assert_eq!(code, 200, "the bumped archive must decompress and resolve, not 404");
+        let manifest_v2: serde_json::Value = serde_json::from_slice(&body_v2).unwrap();
+        let hash_v2 = manifest_v2["core.json"].as_str().unwrap().to_string();
+        assert_ne!(hash_v1, hash_v2, "changed archive bytes must key a different cache entry");
+
+        // The new hash's entry must resolve too, end-to-end through the
+        // served route (test-quality rule: don't just assert the string).
+        let (code, entry_body) = http_get(port, &format!("/emulatorjs/{hash_v2}"));
+        assert_eq!(code, 200);
+        assert_eq!(entry_body, b"{\"version\":2}");
+
         // The original hash's cache entry must remain intact regardless —
         // nothing overwrites an existing hash-keyed directory in place.
-        let (code, _) = http_get(port, &format!("/emulatorjs/{hash_v1}"));
+        let (code, entry_body) = http_get(port, &format!("/emulatorjs/{hash_v1}"));
         assert_eq!(code, 200);
+        assert_eq!(entry_body, b"{\"version\":1}");
     }
 
     #[test]
