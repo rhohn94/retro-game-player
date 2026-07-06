@@ -117,6 +117,32 @@ design doc records the submission path as the v0.38 follow-up.
 - **Branch:** `w372-unlock-experience`
 - **Design:** `retroachievements-design.md` §§Unlock UX, Persistence.
 
+### W376 — Attract mode: 1-second dwell + all in-page consoles (user directive)
+
+User directive (2026-07-06, mid-release rider): "Decrease attract mode
+timer to just 1 second. Make sure attract mode works on all consoles."
+Two parts: (1) `TV_ATTRACT_DWELL_MS` 5000 → 1000 (one constant in
+`useAttractDwell.ts` + the mirrored `--rgp-tv-attract-dwell-ms` CSS var +
+tests + `tv-mode-design.md`). (2) Extend the TV hover-attract preview from
+native-capable games to **EJS-path games** (the recorded W273 follow-up),
+preserving the W273 purity contract end-to-end on the EJS path: no
+library-life play-session record, no SRAM/save writes through the iframe
+glue (suppress the overlay save bridge in preview mode), input never
+attaches, audio ducked to the attract gain. External-only tiles (RetroArch
+launch descriptors — e.g. GC/Wii) have no in-page surface and keep static
+art; document that limit honestly in `tv-mode-design.md`.
+
+- **Acceptance:** dwell fires at 1000ms (test updated, CSS var mirrored);
+  an EJS-only system's tile boots a live preview behind the home with
+  ducked audio; play counts / recency / saves are byte-identical before and
+  after an EJS preview (purity tests, mirroring the native ones); input
+  never leaks to the preview; teardown on focus move / launch / home exit
+  matches native behavior; external-only tiles never attempt a preview;
+  `tv-mode-design.md` updated (dwell value + EJS scope + external limit);
+  all suites green; `recipe.py smoke` passes.
+- **Branch:** `w376-attract-all-consoles`
+- **Design:** `tv-mode-design.md` §W273 (extend in place).
+
 ### W373 — Collections (closes #21)
 
 The unshipped half of issue #21. Migration `015_collections.sql`:
@@ -186,7 +212,11 @@ documented viewports (1920×1080, 1512×982).
 
 **Pass 2 (after all Pass-1 merges):** W372 (consumes W370's event stream +
 W371's client; its migration numbers after W373's 015; touches the player
-overlay and detail page).
+overlay and detail page) ∥ W376 (attract rider — TV attract surfaces +
+EJS preview glue: `useAttractDwell.ts`, `TvHome.tsx` attract wiring,
+`InPagePlayer`/`player.html` preview mode, `presentation.ts`; disjoint
+from W372's overlay-toast/detail/migration files, so both run in
+parallel; merge W372 first as a precaution).
 
 Conflict notes:
 
@@ -240,6 +270,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.37 |
 |---|---|---|---|---|
 | `w372-unlock-experience` (W372) | ☐ | ☐ | ☐ | ☐ |
+| `w376-attract-all-consoles` (W376) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
 
