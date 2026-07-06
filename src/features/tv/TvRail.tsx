@@ -42,14 +42,26 @@ export function TvRail({ rail, onLaunch }: TvRailProps) {
   return (
     <section className="rgp-tv-rail" aria-label={rail.label}>
       <h2 className="rgp-tv-rail__label">{rail.label}</h2>
-      <div className="rgp-tv-rail__row" data-rail-id={rail.id}>
+      {/* `role="list"` names the row's semantics explicitly (issue #34 §4):
+          a windowed-out tile still exists in the DOM as an aria-hidden
+          spacer rather than a real tile, so without an explicit role the
+          row's IMPLICIT role would otherwise read as a plain, unlabelled
+          container instead of the shelf-of-items it is. Each `TvTile` is a
+          real `<button>`, not an `<li>`, so it takes `role="listitem"`
+          directly — an ARIA list's children may carry that role on any
+          element, not only `<li>`. */}
+      <div className="rgp-tv-rail__row" data-rail-id={rail.id} role="list">
         {/* Leading spacer preserves horizontal scroll geometry for the tiles
             windowed out to the left (one spacer sized to N tile-widths, not N
-            real tiles). */}
+            real tiles). `aria-hidden` already excludes it from the
+            accessibility tree; `role="presentation"` also strips its
+            otherwise-implicit generic role so it can never be mistaken for a
+            stray list member by AT that walks the raw DOM role chain. */}
         {win.start > 0 && (
           <div
             className="rgp-tv-rail__spacer"
             style={{ "--rgp-tv-spacer-count": win.start } as React.CSSProperties}
+            role="presentation"
             aria-hidden
           />
         )}
@@ -65,6 +77,7 @@ export function TvRail({ rail, onLaunch }: TvRailProps) {
           <div
             className="rgp-tv-rail__spacer"
             style={{ "--rgp-tv-spacer-count": trailing } as React.CSSProperties}
+            role="presentation"
             aria-hidden
           />
         )}

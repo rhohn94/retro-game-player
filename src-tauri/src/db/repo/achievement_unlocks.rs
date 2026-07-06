@@ -72,6 +72,22 @@ impl AchievementUnlocksRepo<'_> {
             rows.collect::<rusqlite::Result<Vec<u32>>>().map_err(map_sqlite)
         })
     }
+
+    /// Every `(achievement_id, unlocked_at)` pair recorded for `game_id` —
+    /// backs the v0.38 W384 detail-page achievement list, which needs the
+    /// unlock timestamp per entry rather than just the bare id
+    /// ([`Self::list_unlocked_ids`]).
+    pub fn list_unlocked(&self, game_id: i64) -> AppResult<Vec<(u32, i64)>> {
+        self.db.with_conn(|c| {
+            let mut stmt = c
+                .prepare("SELECT achievement_id, unlocked_at FROM achievement_unlocks WHERE game_id = ?1")
+                .map_err(map_sqlite)?;
+            let rows = stmt
+                .query_map(params![game_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(map_sqlite)?;
+            rows.collect::<rusqlite::Result<Vec<(u32, i64)>>>().map_err(map_sqlite)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -154,6 +170,28 @@ mod tests {
         repo.record_unlock(game_id, 42, 2_000).unwrap();
 
         assert_eq!(repo.count_unlocked(game_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn list_unlocked_returns_ids_with_their_timestamps() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db);
+        let repo = AchievementUnlocksRepo::new(&db);
+
+        repo.record_unlock(game_id, 7, 1_500).unwrap();
+        repo.record_unlock(game_id, 3, 2_500).unwrap();
+
+        let mut unlocked = repo.list_unlocked(game_id).unwrap();
+        unlocked.sort_by_key(|(id, _)| *id);
+        assert_eq!(unlocked, vec![(3, 2_500), (7, 1_500)]);
+    }
+
+    #[test]
+    fn list_unlocked_is_empty_with_no_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let game_id = seed_game(&db);
+        let repo = AchievementUnlocksRepo::new(&db);
+        assert!(repo.list_unlocked(game_id).unwrap().is_empty());
     }
 
     #[test]

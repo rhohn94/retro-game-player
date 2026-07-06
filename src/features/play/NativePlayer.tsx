@@ -53,11 +53,13 @@ import {
 } from "../../ipc/native-play";
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
+import { reportDrawCostSample } from "../../ipc/perf-tools";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { AchievementToast } from "./AchievementToast";
 import { CrtWebglRenderer } from "./crtWebglRenderer";
 import { useCrtFilter } from "./useCrtFilter";
 import { FpsCounter } from "./fpsCounter";
+import { DrawCostSampler } from "./drawCostSampler";
 import { FpsCounterOverlay } from "./FpsCounterOverlay";
 import { useAchievementUnlocks } from "./useAchievementUnlocks";
 import { useShowFpsCounter } from "./useShowFpsCounter";
@@ -72,7 +74,9 @@ import {
   effectivePlayerGain,
   playerShellClass,
   presentationIsSpectator,
+  presentationPollsAchievements,
   presentationRecordsPlaySession,
+  presentationShowsAchievementToasts,
   type PlayerPresentation,
 } from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
@@ -167,6 +171,12 @@ export function NativePlayer({
   const showFpsCounterRef = useRef(showFpsCounter);
   showFpsCounterRef.current = showFpsCounter;
   const [fps, setFps] = useState(0);
+  // v0.38 W381 (performance-tooling-design.md §Frame-path measurements): real
+  // GPU draw-cost readings from CrtWebglRenderer's timer-query support,
+  // rolled up the same way `fps` is — `null` whenever the browser doesn't
+  // expose the timer-query extension (crtWebglRenderer.ts's own inert
+  // fallback), which the overlay treats as "nothing to show" rather than 0.
+  const [drawCostMs, setDrawCostMs] = useState<number | null>(null);
 
   // Library-life play-session tracking (v0.26 W264): brackets the native
   // session's start/stop lifetime (the effect below re-subscribes per
@@ -174,10 +184,18 @@ export function NativePlayer({
   // Disabled for previews (W273 purity: no play count / recency / play-time).
   usePlaySession(gameId, presentationRecordsPlaySession(presentation));
 
-  // RetroAchievements unlock toasts (v0.37 W372): polls only for a real,
-  // non-spectator session — a preview never arms achievements backend-side
-  // (W273 purity), so polling it would only waste an IPC round trip.
-  const achievementToast = useAchievementUnlocks(!preview && !spectator);
+  // RetroAchievements unlock toasts (v0.37 W372; v0.38 W384 attract-backdrop
+  // unlock flush). Polling (and persistence) keeps running through the W235
+  // "background" attract backdrop — a real, recording session whose unlocks
+  // are genuinely the user's — but the toast itself stays queued, silent,
+  // until the presentation returns to foreground/takeover
+  // (presentationShowsAchievementToasts). Only "preview" (W273 purity) stops
+  // polling entirely — it never arms achievements backend-side, so polling it
+  // would only waste an IPC round trip.
+  const achievementToast = useAchievementUnlocks(
+    presentationPollsAchievements(presentation),
+    presentationShowsAchievementToasts(presentation),
+  );
 
   // Live mirrors so the input handlers (installed once per session) read
   // current overlay/presentation state without re-subscribing.
@@ -457,6 +475,13 @@ export function NativePlayer({
     let lastFpsPublished = 0;
     const FPS_PUBLISH_INTERVAL_MS = 500; // matches FpsCounter's own recompute cadence
 
+    // v0.38 W381: rolling mean over CrtWebglRenderer's real GPU timer-query
+    // samples, published to React state on the same throttle as fps (a fresh
+    // sampler per mount, matching fpsCounter's "no stale estimate carries
+    // over a game switch" convention).
+    const drawCostSampler = new DrawCostSampler();
+    let lastDrawCostPublished = 0;
+
     // v0.34 W345: the last aspect ratio published to React state, so a
     // steady 60 Hz stream of identical-aspect frames (the overwhelming
     // common case — aspect only changes on a genuine geometry
@@ -518,6 +543,27 @@ export function NativePlayer({
             if (now - lastFpsPublished >= FPS_PUBLISH_INTERVAL_MS) {
               lastFpsPublished = now;
               setFps(fpsCounter.fps);
+            }
+
+            // v0.38 W381: only meaningful when the renderer actually drew
+            // through WebGL2 (the putImageData fallback has no GPU timer
+            // query to read) and the extension resolved a sample this tick —
+            // `lastDrawCostMs` stays `null` on any browser/driver that
+            // doesn't expose it, which the sampler simply never records.
+            const sample = renderer?.lastDrawCostMs;
+            if (sample !== null && sample !== undefined) {
+              drawCostSampler.record(sample);
+              // v0.38 W381 (closes #35): persist the raw sample to the
+              // draw-cost sibling perf log (Settings → Performance panel
+              // reads it back) — fire-and-forget, same posture as every
+              // other periodic perf report on this path.
+              void reportDrawCostSample({ drawCostMs: sample }).catch((err: unknown) =>
+                swallow(err, "NativePlayer.reportDrawCostSample"),
+              );
+            }
+            if (now - lastDrawCostPublished >= FPS_PUBLISH_INTERVAL_MS) {
+              lastDrawCostPublished = now;
+              setDrawCostMs(drawCostSampler.meanMs);
             }
           }
         })
@@ -583,7 +629,7 @@ export function NativePlayer({
         <canvas ref={canvasRef} className="rgp-native-player__canvas" aria-label={`Play ${gameName}`} />
       </div>
       {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
-      {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />}
+      {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} drawCostMs={drawCostMs} />}
       {!preview && !spectator && <AchievementToast toast={achievementToast} />}
       {!preview && (
         <div className="rgp-player__bar">

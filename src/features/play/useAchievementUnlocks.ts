@@ -10,8 +10,20 @@
 // backend's `poll_achievement_unlocks` always resolves to an empty array in
 // that case (see commands::achievements's doc), so this hook just never
 // produces a toast — no separate "is RA enabled" flag needed here.
+//
+// v0.38 W384 (retroachievements-design.md §Attract-backdrop unlock flush):
+// polling and toast DISPLAY are now two independent flags rather than one
+// `active` bool. `poll` keeps ticking (and persisting unlocks) through the
+// W235 attract "background" presentation — a real, recording session whose
+// unlocks are genuinely the user's — while `showToasts` is false there, so
+// unlocks earned off-screen queue up silently instead of popping a toast over
+// an unattended backdrop. The moment the presentation returns to foreground
+// (or takeover) and `showToasts` flips true, the auto-dismiss timer arms for
+// whatever is already `current` and the queue drains exactly as it always
+// has. Only the W273 "preview" stops polling entirely (see the presentation
+// module's own doc).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { pollAchievementUnlocks, type UnlockToast } from "../../ipc/retroachievements";
 import { swallow } from "../../ipc/swallow";
 import {
@@ -34,19 +46,19 @@ const POLL_INTERVAL_MS = 1000;
 const TOAST_VISIBLE_MS = 4000;
 
 /**
- * Polls for achievement unlocks every [`POLL_INTERVAL_MS`] while `active` is
- * true (i.e. a real, non-preview native session is running — a preview
- * session never arms achievements backend-side, so polling it would only
- * waste an IPC round trip). Returns the single toast that should currently
- * render, or `null` when the queue is empty.
+ * Polls for achievement unlocks every [`POLL_INTERVAL_MS`] while `poll` is
+ * true (a real, non-preview native session — see
+ * `presentationPollsAchievements`), persisting them via the backend
+ * regardless of display. Returns the single toast that should currently
+ * RENDER, or `null` when either the queue is empty or `showToasts` is false
+ * (a queued-but-unshown toast stays queued, not dropped — it surfaces the
+ * moment `showToasts` flips true, e.g. on return to foreground).
  */
-export function useAchievementUnlocks(active: boolean): UnlockToast | null {
+export function useAchievementUnlocks(poll: boolean, showToasts: boolean): UnlockToast | null {
   const [queue, setQueue] = useState<ToastQueueState>(emptyToastQueue);
-  const queueRef = useRef(queue);
-  queueRef.current = queue;
 
   useEffect(() => {
-    if (!active) {
+    if (!poll) {
       setQueue(emptyToastQueue());
       return;
     }
@@ -63,20 +75,22 @@ export function useAchievementUnlocks(active: boolean): UnlockToast | null {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [active]);
+  }, [poll]);
 
-  // Auto-dismiss: whenever a new toast becomes `current`, schedule its
-  // advance — re-armed each time `queue.current` changes (a new key means a
-  // genuinely new toast took over, including the case where the SAME
-  // achievement id shows twice).
+  // Auto-dismiss: whenever a new toast becomes `current` AND is actually
+  // being shown, schedule its advance — re-armed each time `queue.current`
+  // OR `showToasts` changes, so a toast that was queued while suppressed
+  // gets its full visible window starting from when it actually appears,
+  // not from whenever it happened to be enqueued.
   const currentKey = queue.current?.key ?? null;
   useEffect(() => {
-    if (currentKey === null) return;
+    if (currentKey === null || !showToasts) return;
     const timeout = window.setTimeout(() => {
       setQueue((current) => (current.current?.key === currentKey ? advanceToastQueue(current) : current));
     }, TOAST_VISIBLE_MS);
     return () => window.clearTimeout(timeout);
-  }, [currentKey]);
+  }, [currentKey, showToasts]);
 
+  if (!showToasts) return null;
   return queue.current?.toast ?? null;
 }

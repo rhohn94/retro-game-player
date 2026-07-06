@@ -349,6 +349,10 @@ export const MOCK_FIXTURES = {
   report_ejs_perf_stats: null,
   read_native_perf_log: { lines: [], fpsSeries: [] },
   read_ejs_perf_log: { lines: [], fpsSeries: [] },
+  // v0.38 W381 — GPU draw-cost sibling perf log (closes #35); same
+  // fresh-install "empty series" fixture as its two siblings above.
+  report_draw_cost_sample: null,
+  read_draw_cost_log: { lines: [], fpsSeries: [] },
   // v0.37 W371 — RetroAchievements account settings. A fresh install has no
   // account configured, mirroring the SteamGridDB/Familiar "inert by
   // default" fixtures above.
@@ -362,6 +366,12 @@ export const MOCK_FIXTURES = {
   // `validate_retroachievements_account`'s own inert-by-default fixture.
   get_achievement_summary: null,
   poll_achievement_unlocks: [],
+  // v0.38 W384 — the detail-page achievement list + badge art. Same
+  // "no RA account configured" fresh-install posture as the summary above:
+  // an empty list mirrors the "hide the section" contract, and a badge path
+  // request always degrades to the placeholder glyph (no cache, no fetch).
+  get_achievement_list: [],
+  get_achievement_badge_path: null,
 };
 
 /** Build the page-init script string that installs the mock IPC global before

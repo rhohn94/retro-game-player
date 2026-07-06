@@ -198,14 +198,17 @@ mod tests {
         Ok(())
     }
 
-    /// Reproduces `validate_retroachievements_account`'s short-circuit
-    /// exactly, but with an injected "network attempted" flag instead of a
-    /// real client — proving the no-credential path never reaches the point
-    /// where a client would be constructed.
+    /// Reproduces `validate_retroachievements_account`'s body exactly, but
+    /// against an injectable `base_url` (via
+    /// `RetroAchievementsClient::with_base_url`) instead of the hardcoded
+    /// production RA endpoint — so the command-layer test can point the
+    /// *real* validation path at a local fixture HTTP server (not just prove
+    /// the `NotConfigured` short-circuit, as the previous version of this
+    /// helper did).
     fn validate_at(
         paths: &Paths,
         store: &dyn KeyStore,
-        network_attempted: &std::cell::Cell<bool>,
+        base_url: &str,
     ) -> AppResult<RetroAchievementsValidation> {
         let config = AppConfig::load(paths)?;
         let Some(username) = config
@@ -214,14 +217,38 @@ mod tests {
         else {
             return Ok(RetroAchievementsValidation::NotConfigured);
         };
-        let Some(_api_key) = store.get()? else {
+        let Some(api_key) = store.get()? else {
             return Ok(RetroAchievementsValidation::NotConfigured);
         };
-        network_attempted.set(true);
-        let _ = username;
-        // A real client would be constructed + called here; this test double
-        // stops short since it only needs to prove the short-circuit.
-        Ok(RetroAchievementsValidation::Valid)
+
+        let client = RetroAchievementsClient::with_base_url(base_url, username, api_key);
+        let result = client.validate_credential()?;
+        Ok(if result.valid {
+            RetroAchievementsValidation::Valid
+        } else {
+            RetroAchievementsValidation::Invalid {
+                message: result.message,
+            }
+        })
+    }
+
+    /// Tiny fixture RetroAchievements API for the command-layer validation
+    /// tests below — mirrors `core::retroachievements::client::tests::fixture_server`'s
+    /// tiny_http pattern (also used by `core::search::download`).
+    fn fixture_server(
+        body: &'static str,
+        status: u16,
+    ) -> (u16, std::thread::JoinHandle<()>) {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            if let Ok(request) = server.recv() {
+                let _ = request.respond(
+                    tiny_http::Response::from_string(body).with_status_code(status),
+                );
+            }
+        });
+        (port, handle)
     }
 
     #[test]
@@ -323,11 +350,12 @@ mod tests {
     fn validate_with_no_username_never_attempts_network() {
         let (paths, tmp) = temp_paths("validate-no-username");
         let store = MemoryKeyStore::with_key("some-key");
-        let attempted = std::cell::Cell::new(false);
-
-        let result = validate_at(&paths, &store, &attempted).expect("validate");
+        // No fixture server listening on this port at all — if the
+        // short-circuit regressed and a request were attempted, it would
+        // fail with a connection-refused `Err`, not silently return
+        // `NotConfigured`, so this also proves no network call happened.
+        let result = validate_at(&paths, &store, "http://127.0.0.1:1").expect("validate");
         assert_eq!(result, RetroAchievementsValidation::NotConfigured);
-        assert!(!attempted.get(), "no network call should have been attempted");
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -336,17 +364,19 @@ mod tests {
         let (paths, tmp) = temp_paths("validate-no-key");
         let store = MemoryKeyStore::default();
         save_account_at(&paths, &store, Some("RaUser".to_string()), None).expect("save username");
-        let attempted = std::cell::Cell::new(false);
 
-        let result = validate_at(&paths, &store, &attempted).expect("validate");
+        let result = validate_at(&paths, &store, "http://127.0.0.1:1").expect("validate");
         assert_eq!(result, RetroAchievementsValidation::NotConfigured);
-        assert!(!attempted.get(), "no network call should have been attempted");
         std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
-    fn validate_with_full_credential_attempts_network() {
-        let (paths, tmp) = temp_paths("validate-full");
+    fn validate_with_full_credential_reports_valid_on_a_real_login_ok_response() {
+        // Exercises the REAL path: `validate_at` constructs an actual
+        // `RetroAchievementsClient::with_base_url` and calls
+        // `validate_credential()` against this fixture server, not a
+        // reimplementation of the network decision.
+        let (paths, tmp) = temp_paths("validate-full-valid");
         let store = MemoryKeyStore::default();
         save_account_at(
             &paths,
@@ -355,11 +385,35 @@ mod tests {
             Some("ra-key".to_string()),
         )
         .expect("save");
-        let attempted = std::cell::Cell::new(false);
+        let (port, _h) = fixture_server(r#"{"User":"RaUser","Rank":1}"#, 200);
 
-        let result = validate_at(&paths, &store, &attempted).expect("validate");
+        let result = validate_at(&paths, &store, &format!("http://127.0.0.1:{port}"))
+            .expect("validate");
         assert_eq!(result, RetroAchievementsValidation::Valid);
-        assert!(attempted.get(), "a network call should have been attempted");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn validate_with_full_credential_reports_invalid_on_a_real_rejected_key_response() {
+        let (paths, tmp) = temp_paths("validate-full-invalid");
+        let store = MemoryKeyStore::default();
+        save_account_at(
+            &paths,
+            &store,
+            Some("RaUser".to_string()),
+            Some("bad-key".to_string()),
+        )
+        .expect("save");
+        let (port, _h) = fixture_server(r#"{"Error":"Invalid API Key"}"#, 200);
+
+        let result = validate_at(&paths, &store, &format!("http://127.0.0.1:{port}"))
+            .expect("validate");
+        assert_eq!(
+            result,
+            RetroAchievementsValidation::Invalid {
+                message: Some("Invalid API Key".to_string()),
+            }
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

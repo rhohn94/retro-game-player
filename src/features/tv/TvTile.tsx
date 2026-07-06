@@ -63,6 +63,10 @@ export function TvTile({ game, railId, onLaunch }: TvTileProps) {
       ref={ref}
       variants={listItem}
       type="button"
+      // The parent row carries `role="list"` (TvRail.tsx, issue #34 §4) — this
+      // tile is a real <button>, not an <li>, so it must self-declare
+      // `listitem` to keep that list's child semantics coherent.
+      role="listitem"
       className="rgp-tv-tile"
       data-focused={isFocused ? "true" : undefined}
       onFocus={focus}

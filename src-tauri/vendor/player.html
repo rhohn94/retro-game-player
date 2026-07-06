@@ -363,9 +363,14 @@
             windowStart = now;
             frameCount = 0;
             try {
+              // W387 (#36): target the real served loopback origin (this
+              // page's own origin — the parent embeds this iframe at the
+              // same loopback host/port) rather than "*", so the receiver's
+              // existing e.origin check (InPagePlayer.tsx) has a genuinely
+              // meaningful sender-side counterpart.
               window.parent.postMessage(
                 { type: "harmony-perf-stats", fps: fps, frameTimeMs: frameTimeMs },
-                "*"
+                location.origin
               );
             } catch (e) {
               /* best-effort — a missed report is not a session error */
@@ -436,7 +441,8 @@
         window.addEventListener("keydown", function (e) {
           if (e.key === "Escape") {
             e.preventDefault();
-            window.parent.postMessage({ type: "harmony-overlay-toggle" }, "*");
+            // W387 (#36): loopback origin, not "*" — see the perf-stats send above.
+            window.parent.postMessage({ type: "harmony-overlay-toggle" }, location.origin);
           }
         });
 
@@ -516,10 +522,11 @@
 
         // W232's overlay drives states via postMessage; each request answers
         // with harmony-save-result so the overlay can confirm or show why not.
+        // W387 (#36): loopback origin, not "*" — see the perf-stats send above.
         function answer(op, slot, error) {
           window.parent.postMessage(
             { type: "harmony-save-result", op: op, slot: slot, error: error || null },
-            "*"
+            location.origin
           );
         }
 

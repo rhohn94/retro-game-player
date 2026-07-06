@@ -94,10 +94,38 @@ is known; nothing when RA is unconfigured.
 - Memory-pointer stability across save-state loads — revalidate the peek
   pointer after `retro_unserialize` (W370 verifies against the stub core).
 
+## Achievement list (v0.38 W384)
+
+The detail page grows a full per-game achievement list under the existing
+"N of M" count, from **cache only** — the page never fetches over the
+network. A new IPC command joins the cached `AchievementSet` (definitions)
+with local `achievement_unlocks` rows into
+`{id, title, description, points, badgeName, unlockedAt?}` per achievement;
+unconfigured / no-cached-set ⇒ empty answer and the section stays hidden
+(mirrors the count's behavior). UI: an expandable section (aura patterns),
+unlocked entries visually distinct (badge + unlock date), locked entries
+dimmed with their point value; ordering: unlocked first, then by points.
+
+**Badge art.** Best-effort: badge names map to RA's documented media URL
+(`https://media.retroachievements.org/Badge/<badgeName>.png`, behind the
+client's injectable base for tests) fetched through the RetroAchievements
+client into a bounded disk badge cache (reuse the W371 cache module's
+conventions and location, one file per badge name). Missing/offline ⇒
+neutral placeholder glyph, no spinner, no retry storm (cache the miss for
+the session). The list renders fully without any badge art.
+
+**Attract-backdrop unlock flush.** The `background` presentation (W235
+attract mode) is a real, recording session — but the frontend unlock
+polling gates off ALL spectator presentations, so unlocks earned while
+backgrounded sit in the channel until an eventual foreground poll. W384
+fixes the gate: `background` sessions keep polling (persisting unlocks as
+they happen) but suppress the toast until the presentation returns to
+foreground/takeover, then show queued toasts; `preview` (W273 no-trace)
+stays fully excluded from polling, toasting, and persistence.
+
 ## Follow-ups
 
-- Server submission of unlocks + session "rich presence" ping (v0.38).
-- Full achievement list on the detail page; badge art via the cache.
+- Server submission of unlocks + session "rich presence" ping (v0.39).
 - Genesis/N64 expansion (plumbing is system-agnostic).
 - EJS-path support investigation (upstream EmulatorJS work required).
 - Hardcore mode semantics (disables save states — interacts with

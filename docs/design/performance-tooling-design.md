@@ -137,6 +137,29 @@ separate, not-yet-verified "does a real on-device session actually populate
 the files" claim. On-device verification of both logs from a real play
 session is a recorded follow-up (see release-planning-v0.29.md §5).
 
+**Bounded EJS perf log (v0.38 W387, #36).** `logs/ejs-perf.log` was append-only
+with no cap — filed by the W281 pre-merge Reviewer as a slow-burn issue
+(months of regular EJS play grow the file unboundedly, and the GUI panel's
+`tail_lines` read cost grows with it since it reads the whole file before
+slicing to the last 50 lines). Fixed with the simplest bounded scheme that
+needed no session-boundary bookkeeping: **size-capped rotation on write**,
+not truncate-on-session-start. `report_ejs_perf_stats` now calls
+`append_line_bounded` (`commands/perf_tools.rs`) instead of a bare append —
+before writing, if the file already exceeds `MAX_EJS_PERF_LOG_BYTES` (1 MiB),
+it is rewritten in place to just its last `ROTATION_KEEP_LINES` (== the GUI
+panel's own 50-line read window — nothing beyond that window was ever
+reachable from the UI anyway) lines before the new line is appended.
+Truncate-on-session-start was considered but rejected: the play server is
+a background thread that runs for the app's whole lifetime rather than being
+re-created per "session," so there is no natural session boundary to hook a
+truncate into without adding new bookkeeping the size-cap approach doesn't
+need. Also tightened in the same pass: `player.html`'s three
+`postMessage(..., "*")` sends (`harmony-perf-stats`, `harmony-overlay-toggle`,
+`harmony-save-result`) now target `location.origin` (the served loopback
+origin) instead of the wildcard — the receiver (`InPagePlayer.tsx`) already
+validates `e.origin` on the way in, so this closes the sender-side half of
+that same origin check.
+
 **Pre-existing gap fixed in passing.** Running the smoke/visual-inspect gate
 against `version/0.29` (pre-W281) surfaced a latent bug from W280:
 `get_crt_filter` had no `scripts/mock-ipc.mjs` fixture, so any route driving
@@ -145,3 +168,115 @@ failed the gate. Confirmed via `git stash` that this predates this branch's
 changes. Fixed with a one-line additive fixture (mirroring the `Off` preset)
 since it silently blocked the smoke gate for every future branch, not just
 this one.
+
+## Implementation record (v0.38, W381) — Frame-path measurements: real GPU draw-cost
+
+The renderer half of this release's frame-path perf work (the Rust half —
+lock/allocation hygiene in `runtime/video.rs`/`frame.rs` plus new perf
+counters in the existing native perf-stats surface — is a separate release
+item, W380, `native-emulation-design.md`). This item closes issue #35 by
+replacing `crt-filter-design.md`'s v0.29 analytical shader-cost budget with a
+real measurement, and reduces `CrtWebglRenderer`'s own per-frame GPU work:
+
+- **Allocate-once texture upload.** `CrtWebglRenderer.draw()` previously
+  called `texImage2D` (re-specifying/reallocating GPU storage) on every
+  single frame. It now allocates once via `texImage2D` on the first draw (or
+  whenever the incoming frame's dimensions differ from the last-allocated
+  size — a genuine geometry change) and uses `texSubImage2D` for every
+  same-size draw in between, which only writes pixels into already-allocated
+  storage. Covered by `crtWebglRenderer.test.ts`'s stub, which was upgraded
+  to actually track allocated size and throw if `texSubImage2D` is ever
+  called before an allocating `texImage2D` or with a mismatched region — a
+  vacuous "was some texture call made" mock would not have caught a
+  regression back to per-frame `texImage2D` (the W301 test-quality lesson
+  this release's conflict map explicitly calls out).
+- **Real GPU draw-cost timing.** Feature-detects
+  `EXT_disjoint_timer_query_webgl2` once at construction; when present, each
+  draw is bracketed by a timer query, the previous draw's query is polled
+  non-blockingly, and a resolved, non-disjoint result is published in
+  milliseconds via `lastDrawCostMs`. Completely inert (no query objects ever
+  created) when the extension is absent — tested both ways. Full writeup:
+  `crt-filter-design.md` §measurement.
+- **Where the numbers surface.** `drawCostSampler.ts`'s `DrawCostSampler`
+  (new file, `fpsCounter.ts`-shaped rolling mean) is fed from
+  `NativePlayer.tsx`'s existing paint-loop rAF tick and shown as a second line
+  on the on-screen FPS counter overlay (`FpsCounterOverlay`) — see
+  `crt-filter-design.md` §measurement for why this stays a client-side-only
+  surface rather than a new field on the Rust-owned `native-perf.log` (the
+  IPC frame contract with this release's W380 is frozen, and the log file
+  itself has no frontend-writable path).
+
+## Frame-path measurements (v0.38, W380)
+
+**Motivation.** Before this pass, publishing a decoded frame into the shared
+slot took two mutexes back-to-back every tick (`runtime/video.rs::
+publish_frame`: `aspect_ratio` then `latest_frame`), and the frontend's IPC
+poll (`NativeRuntime::latest_frame`, driven by `NativePlayer.tsx`'s rAF
+drain) took a lock on the same `latest_frame` mutex at roughly the same
+cadence the core thread publishes at. Two independent locks contended by two
+threads racing at the same frequency is strictly worse than one — the
+second lock buys no additional safety once the first is held, only a second
+chance to block.
+
+**Scheme chosen: fold the two into one struct behind one lock.** Rather than
+a lock-free atomic-seq + buffer-swap design (more moving parts, harder to
+review, and the risk profile of the frame loop — the riskiest surface in the
+native runtime — argues for the simplest correct thing), `FrameSlot`
+(`runtime/video.rs`) now carries the aspect ratio alongside the sequence
+number and the frame itself:
+
+```rust
+pub(super) struct FrameSlot {
+    pub(super) seq: u64,
+    pub(super) frame: Option<Rgba8Frame>,
+    pub(super) aspect_ratio: Option<f32>,
+}
+```
+
+`publish_frame` and `NativeRuntime::latest_frame()` (the IPC poll) each now
+take exactly one lock instead of two. `drain_environment`'s
+`GeometryChanged` handler (a rare mid-game renegotiation, not a hot path)
+writes `aspect_ratio` through this same lock rather than a dedicated one —
+free simplification, since that write was never itself a contention source.
+The frontend IPC contract (the `(seq, Rgba8Frame)` pair `latest_frame()`
+returns) is unchanged; this is purely an internal locking restructure.
+
+**Buffer pre-sizing.** `frame.rs::to_rgba8_into`'s scratch buffer previously
+grew to whatever geometry the current frame needed, so the very first frame
+after boot (and any frame following a mid-game
+`RETRO_ENVIRONMENT_SET_GEOMETRY` grow) paid a real reallocation. `frame.rs`
+now exposes `max_rgba8_capacity(max_width, max_height)`, and
+`run_core_loop` pre-sizes its `rgba_scratch` with
+`Vec::with_capacity(max_rgba8_capacity(ctx.max_width, ctx.max_height))`
+before the frame loop starts, using the core's own declared
+`retro_game_geometry.max_width`/`max_height` (the libretro contract's
+upper bound on any frame the core will ever deliver) — so steady-state
+conversion was already zero-allocation (pre-W380), and now the first frame
+is too.
+
+**Perf counters (measurable, not asserted).** Two new fields on
+`PerfCounters` (`audio.rs`), surfaced as additive fields on the existing
+`[rgp-native] perf:` line (same convention as W281's percentiles/dropped-video
+fields — appended, prefix untouched):
+
+- `frame_publish_contended` — incremented via a `try_lock` immediately
+  before `publish_frame`'s real (blocking) `lock()`; a failed `try_lock`
+  means the IPC poll held the slot at that instant. Reported as
+  `publish-contended +N` per interval.
+- `video_scratch_reallocs` — incremented inside `to_rgba8_into` whenever the
+  requested size exceeds the buffer's current capacity. Expected to be 0 in
+  steady state after the pre-sizing above; a nonzero count after boot means
+  a core exceeded its own declared max geometry (a core bug the counter now
+  surfaces, not a regression here). Reported as `scratch-realloc +N`.
+
+**Verification.** Frame pacing and A/V behavior are bit-identical — no
+change to `clock.rs`, the frame-time percentile math, or the dropped-video
+counter's semantics. New unit tests (`runtime/video.rs`,
+`play/native/frame.rs`) cover: the single-lock publish path still threads
+the aspect ratio through correctly; `GeometryChanged` writes land on the
+same slot a subsequent publish reads; the pre-sized-buffer fixture (boot at
+a smaller geometry, then a mid-game change up to the declared max) shows
+zero reallocations; and a buffer that must legitimately grow bumps the
+counter exactly once, not once per frame. All pre-existing pacing/video/
+session/stub-core end-to-end tests remain green unmodified in behavior
+(only the two-mutex-to-one-struct plumbing changed in their call sites).
