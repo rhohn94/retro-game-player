@@ -139,6 +139,19 @@
        property can't be read by a JS timer. */
     --rgp-tv-attract-dwell-ms: 5000ms;
 
+    /* ---- text legibility over art (v0.37 W377, user directive) ----
+       TV mode dropped the dark background overlay layers (the preview scrim +
+       hero gradient scrim) so backdrop art and attract previews render
+       un-washed; every TV-mode text surface that sits over art restores its
+       own legibility with a drop shadow instead, extending the ONE recipe the
+       hero title already used pre-W377 (tv-home.css, a soft shadow lifted
+       from the same bg-token color-mix the removed scrims used) to every
+       other TV text surface (hero subtitle/chips, rail labels, tile
+       captions, the Menu/Exit chrome buttons) rather than each inventing its
+       own. A single named token so every consumer stays in lockstep if the
+       recipe is ever re-tuned. */
+    --rgp-tv-text-shadow: 0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%, transparent);
+
     /* ---- retro-accent section label chrome ----
        The chunky pixel-adjacent label treatment tv-mode-design.md's
        "Retro-but-Aura aesthetic" calls for — expressed via existing Aura
@@ -195,18 +208,6 @@
        the authorized visual overlap, not to force-fit an otherwise-clipped
        tile. */
     --rgp-tv-rail-overlap: 2rem;
-    /* v0.37 W375 (issue #38): the shell's section-label header used to
-       reserve its own flex row above the hero; it now overlays the hero's
-       top-left corner instead (tv-shell.css `.rgp-tv-shell__header`), so it
-       needs its own small legibility wash rather than relying on the hero's
-       scrim (which is anchored bottom/left for the copy band and doesn't
-       reach the top edge). A short, tightly-scoped background — not a
-       full-width/height gradient — so it only ever dims the label's own box,
-       never competing with the hero art the way a second full scrim would.
-       Colour tracks the theme (color-mix on the bg token, same recipe as
-       `.rgp-tv-hero__scrim` / `.rgp-tv-home__preview-scrim`), never a
-       literal. */
-    --rgp-tv-banner-scrim: color-mix(in oklch, var(--aura-bg) 55%, transparent);
     --rgp-tv-hero-title-max: 22ch; /* keep long titles from spanning the frame */
     /* Readable measure cap for 10-foot body copy (the get-core panel and any
        future full-surface prose, W275) — long lines are the first thing to go

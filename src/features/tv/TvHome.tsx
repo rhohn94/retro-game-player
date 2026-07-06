@@ -343,8 +343,6 @@ export function TvHome({ onExit }: { onExit: () => void }) {
                 presentation="preview"
                 onStartFailed={() => markPreviewFailed(previewGame.id)}
               />
-              {/* Dim wash so the rails/hero copy stay legible over gameplay. */}
-              <div className="rgp-tv-home__preview-scrim" />
             </motion.div>
           )}
         </AnimatePresence>
