@@ -715,6 +715,76 @@ treatments (e.g. `--harmony-attract-dim` on the native canvas,
 CRT shader/overlay rather than replacing it — both are just further
 transforms of the same painted frame.
 
+## v0.37 "Trophies" (W375) — banner over hero art (issue #38)
+
+**Complaint (#38).** `TvShell`'s section-label header (`.rgp-tv-shell__header`,
+"RETRO GAME PLAYER") reserved its own flex row above the outlet — a full row
+height plus `--rgp-tv-rail-row-gap` of dead space above the hero, on every TV
+screen, for one small label. That's the same shape of problem v0.28 W277 fixed
+for the hero/rail seam (a fixed chrome reservation eating into the couch's
+vertical budget) and the same fix family applies: stop reserving space for
+chrome that can legibly sit *over* full-bleed art instead.
+
+**Fix.** `.rgp-tv-shell__header` no longer gets its own flex row (or even its
+own absolute rule) — it's grouped with the existing pointer exit/menu buttons
+into ONE absolutely-positioned column, `.rgp-tv-shell__top-chrome`, anchored to
+the frame's top-RIGHT corner (the frame already insets by
+`--rgp-tv-safe-area`, so no extra offset is needed). The group layers on top of
+the hero via stacking order rather than DOM order: the hero (`.rgp-tv-hero`) is
+`isolation: isolate`, so its internal z-index stack never leaks past its own
+boundary, and the group's `z-index: 2` inside the shared `.rgp-tv-shell__frame`
+stacking context wins over the hero's (and the W273 attract-preview layer's)
+implicit `z-index: 0` — the same level the exit/menu buttons already used
+pre-W375. `.rgp-tv-shell__frame`'s `gap` (only ever spanning the header/outlet
+pair) is removed as dead weight now that the frame has a single flex child.
+
+**Top-right, not top-left (a real bug caught by measuring, not by reading the
+CSS).** The first pass anchored the header alone to the top-LEFT corner (the
+label's original position, just lifted out of flow) — this LOOKED right in a
+narrow viewport screenshot, but a real-browser measurement at the two
+acceptance viewports (a small Playwright probe reading
+`getBoundingClientRect()` for the header vs. the hero's title/meta blocks,
+mirroring the W277 aspect-ratio gotcha's own "measure it, don't just read the
+CSS" method) showed the header's box directly overlapping the hero title text
+at BOTH 1920×1080 and 1512×982: the hero copy (`.rgp-tv-hero__content`) is
+left-aligned, and at the tuned 26vh hero height its title/subtitle/chip stack
+can reach close to the hero's own top edge on that same left side (v0.28 W277
+already measured this margin as tight, not generous). Moving the whole group
+to the top-RIGHT corner — clear of the left-aligned copy at every viewport this
+hero geometry is tuned for, and already an established chrome corner (the
+exit/menu buttons) — resolved the overlap with zero measured collision at
+either viewport.
+
+**Legibility.** The hero's own gradient scrim is anchored bottom/left for the
+copy band and doesn't reach the top-right corner, so the label needed its own
+small wash rather than relying on the hero's: a new `--rgp-tv-banner-scrim`
+token (tv.css, the same `color-mix(in oklch, var(--aura-bg) …, transparent)`
+recipe as the hero scrim and the W273 preview scrim) is applied as the header's
+own background, scoped tightly to the label's own padded box — never a
+full-width/height gradient — so it reads over bright key art without dimming
+the cinematic frame the way a second full scrim would.
+
+**Gotcha carried forward from W277 (documented, not hit here):** CSS
+`aspect-ratio` needs a bare `<ratio>` (`320 / 440`), never `<length>`s
+(`320px / 440px` silently resolves to `auto`) — irrelevant to this change (no
+aspect-ratio box involved) but worth re-flagging since this item shares the
+overlap technique family with W277, and its own top-left/top-right lesson
+above is the same genre of "verify against a real render" mistake.
+
+**Verified (measured, both acceptance viewports — 1920×1080, 1512×982):** more
+rail content is visible immediately below the hero (no header-row band to
+scroll past); the hero copy band (title/subtitle/chips/play) is unaffected —
+it was never under the header's old row, and the relocated top-right group has
+zero measured bounding-box overlap with the hero's title or meta blocks at
+either viewport; controller nav is unaffected (the header was never a focus
+target, and the exit/menu buttons keep their same relative order/spacing,
+just regrouped under the shared column).
+
+**Files:** `src/features/tv/tv-shell.css` (header + chrome buttons regrouped
+into `.rgp-tv-shell__top-chrome`, off the flex flow and onto the hero's
+top-right corner), `src/features/tv/TvShell.tsx` (markup regrouped to match),
+`src/theme/tv.css` (`--rgp-tv-banner-scrim` token).
+
 ## Follow-ups
 
 - CRT display filters over gameplay (#23, v0.29) — **implemented, W280** (see
