@@ -47,4 +47,25 @@
     outline: var(--rgp-focus-ring);
     outline-offset: var(--rgp-focus-ring-offset);
   }
+
+  /*
+   * `input[type="range"]` (issue #34 §5 — the CrtFilterPane/CoreOptionsPane
+   * intensity sliders): the generic rule above applies to the `<input>`
+   * element itself, but a range's visible drag handle is a separate
+   * browser-drawn pseudo-element (`::-webkit-slider-thumb` / `::-moz-range-
+   * thumb`), which each browser gives its OWN default focus treatment
+   * (Firefox draws a dotted rect on the thumb; Chromium leaves the thumb
+   * unringed entirely) that this file's outline-on-the-input rule never
+   * reaches — a real "browser default leaks through" gap, not a duplicate of
+   * the rule above. Re-declaring the same token-driven ring directly on the
+   * thumb closes it without inventing a new visual language.
+   */
+  input[type="range"]:focus-visible::-webkit-slider-thumb {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
+  }
+  input[type="range"]:focus-visible::-moz-range-thumb {
+    outline: var(--rgp-focus-ring);
+    outline-offset: var(--rgp-focus-ring-offset);
+  }
 }
