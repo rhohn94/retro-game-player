@@ -305,7 +305,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.37 |
 |---|---|---|---|---|
-| `w372-unlock-experience` (W372) | ☐ | ☐ | ☐ | ☐ |
+| `w372-unlock-experience` (W372) | ☑ | ☑ | ☑ | ☑ |
 | `w376-attract-all-consoles` (W376) | ☐ | ☐ | ☐ | ☐ |
 | `w377-tv-aesthetics` (W377) | ☐ | ☐ | ☐ | ☐ |
 
