@@ -69,6 +69,10 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // in-flight native session (see commands::achievements). ---
     app.manage(commands::achievements::ActiveAchievementSet::default());
 
+    // --- v0.38 W382: path->hash cache backing get_achievement_summary so a
+    // detail-page mount doesn't re-read + re-hash the ROM every time. ---
+    app.manage(commands::achievements::RomHashCache::default());
+
     // --- v0.26 "library life" W264: in-memory play-session tracker shared
     // across all three play paths (see commands::play_stats). ---
     app.manage(commands::play_stats::PlayStatsState::default());

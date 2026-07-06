@@ -162,6 +162,22 @@ pub fn record_panic(
     Ok(record)
 }
 
+/// Record a non-fatal, recoverable error through the same stderr-plus-marker
+/// channel the panic hook uses (W360 error-telemetry-design.md), for call
+/// sites that catch a failure and continue rather than propagate it via
+/// `AppResult`. `source` is a short bracketed tag identifying the call site
+/// (matching the existing ad-hoc `"[rgp-achievements] ..."`-style prefixes
+/// this replaces), `detail` the error's display text.
+///
+/// This is deliberately not a `panic.json`-style file write: a recoverable
+/// error is routine (a transient DB hiccup, a cache miss) rather than a crash
+/// beacon, so persisting one to disk per occurrence would be noise, not
+/// signal. The single funnel matters more than the sink — should a future
+/// item want these persisted or aggregated, this is the one place to change.
+pub fn record_recoverable_error(source: &str, detail: impl std::fmt::Display) {
+    eprintln!("[telemetry] {source}: {detail}");
+}
+
 /// Extract a human-readable message from a panic payload — `PanicHookInfo`
 /// only guarantees `&str`/`String` payloads downcast cleanly (the common
 /// case for `panic!("...")` / `.expect("...")`); anything else falls back to
@@ -313,6 +329,15 @@ mod tests {
         assert!(parsed.location.is_some());
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn record_recoverable_error_does_not_panic() {
+        // Nothing to assert on stderr content without capturing the
+        // process's fd — this test's job is only to prove the call is a
+        // safe, side-effect-free no-crash path callers can rely on instead
+        // of a bare `eprintln!`.
+        record_recoverable_error("[test]", "synthetic failure");
     }
 
     #[test]
