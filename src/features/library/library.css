@@ -886,6 +886,12 @@
     pointer-events: none;
   }
 
+  /* Real GPU draw-cost reading (v0.38 W381, drawCostSampler.ts) appended
+     after the fps figure — visually secondary to the primary fps number. */
+  .rgp-fps-counter__draw-cost {
+    color: var(--aura-on-surface-muted);
+  }
+
   /* RetroAchievements unlock toast (v0.37 W372,
      retroachievements-design.md §Unlock UX + persistence): a non-intrusive
      banner over the running game, never over the pause overlay itself (it
