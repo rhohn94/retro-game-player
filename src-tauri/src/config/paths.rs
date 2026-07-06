@@ -189,6 +189,16 @@ impl Paths {
         self.subdir("retroachievements-cache")
     }
 
+    /// `retroachievements-badges/` dir (created) — fetched badge art, one PNG
+    /// file per RA badge name (v0.38 W384, retroachievements-design.md
+    /// §Achievement list: "reuse the W371 cache module's conventions and
+    /// location, one file per badge name"). Kept as a sibling of, not nested
+    /// inside, [`Self::retroachievements_cache_dir`] since the two caches hold
+    /// different content shapes (JSON sets vs. raw image bytes).
+    pub fn retroachievements_badge_cache_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("retroachievements-badges")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -202,6 +212,7 @@ impl Paths {
         self.ejs_cores_dir()?;
         self.downloads_dir()?;
         self.retroachievements_cache_dir()?;
+        self.retroachievements_badge_cache_dir()?;
         Ok(())
     }
 
@@ -324,6 +335,16 @@ mod tests {
         let dir = paths.retroachievements_cache_dir().expect("ra cache dir");
         assert!(dir.is_dir());
         assert!(dir.ends_with("retroachievements-cache"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn retroachievements_badge_cache_dir_created() {
+        let tmp = std::env::temp_dir().join(format!("harmony-ra-badges-{}", std::process::id()));
+        let paths = Paths::with_root(tmp.join(BUNDLE_ID)).expect("root");
+        let dir = paths.retroachievements_badge_cache_dir().expect("ra badge cache dir");
+        assert!(dir.is_dir());
+        assert!(dir.ends_with("retroachievements-badges"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 

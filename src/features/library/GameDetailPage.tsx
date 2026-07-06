@@ -25,10 +25,16 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrichGameMetadata, fetchBoxart, getGame, launchGame, setFavorite } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
-import { getAchievementSummary, type AchievementSummary } from "../../ipc/retroachievements";
+import {
+  getAchievementList,
+  getAchievementSummary,
+  type AchievementListEntry,
+  type AchievementSummary,
+} from "../../ipc/retroachievements";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
+import { AchievementList } from "./AchievementList";
 import { artUrl } from "./art";
 import { CollectionPicker } from "./CollectionPicker";
 import { HeroBackdrop } from "./HeroBackdrop";
@@ -69,6 +75,11 @@ export function GameDetailPage() {
   // for it) — the row below renders nothing in that case rather than a
   // misleading "0 of 0".
   const [achievements, setAchievements] = useState<AchievementSummary | null>(null);
+  // v0.38 W384: the full achievement list, loaded once the summary confirms
+  // a set exists — kept collapsed by default (`achievementListOpen`) so a
+  // long list doesn't push the rest of the page down unasked.
+  const [achievementList, setAchievementList] = useState<AchievementListEntry[]>([]);
+  const [achievementListOpen, setAchievementListOpen] = useState(false);
 
   const gameId = Number(id);
 
@@ -108,6 +119,23 @@ export function GameDetailPage() {
           if (!isCancelled()) setAchievements(summary);
         })
         .catch((err: unknown) => swallow(err, "GameDetailPage.loadAchievementSummary", "info"));
+    },
+    [gameId],
+  );
+
+  // The full achievement list (v0.38 W384): also cache-only, fired
+  // unconditionally alongside the summary — an unconfigured account or a
+  // game with no cached set resolves to an empty array either way, so there
+  // is no separate "wait for the summary first" gate needed here.
+  useCancellableEffect(
+    (isCancelled) => {
+      setAchievementListOpen(false);
+      if (!Number.isFinite(gameId)) return;
+      getAchievementList(gameId)
+        .then((entries) => {
+          if (!isCancelled()) setAchievementList(entries);
+        })
+        .catch((err: unknown) => swallow(err, "GameDetailPage.loadAchievementList", "info"));
     },
     [gameId],
   );
@@ -254,12 +282,25 @@ export function GameDetailPage() {
             {/* RetroAchievements progress (v0.37 W372): shown only once a set
                 is known for this game — nothing renders for a non-RA game or
                 an unconfigured account (retroachievements-design.md §Unlock
-                UX + persistence). */}
+                UX + persistence). v0.38 W384: the count is now also the
+                toggle for the full expandable list below it, but only when
+                there's actually a list to expand. */}
             {achievements && (
               <p className="rgp-detail__achievements">
                 🏆 {achievements.unlocked} of {achievements.total} achievements
+                {achievementList.length > 0 && (
+                  <button
+                    type="button"
+                    className="rgp-detail__achievements-toggle"
+                    aria-expanded={achievementListOpen}
+                    onClick={() => setAchievementListOpen((v) => !v)}
+                  >
+                    {achievementListOpen ? "Hide" : "Show all"}
+                  </button>
+                )}
               </p>
             )}
+            <AchievementList entries={achievementList} open={achievementListOpen} />
 
             <div className="rgp-detail__actions">
               <AuraButton class="rgp-detail__play" onClick={onLaunch}>

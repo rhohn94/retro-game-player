@@ -21,6 +21,7 @@
 
 use crate::config::{paths::Paths, AppConfig};
 use crate::core::familiar::keychain::{KeyStore, KeychainStore};
+use crate::core::retroachievements::badge_cache::BadgeCache;
 use crate::core::retroachievements::cache::AchievementSetCache;
 use crate::core::retroachievements::client::RetroAchievementsClient;
 use crate::core::retroachievements::{achievement_set, RA_KEY_ACCOUNT};
@@ -385,20 +386,21 @@ impl RomHashCache {
     }
 }
 
-/// Reads the detail-page achievement summary for `game_id`. Cache-only (no
-/// network): a set is known only if it was already fetched (and cached) by
-/// some previous [`arm_for_session`] call for this exact game — this command
-/// never triggers a fetch of its own, so opening the detail page is always
-/// instant and offline-safe. The ROM's RA hash itself is served from
-/// `hash_cache` ([`RomHashCache`]) rather than re-read + re-hashed on every
-/// mount (v0.38 W382).
-#[tauri::command]
-pub fn get_achievement_summary(
+/// Shared cache-only lookup backing both [`get_achievement_summary`] and
+/// [`get_achievement_list`] (v0.38 W384): resolves `game_id` to its cached
+/// [`achievement_set::AchievementSet`], or `None` the moment any link in the
+/// chain is missing (no RA-supported system, no path, no hash, no cache
+/// entry, or an empty set) — every one of those is a legitimate "nothing to
+/// show" outcome for the detail page, never an error. Never triggers a
+/// network fetch of its own; the ROM's RA hash is served from `hash_cache`
+/// ([`RomHashCache`]) rather than re-read + re-hashed on every mount (v0.38
+/// W382).
+fn cached_set_for_game(
     game_id: i64,
-    db: tauri::State<'_, Db>,
-    hash_cache: tauri::State<'_, RomHashCache>,
-) -> AppResult<Option<AchievementSummaryDto>> {
-    let game = crate::db::repo::library::LibraryRepo::new(&db).get_game(game_id)?;
+    db: &Db,
+    hash_cache: &RomHashCache,
+) -> AppResult<Option<achievement_set::AchievementSet>> {
+    let game = crate::db::repo::library::LibraryRepo::new(db).get_game(game_id)?;
     let Some(system) = game.system.as_deref().and_then(AchievementSystem::from_system_id) else {
         return Ok(None);
     };
@@ -421,12 +423,203 @@ pub fn get_achievement_summary(
     if set.is_empty() {
         return Ok(None);
     }
+    Ok(Some(set))
+}
 
+/// Reads the detail-page achievement summary for `game_id`. Cache-only (no
+/// network): a set is known only if it was already fetched (and cached) by
+/// some previous [`arm_for_session`] call for this exact game — this command
+/// never triggers a fetch of its own, so opening the detail page is always
+/// instant and offline-safe.
+#[tauri::command]
+pub fn get_achievement_summary(
+    game_id: i64,
+    db: tauri::State<'_, Db>,
+    hash_cache: tauri::State<'_, RomHashCache>,
+) -> AppResult<Option<AchievementSummaryDto>> {
+    let Some(set) = cached_set_for_game(game_id, &db, &hash_cache)? else {
+        return Ok(None);
+    };
     let unlocked = AchievementUnlocksRepo::new(&db).count_unlocked(game_id)?;
     Ok(Some(AchievementSummaryDto {
         unlocked,
         total: set.achievements.len() as u32,
     }))
+}
+
+/// One achievement entry in the detail page's full achievement list (v0.38
+/// W384, retroachievements-design.md §Achievement list) — joins the cached
+/// set's definition with this game's local unlock row, if any.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AchievementListEntryDto {
+    pub id: u64,
+    pub title: String,
+    pub description: String,
+    pub points: u32,
+    pub badge_name: Option<String>,
+    /// Unix epoch seconds the achievement was unlocked, or `None` if still
+    /// locked.
+    pub unlocked_at: Option<i64>,
+}
+
+/// Orders entries unlocked-first, then by points (retroachievements-design.md
+/// §Achievement list: "ordering: unlocked first, then by points") — ties
+/// within the same unlocked/locked group and points value keep the set's own
+/// id order for a stable sort.
+fn order_achievement_list(entries: &mut [AchievementListEntryDto]) {
+    entries.sort_by(|a, b| {
+        b.unlocked_at
+            .is_some()
+            .cmp(&a.unlocked_at.is_some())
+            .then(b.points.cmp(&a.points))
+            .then(a.id.cmp(&b.id))
+    });
+}
+
+/// Reads the full per-game achievement list for the detail page (v0.38 W384).
+/// Cache-only, exactly like [`get_achievement_summary`] (no network call is
+/// ever made here) — an unconfigured account / no-cached-set answers with an
+/// empty list, which the frontend treats identically to "hide the section".
+#[tauri::command]
+pub fn get_achievement_list(
+    game_id: i64,
+    db: tauri::State<'_, Db>,
+    hash_cache: tauri::State<'_, RomHashCache>,
+) -> AppResult<Vec<AchievementListEntryDto>> {
+    let Some(set) = cached_set_for_game(game_id, &db, &hash_cache)? else {
+        return Ok(Vec::new());
+    };
+    let unlocked: HashMap<u32, i64> = AchievementUnlocksRepo::new(&db)
+        .list_unlocked(game_id)?
+        .into_iter()
+        .collect();
+
+    let mut entries: Vec<AchievementListEntryDto> = set
+        .achievements
+        .iter()
+        .map(|a| {
+            let unlocked_at = u32::try_from(a.id).ok().and_then(|id| unlocked.get(&id).copied());
+            AchievementListEntryDto {
+                id: a.id,
+                title: a.title.clone(),
+                description: a.description.clone(),
+                points: a.points,
+                badge_name: a.badge_name.clone(),
+                unlocked_at,
+            }
+        })
+        .collect();
+    order_achievement_list(&mut entries);
+    Ok(entries)
+}
+
+/// Session-scoped set of badge names known to have missed on the last fetch
+/// attempt (v0.38 W384: "cache the miss for the session (no retry storm)").
+/// Deliberately in-memory only, reset every app relaunch — a badge that was
+/// missing offline should be retried on the NEXT launch (network may be back
+/// by then), just not repeatedly within the same running session.
+#[derive(Default)]
+pub struct BadgeMissCache(Mutex<std::collections::HashSet<String>>);
+
+/// Seam [`resolve_badge_path`] fetches a missing badge through — narrowed to
+/// just the one call it needs, mirroring [`UnlockPersister`]'s "narrow trait
+/// over the real client" shape so a test can inject a scripted fetch result
+/// without standing up an HTTP fixture server. [`RetroAchievementsClient`]
+/// itself implements it, unchanged.
+pub trait BadgeFetcher {
+    fn fetch_badge(&self, badge_name: &str) -> AppResult<Option<Vec<u8>>>;
+}
+
+impl BadgeFetcher for RetroAchievementsClient {
+    fn fetch_badge(&self, badge_name: &str) -> AppResult<Option<Vec<u8>>> {
+        RetroAchievementsClient::fetch_badge(self, badge_name)
+    }
+}
+
+/// Reads (best-effort) the on-disk path for `badge_name`'s cached badge art,
+/// fetching it through the RetroAchievements client on a cache miss (v0.38
+/// W384). Returns `None` — never an error — for any failure: no cache dir,
+/// a fetch that 404s, a network/transport failure, or a badge name already
+/// known to have missed this session (`misses`, see [`BadgeMissCache`]),
+/// which short-circuits without attempting the network call again. The
+/// frontend degrades to a neutral placeholder glyph whenever this resolves to
+/// `None` — the achievement list renders fully without any badge art either
+/// way.
+#[tauri::command]
+pub fn get_achievement_badge_path(badge_name: String, misses: tauri::State<'_, BadgeMissCache>) -> AppResult<Option<String>> {
+    if badge_name.trim().is_empty() {
+        return Ok(None);
+    }
+    let Ok(paths) = Paths::app_support() else {
+        return Ok(None);
+    };
+    let Ok(cache_dir) = paths.retroachievements_badge_cache_dir() else {
+        return Ok(None);
+    };
+    let cache = BadgeCache::new(cache_dir);
+    let client = RetroAchievementsClient::new("", "");
+    Ok(resolve_badge_path(&badge_name, &cache, &client, &misses))
+}
+
+/// The real body behind [`get_achievement_badge_path`], separated so it takes
+/// plain references instead of `tauri::State`/a hard-coded `Paths` (this
+/// crate's established "command wraps a plain-argument helper" convention —
+/// see `poll_and_persist_unlocks`/`poll_achievement_unlocks` above), and lets
+/// a test substitute a temp-dir-backed `cache` and a scripted `fetcher`.
+fn resolve_badge_path(
+    badge_name: &str,
+    cache: &BadgeCache,
+    fetcher: &impl BadgeFetcher,
+    misses: &BadgeMissCache,
+) -> Option<String> {
+    {
+        let missed = misses.0.lock().unwrap_or_else(|p| p.into_inner());
+        if missed.contains(badge_name) {
+            return None; // already known-missing this session — no retry storm
+        }
+    }
+
+    if let Ok(Some(_)) = cache.get(badge_name) {
+        return Some(path_to_string(cache.path_for_existing(badge_name)));
+    }
+
+    match fetcher.fetch_badge(badge_name) {
+        Ok(Some(bytes)) => {
+            if let Err(e) = cache.put(badge_name, &bytes) {
+                record_recoverable_error(TELEMETRY_SOURCE, format!("failed to cache fetched badge: {e}"));
+            }
+            Some(path_to_string(cache.path_for_existing(badge_name)))
+        }
+        Ok(None) => {
+            record_miss(misses, badge_name);
+            None
+        }
+        Err(e) => {
+            record_recoverable_error(
+                TELEMETRY_SOURCE,
+                format!("badge fetch failed for {badge_name}, degrading to placeholder: {e}"),
+            );
+            record_miss(misses, badge_name);
+            None
+        }
+    }
+}
+
+/// Records `badge_name` as missed for the rest of this session — factored out
+/// so both failure branches in [`resolve_badge_path`] share one call site.
+fn record_miss(misses: &BadgeMissCache, badge_name: &str) {
+    let mut missed = misses.0.lock().unwrap_or_else(|p| p.into_inner());
+    missed.insert(badge_name.to_string());
+}
+
+/// `PathBuf` → `String` for the frontend's `convertFileSrc` boundary — a
+/// non-UTF8 path is a practical impossibility under this app's own
+/// `Paths`-rooted cache directories, but degrading to `None` rather than
+/// panicking matches every other path-to-string conversion in this crate
+/// (e.g. `art_cache::ArtCacheService::store_with_extension`).
+fn path_to_string(path: std::path::PathBuf) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -862,6 +1055,144 @@ mod tests {
         let hash_b = first.hash_for(&path, AchievementSystem::Nes).unwrap();
 
         assert_ne!(hash_a, hash_b, "changed file must not serve the stale cached hash");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn sample_entry(id: u64, points: u32, unlocked_at: Option<i64>) -> AchievementListEntryDto {
+        AchievementListEntryDto {
+            id,
+            title: format!("Achievement {id}"),
+            description: "d".to_string(),
+            points,
+            badge_name: None,
+            unlocked_at,
+        }
+    }
+
+    #[test]
+    fn order_achievement_list_puts_unlocked_before_locked() {
+        let mut entries = vec![sample_entry(1, 10, None), sample_entry(2, 5, Some(100))];
+        order_achievement_list(&mut entries);
+        assert_eq!(entries[0].id, 2);
+        assert_eq!(entries[1].id, 1);
+    }
+
+    #[test]
+    fn order_achievement_list_orders_by_points_within_the_same_unlock_state() {
+        let mut entries = vec![sample_entry(1, 5, None), sample_entry(2, 20, None), sample_entry(3, 10, None)];
+        order_achievement_list(&mut entries);
+        assert_eq!(entries.iter().map(|e| e.id).collect::<Vec<_>>(), vec![2, 3, 1]);
+    }
+
+    #[test]
+    fn order_achievement_list_falls_back_to_id_for_a_stable_tie_break() {
+        let mut entries = vec![sample_entry(3, 10, None), sample_entry(1, 10, None), sample_entry(2, 10, None)];
+        order_achievement_list(&mut entries);
+        assert_eq!(entries.iter().map(|e| e.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn achievement_list_entry_dto_serializes_to_camel_case() {
+        let entry = sample_entry(1, 10, Some(500));
+        let json = serde_json::to_string(&entry).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":1,"title":"Achievement 1","description":"d","points":10,"badgeName":null,"unlockedAt":500}"#
+        );
+    }
+
+    fn temp_badge_cache(tag: &str) -> (BadgeCache, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("rgp-badge-resolve-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        (BadgeCache::new(&dir), dir)
+    }
+
+    /// A [`BadgeFetcher`] stub that returns a scripted result and records
+    /// every badge name it was asked to fetch, so a test can assert the
+    /// network seam was (or wasn't) hit.
+    struct StubFetcher {
+        result: AppResult<Option<Vec<u8>>>,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl StubFetcher {
+        fn returning(result: AppResult<Option<Vec<u8>>>) -> Self {
+            Self {
+                result,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl BadgeFetcher for StubFetcher {
+        fn fetch_badge(&self, badge_name: &str) -> AppResult<Option<Vec<u8>>> {
+            self.calls.lock().unwrap().push(badge_name.to_string());
+            match &self.result {
+                Ok(v) => Ok(v.clone()),
+                Err(e) => Err(crate::error::AppError::Network(e.to_string())),
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_badge_path_fetches_and_caches_on_a_miss() {
+        let (cache, dir) = temp_badge_cache("miss-then-fetch");
+        let fetcher = StubFetcher::returning(Ok(Some(b"png-bytes".to_vec())));
+        let misses = BadgeMissCache::default();
+
+        let path = resolve_badge_path("111", &cache, &fetcher, &misses).expect("resolves a path");
+        assert!(std::path::Path::new(&path).exists());
+        assert_eq!(fetcher.calls.lock().unwrap().len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_badge_path_cache_hits_without_calling_the_fetcher() {
+        let (cache, dir) = temp_badge_cache("cache-hit");
+        cache.put("111", b"already-cached").unwrap();
+        let fetcher = StubFetcher::returning(Err(crate::error::AppError::Network("must not be called".into())));
+        let misses = BadgeMissCache::default();
+
+        let path = resolve_badge_path("111", &cache, &fetcher, &misses).expect("serves from cache");
+        assert!(std::path::Path::new(&path).exists());
+        assert!(fetcher.calls.lock().unwrap().is_empty(), "a cache hit must never call the fetcher");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_badge_path_degrades_to_none_on_a_missing_badge_and_records_the_miss() {
+        let (cache, dir) = temp_badge_cache("missing");
+        let fetcher = StubFetcher::returning(Ok(None));
+        let misses = BadgeMissCache::default();
+
+        assert_eq!(resolve_badge_path("999", &cache, &fetcher, &misses), None);
+        assert!(misses.0.lock().unwrap().contains("999"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_badge_path_degrades_to_none_on_a_transport_failure_and_records_the_miss() {
+        let (cache, dir) = temp_badge_cache("network-failure");
+        let fetcher = StubFetcher::returning(Err(crate::error::AppError::Network("boom".into())));
+        let misses = BadgeMissCache::default();
+
+        assert_eq!(resolve_badge_path("111", &cache, &fetcher, &misses), None);
+        assert!(misses.0.lock().unwrap().contains("111"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_badge_path_short_circuits_on_an_already_known_miss_without_calling_the_fetcher() {
+        let (cache, dir) = temp_badge_cache("known-miss");
+        let fetcher = StubFetcher::returning(Ok(Some(b"should-not-be-fetched".to_vec())));
+        let misses = BadgeMissCache::default();
+        misses.0.lock().unwrap().insert("111".to_string());
+
+        assert_eq!(resolve_badge_path("111", &cache, &fetcher, &misses), None);
+        assert!(
+            fetcher.calls.lock().unwrap().is_empty(),
+            "a known miss this session must not retry the network (no retry storm)"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
