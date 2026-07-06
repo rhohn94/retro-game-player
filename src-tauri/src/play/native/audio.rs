@@ -87,6 +87,22 @@ pub struct PerfCounters {
     /// than the frontend polled, not a rendering defect. Written by
     /// `runtime.rs`'s `drain_video`; read by the periodic perf log.
     pub dropped_video_frames: AtomicU64,
+    /// Times the core thread's frame publish (`video.rs::publish_frame`) had
+    /// to block because the frame-slot mutex was already held — a contention
+    /// proxy for the frontend's IPC poll racing the same lock (W380,
+    /// performance-tooling-design.md §Frame-path measurements). Measured via
+    /// `try_lock` immediately before the blocking `lock()` a publish always
+    /// completes, so this counts contended acquisitions without changing the
+    /// publish path's own locking behavior.
+    pub frame_publish_contended: AtomicU64,
+    /// Times `frame.rs::to_rgba8_into`'s scratch buffer needed a real
+    /// reallocation (its capacity was too small for the frame just decoded)
+    /// rather than reusing prior capacity — W380. Expected to be ~0 in
+    /// steady state once the buffer is pre-sized to the core's declared max
+    /// geometry at session start; a nonzero count after boot means a core
+    /// exceeded its own declared `max_width`/`max_height` (a core bug, not a
+    /// regression here).
+    pub video_scratch_reallocs: AtomicU64,
 }
 
 /// The output gain shared between the IPC layer (`set_native_volume` →

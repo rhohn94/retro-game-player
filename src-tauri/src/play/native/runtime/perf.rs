@@ -1,6 +1,7 @@
 //! The periodic `[rgp-native] perf:` line — effective fps, ring fill,
 //! underrun/overrun deltas (W270 acceptance), plus frame-time percentiles and
-//! a dropped-video-frame delta (v0.29 W281). See
+//! a dropped-video-frame delta (v0.29 W281), plus a frame-publish contention
+//! delta and a scratch-buffer reallocation delta (W380). See
 //! docs/design/native-emulation-design.md §2 and performance-tooling-design.md.
 
 use super::session::CoreAudio;
@@ -27,12 +28,18 @@ pub(super) const PERF_LOG_INTERVAL: Duration = Duration::from_secs(10);
 /// end of the existing line — the pre-existing prefix
 /// (`[rgp-native] perf: {fps} fps effective, ...`) is byte-for-byte unchanged,
 /// so any existing consumer/test that only reads that prefix keeps working.
+/// W380 appends two more fields the same additive way: a frame-publish
+/// contention delta (`counters.frame_publish_contended`) and a video-scratch
+/// reallocation delta (`counters.video_scratch_reallocs`) — see
+/// `super::video`'s and `frame.rs`'s module docs for what each measures.
 pub(super) struct PerfLog {
     window_start: Instant,
     frames: u64,
     underruns: u64,
     overruns: u64,
     dropped_video_frames: u64,
+    frame_publish_contended: u64,
+    video_scratch_reallocs: u64,
     /// Per-frame tick durations recorded since the last emitted line —
     /// reduced to p50/p95/p99 and cleared each time the line fires.
     frame_times: FrameTimeWindow,
@@ -48,6 +55,8 @@ impl PerfLog {
             underruns: counters.underrun_samples.load(Ordering::Relaxed),
             overruns: counters.overrun_samples.load(Ordering::Relaxed),
             dropped_video_frames: counters.dropped_video_frames.load(Ordering::Relaxed),
+            frame_publish_contended: counters.frame_publish_contended.load(Ordering::Relaxed),
+            video_scratch_reallocs: counters.video_scratch_reallocs.load(Ordering::Relaxed),
             frame_times: FrameTimeWindow::default(),
             file,
         }
@@ -69,6 +78,8 @@ impl PerfLog {
         let underruns = counters.underrun_samples.load(Ordering::Relaxed);
         let overruns = counters.overrun_samples.load(Ordering::Relaxed);
         let dropped_video_frames = counters.dropped_video_frames.load(Ordering::Relaxed);
+        let frame_publish_contended = counters.frame_publish_contended.load(Ordering::Relaxed);
+        let video_scratch_reallocs = counters.video_scratch_reallocs.load(Ordering::Relaxed);
         let fps = (frames - self.frames) as f64 / elapsed.as_secs_f64();
         // Formatted once so the stderr and file copies are always identical.
         // The pre-existing prefix is untouched; percentiles + dropped-frame
@@ -95,6 +106,11 @@ impl PerfLog {
             ", dropped-video +{}",
             dropped_video_frames - self.dropped_video_frames
         ));
+        line.push_str(&format!(
+            ", publish-contended +{}, scratch-realloc +{}",
+            frame_publish_contended - self.frame_publish_contended,
+            video_scratch_reallocs - self.video_scratch_reallocs,
+        ));
         eprintln!("{line}");
         self.file.append_line(&line);
         self.window_start = Instant::now();
@@ -102,6 +118,8 @@ impl PerfLog {
         self.underruns = underruns;
         self.overruns = overruns;
         self.dropped_video_frames = dropped_video_frames;
+        self.frame_publish_contended = frame_publish_contended;
+        self.video_scratch_reallocs = video_scratch_reallocs;
         self.frame_times.reset();
     }
 }
@@ -145,6 +163,37 @@ mod tests {
         assert!(content.contains("fps effective, audio off"));
         assert!(content.contains("frame-time p50/p95/p99"));
         assert!(content.contains("dropped-video +"));
+    }
+
+    /// W380 acceptance ("perf counters visible in the perf log"): the
+    /// frame-publish-contention and scratch-buffer-reallocation counters
+    /// appear as additive fields, with correct interval deltas (not raw
+    /// lifetime totals) — mirrors the other counters' delta convention.
+    #[test]
+    fn perf_log_reports_w380_contention_and_realloc_deltas() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("native-perf.log");
+        let counters = PerfCounters::default();
+        // Some activity before PerfLog::new, which must NOT show up in the
+        // first window's delta (only activity after this point counts).
+        counters.frame_publish_contended.fetch_add(100, Ordering::Relaxed);
+        counters.video_scratch_reallocs.fetch_add(100, Ordering::Relaxed);
+        let mut perf = PerfLog::new(&counters, PerfLogFile::create(Some(&path)));
+        counters.frame_publish_contended.fetch_add(5, Ordering::Relaxed);
+        counters.video_scratch_reallocs.fetch_add(2, Ordering::Relaxed);
+        perf.window_start = Instant::now() - PERF_LOG_INTERVAL;
+
+        perf.log_if_due(&counters, None);
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            content.contains("publish-contended +5"),
+            "expected the post-construction delta only: {content}"
+        );
+        assert!(
+            content.contains("scratch-realloc +2"),
+            "expected the post-construction delta only: {content}"
+        );
     }
 
     #[test]

@@ -36,14 +36,17 @@ pub(super) struct CoreLoop<'a> {
     /// Per-session file sink for the perf line (W274); disabled = stderr-only.
     pub(super) perf_file: PerfLogFile,
     pub(super) commands: Receiver<CoreCommand>,
-    pub(super) latest_frame: &'a Mutex<FrameSlot>,
-    pub(super) pixel_format: &'a Mutex<PixelFormat>,
-    /// The frame pipe's current display aspect ratio (W340's reviewer note,
-    /// W345): seeded from the core's boot-time `av_info` and updated on
+    /// The shared latest-frame slot — also carries the frame pipe's current
+    /// display aspect ratio (W340's reviewer note, W345, folded in by
+    /// W380): seeded from the core's boot-time `av_info` and updated on
     /// `RETRO_ENVIRONMENT_SET_GEOMETRY`; read into every delivered
     /// [`crate::play::native::frame::Rgba8Frame`] so the frontend can render
-    /// at the correct aspect instead of assuming a fixed box.
-    pub(super) aspect_ratio: &'a Mutex<Option<f32>>,
+    /// at the correct aspect instead of assuming a fixed box. Folding aspect
+    /// ratio into this same slot (rather than a second mutex) means a
+    /// publish or an IPC poll is a single lock, not two — see
+    /// `super::video`'s module doc.
+    pub(super) latest_frame: &'a Mutex<FrameSlot>,
+    pub(super) pixel_format: &'a Mutex<PixelFormat>,
     /// `None` until a core negotiates `RETRO_ENVIRONMENT_SET_HW_RENDER`
     /// (W345) — created lazily by `bring_up_hw_render` the first time
     /// [`callbacks::EnvironmentEvent::HwRenderRequested`] is drained, never
@@ -104,7 +107,15 @@ pub(super) fn run_core_loop(mut ctx: CoreLoop<'_>) {
     let perf_file = std::mem::replace(&mut ctx.perf_file, PerfLogFile::disabled());
     let mut perf = PerfLog::new(&ctx.counters, perf_file);
     // Reused across frames so steady-state conversion allocates nothing.
-    let mut rgba_scratch: Vec<u8> = Vec::new();
+    // Pre-sized to the core's declared max geometry (W380) so even the
+    // first frame after boot avoids a reallocation, not just later frames
+    // at a now-familiar size — see `frame.rs::max_rgba8_capacity` and its
+    // `video_scratch_reallocs` perf counter.
+    let mut rgba_scratch: Vec<u8> =
+        Vec::with_capacity(crate::play::native::frame::max_rgba8_capacity(
+            ctx.max_width,
+            ctx.max_height,
+        ));
     let mut resample_scratch: Vec<f32> = Vec::new();
     let mut was_paused = false;
     // v0.29 W281 (performance-tooling-design.md): wall-clock timestamp of the
@@ -165,7 +176,6 @@ pub(super) fn run_core_loop(mut ctx: CoreLoop<'_>) {
             &ctx.channels,
             ctx.latest_frame,
             ctx.pixel_format,
-            ctx.aspect_ratio,
             ctx.hw_render.as_deref(),
             &mut rgba_scratch,
             &ctx.counters,
