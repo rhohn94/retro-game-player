@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
+import { useController } from "../controller";
 import { discoverProvider, validateProvider } from "../../ipc/search";
 import type { DiscoveredProvider } from "../../ipc/search";
 import type { SearchProvider, ProviderValidation } from "../../ipc/search";
@@ -84,6 +85,20 @@ export function ProviderDialog({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderValidation | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // Claim the "ui" exclusive slot for the dialog's whole open lifetime (issue
+  // #34 §3, TvSystemMenu/CreateGamesFolderDialog precedent): without this,
+  // Back/Escape falls through to the shell's `navigate(-1)` instead of this
+  // dialog's own onKeyDown Escape handler below.
+  const { claimExclusive } = useController();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    return claimExclusive((action) => {
+      if (action === "back" || action === "quit") onCloseRef.current();
+    }, "ui");
+  }, [open, claimExclusive]);
 
   // Reset all fields when the dialog opens or the target provider changes.
   useEffect(() => {
