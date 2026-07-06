@@ -172,3 +172,15 @@ miss falls through to the original download-then-decompress path unchanged,
 and `this.debug` bypasses the lookup as before); first boot is unaffected;
 cache correctness across a core-version bump is unit-tested. Issue #31 is
 closable.
+
+**GC note (v0.38 W387, #36):** the per-EJS-version namespacing that makes
+invalidation automatic on a core-content change (above) does the opposite
+across an *EmulatorJS runtime* bump — `<ejs-cores-root>/<old-version>/` (its
+downloaded archives, reports, and every extracted-core subcache under it)
+was never revisited once `EJS_VERSION` moved on, so it just sat on disk
+forever. `core_extract::gc_stale_versions` now removes every sibling of the
+current version's directory once per play-server start (`play::server::start`,
+ahead of the socket bind), logging what it removed; a GC failure is
+swallowed via the standard tagged `eprintln!` convention and never fails a
+boot — this is disk hygiene, not a boot-latency fix, so it stays best-effort
+by design.

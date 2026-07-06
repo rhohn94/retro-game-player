@@ -137,6 +137,29 @@ separate, not-yet-verified "does a real on-device session actually populate
 the files" claim. On-device verification of both logs from a real play
 session is a recorded follow-up (see release-planning-v0.29.md §5).
 
+**Bounded EJS perf log (v0.38 W387, #36).** `logs/ejs-perf.log` was append-only
+with no cap — filed by the W281 pre-merge Reviewer as a slow-burn issue
+(months of regular EJS play grow the file unboundedly, and the GUI panel's
+`tail_lines` read cost grows with it since it reads the whole file before
+slicing to the last 50 lines). Fixed with the simplest bounded scheme that
+needed no session-boundary bookkeeping: **size-capped rotation on write**,
+not truncate-on-session-start. `report_ejs_perf_stats` now calls
+`append_line_bounded` (`commands/perf_tools.rs`) instead of a bare append —
+before writing, if the file already exceeds `MAX_EJS_PERF_LOG_BYTES` (1 MiB),
+it is rewritten in place to just its last `ROTATION_KEEP_LINES` (== the GUI
+panel's own 50-line read window — nothing beyond that window was ever
+reachable from the UI anyway) lines before the new line is appended.
+Truncate-on-session-start was considered but rejected: the play server is
+a background thread that runs for the app's whole lifetime rather than being
+re-created per "session," so there is no natural session boundary to hook a
+truncate into without adding new bookkeeping the size-cap approach doesn't
+need. Also tightened in the same pass: `player.html`'s three
+`postMessage(..., "*")` sends (`harmony-perf-stats`, `harmony-overlay-toggle`,
+`harmony-save-result`) now target `location.origin` (the served loopback
+origin) instead of the wildcard — the receiver (`InPagePlayer.tsx`) already
+validates `e.origin` on the way in, so this closes the sender-side half of
+that same origin check.
+
 **Pre-existing gap fixed in passing.** Running the smoke/visual-inspect gate
 against `version/0.29` (pre-W281) surfaced a latent bug from W280:
 `get_crt_filter` had no `scripts/mock-ipc.mjs` fixture, so any route driving

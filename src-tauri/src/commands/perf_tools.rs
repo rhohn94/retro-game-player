@@ -73,16 +73,53 @@ fn format_ejs_perf_line(report: &EjsPerfReport) -> String {
 #[tauri::command]
 pub fn report_ejs_perf_stats(report: EjsPerfReport) -> AppResult<()> {
     let path = Paths::app_support()?.ejs_perf_log_file()?;
-    append_line(&path, &format_ejs_perf_line(&report))
+    append_line_bounded(&path, &format_ejs_perf_line(&report))
 }
 
+/// Upper bound on `ejs-perf.log`'s on-disk size before [`append_line_bounded`]
+/// rotates it (v0.38 W387, #36; performance-tooling-design.md "Bounded EJS
+/// perf log"). Chosen generously above a single session's worth of ~1
+/// line/second reporting (`report_ejs_perf_stats`) — a multi-hour play
+/// session comfortably fits well under this, so rotation is rare in normal
+/// use and only actually bites the "left running for days/weeks" case the
+/// unbounded-growth issue was filed against.
+const MAX_EJS_PERF_LOG_BYTES: u64 = 1024 * 1024;
+
+/// How many of the most recent lines survive a rotation — the same window
+/// the GUI panel itself reads back ([`MAX_RECENT_LINES`]), since anything
+/// older than that is already unreachable from the panel.
+const ROTATION_KEEP_LINES: usize = MAX_RECENT_LINES;
+
 /// Appends `line` (+ trailing newline) to `path`, creating it if absent.
-fn append_line(path: &Path, line: &str) -> AppResult<()> {
+/// Bounded (size-capped rotation, not unbounded append): if `path` already
+/// exceeds [`MAX_EJS_PERF_LOG_BYTES`], it is rewritten first to just its last
+/// [`ROTATION_KEEP_LINES`] lines before the new line is appended, so the file
+/// never grows without limit across the lifetime of an install. Simpler than
+/// a truncate-on-session-start scheme (no session-boundary bookkeeping needed
+/// here — the play server never restarts mid-run) and correct regardless of
+/// how many sessions have run.
+fn append_line_bounded(path: &Path, line: &str) -> AppResult<()> {
+    if path.metadata().map(|m| m.len()).unwrap_or(0) > MAX_EJS_PERF_LOG_BYTES {
+        rotate(path)?;
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
     writeln!(file, "{line}")?;
+    Ok(())
+}
+
+/// Rewrites `path` in place to hold only its last [`ROTATION_KEEP_LINES`]
+/// non-empty lines — the bounded-growth step [`append_line_bounded`] runs
+/// once `path` crosses [`MAX_EJS_PERF_LOG_BYTES`].
+fn rotate(path: &Path) -> AppResult<()> {
+    let kept = tail_lines_capped(path, ROTATION_KEEP_LINES)?;
+    let mut content = kept.join("\n");
+    if !kept.is_empty() {
+        content.push('\n');
+    }
+    std::fs::write(path, content)?;
     Ok(())
 }
 
@@ -96,6 +133,15 @@ const MAX_RECENT_LINES: usize = 50;
 /// rather than an error — "nothing recorded yet" is a normal, unremarkable
 /// state for a fresh install.
 fn tail_lines(path: &Path) -> AppResult<Vec<String>> {
+    tail_lines_capped(path, MAX_RECENT_LINES)
+}
+
+/// Reads the last `cap` non-empty lines of `path`, oldest first. Shared by
+/// [`tail_lines`] (the GUI panel's read window) and [`rotate`] (the bounded
+/// perf-log rewrite window) so both windows are always drawn from the same
+/// tail-reading logic. A missing file yields an empty list rather than an
+/// error.
+fn tail_lines_capped(path: &Path, cap: usize) -> AppResult<Vec<String>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -105,8 +151,8 @@ fn tail_lines(path: &Path) -> AppResult<Vec<String>> {
         .filter(|l| !l.trim().is_empty())
         .map(str::to_string)
         .collect();
-    if lines.len() > MAX_RECENT_LINES {
-        lines = lines.split_off(lines.len() - MAX_RECENT_LINES);
+    if lines.len() > cap {
+        lines = lines.split_off(lines.len() - cap);
     }
     Ok(lines)
 }
@@ -249,8 +295,8 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("test.log");
 
-        append_line(&path, "first").expect("append 1");
-        append_line(&path, "second").expect("append 2");
+        append_line_bounded(&path, "first").expect("append 1");
+        append_line_bounded(&path, "second").expect("append 2");
 
         let content = std::fs::read_to_string(&path).expect("read");
         assert_eq!(content, "first\nsecond\n");
@@ -284,7 +330,7 @@ mod tests {
         report: EjsPerfReport,
     ) -> AppResult<()> {
         let path = paths.ejs_perf_log_file()?;
-        append_line(&path, &format_ejs_perf_line(&report))
+        append_line_bounded(&path, &format_ejs_perf_line(&report))
     }
 
     /// Mirrors `read_native_perf_log`'s exact body against an isolated root.
@@ -351,7 +397,7 @@ mod tests {
         // not a hard-coded/mismatched one.
         let (paths, tmp) = temp_paths("native-real-line");
         let path = paths.native_perf_log_file().expect("path");
-        append_line(
+        append_line_bounded(
             &path,
             "[rgp-native] perf: 59.87 fps effective, ring 82 ms, underrun +0, overrun +0, \
              frame-time p50/p95/p99 16.2/17.0/18.5 ms, dropped-video +0",
@@ -361,6 +407,91 @@ mod tests {
         let entries = read_native_perf_log_at(&paths).expect("read");
         assert_eq!(entries.lines.len(), 1);
         assert_eq!(entries.fps_series, vec![Some(59.87)]);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ---- W387 (issue #36): bounded ejs-perf.log growth ----
+
+    #[test]
+    fn append_line_bounded_rotates_once_the_size_cap_is_exceeded() {
+        let dir = temp_dir("rotate");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("test.log");
+
+        // Pre-fill the file past MAX_EJS_PERF_LOG_BYTES with more lines than
+        // ROTATION_KEEP_LINES, so a rotation must both shrink the file AND
+        // drop the oldest lines.
+        let big_line = "x".repeat(200);
+        let total_lines = (MAX_EJS_PERF_LOG_BYTES as usize / big_line.len()) + ROTATION_KEEP_LINES + 5;
+        let mut seed = String::new();
+        for i in 0..total_lines {
+            seed.push_str(&format!("{big_line}-{i}\n"));
+        }
+        std::fs::write(&path, &seed).expect("seed");
+        assert!(std::fs::metadata(&path).unwrap().len() > MAX_EJS_PERF_LOG_BYTES);
+
+        append_line_bounded(&path, "newest-line").expect("append");
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(
+            lines.len(),
+            ROTATION_KEEP_LINES + 1,
+            "rotation must keep only the last ROTATION_KEEP_LINES prior lines, plus the new one"
+        );
+        assert_eq!(lines.last(), Some(&"newest-line"), "the new line must survive the rotation");
+        assert!(
+            std::fs::metadata(&path).unwrap().len() < MAX_EJS_PERF_LOG_BYTES,
+            "the rotated file must be well under the size cap again"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn append_line_bounded_does_not_rotate_a_small_file() {
+        let dir = temp_dir("no-rotate");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("test.log");
+
+        append_line_bounded(&path, "first").expect("append 1");
+        append_line_bounded(&path, "second").expect("append 2");
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(content, "first\nsecond\n", "a small file must never be rewritten");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn report_ejs_perf_stats_across_many_sessions_never_exceeds_the_size_cap() {
+        // The seam this issue's acceptance criterion names directly: repeated
+        // reporting over many "sessions" (i.e. many calls, as a long-lived
+        // install would accumulate) must never let the file grow unboundedly.
+        let (paths, tmp) = temp_paths("bounded-growth");
+        for i in 0..5000 {
+            report_ejs_perf_stats_at(
+                &paths,
+                EjsPerfReport {
+                    game_id: i,
+                    fps: 60.0,
+                    frame_time_ms: 16.7,
+                },
+            )
+            .expect("report");
+        }
+
+        let path = paths.ejs_perf_log_file().expect("path");
+        let size = std::fs::metadata(&path).unwrap().len();
+        assert!(
+            size < MAX_EJS_PERF_LOG_BYTES * 2,
+            "the log must stay bounded across many reports, got {size} bytes"
+        );
+
+        // The most recent report must still be readable back.
+        let entries = read_ejs_perf_log_at(&paths).expect("read");
+        assert!(entries.lines.last().unwrap().contains("game 4999"));
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
