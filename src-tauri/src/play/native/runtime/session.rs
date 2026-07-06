@@ -5,6 +5,7 @@
 
 use super::core_loop::{run_core_loop, CoreLoop};
 use super::video::FrameSlot;
+use crate::play::achievements::{AchievementRuntime, AchievementSet, UnlockEvent};
 use crate::play::native::audio::{
     run_audio_thread, AudioBringUp, AudioProducer, PerfCounters, SharedGain, StereoResampler,
 };
@@ -17,7 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::play::saves::GameSaves;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -53,6 +54,14 @@ pub(super) enum CoreCommand {
         slot: String,
         reply: Sender<AppResult<()>>,
     },
+    /// W370: loads (or replaces) the active achievement set. A `reply` round
+    /// trip (rather than fire-and-forget) so `NativeRuntime::load_achievement_set`
+    /// can surface a malformed-trigger-string error to its caller, matching
+    /// the save/load commands' same convention.
+    LoadAchievementSet {
+        set: AchievementSet,
+        reply: Sender<AppResult<()>>,
+    },
 }
 
 /// A live, running native core session. `Drop` signals both threads to stop
@@ -65,6 +74,10 @@ pub struct NativeRuntime {
     commands: Sender<CoreCommand>,
     core_thread: Option<JoinHandle<()>>,
     audio_thread: Option<JoinHandle<()>>,
+    /// W370: the unlock stream a future command surface (W371/W372) drains.
+    /// `Mutex`-wrapped because draining happens from whatever IPC thread
+    /// calls it, not the core thread that produces unlocks.
+    unlocks: Mutex<Receiver<UnlockEvent>>,
 }
 
 impl NativeRuntime {
@@ -113,6 +126,10 @@ impl NativeRuntime {
         let gain = Arc::new(SharedGain::new());
         let counters = Arc::new(PerfCounters::default());
         let (commands, command_rx) = mpsc::channel();
+        // W370: always constructed (empty — no achievement set loaded until
+        // `load_achievement_set` is called), so `do_frame`'s no-set fast
+        // path is exercised by every session, not just ones that opt in.
+        let (achievements, unlocks) = AchievementRuntime::new();
 
         let (audio_thread, audio) =
             bring_up_audio(core_sample_rate, &stop, &paused, &gain, &counters);
@@ -143,6 +160,8 @@ impl NativeRuntime {
                     max_height,
                     stop: &stop,
                     paused: &paused,
+                    achievements,
+                    frame_counter: 0,
                 });
                 callbacks::uninstall();
             })
@@ -156,6 +175,7 @@ impl NativeRuntime {
             commands,
             core_thread: Some(core_thread),
             audio_thread: Some(audio_thread),
+            unlocks: Mutex::new(unlocks),
         })
     }
 
@@ -194,6 +214,23 @@ impl NativeRuntime {
     pub fn load_state(&self, slot: &str) -> AppResult<()> {
         let slot = slot.to_string();
         self.round_trip(|reply| CoreCommand::LoadState { slot, reply })
+    }
+
+    /// Activates `set`'s achievements for the remainder of this session
+    /// (W370; a future command surface owned by W371 calls this once it has
+    /// fetched a set for the running game's hash). Executed on the core
+    /// thread, like save/load, since the achievement runtime is only ever
+    /// touched from there.
+    pub fn load_achievement_set(&self, set: AchievementSet) -> AppResult<()> {
+        self.round_trip(|reply| CoreCommand::LoadAchievementSet { set, reply })
+    }
+
+    /// Drains every unlock event produced since the last drain (W370). A
+    /// future command surface (W371/W372) polls this the same way
+    /// [`Self::latest_frame`] is polled for video.
+    pub fn drain_unlocks(&self) -> Vec<UnlockEvent> {
+        let rx = self.unlocks.lock().unwrap_or_else(|p| p.into_inner());
+        rx.try_iter().collect()
     }
 
     /// A clone of the most recently produced video frame, already decoded to

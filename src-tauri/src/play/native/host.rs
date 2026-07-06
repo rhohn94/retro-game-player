@@ -346,6 +346,30 @@ impl LibretroCore {
         Ok(())
     }
 
+    /// The core's main system RAM region (`RETRO_MEMORY_SYSTEM_RAM`) as a
+    /// raw `(pointer, len)` pair — **not** copied, unlike [`Self::sram`],
+    /// because RetroAchievements' per-frame trigger evaluation (W370) needs
+    /// to peek the *live* region every tick, not a frame-stale snapshot.
+    /// `None` when the loaded game exposes no system RAM (null/zero region
+    /// — some cores/systems don't distinguish one).
+    ///
+    /// The returned pointer is only valid until the next libretro call that
+    /// could invalidate it — in practice, [`Self::unserialize`] (a
+    /// restore can reallocate a core's backing memory) — so callers that
+    /// hold onto it across an unserialize must re-fetch it afterward rather
+    /// than reuse a stale pointer. [`Self::run_frame`] never invalidates it.
+    pub fn system_ram_pointer(&self) -> Option<(*mut u8, usize)> {
+        if !self.loaded_game {
+            return None;
+        }
+        let size = unsafe { (self.symbols.retro_get_memory_size)(ffi::RETRO_MEMORY_SYSTEM_RAM) };
+        let data = unsafe { (self.symbols.retro_get_memory_data)(ffi::RETRO_MEMORY_SYSTEM_RAM) };
+        if data.is_null() || size == 0 {
+            return None;
+        }
+        Some((data as *mut u8, size))
+    }
+
     pub fn unload_game(&mut self) {
         if self.loaded_game {
             unsafe {
@@ -613,6 +637,11 @@ void retro_run(void) { frame_count++; }
  * SRAM read/write round-trips are testable without a real core. */
 static unsigned char sram[8] = {0};
 
+/* System RAM surface (W370, RETRO_MEMORY_SYSTEM_RAM id 2): a small region a
+ * test can script bytes into via retro_get_memory_data, standing in for the
+ * live memory RetroAchievements' trigger evaluator peeks each frame. */
+static unsigned char system_ram[16] = {0};
+
 size_t retro_serialize_size(void) { return sizeof(frame_count); }
 
 bool retro_serialize(void *data, size_t size) {
@@ -627,8 +656,16 @@ bool retro_unserialize(const void *data, size_t size) {
     return true;
 }
 
-void *retro_get_memory_data(unsigned id) { return id == 0 ? sram : 0; }
-size_t retro_get_memory_size(unsigned id) { return id == 0 ? sizeof(sram) : 0; }
+void *retro_get_memory_data(unsigned id) {
+    if (id == 0) return sram;
+    if (id == 2) return system_ram;
+    return 0;
+}
+size_t retro_get_memory_size(unsigned id) {
+    if (id == 0) return sizeof(sram);
+    if (id == 2) return sizeof(system_ram);
+    return 0;
+}
 "#;
 
     /// Compiles [`STUB_CORE_C`] to a `.dylib` in `dir`. Returns `None` (the
@@ -880,6 +917,36 @@ size_t retro_get_memory_size(unsigned id) { return id == 0 ? strlen(received_pat
         assert_eq!(initial, vec![0u8; 8]);
         core.load_sram(&[1, 2, 3, 4, 5, 6, 7, 8]).expect("load_sram");
         assert_eq!(core.sram().expect("sram"), vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    /// W370: `system_ram_pointer` exposes the live `RETRO_MEMORY_SYSTEM_RAM`
+    /// region (id 2), distinct from SRAM (id 0) — writing through the raw
+    /// pointer this returns must be visible to a subsequent read via the
+    /// same core, proving the pointer is live (not a copy), which is the
+    /// property the per-frame achievement peek (core_loop.rs) depends on.
+    #[test]
+    fn system_ram_pointer_exposes_the_live_region() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(core) = booted_core(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let (ptr, len) = core
+            .system_ram_pointer()
+            .expect("stub exposes system RAM at id 2");
+        assert_eq!(len, 16);
+        // SAFETY: `ptr` is valid for `len` bytes for the lifetime of `core`
+        // (the stub's static array), and no other reference to it is held
+        // across this write.
+        unsafe {
+            std::ptr::write(ptr, 0x42);
+        }
+        let (ptr_again, _) = core
+            .system_ram_pointer()
+            .expect("system RAM still present after run_frame");
+        // SAFETY: same region as above; reading back what was just written.
+        let read_back = unsafe { std::ptr::read(ptr_again) };
+        assert_eq!(read_back, 0x42, "the pointer must be live, not a copy");
     }
 
     #[test]

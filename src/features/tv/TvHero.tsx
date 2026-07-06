@@ -1,9 +1,12 @@
 // TvHero — the key-art hero region atop the TV home (v0.26 W261, tv-mode-
 // design.md §Design "Hero"). Full-bleed native-resolution art of the FOCUSED
-// game (snap/title preferred), a gradient scrim for legibility, and over it the
-// game's 10-foot title, a system + year metadata line, and a play-time /
-// last-played chip when present. Retro-but-Aura flourishes (a static scanline
-// texture accent + a phosphor-glow accent) are layered via tokens, tastefully.
+// game (snap/title preferred), and over it (un-dimmed — v0.37 W377 removed
+// the gradient scrim, user directive) the game's 10-foot title, a system +
+// year metadata line, and a play-time / last-played chip when present, each
+// carrying its own drop shadow (the shared `--rgp-tv-text-shadow` token,
+// tv.css) for legibility instead. Retro-but-Aura flourishes (a static
+// scanline texture accent + a phosphor-glow accent) are layered via tokens,
+// tastefully.
 //
 // The hero crossfades on focus SETTLE: `TvHome` hands it a debounced game so a
 // rapid left/right sweep doesn't thrash the full-bleed art swap — the crossfade
@@ -92,8 +95,6 @@ export function TvHero({ game, onLaunch, artHandedOff = false }: TvHeroProps) {
           )}
         </AnimatePresence>
       </div>
-      {/* Gradient scrim for legibility over any art. */}
-      <div className="rgp-tv-hero__scrim" aria-hidden />
       {/* Retro-but-Aura accents: a static scanline texture + a phosphor glow,
           both token-driven (tv.css) and disabled under reduced-motion via the
           central rule. Purely decorative → aria-hidden. */}

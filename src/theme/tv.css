@@ -130,14 +130,27 @@
        TV-mode-toggle long-press outside gameplay. */
     --rgp-tv-menu-hold-ms: 5000ms;
 
-    /* ---- hover-attract dwell (W273) ----
+    /* ---- hover-attract dwell (W273; lowered to 1000ms in v0.37 W376) ----
        How long focus/hover must settle on ONE shelf tile before the live
        preview boots behind the home (tv-mode-design.md §v0.27 → W273:
        keyboard-focus and pointer-hover alike, one constant). Mirrored in JS
        as TV_ATTRACT_DWELL_MS (src/features/tv/useAttractDwell.ts) — the same
        dual-source pattern as --rgp-tv-long-press-ms above, since a CSS custom
        property can't be read by a JS timer. */
-    --rgp-tv-attract-dwell-ms: 5000ms;
+    --rgp-tv-attract-dwell-ms: 1000ms;
+
+    /* ---- text legibility over art (v0.37 W377, user directive) ----
+       TV mode dropped the dark background overlay layers (the preview scrim +
+       hero gradient scrim) so backdrop art and attract previews render
+       un-washed; every TV-mode text surface that sits over art restores its
+       own legibility with a drop shadow instead, extending the ONE recipe the
+       hero title already used pre-W377 (tv-home.css, a soft shadow lifted
+       from the same bg-token color-mix the removed scrims used) to every
+       other TV text surface (hero subtitle/chips, rail labels, tile
+       captions, the Menu/Exit chrome buttons) rather than each inventing its
+       own. A single named token so every consumer stays in lockstep if the
+       recipe is ever re-tuned. */
+    --rgp-tv-text-shadow: 0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%, transparent);
 
     /* ---- retro-accent section label chrome ----
        The chunky pixel-adjacent label treatment tv-mode-design.md's

@@ -7,6 +7,28 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.37 — Trophies (2026-07-06)
+
+Your play now earns something: RetroAchievements comes to the native
+NES/SNES path, and the library becomes yours to organize.
+
+- **RetroAchievements support.** Link your retroachievements.org account in
+  Settings (username + API key, stored in the macOS Keychain) and earn real
+  achievements while you play NES and SNES games — an unlock toast pops in
+  the moment you hit one, the game's page shows your "N of M" progress, and
+  every unlock is remembered locally. No account? Everything stays quietly
+  off.
+- **Collections.** Group games your own way — "Couch co-op", "RPGs",
+  "Kids" — from the game page or the library filter, and each collection
+  gets its own row in TV mode.
+- **Faster repeat boots.** In-page games now cache their emulator core
+  decompressed, so the second boot of a game skips the slow unpacking step.
+- **A cleaner TV mode.** The app-name banner and the dark washes over the
+  artwork are gone — key art and live previews render at full brightness,
+  with text kept readable by drop shadows instead. Live game previews now
+  start after just 1 second on a tile and work for every console with an
+  in-page player, not just the native ones.
+
 ## v0.36 — Spring Cleaning (2026-07-05)
 
 A quality release: nothing new to click, everything sturdier underneath.

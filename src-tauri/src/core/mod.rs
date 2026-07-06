@@ -14,3 +14,4 @@ pub mod familiar; // W12 — Familiar soft-dependency enrichment client
 pub mod console; // v0.12 — console catalog (static metadata + bundled title lists + media)
 pub mod core_options; // W282 — native-hosted core option probe + persistence
 pub mod sources; // v0.31 W312/W313 — pluggable non-ROM game-source scanners (Steam, app) + shared contract
+pub mod retroachievements; // v0.37 W371 — RetroAchievements Web API client, credential validation, achievement-set fetch

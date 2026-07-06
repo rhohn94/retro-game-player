@@ -24,7 +24,11 @@
 //! - `cohort`: the v0.34 "Engines" software-render cohort's three pixel
 //!   formats plus a mid-game `SET_GEOMETRY` renegotiation (W342).
 //! - `hw_render`: the W345 HW-render (CGL/FBO) end-to-end readback proof.
+//! - `achievements`: the W370 RetroAchievements per-frame evaluation loop,
+//!   end to end through the real `NativeRuntime` (scripted-memory unlock,
+//!   and the no-set-loaded no-op case).
 
+mod achievements;
 mod alt_geometry;
 mod av_core;
 mod cohort;

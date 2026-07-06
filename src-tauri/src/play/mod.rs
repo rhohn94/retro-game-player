@@ -10,6 +10,8 @@
 //! core's `.dylib` directly instead of via EmulatorJS/WASM — landing
 //! incrementally behind a flag; see docs/design/native-emulation-design.md.
 
+pub mod achievements;
+pub mod core_extract;
 pub mod ejs_cores;
 pub mod native;
 pub mod saves;

@@ -10,6 +10,7 @@
 //! `architecture-design.md §2` so the IPC adapters (W5/W6/W8/W9/W14/W15) can
 //! serialize repo rows directly.
 
+pub mod achievement_unlocks;
 pub mod art_cache;
 pub mod console_meta;
 pub mod controller_bindings;

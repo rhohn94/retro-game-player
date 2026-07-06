@@ -4,11 +4,14 @@
 
 import { describe, it, expect } from "vitest";
 import type { Game } from "../../ipc/library";
+import type { CollectionWithCount } from "../../ipc/collections";
 import {
   buildRails,
+  collectionRailId,
   railWindow,
   systemRailId,
   tileFocusId,
+  MAX_COLLECTION_RAILS,
   RAIL_CONTINUE,
   RAIL_DESKTOP,
   RAIL_FAVORITES,
@@ -16,6 +19,11 @@ import {
   RECENTLY_ADDED_LIMIT,
   WINDOW_THRESHOLD,
 } from "./rails";
+
+/** Minimal CollectionWithCount factory. */
+function collection(id: number, name: string, gameCount: number): CollectionWithCount {
+  return { id, name, createdAt: id, sort: 0, gameCount };
+}
 
 /** Minimal Game factory — only the fields the rail composition reads. */
 function game(id: number, over: Partial<Game> = {}): Game {
@@ -124,6 +132,73 @@ describe("buildRails (v0.26 W261)", () => {
     const games = [game(1, { system: "nes" })];
     const rails = buildRails({ games, recentlyPlayed: [], favorites: [] });
     expect(rails.some((r) => r.id === RAIL_DESKTOP)).toBe(false);
+  });
+
+  // --- v0.37 W373: one rail per non-empty collection, after Favorites ---
+
+  it("emits one rail per non-empty collection right after Favorites", () => {
+    const g1 = game(1, { system: "nes" });
+    const g2 = game(2, { system: "snes" });
+    const rails = buildRails({
+      games: [g1, g2],
+      recentlyPlayed: [],
+      favorites: [g1],
+      collections: [collection(10, "Couch co-op", 1)],
+      collectionGames: new Map([[10, [g2]]]),
+    });
+    // Favorites, then the collection rail, then everything else (order among
+    // the "everything else" rails is covered by other tests).
+    expect(rails[0].id).toBe(RAIL_FAVORITES);
+    expect(rails[1].id).toBe(collectionRailId(10));
+    expect(rails.map((r) => r.id)).toContain(RAIL_RECENT);
+    const rail = rails.find((r) => r.id === collectionRailId(10));
+    expect(rail?.label).toBe("Couch co-op");
+    expect(rail?.games.map((g) => g.id)).toEqual([2]);
+  });
+
+  it("omits a collection's rail entirely when it has no games", () => {
+    const games = [game(1, { system: "nes" })];
+    const rails = buildRails({
+      games,
+      recentlyPlayed: [],
+      favorites: [],
+      collections: [collection(10, "Empty Shelf", 0)],
+      collectionGames: new Map([[10, []]]),
+    });
+    expect(rails.some((r) => r.id === collectionRailId(10))).toBe(false);
+  });
+
+  it("omits a collection's rail when its member fetch has not resolved yet", () => {
+    const games = [game(1, { system: "nes" })];
+    const rails = buildRails({
+      games,
+      recentlyPlayed: [],
+      favorites: [],
+      collections: [collection(10, "Still Loading", 3)],
+      collectionGames: new Map(), // id 10 absent — not yet fetched
+    });
+    expect(rails.some((r) => r.id === collectionRailId(10))).toBe(false);
+  });
+
+  it("emits no collection rails when collectionGames is absent (pre-W373 callers)", () => {
+    const games = [game(1, { system: "nes" })];
+    const rails = buildRails({
+      games,
+      recentlyPlayed: [],
+      favorites: [],
+      collections: [collection(10, "Couch co-op", 1)],
+    });
+    expect(rails.some((r) => r.id.startsWith("rail:collection:"))).toBe(false);
+  });
+
+  it("preserves the backend's collection order and caps at MAX_COLLECTION_RAILS", () => {
+    const games = Array.from({ length: MAX_COLLECTION_RAILS + 5 }, (_, i) => game(i + 1));
+    const collections = games.map((g) => collection(g.id, `Shelf ${g.id}`, 1));
+    const collectionGames = new Map(games.map((g) => [g.id, [g]]));
+    const rails = buildRails({ games, recentlyPlayed: [], favorites: [], collections, collectionGames });
+    const collectionRailIds = rails.map((r) => r.id).filter((id) => id.startsWith("rail:collection:"));
+    expect(collectionRailIds).toHaveLength(MAX_COLLECTION_RAILS);
+    expect(collectionRailIds[0]).toBe(collectionRailId(games[0].id));
   });
 });
 

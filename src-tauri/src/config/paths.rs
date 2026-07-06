@@ -163,6 +163,13 @@ impl Paths {
         self.subdir("downloads")
     }
 
+    /// `retroachievements-cache/` dir (created) — fetched achievement sets,
+    /// one JSON file per RA ROM hash (v0.37 W371,
+    /// retroachievements-design.md §Client + accounts).
+    pub fn retroachievements_cache_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("retroachievements-cache")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -175,6 +182,7 @@ impl Paths {
         self.saves_dir()?;
         self.ejs_cores_dir()?;
         self.downloads_dir()?;
+        self.retroachievements_cache_dir()?;
         Ok(())
     }
 
@@ -282,6 +290,16 @@ mod tests {
         assert!(current.ends_with("current"));
         assert!(current.parent().unwrap().ends_with("versions"));
 
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn retroachievements_cache_dir_created() {
+        let tmp = std::env::temp_dir().join(format!("harmony-ra-cache-{}", std::process::id()));
+        let paths = Paths::with_root(tmp.join(BUNDLE_ID)).expect("root");
+        let dir = paths.retroachievements_cache_dir().expect("ra cache dir");
+        assert!(dir.is_dir());
+        assert!(dir.ends_with("retroachievements-cache"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 
