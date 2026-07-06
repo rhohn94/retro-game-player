@@ -393,11 +393,40 @@
     display: flex;
     align-items: center;
     gap: var(--aura-space-2);
-    cursor: pointer;
     font-size: var(--rgp-font-caption);
+  }
+  .rgp-collection-picker__row--renaming {
+    align-items: center;
+  }
+  .rgp-collection-picker__row-label {
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-2);
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .rgp-collection-picker__row-actions {
+    display: flex;
+    gap: var(--aura-space-1);
+  }
+  .rgp-collection-picker__row-action {
+    border: none;
+    background: transparent;
+    color: var(--aura-on-surface-muted);
+    cursor: pointer;
+    padding: 0 var(--aura-space-1);
+    font-size: var(--rgp-font-caption);
+    line-height: 1;
+  }
+  .rgp-collection-picker__row-action:hover {
+    color: var(--aura-on-surface);
   }
   .rgp-collection-picker__name {
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .rgp-collection-picker__count {
     color: var(--aura-on-surface-muted);
