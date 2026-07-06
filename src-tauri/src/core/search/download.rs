@@ -290,7 +290,14 @@ mod tests {
         (port, handle)
     }
 
-    fn hooks() -> (&'static dyn Fn(u64, Option<u64>), &'static dyn Fn() -> bool) {
+    /// Test-only progress hook for `download_and_stage` calls below —
+    /// factored out of `hooks()`'s return type to clear clippy's
+    /// `type_complexity` lint (W383).
+    type ProgressHook = &'static dyn Fn(u64, Option<u64>);
+    /// Test-only "keep going?" hook paired with [`ProgressHook`] (W383).
+    type ContinueHook = &'static dyn Fn() -> bool;
+
+    fn hooks() -> (ProgressHook, ContinueHook) {
         (&|_, _| {}, &|| true)
     }
 
