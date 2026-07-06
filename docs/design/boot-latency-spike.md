@@ -161,7 +161,14 @@ page-patch fallback never materialized:
   small, clearly-commented diff instead of a parallel IndexedDB scheme.
 
 Result: repeat boots of a game never re-run the 7z Worker (proved at the
-Rust level — the decompressed cache is a no-op hit on a second call — and at
-the served-route level — the manifest and every file it names resolve on a
-real running server); first boot is unaffected; cache correctness across a
-core-version bump is unit-tested. Issue #31 is closable.
+Rust level — the decompressed cache is a no-op hit on a second call — at the
+served-route level — the manifest and every file it names resolve on a real
+running server, and a core-version bump re-keys to a genuinely different,
+independently-decompressable archive rather than 404ing the assertion away —
+and at the page level — `scripts/emulator-core-cache.test.mjs` loads the
+real vendored `emulator.js` and drives its unmodified `downloadGameCore` to
+prove a resolving manifest skips `checkCompression`/the 7z Worker entirely, a
+miss falls through to the original download-then-decompress path unchanged,
+and `this.debug` bypasses the lookup as before); first boot is unaffected;
+cache correctness across a core-version bump is unit-tested. Issue #31 is
+closable.
