@@ -241,7 +241,7 @@ fn format_draw_cost_line(sample: &DrawCostSample) -> String {
 #[tauri::command]
 pub fn report_draw_cost_sample(sample: DrawCostSample) -> AppResult<()> {
     let path = Paths::app_support()?.draw_cost_log_file()?;
-    append_line(&path, &format_draw_cost_line(&sample))
+    append_line_bounded(&path, &format_draw_cost_line(&sample))
 }
 
 /// Recent entries from the GPU draw-cost sibling log
@@ -564,7 +564,7 @@ mod tests {
         sample: DrawCostSample,
     ) -> AppResult<()> {
         let path = paths.draw_cost_log_file()?;
-        append_line(&path, &format_draw_cost_line(&sample))
+        append_line_bounded(&path, &format_draw_cost_line(&sample))
     }
 
     /// Mirrors `read_draw_cost_log`'s exact body against an isolated root.
