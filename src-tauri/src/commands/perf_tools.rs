@@ -10,6 +10,13 @@
 //! Rust-side runtime loop (the core runs inside the iframe's own WASM/JS), so
 //! its telemetry arrives over `postMessage` → IPC rather than being produced
 //! natively here.
+//!
+//! v0.38 W381 (crt-filter-design.md §measurement, closes #35) adds a third,
+//! analogous sibling log: `CrtWebglRenderer`'s real
+//! `EXT_disjoint_timer_query_webgl2` GPU draw-cost samples, reported over IPC
+//! the same way the EJS path reports its stats — the native runtime's own
+//! `native-perf.log`/`PerfLog` is a separate, frozen-IPC-contract item this
+//! release and is never written to from this module.
 
 use crate::config::{paths::Paths, AppConfig};
 use crate::error::AppResult;
@@ -162,6 +169,46 @@ pub fn read_ejs_perf_log() -> AppResult<PerfLogEntries> {
     read_perf_log_entries(&Paths::app_support()?.ejs_perf_log_file()?)
 }
 
+/// One resolved GPU draw-cost sample from `CrtWebglRenderer`'s
+/// `EXT_disjoint_timer_query_webgl2` timer query (v0.38 W381, closes #35;
+/// crt-filter-design.md §measurement). `drawCostMs` is a single resolved
+/// query result, not yet averaged — `drawCostSampler.ts`'s rolling mean is a
+/// client-side-only presentation concern; the log records raw samples.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawCostSample {
+    /// Resolved GPU draw cost for one frame, in milliseconds.
+    pub draw_cost_ms: f64,
+}
+
+/// Formats one draw-cost sample as a single log line, mirroring the other
+/// two paths' `[rgp-*] perf: ...` shape (`[rgp-draw-cost]`) so all three
+/// files read consistently side by side.
+fn format_draw_cost_line(sample: &DrawCostSample) -> String {
+    format!("[rgp-draw-cost] perf: {:.3} ms draw cost", sample.draw_cost_ms)
+}
+
+/// Appends one resolved GPU draw-cost sample to the sibling log
+/// (`logs/draw-cost-perf.log`). Best-effort like `report_ejs_perf_stats`: the
+/// frontend caller treats this as fire-and-forget, so a surfaced error
+/// changes nothing user-visible either way.
+#[tauri::command]
+pub fn report_draw_cost_sample(sample: DrawCostSample) -> AppResult<()> {
+    let path = Paths::app_support()?.draw_cost_log_file()?;
+    append_line(&path, &format_draw_cost_line(&sample))
+}
+
+/// Recent entries from the GPU draw-cost sibling log
+/// (`logs/draw-cost-perf.log`) for the Settings → Performance panel. Reuses
+/// `PerfLogEntries`/`parse_fps`'s shape for consistency, even though this
+/// log has no "fps" field of its own — `parse_fps` finds no `fps` token on
+/// these lines, so `fps_series` comes back all-`None` (same length as
+/// `lines`); the frontend renders the raw lines only and ignores the series.
+#[tauri::command]
+pub fn read_draw_cost_log() -> AppResult<PerfLogEntries> {
+    read_perf_log_entries(&Paths::app_support()?.draw_cost_log_file()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +226,19 @@ mod tests {
         };
         let line = format_ejs_perf_line(&report);
         assert_eq!(line, "[rgp-ejs] perf: game 42 — 59.87 fps, 16.4 ms/frame mean");
+    }
+
+    #[test]
+    fn format_draw_cost_line_matches_the_documented_shape() {
+        let sample = DrawCostSample { draw_cost_ms: 2.1234 };
+        let line = format_draw_cost_line(&sample);
+        assert_eq!(line, "[rgp-draw-cost] perf: 2.123 ms draw cost");
+    }
+
+    #[test]
+    fn parse_fps_returns_none_for_the_draw_cost_line_shape() {
+        let line = "[rgp-draw-cost] perf: 2.123 ms draw cost";
+        assert_eq!(parse_fps(line), None);
     }
 
     #[test]
@@ -361,6 +421,54 @@ mod tests {
         let entries = read_native_perf_log_at(&paths).expect("read");
         assert_eq!(entries.lines.len(), 1);
         assert_eq!(entries.fps_series, vec![Some(59.87)]);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ---- v0.38 W381 (closes #35): report_draw_cost_sample / read_draw_cost_log
+    // IPC contract — same isolated-root rationale as the EJS/native tests above. ----
+
+    /// Mirrors `report_draw_cost_sample`'s exact body against an isolated root.
+    fn report_draw_cost_sample_at(
+        paths: &crate::config::paths::Paths,
+        sample: DrawCostSample,
+    ) -> AppResult<()> {
+        let path = paths.draw_cost_log_file()?;
+        append_line(&path, &format_draw_cost_line(&sample))
+    }
+
+    /// Mirrors `read_draw_cost_log`'s exact body against an isolated root.
+    fn read_draw_cost_log_at(paths: &crate::config::paths::Paths) -> AppResult<PerfLogEntries> {
+        read_perf_log_entries(&paths.draw_cost_log_file()?)
+    }
+
+    #[test]
+    fn read_draw_cost_log_on_a_fresh_install_is_empty_not_an_error() {
+        let (paths, tmp) = temp_paths("draw-cost-fresh");
+        let entries = read_draw_cost_log_at(&paths).expect("read");
+        assert!(entries.lines.is_empty());
+        assert!(entries.fps_series.is_empty());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn report_draw_cost_sample_then_read_draw_cost_log_round_trips_real_samples() {
+        let (paths, tmp) = temp_paths("draw-cost-round-trip");
+        report_draw_cost_sample_at(&paths, DrawCostSample { draw_cost_ms: 1.5 }).expect("sample 1");
+        report_draw_cost_sample_at(&paths, DrawCostSample { draw_cost_ms: 2.25 }).expect("sample 2");
+
+        let entries = read_draw_cost_log_at(&paths).expect("read");
+        assert_eq!(entries.lines.len(), 2);
+        assert!(entries.lines[0].contains("1.500 ms draw cost"));
+        assert!(entries.lines[1].contains("2.250 ms draw cost"));
+        // No "fps" token on these lines, so parse_fps finds nothing on either.
+        assert_eq!(entries.fps_series, vec![None, None]);
+
+        // Genuinely separate files — the native/EJS logs must stay untouched.
+        let native_entries = read_native_perf_log_at(&paths).expect("read native");
+        assert!(native_entries.lines.is_empty());
+        let ejs_entries = read_ejs_perf_log_at(&paths).expect("read ejs");
+        assert!(ejs_entries.lines.is_empty());
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

@@ -49,3 +49,25 @@ export function readNativePerfLog(): Promise<PerfLogEntries> {
 export function readEjsPerfLog(): Promise<PerfLogEntries> {
   return invoke<PerfLogEntries>("read_ejs_perf_log");
 }
+
+/** One resolved GPU draw-cost sample from `CrtWebglRenderer`'s
+ * `EXT_disjoint_timer_query_webgl2` timer query (v0.38 W381, closes #35) —
+ * mirrors the Rust `DrawCostSample`. */
+export interface DrawCostSample {
+  /** Resolved GPU draw cost for one frame, in milliseconds. */
+  drawCostMs: number;
+}
+
+/** Appends one resolved GPU draw-cost sample to the sibling log
+ * (`logs/draw-cost-perf.log`). Callers should treat this as fire-and-forget
+ * (route failures through `swallow()`) — a missed report is not a session
+ * error. */
+export function reportDrawCostSample(sample: DrawCostSample): Promise<void> {
+  return invoke<void>("report_draw_cost_sample", { sample });
+}
+
+/** Recent entries from the GPU draw-cost sibling log
+ * (`logs/draw-cost-perf.log`). */
+export function readDrawCostLog(): Promise<PerfLogEntries> {
+  return invoke<PerfLogEntries>("read_draw_cost_log");
+}

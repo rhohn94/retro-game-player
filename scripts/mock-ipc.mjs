@@ -349,6 +349,10 @@ export const MOCK_FIXTURES = {
   report_ejs_perf_stats: null,
   read_native_perf_log: { lines: [], fpsSeries: [] },
   read_ejs_perf_log: { lines: [], fpsSeries: [] },
+  // v0.38 W381 — GPU draw-cost sibling perf log (closes #35); same
+  // fresh-install "empty series" fixture as its two siblings above.
+  report_draw_cost_sample: null,
+  read_draw_cost_log: { lines: [], fpsSeries: [] },
   // v0.37 W371 — RetroAchievements account settings. A fresh install has no
   // account configured, mirroring the SteamGridDB/Familiar "inert by
   // default" fixtures above.

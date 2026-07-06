@@ -53,6 +53,7 @@ import {
 } from "../../ipc/native-play";
 import { listGameSaves } from "../../ipc/native-play";
 import type { SaveSlot } from "../../ipc/native-play";
+import { reportDrawCostSample } from "../../ipc/perf-tools";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { AchievementToast } from "./AchievementToast";
 import { CrtWebglRenderer } from "./crtWebglRenderer";
@@ -540,7 +541,16 @@ export function NativePlayer({
             // `lastDrawCostMs` stays `null` on any browser/driver that
             // doesn't expose it, which the sampler simply never records.
             const sample = renderer?.lastDrawCostMs;
-            if (sample !== null && sample !== undefined) drawCostSampler.record(sample);
+            if (sample !== null && sample !== undefined) {
+              drawCostSampler.record(sample);
+              // v0.38 W381 (closes #35): persist the raw sample to the
+              // draw-cost sibling perf log (Settings → Performance panel
+              // reads it back) — fire-and-forget, same posture as every
+              // other periodic perf report on this path.
+              void reportDrawCostSample({ drawCostMs: sample }).catch((err: unknown) =>
+                swallow(err, "NativePlayer.reportDrawCostSample"),
+              );
+            }
             if (now - lastDrawCostPublished >= FPS_PUBLISH_INTERVAL_MS) {
               lastDrawCostPublished = now;
               setDrawCostMs(drawCostSampler.meanMs);

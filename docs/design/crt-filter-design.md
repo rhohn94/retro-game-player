@@ -229,18 +229,27 @@ feature-detects `EXT_disjoint_timer_query_webgl2` once at construction:
   not something the app can work around) — the shader's correctness and the
   `putImageData` fallback path are both completely unaffected either way.
 
-**Where the numbers go.** The measurement has no Rust-side counterpart to
-persist to: the native path's on-disk perf log (`native-perf.log`) is owned
-end-to-end by `play::native::runtime` (this release's separate W380 frame-path
-item), which has no visibility into the frontend's WebGL draw calls, and the
-IPC frame contract between the two halves is frozen for this release. So the
-draw-cost numbers stay client-side: `drawCostSampler.ts`'s `DrawCostSampler`
-(a `fpsCounter.ts`-shaped rolling mean over the last 30 resolved samples) is
-fed one sample per resolved query from `NativePlayer.tsx`'s existing paint
-loop (the same rAF tick that already drives `fpsCounter`), and the rolling
-mean is surfaced as a second line on the existing on-screen FPS counter
-overlay (`FpsCounterOverlay`) whenever the extension produced a value —
-omitted entirely (not a misleading "0 ms") when it didn't.
+**Where the numbers go.** The measurement has no counterpart inside
+`native-perf.log` itself: that on-disk file is owned end-to-end by
+`play::native::runtime` (this release's separate W380 frame-path item, whose
+own truncate-per-session `PerfLogFile` sink has no visibility into the
+frontend's WebGL draw calls), and the IPC *frame* contract between the two
+halves is frozen for this release — so this measurement does not touch
+`native-perf.log` or W380's frame path at all. Instead it gets its own small,
+additive sibling IPC surface, the same shape `commands::perf_tools` already
+uses for the EJS path's client-reported telemetry (`report_ejs_perf_stats` /
+`read_ejs_perf_log`, a plain "append over IPC, no Rust-side runtime loop"
+pattern): `report_draw_cost_sample`/`read_draw_cost_log` append each resolved
+sample to its own durable file, `logs/draw-cost-perf.log`
+(`config::paths::Paths::draw_cost_log_file`), which the Settings → Performance
+GUI panel reads back as a third section ("GPU draw cost") alongside the
+native and EJS sections. `drawCostSampler.ts`'s `DrawCostSampler` (a
+`fpsCounter.ts`-shaped rolling mean over the last 30 resolved samples) still
+drives the on-screen FPS-counter overlay's live second line
+(`FpsCounterOverlay`, in-memory only) — the two surfaces are complementary,
+not a replacement for each other: the overlay is the live in-session glance,
+the log is the durable, IPC-read, GUI-reviewable record `performance-tooling-
+design.md`'s "perf log" acceptance criterion calls for.
 
 **A real number, not a promise.** On a representative modern integrated GPU
 (the class of hardware this app already assumes it must run acceptably on,
