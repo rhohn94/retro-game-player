@@ -257,7 +257,10 @@ export function LibraryPage() {
             </div>
           </div>
         )}
-        {!loading && !error && games.length > 0 && visible.length === 0 && (
+        {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId != null && (
+          <EmptyState>This collection is empty.</EmptyState>
+        )}
+        {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId == null && (
           <EmptyState>No games match your filters.</EmptyState>
         )}
 

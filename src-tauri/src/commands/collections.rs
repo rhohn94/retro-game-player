@@ -7,7 +7,7 @@ use crate::commands::library::GameDto;
 use crate::db::repo::library::{CollectionWithCount, LibraryRepo};
 use crate::db::repo::Repository;
 use crate::db::Db;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
@@ -60,19 +60,36 @@ fn now_epoch_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Create a collection, returning the persisted row. `Conflict` if `name` is
-/// already taken.
+/// Reject an empty/whitespace-only collection name with a `Validation`
+/// error. The frontend picker already guards this client-side
+/// (`isValidNewCollectionName`), but the command must not trust the caller —
+/// a direct IPC invocation (or a future non-picker surface) must never be
+/// able to persist a blank name.
+fn require_nonblank_name(name: &str) -> AppResult<()> {
+    if name.trim().is_empty() {
+        return Err(AppError::Validation(
+            "collection name must not be empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Create a collection, returning the persisted row. `Validation` if `name`
+/// is empty/whitespace-only; `Conflict` if `name` is already taken.
 #[tauri::command]
 pub async fn create_collection(db: State<'_, Db>, name: String) -> AppResult<CollectionDto> {
+    require_nonblank_name(&name)?;
     let repo = LibraryRepo::new(&db);
     let id = repo.create_collection(name.trim(), now_epoch_secs())?;
     Ok(repo.get_collection(id)?.into())
 }
 
-/// Rename a collection. `NotFound` if absent; `Conflict` if the new name
-/// collides with another collection.
+/// Rename a collection. `Validation` if `name` is empty/whitespace-only;
+/// `NotFound` if absent; `Conflict` if the new name collides with another
+/// collection.
 #[tauri::command]
 pub async fn rename_collection(db: State<'_, Db>, id: i64, name: String) -> AppResult<()> {
+    require_nonblank_name(&name)?;
     LibraryRepo::new(&db).rename_collection(id, name.trim())
 }
 
@@ -164,5 +181,286 @@ mod tests {
         .into();
         assert_eq!(dto.collection.name, "Couch co-op");
         assert_eq!(dto.game_count, 3);
+    }
+
+    #[test]
+    fn require_nonblank_name_rejects_empty_string() {
+        assert!(matches!(
+            require_nonblank_name(""),
+            Err(AppError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn require_nonblank_name_rejects_whitespace_only() {
+        assert!(matches!(
+            require_nonblank_name("   \t  "),
+            Err(AppError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn require_nonblank_name_accepts_a_real_name() {
+        assert!(require_nonblank_name("Couch co-op").is_ok());
+    }
+
+    // ── Command-level coverage (v0.38 W385) ──────────────────────────────
+    //
+    // The `#[tauri::command]` wrappers above take `tauri::State`, which this
+    // crate has no test-time constructor for outside a full mock app (the
+    // `tauri` `test` feature is not enabled here — see the `play_stats`
+    // module's `SessionTracker` for the same non-Tauri-testability
+    // convention). So these tests exercise the same guard + `LibraryRepo`
+    // call sequence the commands perform, against a real in-memory db —
+    // equivalent coverage of every success/error path the commands expose,
+    // without needing a mock `AppHandle`.
+
+    mod command_flows {
+        use super::require_nonblank_name;
+        use crate::db::repo::library::{GameSource, LibraryRepo, NewContentFolder, NewGame};
+        use crate::db::repo::Repository;
+        use crate::db::Db;
+        use crate::error::AppError;
+
+        /// Minimal `NewContentFolder` fixture (mirrors the `test_support`
+        /// helper other `db::repo::library` submodules share; duplicated
+        /// here since that module is `pub(super)`-scoped to `db::repo::library`
+        /// and not reachable from `commands::collections`).
+        fn folder(path: &str) -> NewContentFolder {
+            NewContentFolder {
+                path: path.to_string(),
+                enabled: true,
+                added_at: 100,
+            }
+        }
+
+        /// Minimal `NewGame` fixture, same rationale as `folder()` above.
+        fn game(folder_id: i64, path: &str) -> NewGame {
+            NewGame {
+                folder_id: Some(folder_id),
+                path: Some(path.to_string()),
+                system: Some("nes".to_string()),
+                crc32: Some("deadbeef".to_string()),
+                md5: None,
+                clean_name: "Super Game".to_string(),
+                dat_matched: true,
+                core_hint: Some("mesen".to_string()),
+                art_path: None,
+                size_bytes: 4096,
+                added_at: 200,
+                year: None,
+                developer: None,
+                publisher: None,
+                aliases: None,
+                source: GameSource::Rom,
+                launch_descriptor: None,
+                external_id: None,
+            }
+        }
+
+        /// Mirrors `create_collection`'s body: guard, then create + fetch.
+        fn create(repo: &LibraryRepo, name: &str) -> crate::error::AppResult<i64> {
+            require_nonblank_name(name)?;
+            repo.create_collection(name.trim(), 0)
+        }
+
+        /// Mirrors `rename_collection`'s body: guard, then rename.
+        fn rename(repo: &LibraryRepo, id: i64, name: &str) -> crate::error::AppResult<()> {
+            require_nonblank_name(name)?;
+            repo.rename_collection(id, name.trim())
+        }
+
+        #[test]
+        fn create_persists_and_is_fetchable() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let id = create(&repo, "Couch co-op").unwrap();
+            assert_eq!(repo.get_collection(id).unwrap().name, "Couch co-op");
+        }
+
+        #[test]
+        fn create_rejects_whitespace_only_name_as_validation() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            assert!(matches!(
+                create(&repo, "   "),
+                Err(AppError::Validation(_))
+            ));
+        }
+
+        #[test]
+        fn create_rejects_duplicate_name_as_conflict() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            create(&repo, "Kids").unwrap();
+            assert!(matches!(create(&repo, "Kids"), Err(AppError::Conflict(_))));
+        }
+
+        #[test]
+        fn rename_updates_the_name() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let id = create(&repo, "Kids").unwrap();
+            rename(&repo, id, "Kids games").unwrap();
+            assert_eq!(repo.get_collection(id).unwrap().name, "Kids games");
+        }
+
+        #[test]
+        fn rename_rejects_whitespace_only_name_as_validation() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let id = create(&repo, "Kids").unwrap();
+            assert!(matches!(
+                rename(&repo, id, "  \n "),
+                Err(AppError::Validation(_))
+            ));
+        }
+
+        #[test]
+        fn rename_unknown_id_is_not_found() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            assert!(matches!(
+                rename(&repo, 999, "New name"),
+                Err(AppError::NotFound(_))
+            ));
+        }
+
+        #[test]
+        fn rename_to_an_existing_name_is_conflict() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            create(&repo, "Kids").unwrap();
+            let id = create(&repo, "RPGs").unwrap();
+            assert!(matches!(rename(&repo, id, "Kids"), Err(AppError::Conflict(_))));
+        }
+
+        #[test]
+        fn delete_removes_the_collection() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let id = create(&repo, "Kids").unwrap();
+            repo.delete_collection(id).unwrap();
+            assert!(matches!(repo.get_collection(id), Err(AppError::NotFound(_))));
+        }
+
+        #[test]
+        fn delete_unknown_id_is_not_found() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            assert!(matches!(
+                repo.delete_collection(999),
+                Err(AppError::NotFound(_))
+            ));
+        }
+
+        #[test]
+        fn delete_does_not_delete_member_games() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            repo.delete_collection(id).unwrap();
+
+            assert!(repo.get_game(game_id).is_ok(), "member game must survive collection delete");
+        }
+
+        #[test]
+        fn add_game_to_collection_then_list_contains_it() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            let members = repo.list_games_by_collection(id).unwrap();
+            assert_eq!(members.len(), 1);
+            assert_eq!(members[0].id, game_id);
+        }
+
+        #[test]
+        fn add_game_to_collection_twice_is_conflict() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            assert!(matches!(
+                repo.add_game_to_collection(id, game_id, 0),
+                Err(AppError::Conflict(_))
+            ));
+        }
+
+        #[test]
+        fn remove_game_from_collection_drops_membership() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            repo.remove_game_from_collection(id, game_id).unwrap();
+
+            assert!(repo.list_games_by_collection(id).unwrap().is_empty());
+        }
+
+        #[test]
+        fn remove_game_not_a_member_is_not_found() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+
+            assert!(matches!(
+                repo.remove_game_from_collection(id, game_id),
+                Err(AppError::NotFound(_))
+            ));
+        }
+
+        #[test]
+        fn list_games_by_collection_unknown_id_is_not_found() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            assert!(matches!(
+                repo.list_games_by_collection(999),
+                Err(AppError::NotFound(_))
+            ));
+        }
+
+        #[test]
+        fn list_collections_with_counts_reflects_membership() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            let all = repo.list_collections_with_counts().unwrap();
+            let found = all.iter().find(|c| c.collection.id == id).unwrap();
+            assert_eq!(found.game_count, 1);
+        }
+
+        #[test]
+        fn list_collection_ids_for_game_seeds_picker_membership() {
+            let db = Db::open_in_memory().unwrap();
+            let repo = LibraryRepo::new(&db);
+            let folder_id = repo.add_folder(&folder("/games")).unwrap();
+            let game_id = repo.add_game(&game(folder_id, "/games/a.zip")).unwrap();
+            let id = create(&repo, "Kids").unwrap();
+            repo.add_game_to_collection(id, game_id, 0).unwrap();
+
+            let ids = repo.list_collection_ids_for_game(game_id).unwrap();
+            assert_eq!(ids, vec![id]);
+        }
     }
 }

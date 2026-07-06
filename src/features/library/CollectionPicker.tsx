@@ -6,6 +6,12 @@
 // or removes membership immediately (optimistic, mirroring
 // GameDetailPage's favorite toggle). An inline "New collection…" row lets the
 // user create-and-add in one step without leaving the picker.
+//
+// v0.38 W385 (docs/design/collections-design.md §Management UX) adds: a
+// loading state while the initial fetch is in flight, a visible error state
+// if it fails (both previously silently swallowed), and per-row rename
+// (inline edit, reusing the inline-create input pattern) + delete (behind
+// DeleteCollectionDialog's confirmation) affordances.
 
 import { useCallback, useEffect, useState } from "react";
 import { AuraButton, AuraField } from "@aura/react";
@@ -15,10 +21,15 @@ import {
   listCollectionIdsForGame,
   listCollections,
   removeGameFromCollection,
+  renameCollection,
   type CollectionWithCount,
 } from "../../ipc/collections";
+import { isAppError } from "../../ipc/commands";
 import { isValidNewCollectionName, sortCollectionsForPicker } from "./collectionPickerLogic";
 import { swallow } from "../../ipc/swallow";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorNotice } from "../../components/ErrorNotice";
+import { DeleteCollectionDialog } from "./DeleteCollectionDialog";
 
 interface CollectionPickerProps {
   gameId: number;
@@ -30,12 +41,19 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
   const [collections, setCollections] = useState<CollectionWithCount[]>([]);
   const [memberIds, setMemberIds] = useState<ReadonlySet<number>>(() => new Set());
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CollectionWithCount | null>(null);
 
   const load = useCallback(() => {
     let cancelled = false;
+    setLoadError(null);
     Promise.all([listCollections(), listCollectionIdsForGame(gameId)])
       .then(([all, ids]) => {
         if (cancelled) return;
@@ -43,7 +61,12 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
         setMemberIds(new Set(ids));
         setLoaded(true);
       })
-      .catch((err: unknown) => swallow(err, "CollectionPicker.load"));
+      .catch((err: unknown) => {
+        swallow(err, "CollectionPicker.load");
+        if (!cancelled) {
+          setLoadError(isAppError(err) ? err.detail : String(err));
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -52,8 +75,8 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
   // Load once the picker is first opened, not on every mount — the detail
   // page's picker is a small affordance most sessions never click.
   useEffect(() => {
-    if (open && !loaded) return load();
-  }, [open, loaded, load]);
+    if (open && !loaded && !loadError) return load();
+  }, [open, loaded, loadError, load]);
 
   // Optimistic toggle: flips the local membership set immediately, then
   // persists; a failed persist reverts so the displayed state never drifts
@@ -119,6 +142,55 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
       .finally(() => setCreating(false));
   }, [newName, collections, gameId]);
 
+  const startRename = useCallback((c: CollectionWithCount) => {
+    setRenamingId(c.id);
+    setRenameValue(c.name);
+    setRenameError(null);
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenamingId(null);
+    setRenameValue("");
+    setRenameError(null);
+  }, []);
+
+  const isValidRenameValue = useCallback(
+    (id: number, value: string) =>
+      isValidNewCollectionName(
+        value,
+        collections.filter((c) => c.id !== id),
+      ),
+    [collections],
+  );
+
+  const confirmRename = useCallback(() => {
+    if (renamingId == null || !isValidRenameValue(renamingId, renameValue)) return;
+    const id = renamingId;
+    const name = renameValue.trim();
+    setRenaming(true);
+    setRenameError(null);
+    renameCollection(id, name)
+      .then(() => {
+        setCollections((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+        setRenamingId(null);
+        setRenameValue("");
+      })
+      .catch((err: unknown) => {
+        setRenameError(isAppError(err) ? err.detail : String(err));
+      })
+      .finally(() => setRenaming(false));
+  }, [renamingId, renameValue, isValidRenameValue]);
+
+  const onDeleted = useCallback((collectionId: number) => {
+    setCollections((prev) => prev.filter((c) => c.id !== collectionId));
+    setMemberIds((prev) => {
+      if (!prev.has(collectionId)) return prev;
+      const next = new Set(prev);
+      next.delete(collectionId);
+      return next;
+    });
+  }, []);
+
   const sorted = sortCollectionsForPicker(collections);
 
   return (
@@ -135,23 +207,82 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
 
       {open && (
         <div className="rgp-collection-picker__panel" role="menu">
-          {sorted.length === 0 && loaded && (
+          {!loaded && !loadError && (
+            <LoadingState>Loading collections…</LoadingState>
+          )}
+          {loadError && (
+            <ErrorNotice>Could not load collections: {loadError}</ErrorNotice>
+          )}
+          {loaded && sorted.length === 0 && (
             <p className="rgp-collection-picker__empty">No collections yet.</p>
           )}
-          {sorted.map((c) => {
-            const member = memberIds.has(c.id);
-            return (
-              <label key={c.id} className="rgp-collection-picker__row">
-                <input
-                  type="checkbox"
-                  checked={member}
-                  onChange={() => onToggleMember(c.id, member)}
-                />
-                <span className="rgp-collection-picker__name">{c.name}</span>
-                <span className="rgp-collection-picker__count">{c.gameCount}</span>
-              </label>
-            );
-          })}
+          {loaded &&
+            sorted.map((c) => {
+              const member = memberIds.has(c.id);
+              if (renamingId === c.id) {
+                return (
+                  <div key={c.id} className="rgp-collection-picker__row rgp-collection-picker__row--renaming">
+                    <AuraField>
+                      <input
+                        type="text"
+                        className="rgp-input"
+                        aria-label={`Rename ${c.name}`}
+                        value={renameValue}
+                        disabled={renaming}
+                        autoFocus
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") confirmRename();
+                          if (e.key === "Escape") cancelRename();
+                        }}
+                      />
+                    </AuraField>
+                    <AuraButton
+                      variant="ghost"
+                      disabled={renaming || !isValidRenameValue(c.id, renameValue)}
+                      onClick={confirmRename}
+                    >
+                      Save
+                    </AuraButton>
+                    <AuraButton variant="ghost" disabled={renaming} onClick={cancelRename}>
+                      Cancel
+                    </AuraButton>
+                  </div>
+                );
+              }
+              return (
+                <div key={c.id} className="rgp-collection-picker__row">
+                  <label className="rgp-collection-picker__row-label">
+                    <input
+                      type="checkbox"
+                      checked={member}
+                      onChange={() => onToggleMember(c.id, member)}
+                    />
+                    <span className="rgp-collection-picker__name">{c.name}</span>
+                    <span className="rgp-collection-picker__count">{c.gameCount}</span>
+                  </label>
+                  <div className="rgp-collection-picker__row-actions">
+                    <button
+                      type="button"
+                      className="rgp-collection-picker__row-action"
+                      aria-label={`Rename ${c.name}`}
+                      onClick={() => startRename(c)}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      className="rgp-collection-picker__row-action"
+                      aria-label={`Delete ${c.name}`}
+                      onClick={() => setDeleteTarget(c)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          {renameError && <p className="rgp-collection-picker__error">{renameError}</p>}
 
           <div className="rgp-collection-picker__new">
             <AuraField>
@@ -178,6 +309,16 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
           </div>
           {createError && <p className="rgp-collection-picker__error">{createError}</p>}
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteCollectionDialog
+          open
+          collectionId={deleteTarget.id}
+          collectionName={deleteTarget.name}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={onDeleted}
+        />
       )}
     </div>
   );
