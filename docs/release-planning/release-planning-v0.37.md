@@ -295,7 +295,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.37 |
 |---|---|---|---|---|
-| `w370-rcheevos-runtime` (W370) | ☐ | ☐ | ☐ | ☐ |
+| `w370-rcheevos-runtime` (W370) | ☑ | ☑ | ☑ | ☑ |
 | `w371-ra-client-settings` (W371) | ☑ | ☑ | ☑ | ☑ |
 | `w373-collections` (W373) | ☑ | ☑ | ☑ | ☑ |
 | `w374-core-cache` (W374) | ☑ | ☑ | ☑ | ☑ |
@@ -311,4 +311,47 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 
 ### Follow-ups discovered during implementation
 
-(populated by release-phase-merge as branches land)
+**Pass 1 (all reviews non-blocking; W374's two blocking findings fixed on
+its `-f1` branch before merge):**
+
+- **W370:** rc_hash fixture tests assert self-consistency, not a pinned
+  known-answer MD5 constant — add a literal expected-hash assertion.
+  Reviewer independently verified correctness against the vendored C.
+- **W370:** found + guarded a real out-of-bounds read in vendored rcheevos
+  `rc_hash_nes` (unconditional 4-byte memcmp on buffers < 4 bytes) via a
+  `MIN_HASHABLE_BYTES` guard in `hash.rs` — worth reporting upstream to
+  RetroAchievements/rcheevos.
+- **W370/W371:** two pre-existing `clippy --all-targets` type_complexity
+  errors (`core/search/download.rs:293`,
+  `play/native/runtime/tests/hw_render.rs:264`) predate this release —
+  untouched, out of scope.
+- **W370:** `play::native::clock` pacing test flaky under parallel load
+  (passes in isolation; unrelated code) — pre-existing suite flakiness.
+- **W371:** `validate_at` command-layer test double hardcodes `Valid`
+  instead of exercising the real client path (client itself is
+  fixture-tested); point it at a fixture server for end-to-end proof.
+- **W371:** disk cache doc says "bounded" but has no size cap/eviction —
+  it's one-file-per-hash; rename or add a real bound later.
+- **W372 (input):** consume `RetroAchievementsClient` + `AchievementSetCache`
+  (W371) and `NativeRuntime::load_achievement_set`/`drain_unlocks` (W370,
+  deliberately left unwired to `commands/`).
+- **W373:** FK violation on `add_game_to_collection` maps to `Conflict`
+  (not `NotFound`) via the shared `map_sqlite` pattern; `create_collection`
+  lacks a server-side empty-name guard (frontend-only); client dup-check is
+  case-insensitive vs. case-sensitive DB UNIQUE (documented tradeoff).
+- **W373:** deferred per design doc — smart collections, collection artwork,
+  bulk add via grid multi-select.
+- **W374:** narrow TOCTOU gap in `core_extract.rs ensure_extracted`
+  (`is_extracted` = dir-non-empty check; two concurrent extractions could
+  race) — single-user desktop, low risk.
+- **W374:** sevenz-rust transitive deps not in THIRD-PARTY-NOTICES.md
+  (consistent with existing convention — that doc tracks vendored code).
+- **W375:** `tv.css` scrim comment says header overlays top-LEFT; actual
+  placement is top-RIGHT (`__top-chrome`) — stale comment, W377 will
+  rework this area anyway.
+- **W375:** open TV system menu visually overlaps the relocated top-right
+  banner label (pre-existing z-index docking) — cosmetic; W377 removes the
+  label entirely.
+- **Merge:** two additive conflicts auto-resolved (both-keep):
+  `commands/mod.rs` (W371 vs W373 registrations), `play/mod.rs`
+  (W374 `core_extract` vs W370 `achievements`).
