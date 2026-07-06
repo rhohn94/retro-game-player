@@ -25,6 +25,7 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrichGameMetadata, fetchBoxart, getGame, launchGame, setFavorite } from "../../ipc/commands";
 import type { Game } from "../../ipc/commands";
+import { getAchievementSummary, type AchievementSummary } from "../../ipc/retroachievements";
 import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
@@ -63,6 +64,11 @@ export function GameDetailPage() {
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [artOverride, setArtOverride] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
+  // RetroAchievements progress (v0.37 W372): `null` means "no set known for
+  // this game" (unconfigured account, unsupported system, or RA has no set
+  // for it) — the row below renders nothing in that case rather than a
+  // misleading "0 of 0".
+  const [achievements, setAchievements] = useState<AchievementSummary | null>(null);
 
   const gameId = Number(id);
 
@@ -88,6 +94,20 @@ export function GameDetailPage() {
         .catch((err: unknown) => {
           if (!isCancelled()) setError(err instanceof Error ? err.message : String(err));
         });
+    },
+    [gameId],
+  );
+
+  // RetroAchievements progress (v0.37 W372): cache-only read (never
+  // triggers a network fetch), so this is safe to fire on every mount.
+  useCancellableEffect(
+    (isCancelled) => {
+      if (!Number.isFinite(gameId)) return;
+      getAchievementSummary(gameId)
+        .then((summary) => {
+          if (!isCancelled()) setAchievements(summary);
+        })
+        .catch((err: unknown) => swallow(err, "GameDetailPage.loadAchievementSummary", "info"));
     },
     [gameId],
   );
@@ -230,6 +250,15 @@ export function GameDetailPage() {
             )}
             {game.coreHint && !nonRetro && (
               <p className="rgp-detail__core">Core: {game.coreHint}</p>
+            )}
+            {/* RetroAchievements progress (v0.37 W372): shown only once a set
+                is known for this game — nothing renders for a non-RA game or
+                an unconfigured account (retroachievements-design.md §Unlock
+                UX + persistence). */}
+            {achievements && (
+              <p className="rgp-detail__achievements">
+                🏆 {achievements.unlocked} of {achievements.total} achievements
+              </p>
             )}
 
             <div className="rgp-detail__actions">

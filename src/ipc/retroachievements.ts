@@ -53,3 +53,44 @@ export function saveRetroAchievementsAccount(args: {
 export function validateRetroAchievementsAccount(): Promise<RetroAchievementsValidation> {
   return invoke<RetroAchievementsValidation>("validate_retroachievements_account");
 }
+
+// --- Unlock experience (v0.37 W372 — retroachievements-design.md
+// §Unlock UX + persistence) ---
+
+/** One achievement unlock, display-ready for the in-game overlay toast. */
+export interface UnlockToast {
+  achievementId: number;
+  title: string;
+  description: string;
+  points: number;
+  /** RA badge id (join with RA's badge CDN to render an icon); `null` when
+   * the fetched set carried none. */
+  badgeName: string | null;
+}
+
+/**
+ * Drains every unlock the running native session has produced since the
+ * last call, persisting each one (idempotently) and returning display-ready
+ * toasts for the ones actually seen this call. An empty array is the common
+ * case — no session, no RA set armed, or nothing unlocked since the last
+ * poll — never an error.
+ */
+export function pollAchievementUnlocks(): Promise<UnlockToast[]> {
+  return invoke<UnlockToast[]>("poll_achievement_unlocks");
+}
+
+/** Achievement progress for a game's detail page. */
+export interface AchievementSummary {
+  unlocked: number;
+  total: number;
+}
+
+/**
+ * Reads the cached achievement summary for `gameId` — `null` when RA has
+ * never resolved a set for this game (unconfigured account, unsupported
+ * system, or no RA set exists), in which case the detail page shows nothing.
+ * Cache-only: never triggers a network fetch of its own.
+ */
+export function getAchievementSummary(gameId: number): Promise<AchievementSummary | null> {
+  return invoke<AchievementSummary | null>("get_achievement_summary", { gameId });
+}

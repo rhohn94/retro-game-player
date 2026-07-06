@@ -65,6 +65,10 @@ fn harmony_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     // core session, if any (see commands::native_play). ---
     app.manage(commands::native_play::NativeSession::default());
 
+    // --- v0.37 W372: holds the armed RetroAchievements set (if any) for the
+    // in-flight native session (see commands::achievements). ---
+    app.manage(commands::achievements::ActiveAchievementSet::default());
+
     // --- v0.26 "library life" W264: in-memory play-session tracker shared
     // across all three play paths (see commands::play_stats). ---
     app.manage(commands::play_stats::PlayStatsState::default());

@@ -355,6 +355,13 @@ export const MOCK_FIXTURES = {
   get_retroachievements_account: { username: null, hasKey: false },
   save_retroachievements_account: null,
   validate_retroachievements_account: { status: "notConfigured" },
+  // v0.37 W372 — RetroAchievements unlock experience
+  // (retroachievements-design.md §Unlock UX + persistence). A fresh install
+  // has no RA account configured, so no set is ever known — `null` mirrors
+  // the detail page's "render nothing" contract, matching
+  // `validate_retroachievements_account`'s own inert-by-default fixture.
+  get_achievement_summary: null,
+  poll_achievement_unlocks: [],
 };
 
 /** Build the page-init script string that installs the mock IPC global before
