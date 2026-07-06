@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.37 — Trophies (in flight)
+## v0.37 — Trophies (implementation complete — pending release)
 
 **Theme:** RetroAchievements foundation (user directive 2026-07-06: autonomous
 next-release cycle; roadmap's "strongest unclaimed community differentiator")
