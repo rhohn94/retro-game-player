@@ -315,6 +315,19 @@ export const MOCK_FIXTURES = {
   list_favorites: MOCK_GAMES
     .filter((g) => g.favorite)
     .sort((a, b) => a.cleanName.localeCompare(b.cleanName)),
+  // v0.37 W373 — user collections (collections-design.md). One populated
+  // collection so the TV home renders a real collection rail headlessly
+  // (mirrors the Favorites/Continue-playing self-consistency above); its
+  // members are drawn from MOCK_GAMES so `list_games_by_collection` and
+  // `list_collection_ids_for_game` agree with each other and with the library.
+  create_collection: { id: 1, name: "Couch co-op", createdAt: NOW, sort: 0 },
+  rename_collection: null,
+  delete_collection: null,
+  list_collections: [{ id: 1, name: "Couch co-op", createdAt: NOW, sort: 0, gameCount: 2 }],
+  add_game_to_collection: null,
+  remove_game_from_collection: null,
+  list_games_by_collection: MOCK_GAMES.filter((g) => g.id === 1 || g.id === 4),
+  list_collection_ids_for_game: [1],
   // v0.26 W260 — TV mode auto-enter. The dedicated `tv-home` mock route
   // (scripts/visual-inspect.mjs) overrides this to `true`; every other route
   // keeps the desktop default of `false`.

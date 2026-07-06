@@ -165,6 +165,36 @@ pub(super) fn map_folder(row: &Row) -> rusqlite::Result<ContentFolder> {
     })
 }
 
+/// A user-created library collection (`collections` row, v0.37 W373 —
+/// see `docs/design/collections-design.md`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Collection {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+    pub sort: i64,
+}
+
+/// A [`Collection`] paired with its member count, for the collections list
+/// view (v0.37 W373). Kept separate from [`Collection`] rather than adding an
+/// optional field to it, since a plain `Collection` is also returned
+/// standalone (create/rename) where a count has no meaning yet.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CollectionWithCount {
+    pub collection: Collection,
+    pub game_count: i64,
+}
+
+/// Map a `collections` row (no join).
+pub(super) fn map_collection(row: &Row) -> rusqlite::Result<Collection> {
+    Ok(Collection {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        created_at: row.get("created_at")?,
+        sort: row.get("sort")?,
+    })
+}
+
 /// Map a `games` row.
 pub(super) fn map_game(row: &Row) -> rusqlite::Result<Game> {
     Ok(Game {

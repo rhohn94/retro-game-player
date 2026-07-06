@@ -111,6 +111,27 @@ describe("filterGames", () => {
     const c: FilterCriteria = { ...EMPTY_CRITERIA, system: DESKTOP_SYSTEM };
     expect(filterGames(withDesktop, c).map((g) => g.id)).toEqual([6, 7]);
   });
+
+  it("a selected collection shows only its member games (v0.37 W373)", () => {
+    const c: FilterCriteria = { ...EMPTY_CRITERIA, collectionId: 1 };
+    const members = new Set([2, 4]);
+    expect(filterGames(GAMES, c, members).map((g) => g.id)).toEqual([2, 4]);
+  });
+
+  it("a selected collection with no resolved member set yet matches nothing (v0.37 W373)", () => {
+    const c: FilterCriteria = { ...EMPTY_CRITERIA, collectionId: 1 };
+    expect(filterGames(GAMES, c, null)).toEqual([]);
+  });
+
+  it("combines the collection facet with other facets via AND (v0.37 W373)", () => {
+    const c: FilterCriteria = { ...EMPTY_CRITERIA, collectionId: 1, system: "snes" };
+    const members = new Set([2, 3, 4]); // 4 is n64, excluded by the system facet
+    expect(filterGames(GAMES, c, members).map((g) => g.id)).toEqual([2, 3]);
+  });
+
+  it("no collection constraint ignores the member set entirely (v0.37 W373)", () => {
+    expect(filterGames(GAMES, EMPTY_CRITERIA, null)).toHaveLength(5);
+  });
 });
 
 describe("hasActiveFilters", () => {
@@ -119,5 +140,9 @@ describe("hasActiveFilters", () => {
     expect(hasActiveFilters({ ...EMPTY_CRITERIA, system: "nes" })).toBe(true);
     expect(hasActiveFilters({ ...EMPTY_CRITERIA, query: "x" })).toBe(true);
     expect(hasActiveFilters({ ...EMPTY_CRITERIA, year: 1990 })).toBe(true);
+  });
+
+  it("is true once a collection is selected (v0.37 W373)", () => {
+    expect(hasActiveFilters({ ...EMPTY_CRITERIA, collectionId: 1 })).toBe(true);
   });
 });

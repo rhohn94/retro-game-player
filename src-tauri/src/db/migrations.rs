@@ -98,6 +98,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/014_crossover_source.sql"),
         requires_fk_off: true,
     },
+    Migration {
+        version: 15,
+        sql: include_str!("migrations/015_collections.sql"),
+        requires_fk_off: false,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -932,5 +937,194 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
             .unwrap();
         assert_eq!(fk_state, 1, "foreign_keys must be ON after a clean migration run");
+    }
+
+    // --- v0.37 W373: library collections (migration 015) ---
+
+    /// Acceptance: "additive-upgrade migration test from a pre-015 fixture
+    /// DB" — seed a v0.36-shaped database (through migration 14) with a real
+    /// game row, then apply the rest and confirm 015 lands cleanly without
+    /// disturbing the existing row.
+    #[test]
+    fn migration_015_applies_to_a_pre_015_fixture_db() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        for migration in MIGRATIONS.iter().filter(|m| m.version <= 14) {
+            conn.execute_batch(migration.sql).expect("pre-015 migrate");
+        }
+        set_version(&conn, 14).unwrap();
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/old.nes', 'nes', 'Old Game', 1, 4096, 100)",
+            [],
+        )
+        .unwrap();
+
+        run(&mut conn).expect("apply migration 015 on a pre-015-shaped db");
+
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+        let clean_name: String = conn
+            .query_row(
+                "SELECT clean_name FROM games WHERE path = '/roms/old.nes'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(clean_name, "Old Game", "pre-existing data must survive");
+        let tables: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' \
+                 AND name IN ('collections', 'collection_games')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 2, "both collections tables must exist after migration 015");
+    }
+
+    #[test]
+    fn migration_015_is_idempotent() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("first migrate");
+        run(&mut conn).expect("second migrate must not error");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+    }
+
+    /// Acceptance: "FK cascade covered — deleting a collection never deletes
+    /// games". Only the membership row should disappear.
+    #[test]
+    fn migration_015_deleting_a_collection_never_deletes_games() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/a.nes', 'nes', 'A', 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collections (id, name, created_at, sort) VALUES (1, 'Couch co-op', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collection_games (collection_id, game_id, added_at) VALUES (1, 1, 0)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM collections WHERE id = 1", []).unwrap();
+
+        let games: i64 = conn.query_row("SELECT count(*) FROM games", [], |r| r.get(0)).unwrap();
+        assert_eq!(games, 1, "deleting a collection must never delete a game");
+        let memberships: i64 = conn
+            .query_row("SELECT count(*) FROM collection_games", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(memberships, 0, "the membership row must cascade-delete");
+    }
+
+    /// Acceptance: "deleting a game cleans its memberships" — every
+    /// `collection_games` row referencing the deleted game must disappear,
+    /// while the collection itself (and any other member) survives.
+    #[test]
+    fn migration_015_deleting_a_game_cleans_its_memberships() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO games (id, folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES \
+             (1, 1, '/roms/a.nes', 'nes', 'A', 0, 1, 0), \
+             (2, 1, '/roms/b.nes', 'nes', 'B', 0, 1, 0);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collections (id, name, created_at, sort) VALUES (1, 'RPGs', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO collection_games (collection_id, game_id, added_at) VALUES \
+             (1, 1, 0), (1, 2, 0);",
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM games WHERE id = 1", []).unwrap();
+
+        let memberships: Vec<i64> = conn
+            .prepare("SELECT game_id FROM collection_games ORDER BY game_id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(memberships, vec![2], "only game 1's membership must be cleaned up");
+        let collections: i64 = conn
+            .query_row("SELECT count(*) FROM collections", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(collections, 1, "deleting a game must never delete a collection");
+    }
+
+    /// The `collections.name` UNIQUE constraint is enforced by the schema.
+    #[test]
+    fn migration_015_enforces_unique_collection_name() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO collections (name, created_at, sort) VALUES ('Kids', 0, 0)",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO collections (name, created_at, sort) VALUES ('Kids', 1, 0)",
+            [],
+        );
+        assert!(dup.is_err(), "duplicate collection name must be rejected");
+    }
+
+    /// The `(collection_id, game_id)` primary key rejects a double-add.
+    #[test]
+    fn migration_015_enforces_unique_membership() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        conn.execute(
+            "INSERT INTO content_folders (path, enabled, added_at) VALUES ('/roms', 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (folder_id, path, system, clean_name, dat_matched, \
+             size_bytes, added_at) VALUES (1, '/roms/a.nes', 'nes', 'A', 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collections (name, created_at, sort) VALUES ('Kids', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collection_games (collection_id, game_id, added_at) VALUES (1, 1, 0)",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO collection_games (collection_id, game_id, added_at) VALUES (1, 1, 5)",
+            [],
+        );
+        assert!(dup.is_err(), "a double-add of the same game to the same collection must be rejected");
     }
 }

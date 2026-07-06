@@ -153,6 +153,14 @@
     flex-direction: column;
     gap: var(--aura-space-3);
   }
+  /* Console tabs + the collection select, side by side (v0.37 W373 —
+     collections-design.md §UI: "beside the system filter"). */
+  .rgp-filters__system-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--aura-space-3);
+  }
   .rgp-filters__row {
     display: flex;
     flex-wrap: wrap;
@@ -345,6 +353,66 @@
     font-size: var(--rgp-font-caption);
     white-space: nowrap;
     align-self: center;
+  }
+  /* "Add to collection" picker, beside the favorite heart (v0.37 W373 —
+     collections-design.md §UI). */
+  .rgp-collection-picker {
+    position: relative;
+    align-self: center;
+  }
+  .rgp-collection-picker__toggle {
+    border: none;
+    background: var(--aura-shelf-alpha);
+    color: var(--aura-on-surface-muted);
+    border-radius: var(--aura-radius-full);
+    padding: 2px var(--aura-space-2);
+    font-size: var(--rgp-font-caption);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .rgp-collection-picker__panel {
+    position: absolute;
+    top: calc(100% + var(--aura-space-1));
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: var(--aura-space-1);
+    min-width: 200px;
+    padding: var(--aura-space-2);
+    border-radius: var(--aura-radius-md);
+    background: var(--aura-panel-alpha);
+    box-shadow: var(--aura-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.35));
+  }
+  .rgp-collection-picker__empty {
+    margin: 0;
+    color: var(--aura-on-surface-muted);
+    font-size: var(--rgp-font-caption);
+  }
+  .rgp-collection-picker__row {
+    display: flex;
+    align-items: center;
+    gap: var(--aura-space-2);
+    cursor: pointer;
+    font-size: var(--rgp-font-caption);
+  }
+  .rgp-collection-picker__name {
+    flex: 1;
+  }
+  .rgp-collection-picker__count {
+    color: var(--aura-on-surface-muted);
+  }
+  .rgp-collection-picker__new {
+    display: flex;
+    gap: var(--aura-space-1);
+    margin-top: var(--aura-space-1);
+    border-top: 1px solid var(--aura-shelf-alpha);
+    padding-top: var(--aura-space-2);
+  }
+  .rgp-collection-picker__error {
+    margin: 0;
+    color: var(--aura-error);
+    font-size: var(--rgp-font-caption);
   }
   .rgp-detail__subtitle,
   .rgp-detail__core {
