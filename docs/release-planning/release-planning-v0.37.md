@@ -296,7 +296,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.37 |
 |---|---|---|---|---|
 | `w370-rcheevos-runtime` (W370) | ☐ | ☐ | ☐ | ☐ |
-| `w371-ra-client-settings` (W371) | ☐ | ☐ | ☐ | ☐ |
+| `w371-ra-client-settings` (W371) | ☑ | ☑ | ☑ | ☑ |
 | `w373-collections` (W373) | ☐ | ☐ | ☐ | ☐ |
 | `w374-core-cache` (W374) | ☑ | ☑ | ☑ | ☑ |
 | `w375-tv-banner-overlay` (W375) | ☑ | ☑ | ☑ | ☑ |
