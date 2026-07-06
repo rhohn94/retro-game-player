@@ -89,6 +89,8 @@ impl PlayServer {
 /// ephemeral `127.0.0.1` port. Binding is best-effort: on failure an unavailable
 /// handle is returned so app startup is never blocked.
 pub fn start(db_path: PathBuf, saves_root: PathBuf, ejs_cores_root: PathBuf) -> PlayServer {
+    gc_stale_ejs_core_versions(&ejs_cores_root);
+
     let server = match tiny_http::Server::http(format!("{BIND_HOST}:0")) {
         Ok(s) => s,
         Err(e) => {
@@ -110,6 +112,25 @@ pub fn start(db_path: PathBuf, saves_root: PathBuf, ejs_cores_root: PathBuf) -> 
         return PlayServer::unavailable();
     }
     PlayServer { origin }
+}
+
+/// Best-effort startup GC of stale extracted-core caches (v0.38 W387, #36;
+/// `core_extract`'s module doc "Garbage collection"). Runs once per server
+/// start, before the socket is even bound, since it is pure disk cleanup with
+/// no dependency on the server being up. Any failure (unreadable root,
+/// permissions, …) is swallowed via the standard tagged `eprintln!`
+/// convention — GC must never fail a boot.
+fn gc_stale_ejs_core_versions(ejs_cores_root: &Path) {
+    match crate::play::core_extract::gc_stale_versions(
+        ejs_cores_root,
+        crate::play::ejs_cores::EJS_VERSION,
+    ) {
+        Ok(removed) if !removed.is_empty() => {
+            eprintln!("[play] gc removed stale EJS core cache version(s): {}", removed.join(", "));
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("[play] stale EJS core cache gc failed (continuing): {e}"),
+    }
 }
 
 /// Blocking accept loop: route each request and respond. Per-request errors are
@@ -633,6 +654,33 @@ mod tests {
             Some("false"),
             "player 2 slot must NOT bind the keyboard (it would steal player 1's keys)"
         );
+
+        // W387 (#36): every child→parent postMessage in the REAL served page
+        // must target the loopback origin the page is actually served on,
+        // not a wildcard — resolved against this real running server's page,
+        // not just asserted as a string in isolation. Scans each
+        // `window.parent.postMessage(...)` call site's own argument list
+        // (up to its closing `);`), so a "*" appearing elsewhere (e.g. in a
+        // comment) can't produce a false failure/pass either way.
+        let postmessage_calls: Vec<&str> = player_html
+            .match_indices("window.parent.postMessage(")
+            .map(|(start, _)| {
+                let rest = &player_html[start..];
+                let end = rest.find(");").expect("every postMessage call is terminated with );");
+                &rest[..end]
+            })
+            .collect();
+        assert_eq!(postmessage_calls.len(), 3, "expected exactly the three known parent-postMessage sends");
+        for call in &postmessage_calls {
+            assert!(
+                call.contains("location.origin"),
+                "every parent-postMessage call must target location.origin: {call}"
+            );
+            assert!(
+                !call.contains("\"*\""),
+                "no parent-postMessage call should still target the wildcard origin: {call}"
+            );
+        }
 
         // embedded runtime asset (present in every EmulatorJS release)
         let (status, _) = http_get(port, "/emulatorjs/loader.js");

@@ -17,6 +17,19 @@
 //! a re-vendored embedded NES core) naturally lands in a fresh directory;
 //! the old one is simply never read again. No separate invalidation bookkeeping
 //! is needed.
+//!
+//! Garbage collection (v0.38 W387, #36; boot-latency-spike.md §Outcome): the
+//! per-version namespacing above means an EmulatorJS version bump (a new
+//! [`crate::play::ejs_cores::EJS_VERSION`]) leaves the *previous* version's
+//! whole `<ejs-cores-root>/<old-version>/` directory (archives, reports, and
+//! every extracted cache under it) on disk forever — nothing ever revisits
+//! it once the running binary only ever asks for the current version. Since
+//! archives are a few MB apiece and a handhelds-era catalog now has eight
+//! cores, this is a real, if slow, leak across EJS upstream bumps.
+//! [`gc_stale_versions`] removes every sibling of the current version's dir
+//! once per server start (see `play::server::start`); it is best-effort by
+//! contract — the caller swallows any error via the standard tagged
+//! `eprintln!` convention and never fails a boot over a GC problem.
 
 use crate::error::{AppError, AppResult};
 use sha2::{Digest, Sha256};
@@ -158,6 +171,40 @@ fn write_atomic(dest: &Path, bytes: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
+/// Removes every directory directly under `ejs_cores_root` that is NOT
+/// `current_version` — i.e. every stale per-EJS-version cache (downloaded
+/// archives, reports, and any extracted-core subcache), per the module doc's
+/// "Garbage collection" section. Returns the names of the directories it
+/// removed (for the caller's telemetry line); a missing `ejs_cores_root`
+/// (nothing downloaded yet) yields an empty list rather than an error.
+///
+/// A single stale directory that fails to remove (permissions, a file held
+/// open, …) is skipped rather than aborting the whole sweep, so one bad
+/// directory can't hide cleanup of the others.
+pub fn gc_stale_versions(ejs_cores_root: &Path, current_version: &str) -> AppResult<Vec<String>> {
+    let entries = match std::fs::read_dir(ejs_cores_root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(AppError::Io(e.to_string())),
+    };
+
+    let mut removed = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == current_version {
+            continue;
+        }
+        if std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed.push(name);
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,5 +315,46 @@ mod tests {
         assert!(!is_flat_filename("../escape"));
         assert!(!is_flat_filename("sub/dir.js"));
         assert!(!is_flat_filename("sub\\dir.js"));
+    }
+
+    #[test]
+    fn gc_stale_versions_removes_other_versions_and_keeps_current() {
+        let tmp = tempfile::tempdir().unwrap();
+        let current = tmp.path().join("4.2.3");
+        let stale_a = tmp.path().join("4.2.2");
+        let stale_b = tmp.path().join("4.1.0");
+        std::fs::create_dir_all(current.join("extracted")).unwrap();
+        std::fs::write(current.join("marker.txt"), b"keep me").unwrap();
+        std::fs::create_dir_all(stale_a.join("extracted")).unwrap();
+        std::fs::create_dir_all(&stale_b).unwrap();
+
+        let mut removed = gc_stale_versions(tmp.path(), "4.2.3").unwrap();
+        removed.sort();
+        assert_eq!(removed, vec!["4.1.0".to_string(), "4.2.2".to_string()]);
+
+        assert!(current.is_dir(), "the current version's cache must survive");
+        assert!(current.join("marker.txt").is_file());
+        assert!(!stale_a.exists(), "a stale version's cache must be removed");
+        assert!(!stale_b.exists(), "a stale version's cache must be removed");
+    }
+
+    #[test]
+    fn gc_stale_versions_on_a_missing_root_is_a_no_op() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing_root = tmp.path().join("does-not-exist");
+        assert_eq!(gc_stale_versions(&missing_root, "4.2.3").unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn gc_stale_versions_ignores_non_directory_siblings() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("4.2.3")).unwrap();
+        // A stray file at the root (not a version dir) must be left alone,
+        // not treated as a stale version to remove.
+        std::fs::write(tmp.path().join("README.txt"), b"not a version dir").unwrap();
+
+        let removed = gc_stale_versions(tmp.path(), "4.2.3").unwrap();
+        assert!(removed.is_empty());
+        assert!(tmp.path().join("README.txt").is_file());
     }
 }
