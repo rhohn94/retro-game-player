@@ -71,6 +71,12 @@ pub struct AppConfig {
     /// rung is fully inert without it — scans and shelves behave exactly as
     /// v0.31 (no SteamGridDB requests attempted at all).
     pub steamgriddb_api_key: Option<String>,
+    /// User-supplied RetroAchievements username (v0.37 W371,
+    /// retroachievements-design.md §Client + accounts). `None` until the
+    /// user enters one in Settings → RetroAchievements. Not a secret (unlike
+    /// the Web API key, which lives in the Keychain via `KeyStore`) — the
+    /// whole RA feature is inert without both a username and a stored key.
+    pub retroachievements_username: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -88,6 +94,7 @@ impl Default for AppConfig {
             crt_filter: CrtFilterConfig::default(),
             show_fps_counter: false,
             steamgriddb_api_key: None,
+            retroachievements_username: None,
         }
     }
 }
@@ -239,6 +246,7 @@ mod tests {
         assert_eq!(cfg.crt_filter, CrtFilterConfig::default()); // off by default (v0.29 W280)
         assert!(!cfg.show_fps_counter); // opt-in diagnostic overlay (v0.29 W281)
         assert!(cfg.steamgriddb_api_key.is_none()); // inert until configured (v0.32 W321)
+        assert!(cfg.retroachievements_username.is_none()); // inert until configured (v0.37 W371)
     }
 
     #[test]
@@ -251,6 +259,19 @@ mod tests {
         cfg.save(&paths).expect("save");
         let loaded = AppConfig::load(&paths).expect("load");
         assert_eq!(loaded.steamgriddb_api_key.as_deref(), Some("sgdb-test-key"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn retroachievements_username_round_trips() {
+        let (paths, tmp) = temp_paths("retroachievements-username");
+        let cfg = AppConfig {
+            retroachievements_username: Some("RaUser42".to_string()),
+            ..AppConfig::default()
+        };
+        cfg.save(&paths).expect("save");
+        let loaded = AppConfig::load(&paths).expect("load");
+        assert_eq!(loaded.retroachievements_username.as_deref(), Some("RaUser42"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 

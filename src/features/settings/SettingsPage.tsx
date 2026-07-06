@@ -7,8 +7,9 @@
 // domain IPC wrapper — no raw `invoke` calls here.
 //
 // Sections: Folders | Cores | Core Options | Controllers | Providers |
-// Familiar | Playback | CRT Filter | Performance | Appearance | RetroArch —
-// each implemented in ./panes/, this file is the two-column shell +
+// Familiar | RetroAchievements | Playback | CRT Filter | Performance |
+// Appearance | RetroArch — each implemented in ./panes/, this file is the
+// two-column shell +
 // SectionPane switch. (Controllers hosts the full press-to-rebind editor —
 // W267, controller-input-design.md §Remapping UI. Core Options — v0.29 W282,
 // core-options-design.md — lists the active native-hosted core's declared
@@ -29,6 +30,7 @@ import { CoreOptionsPane } from "./panes/CoreOptionsPane";
 import { ControllersPane } from "./panes/ControllersPane";
 import { ProvidersPane } from "./panes/ProvidersPane";
 import { FamiliarPane } from "./panes/FamiliarPane";
+import { RetroAchievementsPane } from "./panes/RetroAchievementsPane";
 import { PlaybackPane } from "./panes/PlaybackPane";
 import { CrtFilterPane } from "./panes/CrtFilterPane";
 import { PerformancePane } from "./panes/PerformancePane";
@@ -45,6 +47,7 @@ type SectionId =
   | "controllers"
   | "providers"
   | "familiar"
+  | "retroachievements"
   | "playback"
   | "crt-filter"
   | "performance"
@@ -64,6 +67,7 @@ const SECTIONS: Section[] = [
   { id: "controllers", label: "Controllers" },
   { id: "providers", label: "Providers" },
   { id: "familiar", label: "Familiar" },
+  { id: "retroachievements", label: "RetroAchievements" },
   { id: "playback", label: "Playback" },
   { id: "crt-filter", label: "CRT Filter" },
   { id: "performance", label: "Performance" },
@@ -88,6 +92,8 @@ function SectionPane({ id, onNavigate }: { id: SectionId; onNavigate: (id: Secti
       return <ProvidersPane />;
     case "familiar":
       return <FamiliarPane />;
+    case "retroachievements":
+      return <RetroAchievementsPane />;
     case "playback":
       return <PlaybackPane />;
     case "crt-filter":
