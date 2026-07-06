@@ -11,6 +11,20 @@
 // Deliberately framework-free (no React) so it's usable from a plain ref
 // callback and unit-testable against a minimal WebGL2 stub without mounting
 // a component.
+//
+// v0.38 W381 (performance-tooling-design.md §Frame-path measurements,
+// crt-filter-design.md §measurement): two perf changes over the original
+// W280 pipeline. (1) The texture is allocated once (`texImage2D` with a null
+// pixel source) and re-used across draws via `texSubImage2D` as long as the
+// frame's dimensions don't change, only reallocating (a fresh `texImage2D`)
+// on a genuine geometry change — avoids re-specifying the texture's storage
+// on every single frame. (2) When the browser exposes
+// `EXT_disjoint_timer_query_webgl2`, each draw is bracketed by a timer query
+// and the previous query's result (once available, polled non-blockingly) is
+// surfaced via `lastDrawCostMs` — real GPU draw-cost numbers replacing W280's
+// analytical shader-cost budget (closes issue #35). Completely inert (no
+// queries created, `lastDrawCostMs` stays `null`) when the extension isn't
+// available.
 
 import { CRT_FRAGMENT_SHADER, CRT_UNIFORM_NAMES, CRT_VERTEX_SHADER, type CrtUniformName } from "./crtShader";
 import { toUnit } from "./crtFilter";
@@ -53,6 +67,14 @@ function linkProgram(gl: WebGL2RenderingContext, vertex: WebGLShader, fragment: 
   return program;
 }
 
+/** A `EXT_disjoint_timer_query_webgl2` extension instance, typed loosely
+ * since it isn't part of TypeScript's built-in WebGL2 lib types. Only the
+ * handful of members this renderer actually uses are declared. */
+interface DisjointTimerQueryExt {
+  TIME_ELAPSED_EXT: number;
+  GPU_DISJOINT_EXT: number;
+}
+
 /** Renders polled native-play RGBA frames through the CRT fragment shader
  * onto a WebGL2 canvas. See file header for lifecycle/ownership. */
 export class CrtWebglRenderer {
@@ -62,6 +84,20 @@ export class CrtWebglRenderer {
   private readonly vao: WebGLVertexArrayObject;
   private readonly uniforms: Record<CrtUniformName, WebGLUniformLocation | null>;
   private disposed = false;
+
+  // v0.38 W381: allocate-once texture storage. `null` until the first draw
+  // allocates it; a later draw whose dimensions differ reallocates (a fresh
+  // `texImage2D`) instead of trying to grow the existing storage in place.
+  private textureWidth: number | null = null;
+  private textureHeight: number | null = null;
+
+  // v0.38 W381: GPU timer query state. `timerExt` stays `null` (every method
+  // below becomes a no-op) when the browser doesn't expose
+  // `EXT_disjoint_timer_query_webgl2` — feature-detected once at construction,
+  // never retried per draw.
+  private readonly timerExt: DisjointTimerQueryExt | null;
+  private pendingQuery: WebGLQuery | null = null;
+  private lastDrawCostMsValue: number | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { alpha: false, antialias: false });
@@ -101,6 +137,12 @@ export class CrtWebglRenderer {
     this.uniforms = Object.fromEntries(
       CRT_UNIFORM_NAMES.map((name) => [name, gl.getUniformLocation(this.program, name)]),
     ) as Record<CrtUniformName, WebGLUniformLocation | null>;
+
+    // Feature-detect the timer-query extension once. `getExtension` returns
+    // `null` on any browser/driver that doesn't support it — that's a normal,
+    // expected outcome (not every GPU/driver combination exposes disjoint
+    // timer queries), not a construction failure.
+    this.timerExt = gl.getExtension("EXT_disjoint_timer_query_webgl2") as DisjointTimerQueryExt | null;
   }
 
   /** Uploads one RGBA8888 frame and draws it through the shader with the
@@ -114,7 +156,18 @@ export class CrtWebglRenderer {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+    // v0.38 W381: allocate the texture's storage once and re-upload pixels
+    // via texSubImage2D thereafter — texImage2D re-specifies (and typically
+    // reallocates) GPU storage every call, which is wasted work once the
+    // frame's dimensions have settled (the overwhelming common case: a
+    // session's geometry only changes on a genuine core renegotiation).
+    if (this.textureWidth === width && this.textureHeight === height) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+      this.textureWidth = width;
+      this.textureHeight = height;
+    }
 
     gl.uniform1i(this.uniforms.u_frame, 0);
     gl.uniform1f(this.uniforms.u_scanlineAmount, toUnit(config.scanlines));
@@ -124,7 +177,64 @@ export class CrtWebglRenderer {
     gl.uniform2f(this.uniforms.u_resolution, width, height);
 
     gl.bindVertexArray(this.vao);
+
+    const query = this.beginTimerQuery();
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (query) this.endTimerQuery(query);
+  }
+
+  /** Starts a new GPU timer query bracketing the upcoming `drawArrays` call,
+   * first polling (non-blockingly) any still-pending query from a previous
+   * draw so `lastDrawCostMs` stays reasonably fresh. Returns `null` (and
+   * does nothing else) when the extension isn't available — callers must
+   * skip `endTimerQuery` in that case. */
+  private beginTimerQuery(): WebGLQuery | null {
+    if (!this.timerExt) return null;
+    const gl = this.gl;
+    this.pollPendingQuery();
+    if (this.pendingQuery) return null; // previous query hasn't resolved yet — skip this frame rather than stack queries
+    const query = gl.createQuery();
+    if (!query) return null;
+    gl.beginQuery(this.timerExt.TIME_ELAPSED_EXT, query);
+    return query;
+  }
+
+  /** Ends the timer query started by `beginTimerQuery` and records it as
+   * pending for a later poll (GPU timer queries are never available
+   * synchronously — they must be checked on a subsequent frame). */
+  private endTimerQuery(query: WebGLQuery): void {
+    if (!this.timerExt) return;
+    this.gl.endQuery(this.timerExt.TIME_ELAPSED_EXT);
+    this.pendingQuery = query;
+  }
+
+  /** Non-blockingly checks whether the pending query (if any) has resolved;
+   * if so, records its result (nanoseconds -> ms) as `lastDrawCostMs` unless
+   * the result is disjoint (driver-reported as unreliable, e.g. a GPU reset
+   * occurred mid-measurement), in which case the stale sample is discarded
+   * rather than published. Frees the query object either way once resolved. */
+  private pollPendingQuery(): void {
+    if (!this.timerExt || !this.pendingQuery) return;
+    const gl = this.gl;
+    const query = this.pendingQuery;
+    const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) as boolean;
+    if (!available) return;
+    const disjoint = gl.getParameter(this.timerExt.GPU_DISJOINT_EXT) as boolean;
+    if (!disjoint) {
+      const elapsedNs = gl.getQueryParameter(query, gl.QUERY_RESULT) as number;
+      this.lastDrawCostMsValue = elapsedNs / 1_000_000;
+    }
+    gl.deleteQuery(query);
+    this.pendingQuery = null;
+  }
+
+  /** The most recently resolved GPU draw cost, in milliseconds — `null` when
+   * the timer-query extension is unavailable, or no query has resolved yet
+   * this session. Real measured cost (v0.38 W381), replacing the v0.29 W280
+   * analytical shader-cost budget (crt-filter-design.md §measurement). */
+  get lastDrawCostMs(): number | null {
+    this.pollPendingQuery();
+    return this.lastDrawCostMsValue;
   }
 
   /** Frees every GL resource this instance owns. Safe to call multiple
@@ -133,6 +243,10 @@ export class CrtWebglRenderer {
     if (this.disposed) return;
     this.disposed = true;
     const gl = this.gl;
+    if (this.pendingQuery) {
+      gl.deleteQuery(this.pendingQuery);
+      this.pendingQuery = null;
+    }
     gl.deleteTexture(this.texture);
     gl.deleteVertexArray(this.vao);
     gl.deleteProgram(this.program);

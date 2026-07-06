@@ -157,6 +157,9 @@ macro_rules! register_commands {
             $crate::commands::perf_tools::report_ejs_perf_stats,
             $crate::commands::perf_tools::read_native_perf_log,
             $crate::commands::perf_tools::read_ejs_perf_log,
+            // GPU draw-cost sibling perf log (v0.38 W381, closes #35)
+            $crate::commands::perf_tools::report_draw_cost_sample,
+            $crate::commands::perf_tools::read_draw_cost_log,
             // non-ROM game sources (v0.31 W312 Steam scan; W313 app scan + manual entry)
             $crate::commands::sources::scan_steam_source,
             $crate::commands::sources::scan_app_source,

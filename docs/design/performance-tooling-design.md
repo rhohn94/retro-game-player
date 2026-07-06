@@ -168,3 +168,40 @@ failed the gate. Confirmed via `git stash` that this predates this branch's
 changes. Fixed with a one-line additive fixture (mirroring the `Off` preset)
 since it silently blocked the smoke gate for every future branch, not just
 this one.
+
+## Implementation record (v0.38, W381) — Frame-path measurements: real GPU draw-cost
+
+The renderer half of this release's frame-path perf work (the Rust half —
+lock/allocation hygiene in `runtime/video.rs`/`frame.rs` plus new perf
+counters in the existing native perf-stats surface — is a separate release
+item, W380, `native-emulation-design.md`). This item closes issue #35 by
+replacing `crt-filter-design.md`'s v0.29 analytical shader-cost budget with a
+real measurement, and reduces `CrtWebglRenderer`'s own per-frame GPU work:
+
+- **Allocate-once texture upload.** `CrtWebglRenderer.draw()` previously
+  called `texImage2D` (re-specifying/reallocating GPU storage) on every
+  single frame. It now allocates once via `texImage2D` on the first draw (or
+  whenever the incoming frame's dimensions differ from the last-allocated
+  size — a genuine geometry change) and uses `texSubImage2D` for every
+  same-size draw in between, which only writes pixels into already-allocated
+  storage. Covered by `crtWebglRenderer.test.ts`'s stub, which was upgraded
+  to actually track allocated size and throw if `texSubImage2D` is ever
+  called before an allocating `texImage2D` or with a mismatched region — a
+  vacuous "was some texture call made" mock would not have caught a
+  regression back to per-frame `texImage2D` (the W301 test-quality lesson
+  this release's conflict map explicitly calls out).
+- **Real GPU draw-cost timing.** Feature-detects
+  `EXT_disjoint_timer_query_webgl2` once at construction; when present, each
+  draw is bracketed by a timer query, the previous draw's query is polled
+  non-blockingly, and a resolved, non-disjoint result is published in
+  milliseconds via `lastDrawCostMs`. Completely inert (no query objects ever
+  created) when the extension is absent — tested both ways. Full writeup:
+  `crt-filter-design.md` §measurement.
+- **Where the numbers surface.** `drawCostSampler.ts`'s `DrawCostSampler`
+  (new file, `fpsCounter.ts`-shaped rolling mean) is fed from
+  `NativePlayer.tsx`'s existing paint-loop rAF tick and shown as a second line
+  on the on-screen FPS counter overlay (`FpsCounterOverlay`) — see
+  `crt-filter-design.md` §measurement for why this stays a client-side-only
+  surface rather than a new field on the Rust-owned `native-perf.log` (the
+  IPC frame contract with this release's W380 is frozen, and the log file
+  itself has no frontend-writable path).

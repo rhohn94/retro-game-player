@@ -12,6 +12,16 @@
 // parameter's well-defined row-reversal semantics (WebGL2 spec, Pixel
 // Storage Parameters) so the tests can assert on the resulting row order
 // itself, not just that a call occurred.
+//
+// v0.38 W381: the stub's `texImage2D`/`texSubImage2D` also model real
+// allocate-vs-update semantics (a tracked "allocated size" per texture) so
+// the "allocate once, texSubImage2D thereafter" tests below can catch a
+// regression back to re-`texImage2D`-ing every frame — a vacuous mock that
+// only records "some call happened" wouldn't catch that (W301 lesson). The
+// timer-query tests use a second stub extension object modeling
+// `EXT_disjoint_timer_query_webgl2`'s query lifecycle (create/begin/end/poll)
+// closely enough to prove the renderer only reads a resolved, non-disjoint
+// result.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CrtWebglRenderer, CrtWebglUnavailableError } from "./crtWebglRenderer";
@@ -37,11 +47,25 @@ const GL_CONSTANTS = {
   UNSIGNED_BYTE: 14,
   TRIANGLES: 15,
   UNPACK_FLIP_Y_WEBGL: 16,
+  QUERY_RESULT_AVAILABLE: 17,
+  QUERY_RESULT: 18,
+};
+
+/** Fake `EXT_disjoint_timer_query_webgl2` constants, distinct from
+ * `GL_CONSTANTS` (a real browser assigns these on the extension object, not
+ * the base context). */
+const TIMER_EXT_CONSTANTS = {
+  TIME_ELAPSED_EXT: 100,
+  GPU_DISJOINT_EXT: 101,
 };
 
 interface StubOptions {
   compileFails?: boolean;
   linkFails?: boolean;
+  /** When true, `getExtension("EXT_disjoint_timer_query_webgl2")` returns the
+   * fake extension object below; when false (default) it returns `null`,
+   * modeling a browser/driver that doesn't support timer queries. */
+  timerQuerySupported?: boolean;
 }
 
 /** Reverses the row order of an RGBA8888 buffer — the well-defined transform
@@ -75,6 +99,18 @@ function makeGlStub(opts: StubOptions = {}) {
   const uniformValues: Record<string, unknown> = {};
   let shaderCounter = 0;
   const flipState = { unpackFlipY: false };
+  // v0.38 W381: tracks the texture's currently-allocated dimensions the way
+  // a real driver would — `texImage2D` (re-)allocates storage at whatever
+  // size it's called with; `texSubImage2D` only ever writes into storage
+  // that must already exist at that size (a real driver raises INVALID_
+  // OPERATION on a size mismatch — the stub instead throws, since these
+  // tests never intend to exercise that error path).
+  const allocatedSize: { width: number | null; height: number | null } = { width: null, height: null };
+  let texImage2DCallCount = 0;
+  let texSubImage2DCallCount = 0;
+  let queryCounter = 0;
+  let queryResultNs = 1_500_000; // 1.5ms, an arbitrary but realistic default
+  let gpuDisjoint = false;
 
   const gl = {
     ...GL_CONSTANTS,
@@ -114,9 +150,38 @@ function makeGlStub(opts: StubOptions = {}) {
         _type: number,
         pixels?: Uint8ClampedArray,
       ) => {
+        texImage2DCallCount++;
+        allocatedSize.width = width;
+        allocatedSize.height = height;
         if (pixels) {
           gl._lastUploadedPixels = flipState.unpackFlipY ? flipRows(pixels, width, height) : pixels.slice();
         }
+      },
+    ),
+    texSubImage2D: vi.fn(
+      (
+        _target: number,
+        _level: number,
+        xoffset: number,
+        yoffset: number,
+        width: number,
+        height: number,
+        _format: number,
+        _type: number,
+        pixels: Uint8ClampedArray,
+      ) => {
+        texSubImage2DCallCount++;
+        // Real drivers require the sub-region to fit inside already-allocated
+        // storage — surface a stub error rather than silently "succeeding" if
+        // the renderer ever calls this before an allocating texImage2D (the
+        // regression this whole stub upgrade exists to catch).
+        if (allocatedSize.width === null || allocatedSize.height === null) {
+          throw new Error("texSubImage2D called before any texImage2D allocated storage");
+        }
+        if (xoffset !== 0 || yoffset !== 0 || width !== allocatedSize.width || height !== allocatedSize.height) {
+          throw new Error("texSubImage2D region does not match the stub's allocated size");
+        }
+        gl._lastUploadedPixels = flipState.unpackFlipY ? flipRows(pixels, width, height) : pixels.slice();
       },
     ),
     uniform1i: vi.fn((loc: { name: string } | null, v: number) => {
@@ -131,10 +196,39 @@ function makeGlStub(opts: StubOptions = {}) {
     bindVertexArray: vi.fn(),
     drawArrays: vi.fn(),
     viewport: vi.fn(),
-    /** Set by the `texImage2D` stub above to the (possibly flipped) buffer
-     * that "reached the GPU" — the actual post-transform row order, for
-     * tests to inspect directly instead of just checking a call happened. */
+    getExtension: vi.fn((name: string) => {
+      if (name === "EXT_disjoint_timer_query_webgl2" && opts.timerQuerySupported) {
+        return TIMER_EXT_CONSTANTS;
+      }
+      return null;
+    }),
+    createQuery: vi.fn(() => ({ id: `query-${queryCounter++}` })),
+    deleteQuery: vi.fn(),
+    beginQuery: vi.fn(),
+    endQuery: vi.fn(),
+    getQueryParameter: vi.fn((_query: unknown, pname: number) => {
+      if (pname === GL_CONSTANTS.QUERY_RESULT_AVAILABLE) return true;
+      if (pname === GL_CONSTANTS.QUERY_RESULT) return queryResultNs;
+      return null;
+    }),
+    getParameter: vi.fn((pname: number) => {
+      if (pname === TIMER_EXT_CONSTANTS.GPU_DISJOINT_EXT) return gpuDisjoint;
+      return null;
+    }),
+    /** Set by the `texImage2D`/`texSubImage2D` stubs above to the (possibly
+     * flipped) buffer that "reached the GPU" — the actual post-transform row
+     * order, for tests to inspect directly instead of just checking a call
+     * happened. */
     _lastUploadedPixels: undefined as Uint8ClampedArray | undefined,
+    /** Test-only accessors into the stub's tracked allocation/query state. */
+    _texImage2DCallCount: () => texImage2DCallCount,
+    _texSubImage2DCallCount: () => texSubImage2DCallCount,
+    _setQueryResultNs: (ns: number) => {
+      queryResultNs = ns;
+    },
+    _setGpuDisjoint: (disjoint: boolean) => {
+      gpuDisjoint = disjoint;
+    },
   };
 
   return { gl, uniformValues };
@@ -286,6 +380,113 @@ describe("CrtWebglRenderer", () => {
     expect(uniformValues.u_curvatureAmount).toBe(0);
     expect(uniformValues.u_colorBleedAmount).toBe(0);
     expect(uniformValues.u_vignetteAmount).toBe(0);
+  });
+
+  it("allocates the texture with texImage2D on the first draw, then uses texSubImage2D for subsequent same-size draws (v0.38 W381: avoids re-allocating GPU storage every frame)", () => {
+    const { gl } = makeGlStub();
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    const bytes1 = new Uint8ClampedArray(4 * 2 * 2).fill(1);
+    renderer.draw(bytes1, 2, 2, CRT_FILTER_OFF);
+    expect(gl._texImage2DCallCount()).toBe(1);
+    expect(gl._texSubImage2DCallCount()).toBe(0);
+
+    const bytes2 = new Uint8ClampedArray(4 * 2 * 2).fill(2);
+    renderer.draw(bytes2, 2, 2, CRT_FILTER_OFF);
+    // Same dimensions as before — must reuse the allocated storage via
+    // texSubImage2D, NOT call texImage2D again. If this regressed back to
+    // re-texImage2D-ing every frame, this assertion would fail.
+    expect(gl._texImage2DCallCount()).toBe(1);
+    expect(gl._texSubImage2DCallCount()).toBe(1);
+    expect(Array.from(gl._lastUploadedPixels!.subarray(0, 4))).toEqual([2, 2, 2, 2]);
+
+    const bytes3 = new Uint8ClampedArray(4 * 2 * 2).fill(3);
+    renderer.draw(bytes3, 2, 2, CRT_FILTER_OFF);
+    expect(gl._texImage2DCallCount()).toBe(1);
+    expect(gl._texSubImage2DCallCount()).toBe(2);
+  });
+
+  it("reallocates via texImage2D when the frame dimensions change (resize)", () => {
+    const { gl } = makeGlStub();
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4 * 2 * 2), 2, 2, CRT_FILTER_OFF);
+    expect(gl._texImage2DCallCount()).toBe(1);
+
+    // A genuine geometry change (e.g. core renegotiation) — must reallocate,
+    // not attempt a texSubImage2D into storage sized for the old dimensions.
+    renderer.draw(new Uint8ClampedArray(4 * 4 * 3), 4, 3, CRT_FILTER_OFF);
+    expect(gl._texImage2DCallCount()).toBe(2);
+    expect(gl._texSubImage2DCallCount()).toBe(0);
+
+    // Back to the new size again — now reuses via texSubImage2D.
+    renderer.draw(new Uint8ClampedArray(4 * 4 * 3), 4, 3, CRT_FILTER_OFF);
+    expect(gl._texImage2DCallCount()).toBe(2);
+    expect(gl._texSubImage2DCallCount()).toBe(1);
+  });
+
+  it("lastDrawCostMs stays null and no query is created when EXT_disjoint_timer_query_webgl2 is unsupported", () => {
+    const { gl } = makeGlStub({ timerQuerySupported: false });
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4), 1, 1, CRT_FILTER_OFF);
+    expect(gl.createQuery).not.toHaveBeenCalled();
+    expect(gl.beginQuery).not.toHaveBeenCalled();
+    expect(gl.endQuery).not.toHaveBeenCalled();
+    expect(renderer.lastDrawCostMs).toBeNull();
+  });
+
+  it("lastDrawCostMs surfaces a resolved, non-disjoint timer-query result in milliseconds when the extension is supported", () => {
+    const { gl } = makeGlStub({ timerQuerySupported: true });
+    gl._setQueryResultNs(2_500_000); // 2.5ms
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4), 1, 1, CRT_FILTER_OFF);
+    expect(gl.createQuery).toHaveBeenCalledTimes(1);
+    expect(gl.beginQuery).toHaveBeenCalledWith(TIMER_EXT_CONSTANTS.TIME_ELAPSED_EXT, expect.anything());
+    expect(gl.endQuery).toHaveBeenCalledWith(TIMER_EXT_CONSTANTS.TIME_ELAPSED_EXT);
+    expect(renderer.lastDrawCostMs).toBeCloseTo(2.5);
+  });
+
+  it("discards a disjoint timer-query result instead of surfacing it as lastDrawCostMs", () => {
+    const { gl } = makeGlStub({ timerQuerySupported: true });
+    gl._setQueryResultNs(9_000_000);
+    gl._setGpuDisjoint(true);
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4), 1, 1, CRT_FILTER_OFF);
+    // A disjoint result must never be published — the driver flagged this
+    // measurement window as unreliable (e.g. a GPU reset occurred).
+    expect(renderer.lastDrawCostMs).toBeNull();
+  });
+
+  it("skips starting a new timer query while a previous one hasn't resolved yet, so queries never stack up", () => {
+    const { gl } = makeGlStub({ timerQuerySupported: true });
+    // Make the query never report as available, simulating a query still
+    // in flight from the previous draw.
+    // `false` (never available) isn't in the stub's declared return-type
+    // union (`number | true | null`, mirroring what a real WebGL2 query
+    // parameter getter returns), so it's cast at the boundary here rather
+    // than widening the shared stub's signature for every other test.
+    gl.getQueryParameter.mockImplementation(((_query: unknown, pname: number) => {
+      if (pname === gl.QUERY_RESULT_AVAILABLE) return false;
+      return null;
+    }) as typeof gl.getQueryParameter);
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4), 1, 1, CRT_FILTER_OFF);
+    expect(gl.createQuery).toHaveBeenCalledTimes(1);
+
+    renderer.draw(new Uint8ClampedArray(4), 1, 1, CRT_FILTER_OFF);
+    // The first query is still pending (never resolves in this test), so a
+    // second query must not be created on top of it.
+    expect(gl.createQuery).toHaveBeenCalledTimes(1);
   });
 
   it("dispose() frees the texture, VAO, and program exactly once", () => {
