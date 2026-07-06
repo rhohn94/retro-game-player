@@ -307,7 +307,7 @@ variant Fast; branch names carry the `-v037pN-NN` suffix.
 |---|---|---|---|---|
 | `w372-unlock-experience` (W372) | ☑ | ☑ | ☑ | ☑ |
 | `w376-attract-all-consoles` (W376) | ☑ | ☑ | ☑ | ☑ |
-| `w377-tv-aesthetics` (W377) | ☐ | ☐ | ☐ | ☐ |
+| `w377-tv-aesthetics` (W377) | ☑ | ☑ | ☑ | ☑ |
 
 ### Follow-ups discovered during implementation
 
@@ -355,3 +355,33 @@ its `-f1` branch before merge):**
 - **Merge:** two additive conflicts auto-resolved (both-keep):
   `commands/mod.rs` (W371 vs W373 registrations), `play/mod.rs`
   (W374 `core_extract` vs W370 `achievements`).
+
+**Pass 2 (all reviews non-blocking, no fix agents needed):**
+
+- **W372:** `poll_achievement_unlocks` drains the channel then persists
+  per-event with `?` in the loop — a transient DB error mid-batch loses
+  already-drained events (no re-drain); accumulate per-event Results.
+- **W372:** the `background` (W235 attract) presentation is a real
+  session backend-side, but the frontend unlock polling gates off all
+  spectator presentations — unlocks earned while backgrounded arrive as a
+  stale burst on foreground return; fast-follow candidate.
+- **W372:** `poll_unlocks_at` test helper duplicates the command body
+  instead of the shared-free-function precedent (`list_native_systems_at`)
+  — copies can drift.
+- **W372:** `get_achievement_summary` re-reads + re-hashes the ROM on
+  every detail-page mount; key the cache off a stored value instead.
+- **W372 (deferred by design):** server submission (v0.38), full
+  achievement-list UI + badge art.
+- **W376:** no component-level test exists for InPagePlayer/NativePlayer
+  (pre-existing W273 gap) — preview purity is proven at the pure-module +
+  Rust layers only.
+- **W376:** the preview layer now hosts a focus-capable iframe without
+  `pointer-events: none` (relied on DOM stacking with a canvas before) —
+  hardening follow-up.
+- **W377:** no TvShell/TvHero test file exists, so "tests referencing the
+  header updated" was vacuously satisfied — screenshot-verified instead.
+- **W377 review env:** transient host-disk ENOSPC during its full test
+  run (two unrelated test files); passed on the integrated staging run.
+- **Merge:** expected W376/W377 seam in `TvHome.tsx` (kept W376's
+  dual-path preview mount, dropped the scrim div per W377) and
+  `tv-mode-design.md` (both-keep, W376's stale scrim sentence reconciled).
