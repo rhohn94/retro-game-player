@@ -21,6 +21,20 @@
 //  * #7 seamless transitions: the frame fades in as the game boots and the
 //    overlay animates in/out.
 //
+// v0.37 W376: the "preview" presentation extends the W273 TV hover-attract
+// spectator to the EJS path (previously native-only) — a bare, no-trace
+// spectator session behind the TV home. Purity end-to-end: `usePlaySession`
+// is disabled (no library-life record), `?preview=1` is threaded onto the
+// iframe src so player.html's own save bridge skips SRAM restore/flush and
+// answers state save/load requests with an error instead of writing anything
+// (this player never sends a save/load op in preview — no Continue button,
+// no overlay — but the flag also closes the gap against a future caller),
+// audio ducks to the shared attract gain (effectivePlayerGain,
+// presentation.ts — same recipe NativePlayer's preview uses), and every
+// input-attaching effect (controller claim, Escape/keyboard, DOM focus) is
+// gated off for a spectator presentation — the page keeps the controller,
+// exactly like the native preview.
+//
 // Teardown is unmounting the iframe (disposes the emulator, audio, workers).
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -36,9 +50,14 @@ import { FpsCounterOverlay } from "./FpsCounterOverlay";
 import { useShowFpsCounter } from "./useShowFpsCounter";
 import { MenuHoldIndicator } from "./MenuHoldIndicator";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { buildPlayerSrc } from "./playerSrc";
 import {
+  effectivePlayerGain,
   playerShellClass,
   presentationAllowsImmersive,
+  presentationAllowsSaves,
+  presentationIsSpectator,
+  presentationRecordsPlaySession,
   type PlayerPresentation,
 } from "./presentation";
 import { usePlayerPrefs } from "./playerPrefs";
@@ -80,7 +99,10 @@ export interface InPagePlayerProps {
    * detail route omits it ("foreground"). "background" never reaches this
    * player — PlaySwitch normalizes it away (the EmulatorJS iframe cannot
    * become a page background; explicit v0.23 non-goal) — but if it ever did,
-   * the shared controller scope would correctly release the slot. */
+   * the shared controller scope would correctly release the slot. "preview"
+   * (v0.37 W376) is the TV hover-attract spectator surface — mounted
+   * directly by TvHome (never via PlaySwitch), a no-trace session with no
+   * play-session record, no saves, no input, ducked audio, and no chrome. */
   presentation?: PlayerPresentation;
 }
 
@@ -96,11 +118,19 @@ export function InPagePlayer({
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // W376: a preview is a no-trace spectator session end-to-end — `preview`
+  // gates save wiring (the iframe src flag below) and the Continue read;
+  // `spectator` (background OR preview — background never actually reaches
+  // this player, see the presentation prop doc) gates input + the audio duck.
+  const preview = presentation === "preview";
+  const spectator = presentationIsSpectator(presentation);
+
   // Library-life play-session tracking (v0.26 W264): the session brackets
   // this player's whole mounted lifetime, not just the time the iframe has
   // successfully loaded — matching the design doc's "in-page (mount/unmount)"
-  // hook point.
-  usePlaySession(gameId);
+  // hook point. Disabled for a preview (W273/W376 purity: no play count /
+  // recency / play-time).
+  usePlaySession(gameId, presentationRecordsPlaySession(presentation));
 
   // v0.29 W280 (crt-filter-design.md): the same shared CRT filter config the
   // native path's WebGL2 shader reads, applied here as the CSS-only
@@ -167,6 +197,15 @@ export function InPagePlayer({
   const requestSaveOp = useCallback(
     (op: "save" | "load", slot: SaveSlot) =>
       new Promise<void>((resolve, reject) => {
+        // W376 purity, defense in depth: no caller in this component ever
+        // reaches here for a preview (the overlay and Continue button that
+        // would call it are both unrendered), but guarding the op itself
+        // means the no-saves guarantee holds even if a future caller forgot
+        // to check first — matching the iframe-side `?preview=1` bridge gate.
+        if (!presentationAllowsSaves(presentation)) {
+          reject(new Error("saves are disabled for this presentation"));
+          return;
+        }
         const key = `${op}:${slot}`;
         const timer = window.setTimeout(() => {
           pendingSaves.current.delete(key);
@@ -180,7 +219,7 @@ export function InPagePlayer({
         });
         postToGame(op === "save" ? "harmony-save-state" : "harmony-load-state", { slot });
       }),
-    [postToGame],
+    [postToGame, presentation],
   );
 
   // Stable postMessage handle so once-installed callbacks (prefs hook,
@@ -191,7 +230,12 @@ export function InPagePlayer({
   // Player prefs (W243): volume changes stream to the game bridge; the
   // initial value lands via the same channel once the emulator starts
   // (player.html holds it until then). Pause-on-blur reads the pref live.
-  const prefs = usePlayerPrefs((volume) => postRef.current("harmony-volume", { value: volume }));
+  // W376: a spectator presentation (the TV preview) ducks to the shared
+  // attract gain — effectivePlayerGain, the same recipe NativePlayer's
+  // preview applies, so the two play paths can never duck differently.
+  const prefs = usePlayerPrefs((volume) =>
+    postRef.current("harmony-volume", { value: effectivePlayerGain(volume, presentation) }),
+  );
   const pauseOnBlurRef = useRef(true);
   pauseOnBlurRef.current = prefs.pauseOnBlur;
   const volumeRef = useRef(1);
@@ -215,10 +259,14 @@ export function InPagePlayer({
   }, [openOverlay, closeOverlay]);
 
   // "Continue" (W232): restore the newest EJS-written state into the
-  // freshly-booted session. Dismisses itself once used.
+  // freshly-booted session. Dismisses itself once used. A preview renders no
+  // Continue affordance and must not touch saves at all (W273/W376 purity),
+  // so it skips even this read (mirrors NativePlayer's own `if (preview)
+  // return;`).
   const [continueTarget, setContinueTarget] = useState<SaveSlot | null>(null);
   useCancellableEffect(
     (isCancelled) => {
+      if (preview) return;
       listGameSaves(gameId)
         .then((saves) => {
           if (isCancelled()) return;
@@ -226,7 +274,7 @@ export function InPagePlayer({
         })
         .catch((err: unknown) => swallow(err, "InPagePlayer.loadContinueTarget"));
     },
-    [gameId],
+    [gameId, preview],
   );
   const onContinue = useCallback(() => {
     const slot = continueTarget;
@@ -349,8 +397,11 @@ export function InPagePlayer({
 
   // Escape opens the overlay from the keyboard — directly when the app holds
   // focus, and via a forwarded postMessage when the game iframe holds focus.
+  // W376: a spectator presentation never attaches this — the page owns the
+  // keyboard, there is no overlay to toggle, and a preview must not report
+  // perf stats for a session library-life treats as if it never happened.
   useEffect(() => {
-    if (!origin) return;
+    if (!origin || spectator) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -397,7 +448,7 @@ export function InPagePlayer({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("message", onMsg);
     };
-  }, [origin, toggleOverlay]);
+  }, [origin, spectator, toggleOverlay]);
 
   // Keyboard parity in the TV takeover (W275): EmulatorJS reads the keyboard
   // inside its iframe, which only receives keys while the iframe holds DOM
@@ -454,9 +505,11 @@ export function InPagePlayer({
   }
   if (origin === "") return null;
 
-  const src =
-    `${origin}/player.html?core=${encodeURIComponent(ejsSystem)}` +
-    `&game=${gameId}&name=${encodeURIComponent(gameName)}`;
+  // W376: `preview=1` tells player.html's save bridge (vendor/player.html
+  // §Save bridge) to skip the SRAM restore-on-boot read and every flush —
+  // the byte-identical-saves purity guarantee, enforced in the iframe itself
+  // rather than trusted to "this player just never calls requestSaveOp".
+  const src = buildPlayerSrc({ origin, ejsSystem, gameId, gameName, preview });
 
   return (
     <div className={playerShellClass(presentation, immersive)}>
@@ -471,10 +524,14 @@ export function InPagePlayer({
         </CrtCssOverlay>
       </div>
 
-      {!overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
-      <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />
+      {/* W376: a preview is a pure spectator surface — the bare iframe only.
+          No hold indicator, no FPS overlay, no chip bar, no overlay (the
+          overlay could save/load state, which a no-trace session must never
+          offer) — mirrors NativePlayer's own `!preview` guards. */}
+      {!preview && !overlayOpen && <MenuHoldIndicator progress={holdProgress} />}
+      {!preview && <FpsCounterOverlay enabled={showFpsCounter} fps={fps} />}
 
-      {!immersive && (
+      {!preview && !immersive && (
         <div className="rgp-player__bar">
           {continueTarget && (
             <button type="button" className="rgp-player__fs" onClick={onContinue}>
@@ -490,17 +547,19 @@ export function InPagePlayer({
         </div>
       )}
 
-      <PlayerOverlay
-        gameName={gameName}
-        open={overlayOpen}
-        items={items}
-        selection={selection}
-        setSelection={setSelection}
-        onScrimClick={closeOverlay}
-        status={status}
-        hint="Esc or ☰ to toggle"
-        volume={{ value: prefs.volume, onChange: prefs.setVolume }}
-      />
+      {!preview && (
+        <PlayerOverlay
+          gameName={gameName}
+          open={overlayOpen}
+          items={items}
+          selection={selection}
+          setSelection={setSelection}
+          onScrimClick={closeOverlay}
+          status={status}
+          hint="Esc or ☰ to toggle"
+          volume={{ value: prefs.volume, onChange: prefs.setVolume }}
+        />
+      )}
     </div>
   );
 }

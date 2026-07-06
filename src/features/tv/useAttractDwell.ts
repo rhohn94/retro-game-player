@@ -27,17 +27,18 @@ import type { Game } from "../../ipc/library";
  * ring). CSS custom properties aren't readable from a JS timer, so the number
  * is the single JS source and the token is the single CSS source — keep both
  * in sync if this changes, the way `--rgp-tv-long-press-ms` mirrors
- * LONG_PRESS_MS (useLongPress.ts). */
-export const TV_ATTRACT_DWELL_MS = 5000;
+ * LONG_PRESS_MS (useLongPress.ts). Dropped from 5000 to 1000 in v0.37 W376
+ * (user directive: attract should feel near-instant on a couch dwell). */
+export const TV_ATTRACT_DWELL_MS = 1000;
 
 /** What the dwell timer watches each update. */
 export interface AttractDwellInput {
   /** Identity of the dwelt-upon tile — the controller focus id (pointer hover
    * funnels into it). ANY change resets the timer and clears a fired preview. */
   key: string | null;
-  /** The native-path-eligible game that key resolves to, or null when the
-   * focus target is not previewable (hero row, non-native tile, previously
-   * failed preview). Compared by id. */
+  /** The preview-eligible game (native OR, since v0.37 W376, EJS-path) that
+   * key resolves to, or null when the focus target is not previewable (hero
+   * row, external-only tile, previously failed preview). Compared by id. */
   game: Game | null;
   /** Master gate: false while a takeover is up or the exit-confirm is
    * showing. Disabling cancels the timer and clears a fired preview. */
