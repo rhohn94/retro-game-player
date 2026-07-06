@@ -352,7 +352,7 @@ export function TvHome({ onExit }: { onExit: () => void }) {
               aria-hidden
               data-testid="tv-attract-preview"
             >
-              {previewPath.kind === "ejs" ? (
+{previewPath.kind === "ejs" ? (
                 <InPagePlayer
                   gameId={previewGame.id}
                   ejsSystem={previewPath.ejsCore}
@@ -368,8 +368,6 @@ export function TvHome({ onExit }: { onExit: () => void }) {
                   onStartFailed={() => markPreviewFailed(previewGame.id)}
                 />
               )}
-              {/* Dim wash so the rails/hero copy stay legible over gameplay. */}
-              <div className="rgp-tv-home__preview-scrim" />
             </motion.div>
           )}
         </AnimatePresence>

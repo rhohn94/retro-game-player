@@ -134,14 +134,11 @@
     filter: brightness(0.45) saturate(0.85);
   }
 
-  /* Dim wash over the running game so rails and hero copy stay legible at 3m —
-     the hero's own gradient scrim still layers on top inside the hero band.
-     Colour tracks the theme (color-mix on the bg token), never a literal. */
-  .rgp-tv-home__preview-scrim {
-    position: absolute;
-    inset: 0;
-    background: color-mix(in oklch, var(--aura-bg) 45%, transparent);
-  }
+  /* v0.37 W377 (user directive): the dark dim wash that used to sit over the
+     running preview (and the hero's own gradient scrim below) is removed —
+     the preview now renders un-dimmed; rails/hero copy stay legible instead
+     via their own text-shadow (the shared `--rgp-tv-text-shadow` token,
+     tv.css), not a background wash over the art. */
 
   /* ── hero ─────────────────────────────────────────────────────────────────
      The hero breaks OUT of the shell's safe-area padding so its art bleeds to
@@ -172,27 +169,11 @@
     background-position: center 30%;
   }
 
-  /* Gradient scrim for legibility — anchored bottom-left where the copy sits, so
-     the title reads over any art without dimming the whole frame. Layered darker
-     at the bottom + a soft left wash. Colours track the theme (color-mix on the
-     bg token), never a literal (design-language.md §7.5). */
-  .rgp-tv-hero__scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background:
-      linear-gradient(
-        to top,
-        color-mix(in oklch, var(--aura-bg) 92%, transparent) 0%,
-        color-mix(in oklch, var(--aura-bg) 55%, transparent) 32%,
-        transparent 68%
-      ),
-      linear-gradient(
-        to right,
-        color-mix(in oklch, var(--aura-bg) 70%, transparent) 0%,
-        transparent 55%
-      );
-  }
+  /* v0.37 W377 (user directive): the gradient scrim that used to sit under the
+     hero copy is removed — the hero art now renders un-dimmed. Legibility for
+     the title/subtitle/chips comes entirely from their own text-shadow (the
+     shared `--rgp-tv-text-shadow` token, tv.css) instead of a background wash
+     under them (see `.rgp-tv-hero__content` below). */
 
   /* Scanline texture — a hairline repeating gradient at low opacity. Static (no
      animation) so it's an accent, not a distraction; disabled implicitly under
@@ -278,8 +259,11 @@
     line-height: 1.05;
     color: var(--aura-on-surface);
     max-width: var(--rgp-tv-hero-title-max);
-    /* Legibility over bright art: a soft shadow lifted from the scrim colour. */
-    text-shadow: 0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%, transparent);
+    /* Legibility over now-unwashed art (v0.37 W377: the gradient scrim this
+       shadow used to merely supplement is gone — the shadow alone now carries
+       legibility). The shared token (tv.css) so every TV text surface over
+       art uses the same recipe. */
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   .rgp-tv-hero__subtitle {
     margin: 0;
@@ -288,6 +272,7 @@
     letter-spacing: var(--rgp-tv-label-tracking);
     text-transform: uppercase;
     color: var(--rgp-tv-label-color);
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   .rgp-tv-hero__chips {
     display: flex;
@@ -301,6 +286,7 @@
     border: 1px solid var(--aura-border);
     font-size: var(--rgp-tv-font-body);
     color: var(--aura-on-surface);
+    text-shadow: var(--rgp-tv-text-shadow);
   }
 
   /* Play affordance — the hero's top focus row. Large, high-contrast, with the
@@ -351,6 +337,10 @@
     letter-spacing: var(--rgp-tv-label-tracking);
     text-transform: uppercase;
     color: var(--rgp-tv-label-color);
+    /* v0.37 W377 (user directive): rail labels sit over the rail-overlap band
+       of the (now-unwashed) hero art — the shared drop-shadow token carries
+       legibility that a background scrim used to. */
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   .rgp-tv-rail__row {
     display: flex;
@@ -509,6 +499,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* v0.37 W377 (user directive): the caption sits directly under the tile's
+       art (which can bleed close via the rail-overlap band) with no
+       background of its own — the shared drop-shadow token keeps it legible
+       over bright art the same way the hero/rail text now does. */
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   /* Non-retro (Steam/App/Manual) tiles pair the caption with a small source
      badge instead of a console badge (v0.31 W315 — non-retro-library-design.md

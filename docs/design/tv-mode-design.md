@@ -858,8 +858,9 @@ carrying the SAME purity contract end-to-end:
   (`.rgp-crt-tilt > iframe`, the CRT wrapper's fill target) with the SAME
   `object-fit: cover` + `filter: brightness(0.45) saturate(0.85)` the native
   preview canvas already carries, so the two preview paths read identically
-  as a backdrop. The existing `.rgp-tv-home__preview-scrim` wash (unchanged)
-  still does the legibility work over either path.
+  as a backdrop. (At W376 time the `.rgp-tv-home__preview-scrim` wash still
+  did the legibility work over either path; W377, below, removed that scrim
+  in favor of text drop shadows.)
 - **External-only tiles are unaffected, by construction.** A system with
   neither a native path nor any in-page core (GameCube/Wii — `inPageAvailability`
   answers `"none"`) resolves `resolveAttractPreviewPath` to `"none"` too —
@@ -879,6 +880,86 @@ support), `src-tauri/vendor/player.html` (`?preview=1` save-bridge gate),
 `src/features/tv/TvHome.tsx` (resolves + mounts the right player),
 `src/features/tv/tv-home.css` (EJS iframe visual parity rule),
 `src/features/play/index.ts` (barrel exports).
+## v0.37 "Trophies" (W377) — drop the chrome header + scrims, drop-shadow legibility
+
+User directive (verbatim, 2026-07-06): *"Revise aesthetics of TV mode: Remove
+Retro Game Player header and the dark background overlay. Instead, give text
+a drop shadow to aid with legibility."* Landed immediately after W375/W376 in
+the same release; three parts.
+
+**1 — the "Retro Game Player" label is gone.** W375 (above) had already pulled
+the section-label header out of the layout flow and grouped it with the
+Menu/Exit buttons into one top-right column (`.rgp-tv-shell__top-chrome`) so
+it no longer reserved its own row — W377 goes further and removes the label
+itself entirely: `<header className="rgp-tv-shell__header">` and its
+`<span className="rgp-tv-shell__label">Retro Game Player</span>` are deleted
+from `TvShell.tsx`, along with the `.rgp-tv-shell__header` / `.rgp-tv-shell__label`
+rules (tv-shell.css). The top-chrome column now holds only the Menu/Exit
+buttons — no chrome row reserves space for the label, and nothing replaces it
+(no new banner, no icon). The buttons keep their existing top-right position
+and relative order.
+
+**2 — both dark background overlays are gone.** Two scrim layers are deleted
+outright, not merely dimmed:
+
+- `.rgp-tv-hero__scrim` (tv-home.css) — the bottom/left gradient wash under
+  the hero copy — and its markup (`<div className="rgp-tv-hero__scrim" aria-hidden />`
+  in `TvHero.tsx`).
+- `.rgp-tv-home__preview-scrim` (tv-home.css) — the `color-mix(... 45% ...)`
+  dark wash over the W273 live attract preview — and its markup
+  (`<div className="rgp-tv-home__preview-scrim" />` in `TvHome.tsx`).
+
+Backdrop key art and attract previews now render un-dimmed, full-brightness,
+exactly as sourced — nothing between the art and the viewer.
+
+**3 — every TV text surface over art gets a drop shadow instead.** Rather than
+each surface re-deriving its own shadow recipe, one token,
+`--rgp-tv-text-shadow` (theme/tv.css), generalizes the recipe the hero title
+already used pre-W377 (`0 2px 1rem color-mix(in oklch, var(--aura-bg) 80%,
+transparent)` — a soft shadow lifted from the same bg-token color-mix the
+removed scrims used, just applied to the glyph instead of a background rect).
+Applied to:
+
+- hero title (already had this exact shadow inline; now reads the shared
+  token instead of its own literal), subtitle, and play-time/last-played chips
+  (`.rgp-tv-hero__title` / `__subtitle` / `__chip`, tv-home.css);
+- rail titles (`.rgp-tv-rail__label`) — these sit in the rail-overlap band
+  directly over the hero's lower art band (v0.28 W277), which is now unwashed;
+- tile captions (`.rgp-tv-tile__caption`) — sit immediately under each tile's
+  cover art with no background of their own;
+- the shell's Menu/Exit chrome buttons (`.rgp-tv-shell__menu`,
+  `.rgp-tv-shell__exit`, tv-shell.css) — their semi-transparent
+  `--aura-shelf-alpha` fill alone can wash out over bright hero art now that
+  the header's own scrim (which used to sit right beside them) is gone.
+
+The hero's play button (`.rgp-tv-hero__play`) is intentionally left off this
+list — it sits on a solid `--aura-primary` pill background, not directly on
+art, so it was never scrim-dependent and a text-shadow there would look odd
+against its own opaque fill. The focus treatments (tile/hero scale, ring,
+glow, dim-opacity) and controller-nav behavior are untouched — this item only
+removed background layers and added foreground shadows, no focus-model
+change.
+
+**Not touched (owned by W376, concurrently in flight):** the attract-preview
+*wiring* (`useAttractDwell.ts`, `TvHome`'s dwell/session logic, the
+`NativePlayer` mount) — only the CSS/markup that painted the scrim OVER the
+preview was removed here, nothing that mounts or drives it.
+
+**Verified (screenshots, both acceptance viewports — 1920×1080, 1512×982):**
+`recipe.py smoke`'s `tv-home` / `tv-takeover` / `tv-system-menu` /
+`tv-embedded-screen` visual-inspection routes render with no "Retro Game
+Player" label, no chrome row reserved for it, un-dimmed backdrop art, and
+legible text (title/subtitle/chips/rail-labels/tile-captions/Menu/Exit) via
+drop shadow alone.
+
+**Files:** `src/features/tv/TvShell.tsx` (label markup removed), `src/features/tv/tv-shell.css`
+(`.rgp-tv-shell__header`/`__label` rules removed; text-shadow added to
+Menu/Exit buttons), `src/features/tv/TvHero.tsx` (scrim div removed),
+`src/features/tv/TvHome.tsx` (preview-scrim div removed), `src/features/tv/tv-home.css`
+(`.rgp-tv-hero__scrim` / `.rgp-tv-home__preview-scrim` rules removed;
+text-shadow added to hero title/subtitle/chips, rail label, tile caption),
+`src/theme/tv.css` (`--rgp-tv-banner-scrim` token removed; new
+`--rgp-tv-text-shadow` token added).
 
 ## Follow-ups
 

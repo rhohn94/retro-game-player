@@ -38,17 +38,19 @@
      for one small label, the same shape of problem the rail-overlap
      precedent (v0.28 W277, tv-home.css) already established a fix pattern
      for: pull chrome OVER the hero art instead of budgeting space for it
-     above the art. It's now grouped with the pointer exit/menu buttons in
-     ONE absolutely-positioned top-right column (below) rather than getting
-     its own absolute rule — TOP-RIGHT, not top-left: the hero copy
+     above the art. It was grouped with the pointer exit/menu buttons in ONE
+     absolutely-positioned top-right column (below) rather than getting its
+     own absolute rule — TOP-RIGHT, not top-left: the hero copy
      (`.rgp-tv-hero__content`) is LEFT-aligned and, at the acceptance
      viewports' tighter margins (26vh hero, tv-home.css §v0.28 math), its
      title/subtitle/chip stack can reach close to the hero's top edge on the
      left side — measured colliding with a naive top-LEFT banner placement in
      a real browser at both 1920×1080 and 1512×982 (not just read from the
-     CSS). The top-right corner is clear of that copy at every viewport this
-     hero geometry is tuned for, and doubles up with the existing chrome
-     buttons' corner instead of opening a second independently-placed one. */
+     CSS). v0.37 W377 (user directive) then removed the label itself entirely
+     (along with its `--rgp-tv-banner-scrim` wash) — this group now holds only
+     the Menu/Exit buttons, which stay in the same top-right corner (clear of
+     the hero copy at every viewport, and where the buttons already lived
+     pre-W375). */
   .rgp-tv-shell__top-chrome {
     position: absolute;
     top: var(--rgp-tv-safe-area);
@@ -61,24 +63,6 @@
     flex-direction: column;
     align-items: flex-end;
     gap: var(--aura-space-3);
-  }
-
-  .rgp-tv-shell__header {
-    padding: var(--aura-space-2) var(--aura-space-4);
-    border-radius: var(--rgp-tv-radius-tile);
-    background: var(--rgp-tv-banner-scrim);
-  }
-
-  /* Chunky retro-accent section-label treatment (tv-mode-design.md: "chunky
-     pixel-font accents for section labels") — expressed via existing Aura
-     tokens (secondary brand knob + generous letter-spacing), never a
-     hardcoded font-family or literal color. */
-  .rgp-tv-shell__label {
-    font-size: var(--rgp-tv-font-label);
-    font-weight: 700;
-    letter-spacing: var(--rgp-tv-label-tracking);
-    text-transform: uppercase;
-    color: var(--rgp-tv-label-color);
   }
 
   .rgp-tv-shell__outlet {
@@ -134,6 +118,11 @@
     font-size: var(--rgp-tv-font-body);
     cursor: pointer;
     transition: background var(--rgp-dur-fast) var(--rgp-ease-out);
+    /* v0.37 W377 (user directive): with the header's own scrim wash gone, the
+       buttons' semi-transparent `--aura-shelf-alpha` fill alone can wash out
+       over bright hero art — the shared drop-shadow token (tv.css) keeps the
+       glyph/label legible the same way every other TV text surface does now. */
+    text-shadow: var(--rgp-tv-text-shadow);
   }
   /* The ring itself comes from the central rule (theme/focus-visible.css);
      this adds the extra background/color swap shared with :hover. */
