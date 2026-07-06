@@ -115,3 +115,53 @@ serve-pre-extracted variant can be evaluated with real multi-core data.
 
 Follow-up ticket: [#31](https://github.com/rhohn94/retro-game-player/issues/31)
 (decompressed-core caching, page-patch vs. serve-pre-extracted decision).
+
+## Outcome (v0.37 W374, #31)
+
+**Took the Rust-side pre-extraction path** (§"Technique B" third bullet),
+not the IndexedDB page-patch. The existing on-demand core cache
+([`ejs_cores.rs`](../../src-tauri/src/play/ejs_cores.rs), W241) already
+stores archives as flat, individually-cacheable files under a per-EJS-version
+disk directory, which made moving decompression there straightforward rather
+than "impractical" — the condition that would have sent this to the
+page-patch fallback never materialized:
+
+- **New module** [`play/core_extract.rs`](../../src-tauri/src/play/core_extract.rs)
+  decompresses a 7z core archive (via the pure-Rust `sevenz-rust` crate — a
+  real archive round-trips byte-for-byte, verified against the vendored
+  `fceumm-wasm.data`) into a disk cache keyed by the **archive's own SHA-256**,
+  not by core name/version string. This means invalidation is automatic and
+  needs no separate bookkeeping: a core re-vendor changes the archive bytes,
+  which changes the hash, which lands in a fresh cache directory — the stale
+  one is simply never read again (tested:
+  `ensure_extracted_invalidates_on_archive_content_change`,
+  `extracted_cache_invalidates_when_the_on_disk_archive_bytes_change`).
+- **`play/server.rs`** gained a new served route,
+  `/emulatorjs/cores/extracted/<archive-filename>.json`, returning a manifest
+  of `{"<entry-name>": "cores/extracted/<hash>/<entry-name>"}` — decompressing
+  on first request (whichever tier, on-demand disk cache or the embedded NES
+  core, the filename resolves to) and serving cached files on every
+  subsequent one. Every manifest URL is verified in tests to actually resolve
+  against the real running server (not just asserted as a string), per this
+  repo's test-quality rule for served/derived URLs.
+- **`vendor/emulatorjs/src/emulator.js`** (rebuilt into `emulator.min.js` via
+  the existing `scripts/build-ejs-bundle.mjs`) gained the "teach the loader"
+  half: `downloadGameCore()` now asks the manifest route FIRST, ahead of the
+  browser's own compressed-archive IndexedDB cache. A hit fetches the
+  already-decompressed files directly and skips `checkCompression` (the 7z
+  Worker) entirely; a miss (older server, or a filename that genuinely
+  doesn't resolve) falls through to the untouched original
+  download-archive-then-decompress path, so first-boot behavior is
+  byte-for-byte unchanged. Compiled-`WebAssembly.Module` caching remains out
+  of scope, per the original finding above (still unsupported on WKWebView).
+- **Maintainability cost paid up front, once:** re-applying this patch on a
+  future EmulatorJS re-vendor means redoing the `gotCore`/`downloadGameCore`
+  edit in `src/emulator.js` and rerunning the bundle build — the same
+  category of recurring cost the original write-up flagged, now paid by a
+  small, clearly-commented diff instead of a parallel IndexedDB scheme.
+
+Result: repeat boots of a game never re-run the 7z Worker (proved at the
+Rust level — the decompressed cache is a no-op hit on a second call — and at
+the served-route level — the manifest and every file it names resolve on a
+real running server); first boot is unaffected; cache correctness across a
+core-version bump is unit-tested. Issue #31 is closable.

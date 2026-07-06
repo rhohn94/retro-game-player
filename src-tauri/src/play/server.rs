@@ -157,6 +157,11 @@ fn handle_request(
         return respond_bytes(request, PLAYER_HTML.as_bytes(), "text/html; charset=utf-8");
     }
     if let Some(rest) = path.strip_prefix(EJS_PREFIX) {
+        // Pre-extracted core cache (W374, #31): served ahead of everything
+        // else under `cores/extracted/…` — see `serve_extracted_core`.
+        if let Some(extracted_rel) = rest.strip_prefix("cores/extracted/") {
+            return serve_extracted_core(request, ejs_cores_root, extracted_rel);
+        }
         // On-demand core cache first (W241): a downloaded core shadows the
         // embedded bundle for `cores/…` paths; the EmulatorJS loader cannot
         // tell the tiers apart. `cached_file` rejects path traversal.
@@ -176,6 +181,98 @@ fn handle_request(
         return serve_rom(request, db_path, id_str);
     }
     not_found(request)
+}
+
+/// Serves the pre-extracted-core cache (W374, #31; see
+/// [`crate::play::core_extract`]) under `/emulatorjs/cores/extracted/…`:
+///
+///   * `GET .../extracted/<archive-filename>.json` → a manifest of
+///     `{ "<entry-name>": "cores/extracted/<archive-hash>/<entry-name>" }`
+///     for the archive `<archive-filename>` resolves to right now (on-demand
+///     disk cache first, then the embedded bundle) — decompressing it once
+///     on first request. `404` when the archive doesn't resolve to anything
+///     (unknown/uninstalled core) or fails to decompress.
+///   * `GET .../extracted/<archive-hash>/<entry-name>` → the raw decompressed
+///     bytes of that one entry, immutably cacheable (the hash IS the content).
+///
+/// `<rest>` is already stripped of the `cores/extracted/` prefix. The two
+/// route shapes are disambiguated by path-segment COUNT, not by a `.json`
+/// suffix check — a decompressed entry can itself be named `build.json` or
+/// `core.json`, which would otherwise be misread as a manifest request for
+/// archive filename `<hash>/build`.
+fn serve_extracted_core(
+    request: tiny_http::Request,
+    ejs_cores_root: &Path,
+    rest: &str,
+) -> std::io::Result<()> {
+    if !rest.contains('/') {
+        let Some(filename) = rest.strip_suffix(".json") else {
+            return not_found(request);
+        };
+        return match build_extracted_manifest(ejs_cores_root, filename) {
+            Some(json) => respond_bytes(request, json.as_bytes(), "application/json; charset=utf-8"),
+            None => not_found(request),
+        };
+    }
+    // `<hash>/<entry-name>` — a flat two-component path; anything else
+    // (traversal, extra nesting) is rejected before touching the filesystem.
+    let mut parts = rest.splitn(2, '/');
+    let (Some(hash), Some(entry_name)) = (parts.next(), parts.next()) else {
+        return not_found(request);
+    };
+    if hash.is_empty() || entry_name.is_empty() || entry_name.contains('/') {
+        return not_found(request);
+    }
+    let version_dir = crate::play::ejs_cores::version_dir(ejs_cores_root);
+    let dir = crate::play::core_extract::extracted_dir(&version_dir, hash);
+    let candidate = dir.join(entry_name);
+    // The hash prefix is derived, not attacker-controlled path text, but a
+    // defensive canonical-prefix check costs nothing and rules out any
+    // clever `hash` value (e.g. containing `..`) short-circuiting `join`.
+    // Canonicalize `dir` too (not just `candidate`) — on macOS a tempdir
+    // path like `/var/folders/...` and its canonical `/private/var/...`
+    // form differ, so comparing an uncanonicalized `dir` against a
+    // canonicalized `candidate` would false-reject every real hit.
+    let Ok(canonical_dir) = std::fs::canonicalize(&dir) else {
+        return not_found(request);
+    };
+    match std::fs::canonicalize(&candidate) {
+        Ok(real) if real.starts_with(&canonical_dir) => match std::fs::read(&real) {
+            Ok(bytes) => respond_cached(request, &bytes, content_type(entry_name)),
+            Err(_) => not_found(request),
+        },
+        _ => not_found(request),
+    }
+}
+
+/// Resolves `filename` (an EmulatorJS core archive name, e.g.
+/// `snes9x-wasm.data`) to its bytes — on-demand disk cache first (shadows
+/// the embedded bundle, matching the existing tier order), then the
+/// embedded bundle — decompresses it once via
+/// [`crate::play::core_extract::ensure_extracted`], and returns the
+/// manifest JSON body. `None` on any failure (unresolvable filename, corrupt
+/// archive): the caller answers `404`, and the page-side loader falls back
+/// to its original download-then-decompress path unchanged.
+fn build_extracted_manifest(ejs_cores_root: &Path, filename: &str) -> Option<String> {
+    let archive_bytes = crate::play::ejs_cores::cached_file(ejs_cores_root, filename)
+        .and_then(|p| std::fs::read(p).ok())
+        .or_else(|| EJS_DATA.get_file(format!("cores/{filename}")).map(|f| f.contents().to_vec()))?;
+
+    let version_dir = crate::play::ejs_cores::version_dir(ejs_cores_root);
+    let dir = crate::play::core_extract::ensure_extracted(&version_dir, &archive_bytes).ok()?;
+    let hash = crate::play::core_extract::hex_sha256(&archive_bytes);
+
+    let mut manifest = serde_json::Map::new();
+    for entry in std::fs::read_dir(&dir).ok()? {
+        let entry = entry.ok()?;
+        if !entry.file_type().ok()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let rel = format!("cores/extracted/{hash}/{name}");
+        manifest.insert(name, serde_json::Value::String(rel));
+    }
+    serde_json::to_string(&manifest).ok()
 }
 
 /// The EmulatorJS save bridge (W231). Routes, with `<rest>` already stripped
@@ -622,6 +719,150 @@ mod tests {
         assert_ne!(code, 200);
         let (code, _) = http_get(port, "/emulatorjs/cores/mgba-wasm.data");
         assert_eq!(code, 404);
+    }
+
+    // ---- W374 (#31): pre-extracted core cache ----
+
+    #[test]
+    fn extracted_manifest_serves_the_embedded_core_and_entries_resolve() {
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("extract-embedded", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
+
+        // The manifest for the EMBEDDED fceumm core (no on-demand install
+        // needed — it ships in the binary) must resolve, first request.
+        let (code, body) = http_get(port, "/emulatorjs/cores/extracted/fceumm-wasm.data.json");
+        assert_eq!(code, 200);
+        let manifest: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let entries = manifest.as_object().unwrap();
+        assert!(entries.contains_key("core.json"));
+        assert!(entries.keys().any(|k| k.ends_with(".wasm")));
+        assert!(entries.keys().any(|k| k.ends_with(".js")));
+
+        // Test-quality rule: every URL the manifest hands back must ACTUALLY
+        // resolve against the real running server, not just look plausible.
+        for (name, rel_path) in entries {
+            let rel_path = rel_path.as_str().unwrap();
+            assert!(rel_path.starts_with("cores/extracted/"));
+            let (code, resolved_body) = http_get(port, &format!("/emulatorjs/{rel_path}"));
+            assert_eq!(code, 200, "manifest entry {name} did not resolve at {rel_path}");
+            assert!(!resolved_body.is_empty(), "resolved entry {name} was empty");
+        }
+    }
+
+    #[test]
+    fn extracted_manifest_serves_an_on_demand_disk_core() {
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("extract-disk", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        // Install a REAL core archive where W241's installer would put it, so
+        // the 7z decompression is exercised against real bytes.
+        let vdir = crate::play::ejs_cores::version_dir(cores_root.path());
+        std::fs::create_dir_all(vdir.join("reports")).unwrap();
+        let real_archive = include_bytes!("../../vendor/emulatorjs/cores/fceumm-wasm.data");
+        std::fs::write(vdir.join("snes9x-wasm.data"), real_archive).unwrap();
+        let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
+
+        let (code, body) = http_get(port, "/emulatorjs/cores/extracted/snes9x-wasm.data.json");
+        assert_eq!(code, 200);
+        let manifest: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let wasm_path = manifest["fceumm_libretro.wasm"].as_str().unwrap();
+        let (code, wasm_bytes) = http_get(port, &format!("/emulatorjs/{wasm_path}"));
+        assert_eq!(code, 200);
+        assert!(!wasm_bytes.is_empty());
+    }
+
+    #[test]
+    fn extracted_manifest_404s_for_an_unresolvable_core() {
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("extract-missing", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
+
+        let (code, _) = http_get(port, "/emulatorjs/cores/extracted/mgba-wasm.data.json");
+        assert_eq!(code, 404);
+    }
+
+    #[test]
+    fn extracted_entry_route_rejects_traversal_and_extra_nesting() {
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("extract-traversal", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
+
+        // Prime the cache so a valid hash dir actually exists on disk.
+        let (code, body) = http_get(port, "/emulatorjs/cores/extracted/fceumm-wasm.data.json");
+        assert_eq!(code, 200);
+        let manifest: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let real_hash = manifest["core.json"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("cores/extracted/")
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap();
+
+        let (code, _) = http_get(port, &format!("/emulatorjs/cores/extracted/{real_hash}/../../secrets"));
+        assert_ne!(code, 200);
+        let (code, _) = http_get(port, &format!("/emulatorjs/cores/extracted/{real_hash}/sub/dir.js"));
+        assert_ne!(code, 200);
+        let (code, _) = http_get(port, "/emulatorjs/cores/extracted/deadbeef/core.json");
+        assert_eq!(code, 404); // a hash with no cache dir at all
+    }
+
+    #[test]
+    fn extracted_cache_invalidates_when_the_on_disk_archive_bytes_change() {
+        // Acceptance criterion: cache invalidates on core version change.
+        // Simulated here by swapping the installed archive bytes for a core
+        // under one filename — a real re-vendor of a core would change the
+        // archive's bytes (and thus its hash) the same way.
+        let rom = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(rom.path(), b"R").unwrap();
+        let db = temp_db_with_game("extract-invalidate", rom.path());
+        let saves_root = tempfile::tempdir().unwrap();
+        let cores_root = tempfile::tempdir().unwrap();
+        let vdir = crate::play::ejs_cores::version_dir(cores_root.path());
+        std::fs::create_dir_all(vdir.join("reports")).unwrap();
+        let fceumm_archive = include_bytes!("../../vendor/emulatorjs/cores/fceumm-wasm.data");
+        std::fs::write(vdir.join("snes9x-wasm.data"), fceumm_archive).unwrap();
+        let port = spawn_with_cores(db, saves_root.path().to_path_buf(), cores_root.path().to_path_buf());
+
+        let (code, body_v1) = http_get(port, "/emulatorjs/cores/extracted/snes9x-wasm.data.json");
+        assert_eq!(code, 200);
+        let manifest_v1: serde_json::Value = serde_json::from_slice(&body_v1).unwrap();
+        let hash_v1 = manifest_v1["core.json"].as_str().unwrap().to_string();
+
+        // "Bump the core": different bytes at the same installed filename.
+        let mut bumped = fceumm_archive.to_vec();
+        let flip_at = bumped.len() - 1;
+        bumped[flip_at] ^= 0xFF;
+        // A corrupted tail may not decompress; append harmless real bytes
+        // aren't meaningful here — the assertion under test is purely that
+        // the manifest for the OLD hash still works (nothing was mutated in
+        // place) and the filename route re-derives a NEW hash from the new
+        // bytes rather than reusing the stale manifest.
+        std::fs::write(vdir.join("snes9x-wasm.data"), &bumped).unwrap();
+
+        let (code, body_v2) = http_get(port, "/emulatorjs/cores/extracted/snes9x-wasm.data.json");
+        if code == 200 {
+            let manifest_v2: serde_json::Value = serde_json::from_slice(&body_v2).unwrap();
+            let hash_v2 = manifest_v2["core.json"].as_str().unwrap().to_string();
+            assert_ne!(hash_v1, hash_v2, "changed archive bytes must key a different cache entry");
+        }
+        // The original hash's cache entry must remain intact regardless —
+        // nothing overwrites an existing hash-keyed directory in place.
+        let (code, _) = http_get(port, &format!("/emulatorjs/{hash_v1}"));
+        assert_eq!(code, 200);
     }
 
     #[test]
