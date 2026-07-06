@@ -314,13 +314,13 @@ variant Fast; branch names carry the `-v038pN-NN` suffix.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.38 |
 |---|---|---|---|---|
-| `w380-frame-publish-perf` (W380) | ☐ | ☐ | ☐ | ☐ |
-| `w381-renderer-perf` (W381) | ☐ | ☐ | ☐ | ☐ |
-| `w382-achievements-hardening` (W382) | ☐ | ☐ | ☐ | ☐ |
-| `w383-test-depth` (W383) | ☐ | ☐ | ☐ | ☐ |
-| `w385-collections-management` (W385) | ☐ | ☐ | ☐ | ☐ |
-| `w386-a11y-polish` (W386) | ☐ | ☐ | ☐ | ☐ |
-| `w387-ejs-hygiene` (W387) | ☐ | ☐ | ☐ | ☐ |
+| `w380-frame-publish-perf` (W380) | ☑ | ☑ | ☑ | ☑ |
+| `w381-renderer-perf` (W381) | ☑ | ☑ | ☑ | ☑ |
+| `w382-achievements-hardening` (W382) | ☑ | ☑ | ☑ | ☑ |
+| `w383-test-depth` (W383) | ☑ | ☑ | ☑ | ☑ |
+| `w385-collections-management` (W385) | ☑ | ☑ | ☑ | ☑ |
+| `w386-a11y-polish` (W386) | ☑ | ☑ | ☑ | ☑ |
+| `w387-ejs-hygiene` (W387) | ☑ | ☑ | ☑ | ☑ |
 
 ### Pass 2
 
@@ -330,4 +330,45 @@ variant Fast; branch names carry the `-v038pN-NN` suffix.
 
 ### Follow-ups discovered during implementation
 
-(populated by release-phase-merge as branches land)
+**Pass 1 (one blocking finding — W381's missing durable perf-log field —
+fixed on its `-f1` branch; all else non-blocking):**
+
+- **W380:** the contention-counter test never exercises the contended
+  branch (guard dropped before `drain_video` runs; counter never read) —
+  an `is_err()` inversion would go uncaught; add a genuinely-contended test.
+- **W380:** `max_rgba8_capacity` trusts the core-declared max geometry
+  with no sanity bound — eager allocation at session start could OOM on a
+  corrupt declaration (already-trusted binary; add a bounds check or doc
+  note).
+- **W380:** `publish_frame` now pays an extra `try_lock` per frame purely
+  for the contention counter — intentional, documented, worth revisiting
+  if the counter proves uninteresting.
+- **W381:** the durable draw-cost surface is a NEW sibling log
+  (`logs/draw-cost-perf.log` + `report_draw_cost_sample`/
+  `read_draw_cost_log` + a Settings panel section), not a field on
+  `native-perf.log` (frozen contract) — future item: correlate draw cost
+  with native FPS counters for a full-stack before/after.
+- **W382:** `RomHashCache::hash_for` miss path hashes outside the lock —
+  two concurrent detail-page mounts may both hash once (benign, last-write
+  wins); mtime-less filesystems degrade the fingerprint to size-only.
+- **W382:** telemetry lines double-prefix (`[telemetry]` + source tag) —
+  cosmetic.
+- **W383:** NativePlayer/InPagePlayer mount tests stub the renderer,
+  controller provider, and IPC modules — purity is asserted at the real
+  gating logic but not against a real ControllerProvider; deepen later.
+- **W385:** picker stops auto-retrying after a failed load until the
+  Retry button is used (deliberate; noted); the command-flow tests
+  duplicate small guard+repo helpers rather than invoking the async
+  command fns directly.
+- **W386:** auto-validate runs inside the Save handler's try/catch — a
+  hanging validate keeps Save disabled until timeout (10s client cap);
+  acceptable, noted. #34 fully addressed incl. the §4 aria audit.
+- **W387/W381 merge seam (semantic):** W387 renamed `append_line` →
+  `append_line_bounded` while W381-f1's new draw-cost commands called the
+  old name — textual merge was clean, build broke; resolved by making the
+  draw-cost log bounded too (commit `1e749b5`). Reviewer note that both
+  branches append to `performance-tooling-design.md` played out as the
+  expected doc conflict (both-keep).
+- **Merge:** conflicts resolved without stopping: `perf_tools.rs` tests
+  block (additive both-keep), `performance-tooling-design.md` (both-keep),
+  plus the semantic seam above.
