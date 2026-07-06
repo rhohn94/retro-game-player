@@ -117,10 +117,15 @@ impl NativeRuntime {
             max_height,
         } = bring_up;
 
-        let latest_frame = Arc::new(Mutex::new(FrameSlot::default()));
+        // W380: aspect ratio lives on the frame slot itself (not a separate
+        // mutex) so a publish or an IPC poll takes exactly one lock — see
+        // `super::video`'s module doc.
+        let latest_frame = Arc::new(Mutex::new(FrameSlot {
+            aspect_ratio,
+            ..FrameSlot::default()
+        }));
         // Libretro's implicit default before a core negotiates otherwise.
         let pixel_format = Arc::new(Mutex::new(callbacks::PixelFormat::Rgb1555));
-        let aspect_ratio = Arc::new(Mutex::new(aspect_ratio));
         let stop = Arc::new(AtomicBool::new(false));
         let paused = Arc::new(AtomicBool::new(false));
         let gain = Arc::new(SharedGain::new());
@@ -137,7 +142,6 @@ impl NativeRuntime {
         let core_thread = {
             let latest_frame = Arc::clone(&latest_frame);
             let pixel_format = Arc::clone(&pixel_format);
-            let aspect_ratio = Arc::clone(&aspect_ratio);
             let stop = Arc::clone(&stop);
             let paused = Arc::clone(&paused);
             let counters = Arc::clone(&counters);
@@ -154,7 +158,6 @@ impl NativeRuntime {
                     commands: command_rx,
                     latest_frame: &latest_frame,
                     pixel_format: &pixel_format,
-                    aspect_ratio: &aspect_ratio,
                     hw_render: None,
                     max_width,
                     max_height,

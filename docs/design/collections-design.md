@@ -61,6 +61,29 @@ must keep passing `railNav` tests.
 - [ ] TV home renders collection rails; controller nav tests green.
 - [ ] `recipe.py smoke` passes; issue #21 closable.
 
+## Management UX (v0.38 W385)
+
+v0.37 shipped create/membership only; the `renameCollection` /
+`deleteCollection` IPC existed with no UI. W385 completes the surface:
+
+- **Picker row actions.** Each collection row in the detail-page picker
+  gains rename and delete affordances (inline icon actions or a compact
+  row menu — whichever reads cleanest under the Aura wiring rules; rename
+  edits in place reusing the inline-create input pattern). Delete opens a
+  confirmation dialog that states plainly that games are not deleted, only
+  the grouping. The dialog takes the exclusive `ui` controller claim (the
+  TvSystemMenu precedent) so Back/Escape closes it, never the page.
+- **Empty-collection state.** A collection filter with zero members shows
+  an explicit "This collection is empty" message in the library grid
+  (today: indistinguishable from a broken page). TV rails already skip
+  empty collections by design — unchanged.
+- **Picker load/error states.** The picker shows a lightweight loading
+  state while fetching and a visible error message on fetch failure
+  (today: silent swallow ⇒ empty-looking picker).
+- **Server-side name guard.** `create_collection` and `rename_collection`
+  reject empty/whitespace-only names with a Validation error — the
+  frontend guard stays, but the command no longer trusts it.
+
 ## Follow-ups
 
 - Smart collections (rules over system/favorite/recency).

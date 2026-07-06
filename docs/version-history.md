@@ -7,6 +7,29 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.38 — Tune-Up (2026-07-06)
+
+A quality-and-polish release: the emulator got faster and more measured,
+and the v0.37 features got finished properly.
+
+- **See every achievement, not just the count.** The game page now shows
+  the full achievement list — unlocked ones with their badge art and
+  unlock date, locked ones with their point values.
+- **Achievements keep working behind the scenes.** Trophies earned while a
+  game plays as the TV screensaver backdrop are saved immediately and pop
+  up the moment you return.
+- **Smoother native emulation.** The frame path sheds redundant locking,
+  buffer reallocation, and full-texture re-uploads every frame — and the
+  Performance panel now shows real measured GPU draw cost instead of an
+  estimate.
+- **Collections you can actually manage.** Rename and delete collections
+  from the picker (with a clear "your games are safe" confirmation), and
+  an empty collection now says so instead of showing a blank page.
+- **Better with a keyboard.** TV menus, dialogs, and settings are properly
+  focusable and escapable; screen readers track the TV rails correctly.
+- **Less disk clutter.** Old emulator-core caches are cleaned up
+  automatically and performance logs no longer grow forever.
+
 ## v0.37 — Trophies (2026-07-06)
 
 Your play now earns something: RetroAchievements comes to the native

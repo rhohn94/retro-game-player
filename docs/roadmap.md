@@ -236,6 +236,23 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
+## v0.38 — Tune-Up (implementation complete — pending release)
+
+**Flagship: quality, performance, polish.** A measured pass over the
+engine and the v0.37 surfaces (user directive 2026-07-06): native
+frame-path perf (lock + allocation hygiene, `texSubImage2D` uploads, real
+GPU-cost measurement closing [#35](https://github.com/rhohn94/retro-game-player/issues/35)),
+hardening of the achievements/collections code from the recorded v0.37
+follow-ups, the full per-game achievement list with badge art, collection
+rename/delete management UX, the
+[#34](https://github.com/rhohn94/retro-game-player/issues/34) keyboard-a11y
+punch list, and EJS cache GC + perf-log bounds
+([#36](https://github.com/rhohn94/retro-game-player/issues/36)).
+
+Plan: [`release-planning-v0.38.md`](release-planning/release-planning-v0.38.md).
+
+---
+
 ## v0.37 — Trophies (implementation complete — pending release)
 
 **Theme:** RetroAchievements foundation (user directive 2026-07-06: autonomous

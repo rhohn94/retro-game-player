@@ -157,6 +157,9 @@ macro_rules! register_commands {
             $crate::commands::perf_tools::report_ejs_perf_stats,
             $crate::commands::perf_tools::read_native_perf_log,
             $crate::commands::perf_tools::read_ejs_perf_log,
+            // GPU draw-cost sibling perf log (v0.38 W381, closes #35)
+            $crate::commands::perf_tools::report_draw_cost_sample,
+            $crate::commands::perf_tools::read_draw_cost_log,
             // non-ROM game sources (v0.31 W312 Steam scan; W313 app scan + manual entry)
             $crate::commands::sources::scan_steam_source,
             $crate::commands::sources::scan_app_source,
@@ -177,6 +180,9 @@ macro_rules! register_commands {
             // RetroAchievements unlock experience (v0.37 W372)
             $crate::commands::achievements::poll_achievement_unlocks,
             $crate::commands::achievements::get_achievement_summary,
+            // RetroAchievements detail-page achievement list + badge art (v0.38 W384)
+            $crate::commands::achievements::get_achievement_list,
+            $crate::commands::achievements::get_achievement_badge_path,
             // library collections (v0.37 W373, #21)
             $crate::commands::collections::create_collection,
             $crate::commands::collections::rename_collection,

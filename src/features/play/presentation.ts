@@ -75,6 +75,39 @@ export function presentationAllowsSaves(presentation: PlayerPresentation): boole
 }
 
 /**
+ * Whether a mounted player in this presentation should poll for + persist
+ * RetroAchievements unlocks (v0.38 W384, retroachievements-design.md
+ * §Attract-backdrop unlock flush). "background" (W235 attract) is a real,
+ * RECORDING session re-presented as a backdrop — unlocks earned while
+ * backgrounded are genuinely the user's, so polling (and persisting) must
+ * keep running even though the toast itself is suppressed until foreground
+ * return (see `presentationShowsAchievementToasts`). Only "preview" (W273
+ * no-trace) stays fully excluded — a preview never arms achievements
+ * backend-side at all (W273 purity), so polling it would only waste an IPC
+ * round trip. Deliberately NOT the same as `!presentationIsSpectator`
+ * (which both "background" and "preview" fail) — this predicate is the one
+ * place that carves "background" back out for the achievements path.
+ */
+export function presentationPollsAchievements(presentation: PlayerPresentation): boolean {
+  return presentation !== "preview";
+}
+
+/**
+ * Whether a mounted player in this presentation should currently SHOW an
+ * achievement-unlock toast, as opposed to merely queuing it silently. Only
+ * foreground/takeover display: a "background" attract session keeps polling
+ * and persisting (`presentationPollsAchievements`) but suppresses the toast
+ * until the presentation returns to foreground/takeover, at which point the
+ * queued toasts surface (retroachievements-design.md §Attract-backdrop
+ * unlock flush: "suppress the toast until the presentation returns to
+ * foreground/takeover, then show queued toasts"). "preview" shows nothing
+ * (it never polls in the first place, so nothing is ever queued for it).
+ */
+export function presentationShowsAchievementToasts(presentation: PlayerPresentation): boolean {
+  return !presentationIsSpectator(presentation);
+}
+
+/**
  * Whether a presentation offers the app-immersive "Full screen" affordance
  * (the in-page player's window-fullscreen + fill mode, W232). Only the desktop
  * foreground player does: inside the TV takeover the window is ALREADY

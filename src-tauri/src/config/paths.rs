@@ -50,6 +50,15 @@ pub const NATIVE_PERF_LOG_FILE_NAME: &str = "native-perf.log";
 /// reports (FPS + coarse frame-time) rather than a Rust-side runtime loop.
 pub const EJS_PERF_LOG_FILE_NAME: &str = "ejs-perf.log";
 
+/// Sibling GPU draw-cost telemetry filename under `logs/` (§4.1; v0.38 W381,
+/// performance-tooling-design.md + crt-filter-design.md §measurement) — real
+/// `EXT_disjoint_timer_query_webgl2` samples reported from
+/// `CrtWebglRenderer`'s WebGL2 draw path over IPC, the same "report over IPC,
+/// no Rust-side runtime loop" shape as [`EJS_PERF_LOG_FILE_NAME`] (the native
+/// runtime's own `native-perf.log` is a separate, frozen-contract item this
+/// release and is never written to from here).
+pub const DRAW_COST_LOG_FILE_NAME: &str = "draw-cost-perf.log";
+
 /// Deployed-apps subtree under the deployed root (§4.2).
 const DEPLOYED_APP_DIR: &str = "harmony";
 
@@ -144,6 +153,16 @@ impl Paths {
         Ok(self.logs_dir()?.join(EJS_PERF_LOG_FILE_NAME))
     }
 
+    /// The sibling GPU draw-cost perf log (`logs/draw-cost-perf.log`, v0.38
+    /// W381); its parent `logs/` dir is ensured. Appended to (never
+    /// truncated) by the `report_draw_cost_sample` IPC command as resolved
+    /// timer-query samples arrive from the frontend — same rationale as
+    /// [`Self::ejs_perf_log_file`]: there is no single Rust-side "session
+    /// start" moment to truncate on for a client-reported measurement.
+    pub fn draw_cost_log_file(&self) -> AppResult<PathBuf> {
+        Ok(self.logs_dir()?.join(DRAW_COST_LOG_FILE_NAME))
+    }
+
     /// `saves/` dir (created) — battery SRAM + save states, one subdir per
     /// system (v0.23; docs/design/save-persistence-design.md §1).
     pub fn saves_dir(&self) -> AppResult<PathBuf> {
@@ -170,6 +189,16 @@ impl Paths {
         self.subdir("retroachievements-cache")
     }
 
+    /// `retroachievements-badges/` dir (created) — fetched badge art, one PNG
+    /// file per RA badge name (v0.38 W384, retroachievements-design.md
+    /// §Achievement list: "reuse the W371 cache module's conventions and
+    /// location, one file per badge name"). Kept as a sibling of, not nested
+    /// inside, [`Self::retroachievements_cache_dir`] since the two caches hold
+    /// different content shapes (JSON sets vs. raw image bytes).
+    pub fn retroachievements_badge_cache_dir(&self) -> AppResult<PathBuf> {
+        self.subdir("retroachievements-badges")
+    }
+
     /// Eagerly create every app-support subdirectory. Convenient for `setup`
     /// so the rest of the app can assume the full layout exists.
     pub fn ensure_all(&self) -> AppResult<()> {
@@ -183,6 +212,7 @@ impl Paths {
         self.ejs_cores_dir()?;
         self.downloads_dir()?;
         self.retroachievements_cache_dir()?;
+        self.retroachievements_badge_cache_dir()?;
         Ok(())
     }
 
@@ -268,6 +298,11 @@ mod tests {
         assert!(ejs_perf.parent().unwrap().ends_with("logs"));
         assert!(ejs_perf.parent().unwrap().is_dir());
 
+        let draw_cost_perf = paths.draw_cost_log_file().unwrap();
+        assert_eq!(draw_cost_perf.file_name().unwrap(), DRAW_COST_LOG_FILE_NAME);
+        assert!(draw_cost_perf.parent().unwrap().ends_with("logs"));
+        assert!(draw_cost_perf.parent().unwrap().is_dir());
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -300,6 +335,16 @@ mod tests {
         let dir = paths.retroachievements_cache_dir().expect("ra cache dir");
         assert!(dir.is_dir());
         assert!(dir.ends_with("retroachievements-cache"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn retroachievements_badge_cache_dir_created() {
+        let tmp = std::env::temp_dir().join(format!("harmony-ra-badges-{}", std::process::id()));
+        let paths = Paths::with_root(tmp.join(BUNDLE_ID)).expect("root");
+        let dir = paths.retroachievements_badge_cache_dir().expect("ra badge cache dir");
+        assert!(dir.is_dir());
+        assert!(dir.ends_with("retroachievements-badges"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 

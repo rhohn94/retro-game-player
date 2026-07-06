@@ -200,6 +200,12 @@ fn is_stub_red(px: &[u8]) -> bool {
     px[0] >= 250 && (45..=57).contains(&px[1]) && (45..=57).contains(&px[2]) && px[3] == 255
 }
 
+/// A single-pixel-band classifier (`is_stub_blue`/`is_stub_red`) — factored
+/// out of the `(top_ok, bottom_ok)` pair's inline type below to clear
+/// clippy's `type_complexity` lint (W383).
+#[cfg(target_os = "macos")]
+type BandClassifier = fn(&[u8]) -> bool;
+
 /// Parameterized over BOTH `bottom_left_origin` values so the readback
 /// row-flip decision (`hw_render::HwRenderContext::read_frame_into`) is
 /// proven end-to-end, not just via `flip_rows_in_place`'s pure unit
@@ -261,7 +267,7 @@ fn native_runtime_hosts_a_hw_render_core_and_reads_back_real_gpu_pixels() {
         // top band is blue for a bottom-left-origin core (its GL-y=0 red
         // band is the image bottom) and red for a top-left-origin core.
         let row = |i: usize| &frame.data[i * 4 * 4..(i + 1) * 4 * 4];
-        let (top_ok, bottom_ok): (fn(&[u8]) -> bool, fn(&[u8]) -> bool) =
+        let (top_ok, bottom_ok): (BandClassifier, BandClassifier) =
             if bottom_left_origin {
                 (is_stub_blue, is_stub_red)
             } else {

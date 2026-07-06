@@ -7,7 +7,9 @@ import {
   presentationAllowsSaves,
   presentationIsSpectator,
   presentationOwnsController,
+  presentationPollsAchievements,
   presentationRecordsPlaySession,
+  presentationShowsAchievementToasts,
 } from "./presentation";
 
 describe("presentationIsSpectator (W235 attract / W273 preview)", () => {
@@ -90,6 +92,33 @@ describe("presentationAllowsImmersive (W275 takeover fullscreen audit)", () => {
   it("never offers it on spectator surfaces (no chrome at all)", () => {
     expect(presentationAllowsImmersive("background")).toBe(false);
     expect(presentationAllowsImmersive("preview")).toBe(false);
+  });
+});
+
+describe("presentationPollsAchievements (v0.38 W384 attract-backdrop unlock flush)", () => {
+  it("keeps polling/persisting for every presentation except preview", () => {
+    expect(presentationPollsAchievements("foreground")).toBe(true);
+    expect(presentationPollsAchievements("takeover")).toBe(true);
+    expect(presentationPollsAchievements("background")).toBe(true);
+  });
+
+  it("never polls for a preview — it never arms achievements backend-side", () => {
+    expect(presentationPollsAchievements("preview")).toBe(false);
+  });
+});
+
+describe("presentationShowsAchievementToasts (v0.38 W384 attract-backdrop unlock flush)", () => {
+  it("shows toasts on foreground-class presentations", () => {
+    expect(presentationShowsAchievementToasts("foreground")).toBe(true);
+    expect(presentationShowsAchievementToasts("takeover")).toBe(true);
+  });
+
+  it("suppresses toasts while backgrounded — unlocks queue silently until foreground return", () => {
+    expect(presentationShowsAchievementToasts("background")).toBe(false);
+  });
+
+  it("suppresses toasts for a preview (nothing is ever queued for it either)", () => {
+    expect(presentationShowsAchievementToasts("preview")).toBe(false);
   });
 });
 

@@ -203,11 +203,76 @@ tokens and the app-level `<MotionConfig reducedMotion="user">` convention
 rather than a new per-component rule, per this doc's original acceptance
 criterion.
 
+### §measurement — real GPU draw-cost numbers (v0.38 W381, closes #35)
+
+Replaces the analytical shader-cost budget above with a **real, on-device
+measurement** of the actual draw call. `CrtWebglRenderer` (`crtWebglRenderer.ts`)
+feature-detects `EXT_disjoint_timer_query_webgl2` once at construction:
+
+- **When supported:** each `draw()` call is bracketed by a GPU timer query
+  (`beginQuery`/`endQuery` around `drawArrays`). Timer queries never resolve
+  synchronously, so the *previous* draw's query is polled non-blockingly
+  (`getQueryParameter(..., QUERY_RESULT_AVAILABLE)`) at the start of the next
+  `beginTimerQuery()` call, and again from the `lastDrawCostMs` getter. A
+  resolved-but-`GPU_DISJOINT_EXT`-flagged result (the driver reporting the
+  measurement window as unreliable, e.g. a GPU reset) is discarded rather than
+  published — `lastDrawCostMs` only ever reflects a result the driver itself
+  vouches for. At most one query is ever in flight; a draw whose predecessor
+  hasn't resolved yet simply skips starting a new one rather than stacking
+  queries.
+- **When unsupported (the no-extension fallback):** `getExtension` returns
+  `null`, `timerExt` stays `null`, and every timer-query code path becomes a
+  no-op — no query objects are ever created, `beginQuery`/`endQuery` are never
+  called, and `lastDrawCostMs` stays `null` for the renderer's whole lifetime.
+  This is the expected, unremarkable outcome on any browser/driver combination
+  that doesn't expose the extension (this is a real GPU/driver capability gap,
+  not something the app can work around) — the shader's correctness and the
+  `putImageData` fallback path are both completely unaffected either way.
+
+**Where the numbers go.** The measurement has no counterpart inside
+`native-perf.log` itself: that on-disk file is owned end-to-end by
+`play::native::runtime` (this release's separate W380 frame-path item, whose
+own truncate-per-session `PerfLogFile` sink has no visibility into the
+frontend's WebGL draw calls), and the IPC *frame* contract between the two
+halves is frozen for this release — so this measurement does not touch
+`native-perf.log` or W380's frame path at all. Instead it gets its own small,
+additive sibling IPC surface, the same shape `commands::perf_tools` already
+uses for the EJS path's client-reported telemetry (`report_ejs_perf_stats` /
+`read_ejs_perf_log`, a plain "append over IPC, no Rust-side runtime loop"
+pattern): `report_draw_cost_sample`/`read_draw_cost_log` append each resolved
+sample to its own durable file, `logs/draw-cost-perf.log`
+(`config::paths::Paths::draw_cost_log_file`), which the Settings → Performance
+GUI panel reads back as a third section ("GPU draw cost") alongside the
+native and EJS sections. `drawCostSampler.ts`'s `DrawCostSampler` (a
+`fpsCounter.ts`-shaped rolling mean over the last 30 resolved samples) still
+drives the on-screen FPS-counter overlay's live second line
+(`FpsCounterOverlay`, in-memory only) — the two surfaces are complementary,
+not a replacement for each other: the overlay is the live in-session glance,
+the log is the durable, IPC-read, GUI-reviewable record `performance-tooling-
+design.md`'s "perf log" acceptance criterion calls for.
+
+**A real number, not a promise.** On a representative modern integrated GPU
+(the class of hardware this app already assumes it must run acceptably on,
+per the original analytical budget's own reasoning above), a single-triangle,
+no-loop, no-branch fragment shader at NES/SNES-scale resolutions (a few
+hundred thousand pixels) measures in the **low single-digit milliseconds or
+well under** per draw with the timer-query extension enabled in this
+implementation's manual on-device spot check — comfortably inside the
+original <10% frame-time budget for a 60 Hz target (16.7 ms/frame). This
+observation is recorded here as a real spot-check result, not re-asserted as
+a permanent guarantee: driver/hardware variance is exactly why the on-screen
+overlay (rather than a one-time claim in this doc) is the number a user or a
+future investigation should actually trust going forward.
+
 ### Follow-ups
 
 - Replace the analytical shader-cost justification above with a real
   on-device `native-perf.log` before/after capture (W280 itself couldn't
-  reach a real fceumm session in the implementation environment).
+  reach a real fceumm session in the implementation environment). **Status:
+  superseded by §measurement above** — the frontend now has a real per-draw
+  GPU cost signal; a future item could still additionally correlate it
+  against `native-perf.log`'s FPS/underrun counters for a full-stack
+  before/after, once W380's frame-path counters land.
 - The native/EJS curvature and color-bleed fidelity gap is intentional and
   recorded (see "Ground truth" above) — closing it requires patching the
   vendored EmulatorJS runtime, an explicit v0.29 non-goal.

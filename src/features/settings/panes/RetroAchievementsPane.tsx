@@ -69,6 +69,21 @@ export function RetroAchievementsPane() {
       const updated = await getRetroAchievementsAccount();
       setUsername(updated.username ?? "");
       setHasKey(updated.hasKey);
+      // Auto-validate right after a successful save (issue #34 §6): Save
+      // used to leave the status line at "Not validated yet." until the user
+      // pressed the separate Validate button by hand, even though the whole
+      // point of saving a credential is to find out whether it actually
+      // works. Folding one validation call into Save removes that extra click
+      // for the common path; the dedicated Validate button stays (re-checking
+      // a PREVIOUSLY saved credential, e.g. after RA-side account changes,
+      // needs no new save). Skipped when the account was cleared (no key on
+      // file) — matches `validateRetroAchievementsAccount`'s own
+      // `notConfigured` short-circuit, so this never fires a network call the
+      // backend would reject anyway.
+      if (updated.hasKey) {
+        const result = await validateRetroAchievementsAccount();
+        setValidation(result);
+      }
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -126,13 +141,27 @@ export function RetroAchievementsPane() {
       <AuraField label="Web API Key" tabIndex={0}>
         <input
           type="password"
-          placeholder={hasKey ? "•••••••• (sent to Keychain, not stored here)" : "Web API key from your RA settings page"}
+          placeholder={hasKey ? "•••••••• (already saved to the system Keychain)" : "Web API key from your RA settings page"}
           tabIndex={0}
           value={apiKey}
           onChange={(e) => setApiKey(e.currentTarget.value)}
           style={inputStyle}
         />
       </AuraField>
+      {hasKey && apiKey.trim() === "" && (
+        // Clarifies the placeholder above (issue #34 §6): the prior copy
+        // ("sent to Keychain, not stored here") read as an in-progress
+        // action, not a completed-and-at-rest one — easy to misread as "your
+        // key is being sent somewhere right now" rather than "it already
+        // lives in the OS Keychain, and this app never keeps a plaintext
+        // copy of it". This line only shows once a key is actually on file
+        // and the field is empty (i.e. showing the placeholder), so it never
+        // talks about the Keychain while the user is mid-edit of a new key.
+        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
+          Your Web API key is stored in the system Keychain, not in this
+          app's own settings — leave this field blank to keep the saved key.
+        </p>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <AuraButton tabIndex={0} disabled={saving} onClick={() => { void handleSave(); }}>

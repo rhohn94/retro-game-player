@@ -94,3 +94,42 @@ export interface AchievementSummary {
 export function getAchievementSummary(gameId: number): Promise<AchievementSummary | null> {
   return invoke<AchievementSummary | null>("get_achievement_summary", { gameId });
 }
+
+// --- Achievement list + badge art (v0.38 W384 —
+// retroachievements-design.md §Achievement list) ---
+
+/** One achievement in the detail page's full expandable list. */
+export interface AchievementListEntry {
+  id: number;
+  title: string;
+  description: string;
+  points: number;
+  /** RA badge id, joined with the badge CDN by `getAchievementBadgePath`;
+   * `null` when the fetched set carried none. */
+  badgeName: string | null;
+  /** Unix epoch seconds the achievement was unlocked, or `null` if locked. */
+  unlockedAt: number | null;
+}
+
+/**
+ * Reads the full per-game achievement list for the detail page. Cache-only,
+ * exactly like [`getAchievementSummary`] (never triggers a network fetch) —
+ * an empty array covers both "no set known for this game" and "set has no
+ * achievements", either of which the detail page treats as "hide the
+ * section". Ordered unlocked-first, then by points (backend-computed).
+ */
+export function getAchievementList(gameId: number): Promise<AchievementListEntry[]> {
+  return invoke<AchievementListEntry[]>("get_achievement_list", { gameId });
+}
+
+/**
+ * Resolves `badgeName` to a webview-loadable local file path, fetching
+ * (best-effort) and disk-caching the badge art through the backend on a
+ * cache miss. `null` when the badge is unavailable for any reason (offline,
+ * unrecognized name, an already-known miss this session) — the caller
+ * degrades to a neutral placeholder glyph in that case, never a spinner or a
+ * retry loop.
+ */
+export function getAchievementBadgePath(badgeName: string): Promise<string | null> {
+  return invoke<string | null>("get_achievement_badge_path", { badgeName });
+}
