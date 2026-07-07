@@ -14,6 +14,18 @@
 // never a blank screen — same "never a dead end" posture as the EJS
 // automatic fallback elsewhere in this app).
 //
+// v0.39 W390 (crt-filter-design.md §resolution decoupling): the canvas's
+// WebGL backing store (`canvas.width`/`height`) tracks the host display's
+// actual rendered size (via a `ResizeObserver`, in `outputSizeRef`) instead
+// of the polled frame's dimensions — the frame texture still uploads at the
+// game's own native resolution, but the shader now draws into a full
+// display-resolution viewport, so its effects render at real fidelity
+// instead of being computed tiny and blurred by a later CSS/canvas upscale.
+// The plain `putImageData` fallback (no WebGL2) draws into an offscreen,
+// frame-sized canvas first and `drawImage`s that (scaled) onto the display-
+// sized main canvas — `putImageData` itself has no scaling, so without this
+// indirection the fallback would only fill a small corner of the canvas.
+//
 // v0.23 W232: the shared in-game overlay (PlayerOverlay) works here too —
 // Escape or ☰ opens Resume / Save state / Load state / Exit; opening pauses
 // the core (set_native_paused) and releases input so nothing sticks. The
@@ -126,6 +138,18 @@ export function NativePlayer({
 }: NativePlayerProps) {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // v0.39 W390: the canvas's WebGL backing-store size, tracking the host
+  // display's actual rendered size (clientWidth/clientHeight × devicePixelRatio)
+  // — decoupled from the polled frame's own dimensions. Read every paint tick
+  // from a ref (not React state) so a resize never re-subscribes the frame-
+  // polling effect; {0,0} until the first ResizeObserver entry lands, in
+  // which case paintNextFrame falls back to a direct clientWidth/Height read
+  // for that one frame only.
+  const outputSizeRef = useRef({ width: 0, height: 0 });
+  // v0.39 W390: a reusable offscreen canvas for the no-WebGL2 fallback path —
+  // see the file header for why the fallback needs one now that the main
+  // canvas's backing store no longer matches the frame's own dimensions.
+  const fallbackCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [selection, setSelection] = useState(0);
   // v0.34 W345: the polled frame's real display aspect ratio (fixing the
@@ -321,6 +345,37 @@ export function NativePlayer({
     if (overlayOpen) resetView();
   }, [overlayOpen, resetView]); // resetView is a stable callback
 
+  // v0.39 W390: watches the canvas element's own rendered (CSS) size and
+  // keeps `outputSizeRef` in sync — independent of `gameId`/`preview` (the
+  // canvas DOM node itself persists across a game switch; only the frame-
+  // polling effect below tears down and rebuilds the renderer). A `[]`-dep
+  // effect so it observes the same element for the component's whole
+  // lifetime rather than re-subscribing on every game switch.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof ResizeObserver === "undefined") return;
+    const updateFromRect = (cssWidth: number, cssHeight: number) => {
+      const dpr = window.devicePixelRatio || 1;
+      outputSizeRef.current = {
+        width: Math.max(1, Math.round(cssWidth * dpr)),
+        height: Math.max(1, Math.round(cssHeight * dpr)),
+      };
+    };
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const box = entry.contentBoxSize?.[0];
+      if (box) updateFromRect(box.inlineSize, box.blockSize);
+      else updateFromRect(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(canvas);
+    // Seed synchronously too — ResizeObserver's first callback is async
+    // (queued for the next microtask/frame), and paintNextFrame's own
+    // clientWidth/Height fallback only covers a genuinely empty ref.
+    updateFromRect(canvas.clientWidth, canvas.clientHeight);
+    return () => observer.disconnect();
+  }, []);
+
   // Own the controller's exclusive slot while foreground/takeover (W272 — see
   // file header). `ready` is unconditionally true: the native session boots on
   // mount, and holding the slot for the whole foreground mount means nothing
@@ -507,8 +562,22 @@ export function NativePlayer({
           const canvas = canvasRef.current;
           if (!frame || !canvas) return; // nothing new (or malformed) — paint again next tick
           lastSeq = frame.seq;
-          if (canvas.width !== frame.width) canvas.width = frame.width;
-          if (canvas.height !== frame.height) canvas.height = frame.height;
+          // v0.39 W390: the canvas's backing store tracks the host display's
+          // rendered size (outputSizeRef, kept live by the ResizeObserver
+          // effect above), NOT the frame's own dimensions — that decoupling
+          // is the whole point of this change (see file header). `{0,0}`
+          // only before the ResizeObserver's first entry has landed; falls
+          // back to a direct read for that one frame rather than painting
+          // into a zero-size backing store.
+          const output =
+            outputSizeRef.current.width > 0 && outputSizeRef.current.height > 0
+              ? outputSizeRef.current
+              : {
+                  width: Math.max(1, Math.round(canvas.clientWidth * (window.devicePixelRatio || 1))),
+                  height: Math.max(1, Math.round(canvas.clientHeight * (window.devicePixelRatio || 1))),
+                };
+          if (canvas.width !== output.width) canvas.width = output.width;
+          if (canvas.height !== output.height) canvas.height = output.height;
           if (frame.aspectRatio !== lastPublishedAspectRatio) {
             lastPublishedAspectRatio = frame.aspectRatio;
             setAspectRatio(frame.aspectRatio);
@@ -528,7 +597,20 @@ export function NativePlayer({
           if (renderer) {
             renderer.draw(frame.bytes, frame.width, frame.height, crtConfigRef.current);
           } else {
-            canvas.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
+            // v0.39 W390: `putImageData` has no scaling of its own — with the
+            // main canvas now sized to the display (not the frame), painting
+            // straight onto it would only fill a small top-left corner.
+            // Paint the frame at its native size onto a reusable offscreen
+            // canvas first, then `drawImage` that (scaled) onto the display-
+            // sized main canvas — the same "never a blank screen" fallback,
+            // just correctly scaled.
+            if (!fallbackCanvasRef.current) fallbackCanvasRef.current = document.createElement("canvas");
+            const off = fallbackCanvasRef.current;
+            if (off.width !== frame.width) off.width = frame.width;
+            if (off.height !== frame.height) off.height = frame.height;
+            off.getContext("2d")?.putImageData(new ImageData(frame.bytes, frame.width, frame.height), 0, 0);
+            const ctx2d = canvas.getContext("2d");
+            ctx2d?.drawImage(off, 0, 0, canvas.width, canvas.height);
           }
 
           // v0.29 W281: count this tick only when a genuinely new frame was
