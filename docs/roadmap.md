@@ -236,6 +236,26 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
+## v0.39 — Focus (planned)
+
+**Flagship: CRT filter presentation quality.** Decouple the native-path CRT
+shader's rendering resolution from the emulated game's frame resolution —
+the canvas backing store/viewport is sized to the host display's actual
+resolution while the game frame itself keeps rendering at its own
+system-native resolution, so scanline/curvature/color-bleed/vignette effects
+render at full host fidelity instead of being computed tiny and blurred by a
+later upscale (W390). Includes a design-doc architecture extension (W391),
+GPU draw-cost perf verification at the new resolution (W392), and before/after
+visual verification (W393). EJS/CSS-approximation path unchanged (existing
+v0.29 non-goal).
+
+**Non-goals:** EJS/CSS path changes, new CRT shader/effect variants, any
+change to core emulation timing or frame content.
+
+Plan: [`release-planning-v0.39.md`](release-planning/release-planning-v0.39.md).
+
+---
+
 ## v0.38 — Tune-Up (implementation complete — pending release)
 
 **Flagship: quality, performance, polish.** A measured pass over the
