@@ -264,6 +264,60 @@ a permanent guarantee: driver/hardware variance is exactly why the on-screen
 overlay (rather than a one-time claim in this doc) is the number a user or a
 future investigation should actually trust going forward.
 
+### §resolution decoupling — full-display-resolution shader pass (v0.39 W390)
+
+**Problem.** Since W280, the native path's WebGL canvas backing store
+(`canvas.width`/`canvas.height`, `NativePlayer.tsx`) was set directly from the
+polled frame's own dimensions (e.g. 256×240 for NES) — and `CrtWebglRenderer`'s
+`gl.viewport` matched that same tiny size. The browser then CSS-upscales that
+tiny backing store to fill the display (`.rgp-native-player__canvas`'s
+`width:100%; height:100%`), so every fragment-shader effect ran at native-game
+resolution and got blurred by that later upscale — a real fidelity ceiling,
+independent of how high any single effect's intensity slider was set.
+
+**Fix.** The canvas's backing store now tracks the **host display's own
+rendered resolution** (`canvas.clientWidth`/`clientHeight` × `devicePixelRatio`,
+kept live by a `ResizeObserver` in `NativePlayer.tsx`), decoupled from the
+frame's dimensions. `CrtWebglRenderer.draw()`'s viewport now reads
+`gl.drawingBufferWidth`/`gl.drawingBufferHeight` — the canvas's actual backing-
+store size — instead of the frame's `width`/`height` parameter. The frame
+texture upload is **unchanged**: it still uploads at the game's own native
+resolution (no core/emulation-timing change), sampled through the existing
+`LINEAR` filter.
+
+**Why this needed no shader changes at all.** `crtShader.ts`'s curvature warp
+(`barrelWarp`) and vignette are already pure normalized-UV math — they don't
+reference `u_resolution` and are resolution-independent by construction. They
+gain real fidelity purely from the larger viewport: more fragment-shader
+invocations sampling the same continuous function (and the same `LINEAR`-
+filtered source texture) produces a smoother curvature edge and vignette
+gradient, with zero code change. Color bleed samples the source texture with a
+fixed UV-space offset (`0.006`), which is intentionally bound to the *source*
+texture's structure (analogous to a real analog signal's bleed), not the
+display — also correctly unaffected.
+
+`u_resolution` itself is used **only** to pace the scanline effect
+(`row = uv.y * u_resolution.y`), and that uniform is **deliberately left
+unchanged** — still fed the frame's own dimensions, not the canvas's drawing-
+buffer size. A real CRT's scanlines track the video signal's row count, not
+the display's pixel density; feeding it the display resolution instead would
+have turned a 240-row NES frame's scanlines into however many rows the host
+display happens to have — a regression, not a fidelity gain. This is the one
+place a naive "just use the bigger resolution everywhere" pass would have
+broken something, which is why it's called out explicitly here (and guarded by
+a dedicated `crtShader.test.ts` reasoning-check test).
+
+**Canvas2D fallback (no WebGL2).** `putImageData` has no scaling of its own,
+so once the main canvas is sized to the display rather than the frame, a
+straight `putImageData` call would only fill a small top-left corner. The
+fallback now paints the frame at its native size onto a small reusable
+offscreen canvas, then `drawImage`s that (scaled, by the browser's normal
+image interpolation) onto the display-sized main canvas — same "never a blank
+screen" fallback posture as before, just correctly scaled.
+
+**EJS/CSS path.** Unchanged, per the existing non-goal (see "Ground truth"
+above) — this item is native-path only.
+
 ### Follow-ups
 
 - Replace the analytical shader-cost justification above with a real
@@ -282,3 +336,16 @@ future investigation should actually trust going forward.
   CSS overlay's effect, but doesn't exercise the real iframe boundary. Not
   expected to matter (the CSS overlay is parent-side and iframe-content-
   agnostic by construction) but noted for completeness.
+- **(v0.39 W390)** The `ResizeObserver`-driven backing-store size doesn't
+  react to a *pure* `devicePixelRatio` change with no accompanying layout
+  resize (e.g. dragging the window to a different-DPI display without a size
+  change) in every browser/engine — a future pass could add a
+  `matchMedia('(resolution: ...)')` listener alongside the `ResizeObserver`
+  for full robustness. Not implemented here to keep this item's scope to the
+  explicit acceptance criteria (window/display resize, which does fire
+  `ResizeObserver` in the overwhelmingly common case).
+- **(v0.39 W390)** The §measurement draw-cost numbers above were captured at
+  the old native-game-resolution viewport size; a fresh on-device
+  `draw-cost-perf.log` capture at the new full-display-resolution viewport
+  (W392, this same release) supersedes them with real numbers at the
+  resolution this item actually ships.
