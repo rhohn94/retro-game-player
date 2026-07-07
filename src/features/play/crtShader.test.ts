@@ -36,4 +36,23 @@ describe("crtShader sources", () => {
       expect(opens).toBe(closes);
     }
   });
+
+  // v0.39 W390 (crt-filter-design.md §resolution decoupling): `u_resolution`
+  // is used ONLY to pace the scanline effect — that's deliberate (a real
+  // CRT's scanlines track the source video signal's row count, not the
+  // display's pixel density), which is why CrtWebglRenderer.draw() feeds it
+  // the frame's own dimensions rather than the canvas's drawing-buffer size.
+  // If a future change made curvature/color-bleed/vignette depend on
+  // `u_resolution` too, they'd start tracking source resolution instead of
+  // staying the resolution-independent UV math they are today — this test
+  // exists so that change is a deliberate, reviewed one, not an accidental
+  // side effect of some other edit.
+  it("u_resolution is referenced only by the scanline effect, not by curvature/color-bleed/vignette", () => {
+    const lines = CRT_FRAGMENT_SHADER.split("\n");
+    const resolutionLines = lines.filter((line) => line.includes("u_resolution") && !line.includes("uniform"));
+    expect(resolutionLines.length).toBeGreaterThan(0);
+    for (const line of resolutionLines) {
+      expect(line).toContain("row");
+    }
+  });
 });
