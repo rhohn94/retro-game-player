@@ -351,6 +351,58 @@ screen" fallback posture as before, just correctly scaled.
 **EJS/CSS path.** Unchanged, per the existing non-goal (see "Ground truth"
 above) — this item is native-path only.
 
+### §visual evidence — before/after (v0.39 W393)
+
+**No live screenshot capture was possible in this implementation
+environment**, and it's worth being precise about why, since the project's
+existing `gui-visual-inspection-cli` (`scripts/visual-inspect.mjs`) *can* walk
+a headless `#/settings` route and does render `CrtFilterPreview.tsx`'s
+side-by-side native/EJS preview. That preview panel, however, is not a
+representative before/after for this item: `NativePreviewCanvas` (inside
+`CrtFilterPreview.tsx`) sets `canvas.width`/`canvas.height` directly to the
+fixed `PREVIEW_WIDTH`/`PREVIEW_HEIGHT` test-card size — it does not use the
+`ResizeObserver`/`clientWidth`/`clientHeight` sizing this item added to
+`NativePlayer.tsx`. So a settings-page screenshot taken before and after W390
+would be pixel-identical; capturing one would not demonstrate the fidelity
+change and would be misleading to present as evidence. The change this item
+documents only manifests in `NativePlayer.tsx` during an actual native
+gameplay session rendered at the real host display's resolution — which
+needs a real native audio/GPU play session to boot, the same live-session gap
+`scripts/visual-inspect.mjs` already documents for the adjacent Settings →
+Performance panel (and the same constraint W280 recorded for its own
+on-device trace, `release-planning-v0.29.md` §5, issue #35). This headless,
+no-display, no-real-play-session harness cannot produce that.
+
+**What the change looks like, described from the shader math instead (not a
+substitute for a real screenshot, but a grounded prediction of one).** The
+curvature warp and vignette are continuous per-UV functions (see
+"§resolution decoupling" above); at native-game resolution they're evaluated
+at only a few hundred thousand points; at full host-display resolution
+they're evaluated at every one of a few million destination pixels. Visually
+this should read as: the barrel-curvature edge (where the image bows inward
+near the frame border) goes from a slightly stair-stepped/aliased curve to a
+smooth one, and the vignette's darkening gradient goes from visible
+banding to a continuous falloff. The scanline effect looks different in a
+more subtle way: its *pitch* is unchanged (still one dark band per source
+row, per the `u_resolution` invariant guarded by
+`crtShader.test.ts`), but each band's edge is now anti-aliased across more
+destination pixels — crisper per-line definition instead of a blurred,
+CSS-upscaled band. Color bleed (a fixed source-UV offset) is expected to look
+essentially unchanged, since it samples the source texture rather than
+destination-space coordinates.
+
+**Closest available verification.** `crtWebglRenderer.test.ts`'s new W390
+tests assert the underlying mechanism directly (viewport now reads
+`gl.drawingBufferWidth`/`Height`, `u_resolution` still reads the frame's own
+dimensions) — this is a verified fact about the code, not a description of a
+screenshot, but it's the fact the visual prediction above is derived from.
+
+**Open follow-up.** A real before/after screenshot pair, captured on real
+hardware during an actual native play session at two different host display
+resolutions (or dragging the same window across a resize), remains the
+concrete evidence this item was scoped to produce and could not, in this
+environment. Recorded below alongside the equivalent open item from W392.
+
 ### Follow-ups
 
 - Replace the analytical shader-cost justification above with a real
@@ -383,3 +435,11 @@ above) — this item is native-path only.
   at the new full-display-resolution viewport (ideally on a high-DPI panel,
   the case the estimate flags as most likely to erode headroom) remains open
   and would supersede the estimate with real numbers.
+- **(v0.39 W392 + W393, real on-device verification)** Both the draw-cost
+  estimate and the visual-evidence prediction above are analytical stand-ins
+  for a real capture that needs an actual native play session on real
+  hardware — unreachable in this implementation environment (no live
+  audio/GPU play session, per "§visual evidence" above). A single on-device
+  pass covering both (draw-cost log + before/after screenshots at more than
+  one host display resolution) would close out the real-evidence gap for
+  both items at once.
