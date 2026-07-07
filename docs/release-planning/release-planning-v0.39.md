@@ -184,16 +184,22 @@ conflicts, per the conflict map below.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.39 |
 |---|---|---|---|---|
-| `w390-crt-resolution-decoupling` (W390) | ☐ | ☐ | ☐ | ☐ |
+| `w390-crt-resolution-decoupling` (W390) | ☑ | ☑ | ☑ (self-review; no separate Reviewer agent) | ☑ (2524312) |
 
 ### Pass 2
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.39 |
 |---|---|---|---|---|
-| `w391-crt-design-doc` (W391) | ☐ | ☐ | ☐ | ☐ |
+| `w391-crt-design-doc` (W391) | ☑ (superseded — see follow-up below) | — | — | — |
 | `w392-crt-perf-verification` (W392) | ☐ | ☐ | ☐ | ☐ |
 | `w393-crt-visual-verification` (W393) | ☐ | ☐ | ☐ | ☐ |
 
 ### Follow-ups discovered during implementation
 
-_(empty at start; populated by release-phase-merge as branches land)_
+- **W391 folded into W390.** W390's own dispatch prompt included the
+  `crt-filter-design.md` architecture-section update as part of its scope
+  (matching CLAUDE.md's "update the design doc when the task introduces a
+  feature" instruction) — the §3 plan had separated this into its own W391
+  item, but in practice a single implementer landed both in one commit
+  (`2524312`). W391 is not being separately dispatched; the design doc's new
+  "§resolution decoupling" section is already live on `version/0.39`.
