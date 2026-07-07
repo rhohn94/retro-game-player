@@ -191,8 +191,8 @@ conflicts, per the conflict map below.
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.39 |
 |---|---|---|---|---|
 | `w391-crt-design-doc` (W391) | ☑ (superseded — see follow-up below) | — | — | — |
-| `w392-crt-perf-verification` (W392) | ☐ | ☐ | ☐ | ☐ |
-| `w393-crt-visual-verification` (W393) | ☐ | ☐ | ☐ | ☐ |
+| `w392-crt-perf-verification` (W392) | ☑ | ☑ (analytical fallback) | ☑ (self-review; no separate Reviewer agent) | ☑ (c66493c) |
+| `w393-crt-visual-verification` (W393) | ☑ | ☑ (writeup only, no live capture) | ☑ (self-review; no separate Reviewer agent) | ☑ (b84dbdf) |
 
 ### Follow-ups discovered during implementation
 
@@ -203,3 +203,30 @@ conflicts, per the conflict map below.
   item, but in practice a single implementer landed both in one commit
   (`2524312`). W391 is not being separately dispatched; the design doc's new
   "§resolution decoupling" section is already live on `version/0.39`.
+- **W392 shipped as an analytical estimate, not a real capture.** No live
+  on-device native-play session was reachable in this implementation
+  environment (same constraint as W280/W381), so per this item's own
+  pre-authorized acceptance criterion, `crt-filter-design.md`'s §measurement
+  was extended with an explicitly-labeled analytical extrapolation (linear
+  pixel-count scaling from the existing W381 real spot check) rather than a
+  fresh real capture. A real capture — ideally including a high-DPI/Retina
+  panel, the case the estimate itself flags as most likely to erode headroom
+  — remains an open item.
+- **W393 shipped as a written prediction, not real screenshots.** Investigated
+  whether `scripts/visual-inspect.mjs` (the `gui-visual-inspection-cli`) could
+  capture real before/after evidence: it can walk a headless `#/settings`
+  route, but `CrtFilterPreview.tsx`'s native preview canvas
+  (`NativePreviewCanvas`) sets its backing store directly to a fixed
+  `PREVIEW_WIDTH`/`PREVIEW_HEIGHT`, untouched by W390's `ResizeObserver`
+  sizing — so a settings-page screenshot would be pixel-identical before and
+  after, and presenting one as evidence would be misleading. The real fidelity
+  change only manifests in `NativePlayer.tsx` during an actual native
+  gameplay session at real host-display resolution, requiring live
+  audio/GPU that this headless, no-display environment cannot produce (same
+  constraint as W280, `release-planning-v0.29.md` §5 issue #35).
+  `crt-filter-design.md`'s new "§visual evidence" section documents this
+  honestly and derives a grounded visual prediction from the already-verified
+  shader math instead. A real before/after screenshot pair captured on real
+  hardware remains an open item — the design doc's Follow-ups section
+  suggests pairing it with W392's real draw-cost capture in one on-device
+  pass.
