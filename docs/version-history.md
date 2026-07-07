@@ -7,6 +7,21 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.39 — Focus (2026-07-07)
+
+A focused release: the CRT filter now looks as good as your monitor allows.
+
+- **Sharper CRT effects.** The scanline, curvature, and vignette shader now
+  renders at your display's full resolution instead of the game's tiny native
+  resolution — no more blurry curvature edges or banded vignette gradients
+  from an upscaled small image. Scanline spacing still matches the original
+  game hardware, exactly as before.
+- **Follows your window.** The CRT canvas now tracks your display's actual
+  size live, so resizing the window or moving it to a different-resolution
+  screen keeps the effect crisp.
+- **No change to the game itself.** The emulator still runs each game at its
+  own native resolution — only the CRT effect's own rendering got sharper.
+
 ## v0.38 — Tune-Up (2026-07-06)
 
 A quality-and-polish release: the emulator got faster and more measured,

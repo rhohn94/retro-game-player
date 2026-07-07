@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.39 — Focus (planned)
+## v0.39 — Focus (implementation complete — pending release)
 
 **Flagship: CRT filter presentation quality.** Decouple the native-path CRT
 shader's rendering resolution from the emulated game's frame resolution —
