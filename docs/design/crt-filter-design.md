@@ -264,6 +264,39 @@ a permanent guarantee: driver/hardware variance is exactly why the on-screen
 overlay (rather than a one-time claim in this doc) is the number a user or a
 future investigation should actually trust going forward.
 
+**v0.39 W392 update — full-display-resolution estimate (analytical fallback,
+not a measurement).** The spot check above was captured at the old
+native-game-resolution viewport; W390 (this same release) now sizes the
+viewport to the host display's own drawing-buffer size instead. No live
+on-device native-play session was reachable in this implementation
+environment to re-run the real `draw-cost-perf.log` capture (the same
+constraint recorded for W280/W381 above) — so, per this item's own
+release-planning acceptance criterion, the following is an **explicitly
+labeled analytical estimate**, not a re-run of the real spot check:
+
+The fragment shader itself is unchanged by W390 — still the same
+single-triangle, no-loop, no-branch program, so its per-pixel instruction
+count is fixed regardless of viewport size. On a fill-rate-bound shader like
+this, GPU draw cost scales approximately linearly with pixel count. Going
+from a NES/SNES-scale viewport (tens to a couple hundred thousand pixels) to
+a common host display (~2.1M pixels at 1080p, ~8.3M at 4K, more on a
+high-DPI/Retina panel after the `devicePixelRatio` multiply) is roughly a
+30-150x increase in fragment-shader invocations per frame. Modern integrated
+GPUs — the same hardware class this doc's original analytical budget already
+assumed — comfortably clear tens of billions of simple-shaded pixels per
+second, so a linear extrapolation from the low-single-digit-ms baseline still
+lands well inside the 16.7 ms/frame (60 Hz) budget at 1080p, and should stay
+within it at 4K on the class of hardware this app targets; a 5K+/high-DPI
+panel is the case most likely to erode headroom and is the configuration a
+real on-device capture should prioritize first.
+
+This estimate is recorded here to close out this item's doc requirement, not
+as a substitute for a real capture: it carries the same "not re-asserted as a
+permanent guarantee" caveat as the spot check above, more so, since it's
+extrapolated rather than measured. Superseding it with a real
+`draw-cost-perf.log` capture at full-display resolution (ideally including a
+high-DPI panel) remains open — tracked below in Follow-ups.
+
 ### §resolution decoupling — full-display-resolution shader pass (v0.39 W390)
 
 **Problem.** Since W280, the native path's WebGL canvas backing store
@@ -345,7 +378,8 @@ above) — this item is native-path only.
   explicit acceptance criteria (window/display resize, which does fire
   `ResizeObserver` in the overwhelmingly common case).
 - **(v0.39 W390)** The §measurement draw-cost numbers above were captured at
-  the old native-game-resolution viewport size; a fresh on-device
-  `draw-cost-perf.log` capture at the new full-display-resolution viewport
-  (W392, this same release) supersedes them with real numbers at the
-  resolution this item actually ships.
+  the old native-game-resolution viewport size. **Status: addressed by W392's
+  analytical estimate above** — a real on-device `draw-cost-perf.log` capture
+  at the new full-display-resolution viewport (ideally on a high-DPI panel,
+  the case the estimate flags as most likely to erode headroom) remains open
+  and would supersede the estimate with real numbers.
