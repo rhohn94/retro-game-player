@@ -25,6 +25,15 @@
 // analytical shader-cost budget (closes issue #35). Completely inert (no
 // queries created, `lastDrawCostMs` stays `null`) when the extension isn't
 // available.
+//
+// v0.39 W390 (crt-filter-design.md §resolution decoupling): `draw()`'s
+// viewport now tracks the canvas's own drawing-buffer size instead of the
+// uploaded frame's dimensions — the caller (NativePlayer.tsx) sizes the
+// canvas's backing store to the host display's actual resolution, decoupled
+// from the game's native frame resolution, so the shader runs at full
+// display fidelity while the frame texture stays at the game's own
+// resolution. See the `draw()` method comment for what does and doesn't
+// change as a result.
 
 import { CRT_FRAGMENT_SHADER, CRT_UNIFORM_NAMES, CRT_VERTEX_SHADER, type CrtUniformName } from "./crtShader";
 import { toUnit } from "./crtFilter";
@@ -146,12 +155,30 @@ export class CrtWebglRenderer {
   }
 
   /** Uploads one RGBA8888 frame and draws it through the shader with the
-   * given config. `width`/`height` must match `bytes.length / 4`. */
+   * given config. `width`/`height` must match `bytes.length / 4` — this is
+   * the frame's own (game-native) resolution, used only to size the texture
+   * upload; see the inline comment below (v0.39 W390) for why the draw
+   * viewport is intentionally a different value. */
   draw(bytes: Uint8ClampedArray, width: number, height: number, config: CrtFilterConfig): void {
     if (this.disposed) return;
     const gl = this.gl;
 
-    gl.viewport(0, 0, width, height);
+    // v0.39 W390 (crt-filter-design.md §resolution decoupling): the viewport
+    // — and therefore how many fragment-shader invocations actually run —
+    // tracks the canvas's own drawing-buffer size (the host display's
+    // rendered resolution, set by the caller independently of the frame's
+    // dimensions), NOT the frame's native resolution. `u_resolution` below is
+    // deliberately left driven by the frame's `width`/`height`: it only feeds
+    // the scanline pitch, which must keep tracking the source signal's row
+    // count (a real CRT's scanlines are locked to the video signal, not the
+    // display's pixel density) — decoupling that one too would turn a
+    // 240-row NES frame's scanlines into however-many-rows-the-display-has,
+    // a regression, not a fidelity gain. Curvature/color-bleed/vignette need
+    // no uniform change at all: they're already pure UV-space math
+    // (crtShader.ts), so they gain real fidelity from the larger viewport
+    // for free — more fragment invocations sampling the same continuous
+    // function and the same `LINEAR`-filtered source texture.
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     gl.useProgram(this.program);
 
     gl.activeTexture(gl.TEXTURE0);

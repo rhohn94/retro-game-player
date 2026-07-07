@@ -66,6 +66,14 @@ interface StubOptions {
    * fake extension object below; when false (default) it returns `null`,
    * modeling a browser/driver that doesn't support timer queries. */
   timerQuerySupported?: boolean;
+  /** v0.39 W390: the stub's `drawingBufferWidth`/`drawingBufferHeight` — a
+   * real WebGL2 context derives these from the canvas's own backing-store
+   * size, independently of whatever dimensions a given `draw()` call's frame
+   * texture uses. Defaults to a size distinct from every test's frame
+   * dimensions so a regression back to viewport-tracks-frame-size would be
+   * caught even by tests that don't pass this explicitly. */
+  drawingBufferWidth?: number;
+  drawingBufferHeight?: number;
 }
 
 /** Reverses the row order of an RGBA8888 buffer — the well-defined transform
@@ -114,6 +122,14 @@ function makeGlStub(opts: StubOptions = {}) {
 
   const gl = {
     ...GL_CONSTANTS,
+    // v0.39 W390: a real WebGL2RenderingContext exposes these as plain data
+    // properties (not methods) reflecting the bound canvas's own backing-
+    // store size — deliberately defaulted to a value distinct from every
+    // test's frame dimensions (800×600 vs. tests' 1×1/2×2/4×3 frames) so
+    // `draw()` reading this instead of the frame width/height is actually
+    // exercised, not accidentally coincidental.
+    drawingBufferWidth: opts.drawingBufferWidth ?? 800,
+    drawingBufferHeight: opts.drawingBufferHeight ?? 600,
     createShader: vi.fn(() => ({ id: `shader-${shaderCounter++}` })),
     shaderSource: vi.fn(),
     compileShader: vi.fn(),
@@ -369,6 +385,33 @@ describe("CrtWebglRenderer", () => {
     expect(uniformValues.u_vignetteAmount).toBeCloseTo(1);
     expect(uniformValues.u_resolution).toEqual([2, 2]);
     expect(gl.drawArrays).toHaveBeenCalledWith(gl.TRIANGLES, 0, 3);
+  });
+
+  it("draw() sizes the viewport from the canvas's drawing-buffer size, not the frame's dimensions (v0.39 W390: resolution decoupling)", () => {
+    const { gl } = makeGlStub({ drawingBufferWidth: 1920, drawingBufferHeight: 1080 });
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    // A tiny NES-scale frame (256x240) uploaded while the canvas's actual
+    // drawing buffer is a full 1920x1080 display — the viewport must follow
+    // the display size, not the frame size, so the shader's curvature/
+    // color-bleed/vignette math (already resolution-independent UV math in
+    // crtShader.ts) actually runs at full display fidelity.
+    renderer.draw(new Uint8ClampedArray(4 * 256 * 240), 256, 240, CRT_FILTER_OFF);
+    expect(gl.viewport).toHaveBeenCalledWith(0, 0, 1920, 1080);
+  });
+
+  it("draw()'s u_resolution uniform still reflects the frame's own dimensions, not the drawing-buffer size (v0.39 W390: scanline pitch must keep tracking the source signal's row count, not the display's pixel density)", () => {
+    const { gl, uniformValues } = makeGlStub({ drawingBufferWidth: 1920, drawingBufferHeight: 1080 });
+    const canvas = stubCanvas(gl);
+    const renderer = new CrtWebglRenderer(canvas);
+
+    renderer.draw(new Uint8ClampedArray(4 * 256 * 240), 256, 240, CRT_FILTER_OFF);
+    // If this regressed to reflect the drawing-buffer size instead, a 240-row
+    // NES frame's scanlines would be paced by however many rows the display
+    // has — a fidelity REGRESSION for that effect, not a gain (unlike
+    // curvature/color-bleed/vignette, which need no uniform change at all).
+    expect(uniformValues.u_resolution).toEqual([256, 240]);
   });
 
   it("draw() with the off preset sets every amount uniform to zero", () => {

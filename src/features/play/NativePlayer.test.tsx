@@ -160,6 +160,52 @@ describe("NativePlayer (presentation='preview')", () => {
     expect(container.querySelector(".rgp-player__bar")).toBeNull();
   });
 
+  it("observes the canvas with a ResizeObserver when one is available, and disconnects it on unmount (v0.39 W390: canvas backing-store size tracks the display, not the frame)", async () => {
+    // jsdom has no ResizeObserver at all — the component's effect must
+    // gracefully no-op there (every other test in this file relies on that,
+    // implicitly). This test supplies a fake one to confirm the component
+    // actually wires it up (and tears it down) when the API IS available,
+    // rather than only ever exercising the "unavailable" no-op branch.
+    //
+    // Uses its own local container/root (rather than the shared `root` from
+    // `beforeEach`) so it can unmount mid-test to assert `disconnect` without
+    // conflicting with this file's shared `afterEach` cleanup.
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class FakeResizeObserver {
+      constructor(private readonly cb: ResizeObserverCallback) {
+        void this.cb; // captured only to match the real ResizeObserver constructor shape
+      }
+      observe = observe;
+      disconnect = disconnect;
+      unobserve = vi.fn();
+    }
+    const original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+    try {
+      await act(async () => {
+        localRoot.render(
+          <MemoryRouter>
+            <NativePlayer gameId={7} gameName="Real Game" presentation="foreground" />
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(observe).toHaveBeenCalledTimes(1);
+      expect(observe).toHaveBeenCalledWith(localContainer.querySelector("canvas"));
+
+      await act(async () => localRoot.unmount());
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.ResizeObserver = original;
+      localContainer.remove();
+    }
+  });
+
   it("records a play session for a non-preview (foreground) presentation", async () => {
     await act(async () => {
       root.render(

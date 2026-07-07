@@ -264,6 +264,145 @@ a permanent guarantee: driver/hardware variance is exactly why the on-screen
 overlay (rather than a one-time claim in this doc) is the number a user or a
 future investigation should actually trust going forward.
 
+**v0.39 W392 update — full-display-resolution estimate (analytical fallback,
+not a measurement).** The spot check above was captured at the old
+native-game-resolution viewport; W390 (this same release) now sizes the
+viewport to the host display's own drawing-buffer size instead. No live
+on-device native-play session was reachable in this implementation
+environment to re-run the real `draw-cost-perf.log` capture (the same
+constraint recorded for W280/W381 above) — so, per this item's own
+release-planning acceptance criterion, the following is an **explicitly
+labeled analytical estimate**, not a re-run of the real spot check:
+
+The fragment shader itself is unchanged by W390 — still the same
+single-triangle, no-loop, no-branch program, so its per-pixel instruction
+count is fixed regardless of viewport size. On a fill-rate-bound shader like
+this, GPU draw cost scales approximately linearly with pixel count. Going
+from a NES/SNES-scale viewport (tens to a couple hundred thousand pixels) to
+a common host display (~2.1M pixels at 1080p, ~8.3M at 4K, more on a
+high-DPI/Retina panel after the `devicePixelRatio` multiply) is roughly a
+30-150x increase in fragment-shader invocations per frame. Modern integrated
+GPUs — the same hardware class this doc's original analytical budget already
+assumed — comfortably clear tens of billions of simple-shaded pixels per
+second, so a linear extrapolation from the low-single-digit-ms baseline still
+lands well inside the 16.7 ms/frame (60 Hz) budget at 1080p, and should stay
+within it at 4K on the class of hardware this app targets; a 5K+/high-DPI
+panel is the case most likely to erode headroom and is the configuration a
+real on-device capture should prioritize first.
+
+This estimate is recorded here to close out this item's doc requirement, not
+as a substitute for a real capture: it carries the same "not re-asserted as a
+permanent guarantee" caveat as the spot check above, more so, since it's
+extrapolated rather than measured. Superseding it with a real
+`draw-cost-perf.log` capture at full-display resolution (ideally including a
+high-DPI panel) remains open — tracked below in Follow-ups.
+
+### §resolution decoupling — full-display-resolution shader pass (v0.39 W390)
+
+**Problem.** Since W280, the native path's WebGL canvas backing store
+(`canvas.width`/`canvas.height`, `NativePlayer.tsx`) was set directly from the
+polled frame's own dimensions (e.g. 256×240 for NES) — and `CrtWebglRenderer`'s
+`gl.viewport` matched that same tiny size. The browser then CSS-upscales that
+tiny backing store to fill the display (`.rgp-native-player__canvas`'s
+`width:100%; height:100%`), so every fragment-shader effect ran at native-game
+resolution and got blurred by that later upscale — a real fidelity ceiling,
+independent of how high any single effect's intensity slider was set.
+
+**Fix.** The canvas's backing store now tracks the **host display's own
+rendered resolution** (`canvas.clientWidth`/`clientHeight` × `devicePixelRatio`,
+kept live by a `ResizeObserver` in `NativePlayer.tsx`), decoupled from the
+frame's dimensions. `CrtWebglRenderer.draw()`'s viewport now reads
+`gl.drawingBufferWidth`/`gl.drawingBufferHeight` — the canvas's actual backing-
+store size — instead of the frame's `width`/`height` parameter. The frame
+texture upload is **unchanged**: it still uploads at the game's own native
+resolution (no core/emulation-timing change), sampled through the existing
+`LINEAR` filter.
+
+**Why this needed no shader changes at all.** `crtShader.ts`'s curvature warp
+(`barrelWarp`) and vignette are already pure normalized-UV math — they don't
+reference `u_resolution` and are resolution-independent by construction. They
+gain real fidelity purely from the larger viewport: more fragment-shader
+invocations sampling the same continuous function (and the same `LINEAR`-
+filtered source texture) produces a smoother curvature edge and vignette
+gradient, with zero code change. Color bleed samples the source texture with a
+fixed UV-space offset (`0.006`), which is intentionally bound to the *source*
+texture's structure (analogous to a real analog signal's bleed), not the
+display — also correctly unaffected.
+
+`u_resolution` itself is used **only** to pace the scanline effect
+(`row = uv.y * u_resolution.y`), and that uniform is **deliberately left
+unchanged** — still fed the frame's own dimensions, not the canvas's drawing-
+buffer size. A real CRT's scanlines track the video signal's row count, not
+the display's pixel density; feeding it the display resolution instead would
+have turned a 240-row NES frame's scanlines into however many rows the host
+display happens to have — a regression, not a fidelity gain. This is the one
+place a naive "just use the bigger resolution everywhere" pass would have
+broken something, which is why it's called out explicitly here (and guarded by
+a dedicated `crtShader.test.ts` reasoning-check test).
+
+**Canvas2D fallback (no WebGL2).** `putImageData` has no scaling of its own,
+so once the main canvas is sized to the display rather than the frame, a
+straight `putImageData` call would only fill a small top-left corner. The
+fallback now paints the frame at its native size onto a small reusable
+offscreen canvas, then `drawImage`s that (scaled, by the browser's normal
+image interpolation) onto the display-sized main canvas — same "never a blank
+screen" fallback posture as before, just correctly scaled.
+
+**EJS/CSS path.** Unchanged, per the existing non-goal (see "Ground truth"
+above) — this item is native-path only.
+
+### §visual evidence — before/after (v0.39 W393)
+
+**No live screenshot capture was possible in this implementation
+environment**, and it's worth being precise about why, since the project's
+existing `gui-visual-inspection-cli` (`scripts/visual-inspect.mjs`) *can* walk
+a headless `#/settings` route and does render `CrtFilterPreview.tsx`'s
+side-by-side native/EJS preview. That preview panel, however, is not a
+representative before/after for this item: `NativePreviewCanvas` (inside
+`CrtFilterPreview.tsx`) sets `canvas.width`/`canvas.height` directly to the
+fixed `PREVIEW_WIDTH`/`PREVIEW_HEIGHT` test-card size — it does not use the
+`ResizeObserver`/`clientWidth`/`clientHeight` sizing this item added to
+`NativePlayer.tsx`. So a settings-page screenshot taken before and after W390
+would be pixel-identical; capturing one would not demonstrate the fidelity
+change and would be misleading to present as evidence. The change this item
+documents only manifests in `NativePlayer.tsx` during an actual native
+gameplay session rendered at the real host display's resolution — which
+needs a real native audio/GPU play session to boot, the same live-session gap
+`scripts/visual-inspect.mjs` already documents for the adjacent Settings →
+Performance panel (and the same constraint W280 recorded for its own
+on-device trace, `release-planning-v0.29.md` §5, issue #35). This headless,
+no-display, no-real-play-session harness cannot produce that.
+
+**What the change looks like, described from the shader math instead (not a
+substitute for a real screenshot, but a grounded prediction of one).** The
+curvature warp and vignette are continuous per-UV functions (see
+"§resolution decoupling" above); at native-game resolution they're evaluated
+at only a few hundred thousand points; at full host-display resolution
+they're evaluated at every one of a few million destination pixels. Visually
+this should read as: the barrel-curvature edge (where the image bows inward
+near the frame border) goes from a slightly stair-stepped/aliased curve to a
+smooth one, and the vignette's darkening gradient goes from visible
+banding to a continuous falloff. The scanline effect looks different in a
+more subtle way: its *pitch* is unchanged (still one dark band per source
+row, per the `u_resolution` invariant guarded by
+`crtShader.test.ts`), but each band's edge is now anti-aliased across more
+destination pixels — crisper per-line definition instead of a blurred,
+CSS-upscaled band. Color bleed (a fixed source-UV offset) is expected to look
+essentially unchanged, since it samples the source texture rather than
+destination-space coordinates.
+
+**Closest available verification.** `crtWebglRenderer.test.ts`'s new W390
+tests assert the underlying mechanism directly (viewport now reads
+`gl.drawingBufferWidth`/`Height`, `u_resolution` still reads the frame's own
+dimensions) — this is a verified fact about the code, not a description of a
+screenshot, but it's the fact the visual prediction above is derived from.
+
+**Open follow-up.** A real before/after screenshot pair, captured on real
+hardware during an actual native play session at two different host display
+resolutions (or dragging the same window across a resize), remains the
+concrete evidence this item was scoped to produce and could not, in this
+environment. Recorded below alongside the equivalent open item from W392.
+
 ### Follow-ups
 
 - Replace the analytical shader-cost justification above with a real
@@ -282,3 +421,25 @@ future investigation should actually trust going forward.
   CSS overlay's effect, but doesn't exercise the real iframe boundary. Not
   expected to matter (the CSS overlay is parent-side and iframe-content-
   agnostic by construction) but noted for completeness.
+- **(v0.39 W390)** The `ResizeObserver`-driven backing-store size doesn't
+  react to a *pure* `devicePixelRatio` change with no accompanying layout
+  resize (e.g. dragging the window to a different-DPI display without a size
+  change) in every browser/engine — a future pass could add a
+  `matchMedia('(resolution: ...)')` listener alongside the `ResizeObserver`
+  for full robustness. Not implemented here to keep this item's scope to the
+  explicit acceptance criteria (window/display resize, which does fire
+  `ResizeObserver` in the overwhelmingly common case).
+- **(v0.39 W390)** The §measurement draw-cost numbers above were captured at
+  the old native-game-resolution viewport size. **Status: addressed by W392's
+  analytical estimate above** — a real on-device `draw-cost-perf.log` capture
+  at the new full-display-resolution viewport (ideally on a high-DPI panel,
+  the case the estimate flags as most likely to erode headroom) remains open
+  and would supersede the estimate with real numbers.
+- **(v0.39 W392 + W393, real on-device verification)** Both the draw-cost
+  estimate and the visual-evidence prediction above are analytical stand-ins
+  for a real capture that needs an actual native play session on real
+  hardware — unreachable in this implementation environment (no live
+  audio/GPU play session, per "§visual evidence" above). A single on-device
+  pass covering both (draw-cost log + before/after screenshots at more than
+  one host display resolution) would close out the real-evidence gap for
+  both items at once.
