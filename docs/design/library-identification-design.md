@@ -30,10 +30,17 @@ core/library/
   walker.rs      # recursive content-folder walk → ROM + disc-container candidates
   dat.rs         # No-Intro Logiqx-XML DAT parser + CRC32/SHA1 index
   matcher.rs     # DAT lookup → clean name, else filename fallback
-  mapper.rs      # extension → system → suggested-core mapping
+  mapper.rs      # extension → system → suggested-core mapping (gen 1–6 + handhelds + Wii)
   disc_ident.rs  # content-sniffing identification for .cue/.chd/.bin (W343)
-  scan.rs        # orchestration: walk → hash → match → persist (the only DB seam)
+  scan.rs        # thin back-compat shim; delegates to core::sources::rom::RomSource (W322)
 ```
+
+The scan orchestration itself (walk → hash → match → persist, the only DB seam)
+now lives on `core::sources::rom::RomSource` — folded in during v0.32 (W322) so
+the ROM folder scanner is "just another `GameSource`" alongside the Steam and
+installed-app scanners (see `docs/design/non-retro-library-design.md`).
+`scan::scan_folder_path` is kept only so existing call sites (`commands::library`,
+tests) don't need to change.
 
 The thin IPC adapter lives in `commands/library.rs`; the typed TS wrappers in
 `src/ipc/library.ts` (re-exported from `src/ipc/commands.ts`).
@@ -48,10 +55,19 @@ The thin IPC adapter lives in `commands/library.rs`; the typed TS wrappers in
    yielding every regular file whose lowercased extension is a recognized ROM
    extension. Unreadable entries are skipped, never fatal. Results are sorted by
    path for deterministic scans.
-3. **Map.** Each candidate's extension is mapped to a `system`
-   (`nes` / `snes` / `n64`) and a suggested `core_hint` (`mesen` / `snes9x` /
-   `mupen64plus_next`). The extension table and core hints are **named
-   constants** — no magic strings.
+3. **Map.** Each candidate's extension is mapped to a `system` and a suggested
+   `core_hint` via a single ordered table (`mapper::SYSTEMS`), one row per
+   system that has a distinct, unambiguous ROM extension. As of v0.34 this
+   spans console generations 1–6 plus handhelds and Wii — not just the
+   original `nes` / `snes` / `n64` trio: Atari 2600/5200/7800, Intellivision,
+   ColecoVision, Sega Master System, Genesis, PC Engine, Neo Geo, PS1 (`.pbp`
+   only — disc-based PS1 identification is a separate path, see
+   §Disc-image sniffing), Atari Jaguar, Dreamcast, GameCube, Wii, and
+   Game Boy / Color / Advance. Each system's `default_core` is checked by
+   test against `core/cores/system_map.rs`'s recommended core for that
+   system, so a scanned ROM never suggests a core the install catalog
+   disagrees with. CD-based systems that share ambiguous container formats
+   (Saturn, 3DO, PS2, Odyssey²) are deliberately absent from this table.
 4. **Hash.** `hasher::hash_rom` computes CRC32 + MD5. For NES ROMs it first
    **strips the 16-byte iNES header** (`NES\x1A` magic) so the digests match
    No-Intro, which hashes the header-stripped body. Non-NES systems hash raw
@@ -60,10 +76,11 @@ The thin IPC adapter lives in `commands/library.rs`; the typed TS wrappers in
    yields the clean No-Intro name with `dat_matched = true`; a miss falls back to
    the sanitized filename stem with `dat_matched = false` (the "unidentified"
    flag the UI surfaces).
-6. **Persist + dedup.** `scan::scan_folder_path` inserts a `NewGame` per ROM,
-   skipping any `games.path` already present (the UNIQUE column makes a rescan
-   idempotent). A racing UNIQUE collision is treated as a benign dedup. The
-   returned `ScanReport { folderId, scanned, identified, unidentified, added }`
+6. **Persist + dedup.** `scan::scan_folder_path` (a thin shim delegating to
+   `core::sources::rom::RomSource::scan_folder`, W322) inserts a `NewGame` per
+   ROM, skipping any `games.path` already present (the UNIQUE column makes a
+   rescan idempotent). A racing UNIQUE collision is treated as a benign dedup.
+   The returned `ScanReport { folderId, scanned, identified, unidentified, added }`
    summarizes the run; `rescan` accumulates one report across all enabled
    folders.
 

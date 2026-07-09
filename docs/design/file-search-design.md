@@ -1,8 +1,13 @@
 # File-Search Design — Harmony v0.1
 
 > **Up:** [↑ Design docs](README.md)
-> **Work items:** W9 (backend), W17 (UI — future)
-> **Status:** W9 implemented; W17 pending
+> **Work items:** W9 (backend), W17 (UI)
+> **Status:** W9 and W17 implemented; the UI has since grown well past W17's
+> scope (v0.16–v0.20+ preview/browse/discovery features — see
+> [download-search-design.md](download-search-design.md),
+> [download-browsing-ux-design.md](download-browsing-ux-design.md), and
+> [provider-discovery-design.md](provider-discovery-design.md)). This doc
+> stays the record of the original backend contract + baseline W17 UI.
 
 ---
 
@@ -52,18 +57,21 @@ Schema lives in `db/migrations/001_init.sql` (W3). Repo: `db/repo/search_provide
 | `url_template` | `String` | `urlTemplate: string` |
 | `enabled` | `bool` | `boolean` |
 
-### SearchResult DTO
+### SearchResult DTO (original W9 shape — superseded by `ProviderResults`)
 
-| Field | TypeScript | Notes |
-|---|---|---|
-| `providerId` | `number` | links back to the provider |
-| `providerName` | `string` | |
-| `title` | `string` | equals `providerName` (no page-fetch) |
-| `url` | `string` | fully-constructed; open in system browser |
+This was `run_search`'s original return shape: one `title`/`url` link per
+provider, `title` equal to `providerName`, with no page-fetch. **v0.16 "Trove"
+superseded it** — `run_search` now returns `ProviderResults[]`, each carrying
+the provider's scraped preview items (their own `title`/`url` scraped from the
+results page) plus `searchUrl`, `directDownload`, and a per-provider `error`.
+See [download-search-design.md](download-search-design.md) §7 (`ipc/search.ts`)
+for the current DTO shapes.
 
 ---
 
 ## 4. IPC command surface (architecture-design.md §2.5)
+
+The original W9 surface:
 
 | Command | Args | Returns | Notes |
 |---|---|---|---|
@@ -72,6 +80,15 @@ Schema lives in `db/migrations/001_init.sql` (W3). Repo: `db/repo/search_provide
 | `update_provider` | `id`, `name?`, `urlTemplate?`, `enabled?` | `SearchProvider` | partial update |
 | `remove_provider` | `id` | `void` | — |
 | `run_search` | `query`, `providerId?` | `SearchResult[]` | links only; never fetches |
+
+**Since grown** (v0.16–v0.20): `run_search` gained `console`/`region` params
+and now returns `ProviderResults[]` (see above); `validate_provider`,
+`discover_provider`, and `list_provider_catalog` were added for provider
+discovery ([provider-discovery-design.md](provider-discovery-design.md)); and
+`probe_links` was added for link liveness
+([download-browsing-ux-design.md](download-browsing-ux-design.md) §8.2). It
+still fetches only provider search-results pages (or, for `probe_links`, issues
+a header-only `HEAD`) — never a content file.
 
 ---
 
@@ -128,17 +145,35 @@ Example: `"https://duckduckgo.com/?q={query}"` + `"super mario"` → `"https://d
 
 ### Components
 
+`SearchPage.tsx` started as a single file; **W362 (v0.36)** decomposed it into
+a thin container plus data hooks and presentational subcomponents (behavior
+unchanged). The pieces most relevant to this doc's original scope:
+
 | File | Role |
 |---|---|
-| `SearchPage.tsx` | Top-level page: query field, provider chips, results list, empty state |
-| `ProviderDialog.tsx` | Add / edit provider sheet (`<aura-dialog>`) |
+| `SearchPage.tsx` | Container: wires the hooks below into `SearchQueryBar` / `ProviderChipsBar` / `ResultsPanel` |
+| `ProviderDialog.tsx` | Add / edit provider sheet (`<aura-dialog>`) — see [provider-discovery-design.md](provider-discovery-design.md) for its guided-authoring features |
+| `ProviderCatalog.tsx` | Curated provider gallery (v0.20) — see [provider-discovery-design.md](provider-discovery-design.md) |
+| `hooks/useSearchProviders.ts` | Provider list state + add/edit/remove/catalog dialogs |
+| `hooks/useSearchExecution.ts` | Query/console/region state, `run_search` execution, results |
+| `hooks/useLinkProbe.ts` | Opt-in liveness probe over the current result set (v0.19, W362) — see [download-browsing-ux-design.md](download-browsing-ux-design.md) §8.2 |
+| `hooks/useResultSelection.ts` | Multi-select + batch "open selected" state |
 | `search.test.ts` | Unit tests for form validation and SearchResult shape invariants |
+
+The results-browsing UI itself (filtering, sorting, badges, dedupe,
+liveness) is documented in
+[download-search-design.md](download-search-design.md) and
+[download-browsing-ux-design.md](download-browsing-ux-design.md); this doc
+does not restate it.
 
 ### Link-open seam
 
-`SearchPage` imports `open` from `@tauri-apps/plugin-opener` and calls
-`open(result.url)` when the user activates a result row. The backend constructs
-the URL; the frontend never fetches it. Requires:
+Opening a result link goes through `openUrl` in `src/ipc/opener.ts` — a typed
+wrapper (W225) around `@tauri-apps/plugin-opener`'s `open` — called from the
+result-row components (`ResultRow.tsx`, `MergedResultsView.tsx`,
+`ProviderResultGroup.tsx`) and from `useResultSelection`'s batch "open
+selected". The backend constructs the URL; the frontend never fetches it.
+Requires:
 - Rust: `tauri-plugin-opener = "2"` in `Cargo.toml`; `.plugin(tauri_plugin_opener::init())` in `lib.rs`.
 - Capability: `"opener:default"` appended to `src-tauri/capabilities/default.json`.
 - JS: `@tauri-apps/plugin-opener` in `package.json` dependencies.

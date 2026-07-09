@@ -16,19 +16,29 @@ emulator metadata (DATs, ratings) is in scope for v0.1.
 
 ```
 src-tauri/src/core/metadata/
-  mod.rs           — exposes the four sub-modules
+  mod.rs           — exposes the ROM/CDN sub-modules below plus (v0.31/v0.32,
+                      out of scope here) wikipedia.rs, steam_cdn.rs, steam_art.rs,
+                      steamgriddb_client.rs, steamgriddb_art.rs, bundle_icon.rs, and
+                      art_fallback_chain.rs — see library-import-design.md
+                      (Wikipedia enrichment) and non-retro-library-design.md
+                      (Steam CDN / SteamGridDB / bundle-icon / unified fallback chain)
   name_sanitizer.rs — No-Intro → CDN-safe percent-encoded segment
   cdn_client.rs    — HTTP client + system→CDN-folder map + ArtTier enum
   art_cache.rs     — on-disk write + ArtCacheRepo + LibraryRepo.set_game_art
-  fallback.rs      — 3-tier fetch orchestration (async)
+  fallback.rs      — 3-tier fetch orchestration (async); also the per-tier
+                      `fetch_tier` orchestrator (§ High-resolution tiers below)
 
 src-tauri/src/commands/metadata.rs
   fetch_boxart     — #[tauri::command] adapter
   get_cached_art   — #[tauri::command] adapter
+  fetch_game_art   — #[tauri::command] adapter (§ High-resolution tiers)
+  get_cached_art_tiers — #[tauri::command] adapter (§ High-resolution tiers)
 
 src/ipc/metadata.ts
   fetchBoxart(gameId)   — invoke wrapper
   getCachedArt(gameId)  — invoke wrapper
+  fetchGameArt(gameId, tier)      — invoke wrapper (§ High-resolution tiers)
+  getCachedArtTiers(gameId)       — invoke wrapper (§ High-resolution tiers)
 ```
 
 ---
@@ -267,9 +277,11 @@ every current call site, which never passes `variant`):
 | `"blurred"` (default) | `get_blurred_hero` (W10 pre-blurred bitmap) | Scaled +5% oversize, `opacity: 0.55`, no scrim — unchanged. |
 | `"full-bleed"` | `get_cached_art_tiers` + `heroArtFor(tiers, "hero")` | Native resolution, `object-fit: cover` equivalent (`background-size: cover`, `inset: 0`, `opacity: 1`), plus a `.rgp-hero-backdrop__scrim` gradient (top-to-bottom fade of `--aura-bg` via `color-mix`) for text legibility. No backend blur round-trip. |
 
-No current call site opts into `"full-bleed"` — this item only adds the
-capability; the TV home hero (W261, tv-mode-design.md) is the intended first
-consumer.
+`"full-bleed"` is now live: `TvShell` renders it for the TV-mode backdrop, and
+`TvHero`/`TvTile`/`TvGameSurface` (`src/features/tv/`) drive `useGameArt` for
+the hero/tile art itself (`src/features/library/useGameArt.ts`) — the TV home
+hero (W261, tv-mode-design.md) that this item anticipated as the "intended
+first consumer" has since shipped.
 
 ### Testing
 

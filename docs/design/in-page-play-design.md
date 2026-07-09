@@ -27,10 +27,17 @@ normal web origin where Workers/WASM/blobs work.
   `127.0.0.1:0` (ephemeral port, like the Fleet server). Routes:
   - `GET /player.html` — the host page (embedded via `include_str!`).
   - `GET /emulatorjs/<path>` — the EmulatorJS runtime, embedded into the binary
-    with `include_dir!` from `src-tauri/vendor/emulatorjs` (served immutable-cache).
+    with `include_dir!` from `src-tauri/vendor/emulatorjs` (served immutable-cache);
+    `cores/<path>` checks the on-demand disk cache first, then the embedded
+    bundle (§7); `cores/extracted/<path>` serves the pre-decompressed-core
+    cache (§2).
   - `GET /rom/<id>` — ROM bytes, resolved by id through the server's **own
     read-only SQLite connection** (`SELECT path FROM games WHERE id=?`), so it
     never contends for Tauri's managed `Db`.
+  - `GET|POST /saves/<id>/sram` and `GET|POST /saves/<id>/state/<slot>` — the
+    save bridge (§ save/load), also served against the server's own read-only
+    connection; writes are capped at 32 MiB and go under `saves/` only, never
+    into the library.
   - `HEAD` → empty 200; `GET /healthz` → `ok`.
   Started best-effort in `lib.rs` setup; the origin is exposed to the frontend
   via the `get_play_origin` IPC command (empty string ⇒ unavailable ⇒ native
@@ -64,17 +71,41 @@ All assets are loopback-served; the boot is fully offline. Three levers:
 3. **Immutable cache headers** on `/emulatorjs/*` so the webview reuses the bundle
    + core across in-session game switches.
 
-Residual cost (not config-tunable): EmulatorJS re-runs 7z-decompress + WASM-compile
-every boot (it caches only the *compressed* bytes). Researched in the latency
-spike (warm-emulator swap + decompressed-core cache).
+**v0.37 (W374, #31) — decompressed-core caching.** The 7z-decompress step
+above is no longer paid per boot: `src-tauri/src/play/core_extract.rs`
+decompresses each core archive once (via the pure-Rust `sevenz-rust` crate)
+into a disk cache under `<ejs-cores-root>/<ejs-version>/extracted/<archive-
+sha256>/…`, keyed by the archive's own content hash (a core re-vendor lands
+in a fresh directory automatically — no separate invalidation bookkeeping).
+`server.rs` serves the manifest at `/emulatorjs/cores/extracted/<archive-
+filename>.json` and the decompressed entries at `/emulatorjs/cores/
+extracted/<hash>/<entry-name>`; the page-side loader skips `checkCompression`
+entirely on a cache hit. v0.38 (W387, #36) adds startup GC of stale
+per-EJS-version cache directories (a runtime bump would otherwise leak the
+old version's archives + extracted files forever). Full history: the
+latency spike (`boot-latency-spike.md`, "Technique B").
+
+Residual cost (not eliminated): WASM-compile still happens fresh every boot —
+WKWebView has no supported compiled-module cache, so only the decompress half
+of the original cost was addressable.
 
 ## 3. In-game overlay + immersive mode (#6)
 
-While the player is mounted it **owns the controller** via a new controller-context
-primitive, `setExclusiveHandler` ([ControllerProvider](../../src/features/controller/ControllerProvider.tsx)):
-when set, every semantic action routes to it and bypasses spatial nav. So the
-gamepad belongs to the game; the menu/Start button, controller back, or **Escape**
-summon a Harmony overlay (Resume / Full screen / Exit).
+While the player is mounted foreground it **owns the controller** via
+`useExclusiveControllerScope` ([src/features/play/useExclusiveControllerScope.ts](../../src/features/play/useExclusiveControllerScope.ts)),
+the shared exclusive-controller-scope pattern (v0.27 W272) built on
+[ControllerProvider](../../src/features/controller/ControllerProvider.tsx)'s
+layered claim stack (`claimExclusive`, since W275) — the same primitive
+`NativePlayer` uses, so both play paths can never diverge on ownership rules.
+While the overlay is closed every semantic action is swallowed (game input
+reaches EmulatorJS through its own internal pipeline, never via semantic
+actions); the overlay opens via a separate raw-poll gesture, not a semantic
+action — Start+Select chorded or Start held for a threshold (v0.28 W279,
+`MenuHoldIndicator` renders live hold progress) — because every game needs a
+bare Start press for its own play. With the overlay open, nav up/down move
+the selection, confirm activates, and back/menu close it (**Escape** also
+opens/closes it, see below). Controller back/menu, or Escape, close (resume)
+an already-open overlay.
 
 - **Input ownership.** The gamepad feeds both Harmony (parent poll) and EmulatorJS
   (iframe poll). To avoid double-driving, opening the overlay **pauses** the
@@ -88,6 +119,21 @@ summon a Harmony overlay (Resume / Full screen / Exit).
   window goes fullscreen — *not* `iframe.requestFullscreen()`. A parent overlay
   cannot render over an element-fullscreen iframe; immersive keeps the overlay on
   top. EmulatorJS keeps its own in-frame settings (save states, controls, volume).
+- **Presentations.** `InPagePlayer` takes a `presentation` prop (default
+  `"foreground"`, the desktop detail route): `"takeover"` is the TV surface
+  (edge-to-edge fill, TV-scale chrome, focuses the iframe once the origin
+  resolves so a keyboard-only user can play without clicking). `"preview"`
+  (v0.37 W376) is the TV hover-attract spectator surface, mounted directly by
+  `TvHome` — a no-trace session: no play-session record, no Continue read, no
+  overlay/chrome/FPS overlay, no Escape/keyboard/controller wiring (the page
+  keeps the controller), and audio ducks to the shared attract gain
+  (`effectivePlayerGain`, same recipe `NativePlayer`'s preview uses); the
+  iframe src carries `?preview=1` so `player.html`'s save bridge itself
+  refuses to restore/flush SRAM or answer save/load ops, closing the gap even
+  if a future caller forgot to gate a save call. `"background"` is an
+  explicit v0.23 non-goal for this path (the EmulatorJS iframe cannot become
+  a page background without reworking the loopback player) — `PlaySwitch`
+  normalizes it away before it ever reaches this component.
 
 ## 4. Seamless transitions (#7)
 

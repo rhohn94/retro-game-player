@@ -44,8 +44,21 @@ accessors ensure the parent:
 | `cores_dir()` | `…/cores/` |
 | `art_cache_dir()` | `…/art-cache/` |
 | `blur_cache_dir()` | `…/blur-cache/` |
+| `console_art_dir()` | `…/console-art/` (v0.12 cached console photos) |
 | `logs_dir()` | `…/logs/` |
+| `saves_dir()` | `…/saves/` (v0.23, save-persistence-design.md) |
+| `ejs_cores_dir()` | `…/ejs-cores/` (v0.24, in-page-play-design.md §7) |
+| `downloads_dir()` | `…/downloads/` (v0.24, direct-download staging) |
+| `retroachievements_cache_dir()` | `…/retroachievements-cache/` (v0.37) |
+| `retroachievements_badge_cache_dir()` | `…/retroachievements-badges/` (v0.38) |
 | `ensure_all()` | eagerly create every subdir above |
+
+`logs/` also holds three append/truncate telemetry files resolved by
+dedicated accessors rather than the generic dir: `native_perf_log_file()`
+(W274), `ejs_perf_log_file()` (v0.29 W281), and `draw_cost_log_file()`
+(v0.38 W381) — see performance-tooling-design.md and crt-filter-design.md.
+The deployed-version dir also holds `panic.json` (`PANIC_FILE_NAME`, W360,
+error-telemetry-design.md), last-panic-wins, alongside `run.json`.
 
 Deployed-instance accessors (§4.2):
 
@@ -67,14 +80,22 @@ magic strings at call sites.
 It is distinct from the per-key `settings` DB table — it holds bootstrap-time
 settings the app needs around the DB.
 
-Fields (all `#[serde(default)]`, so partial/older files load forward-compatibly):
-`schema_version: u32`, `retroarch_path: Option<String>`,
-`familiar_base_url: String` (default `http://127.0.0.1:8765`),
-`launch_fullscreen: bool` (default `true`).
+Original W4 fields (all `#[serde(default)]`, so partial/older files load
+forward-compatibly): `schema_version: u32`, `retroarch_path: Option<String>`,
+`familiar_base_url: String` (default `http://127.0.0.1:2121`,
+`DEFAULT_FAMILIAR_BASE_URL`), `launch_fullscreen: bool` (default `true`).
 
 API: `AppConfig::load(&Paths)` (missing file → defaults), `save(&Paths)`,
 `load_or_init(&Paths)` (load + write-back, materializes defaults on first run).
 Round-trip and partial-file behavior are unit-tested.
+
+Every later work item that needed a persisted setting appended a field to the
+same `AppConfig` struct rather than introducing a second config file —
+`games_dir`, `native_play_enabled`, `player_volume`, `pause_on_blur`,
+`auto_tv_mode`, `crt_filter`, `show_fps_counter`, `steamgriddb_api_key`,
+`retroachievements_username`, etc. Each field's meaning and owning feature are
+documented at its declaration in `config/mod.rs`, not duplicated here; this
+doc's job is the load/save/versioning contract, which is unchanged.
 
 ## 3. Error contract extension (`src-tauri/src/error.rs`)
 
@@ -106,6 +127,18 @@ and the `record_run_start(&Paths, version)` convenience used by setup.
 `harmony_setup` gains an append-friendly W4 block: resolve `Paths::app_support`,
 `ensure_all()`, `AppConfig::load_or_init`, then `record_run_start`. The block is
 self-contained so W3 (db open/migrate) and W11 (fleet) append independently.
+
+As of the current build, `harmony_setup` runs (in order): the W269
+app-data-directory rename migration (§Rename, before any path resolution —
+`Paths::app_support()` would otherwise anchor at the wrong root on an
+upgrading machine); the W4 block above; the W360 panic hook install
+(error-telemetry-design.md); W3's `Db::open` at the W4-resolved `db_file()`;
+the v0.15 in-page-play loopback host server (`play::start`,
+in-page-play-design.md); the v0.24 direct-download orphan sweep + registry
+(`core::search::download`); managed state for the v0.21 native-play session,
+v0.37/v0.38 achievement caches, and v0.26 play-stats tracker; then W11's
+Fleet/Ensign start. Each block is still independently appended and
+best-effort where noted inline, per the original design intent.
 
 ## Open questions
 

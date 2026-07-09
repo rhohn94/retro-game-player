@@ -20,18 +20,30 @@ and write rows without hand-rolling SQL.
 ```
 db/
   mod.rs                 # Db handle (Mutex<Connection>), open/open_in_memory,
-                         #   default_db_path() app-support resolver (W4 seam)
+                         #   default_db_path() — legacy, unused-in-production
+                         #   resolver kept only for its own unit test (see
+                         #   "App-support DB path and the W4 seam" below)
   migrations.rs          # versioned, idempotent PRAGMA user_version runner
   migrations/
-    001_init.sql         # the EXACT D1 DDL (architecture-design.md §3)
+    001_init.sql .. 016_achievement_unlocks.sql  # 16 numbered, additive-only
+                         #   migrations; 001 is the EXACT D1 DDL
+                         #   (architecture-design.md §3), 002+ extend it
   repo/
     mod.rs               # Repository trait + shared error mapping helpers
-    library.rs           # content_folders + games
-    cores.rs             # cores (installed/active, one-active-per-system)
-    settings.rs          # settings key/value
+    library/              # content_folders + games + collections + play-life stats
+      mod.rs              #   LibraryRepo struct + Repository impl
+      model.rs             #   ContentFolder, Game, NewGame, Collection, … row structs
+      folders.rs           #   content_folders CRUD
+      games.rs              #   games CRUD, source/hash lookups, enrichment
+      play_life.rs          #   favorite/last-played/play-count/play-time
+      collections.rs        #   collections + collection_games membership
+    cores.rs              # cores (installed/active, one-active-per-system)
+    settings.rs           # settings key/value
     controller_bindings.rs
     search_providers.rs
     art_cache.rs
+    console_meta.rs       # per-system console art metadata
+    achievement_unlocks.rs # RetroAchievements unlock persistence
 ```
 
 ## Connection management
@@ -52,8 +64,24 @@ changing repo signatures (they operate on `&Connection`). Every connection sets
 they ship in the binary. Idempotency holds at two levels: the runner skips
 migrations at or below the stored version (a second `run` is a no-op), and the
 DDL itself uses `CREATE TABLE/INDEX IF NOT EXISTS`. To add schema, append a
-`002_*.sql` with a strictly higher version and a new `Migration` entry; never
-edit a released migration.
+`NNN_*.sql` with a strictly higher version and a new `Migration` entry; never
+edit a released migration. Sixteen migrations ship as of this writing, taking
+the schema from the original 7-table D1 baseline through game metadata,
+descriptions, ROM-site/legal search-provider seeding, console art metadata,
+library "life" stats (favorite/play-count/last-played), a ROM-less library
+model (Steam/GOG/itch/CrossOver/manual sources via `launch_descriptor`), an
+app-support-path repair migration, collections, and RetroAchievements unlock
+persistence.
+
+A `Migration` entry also carries a `requires_fk_off` flag. A handful of later
+migrations (the ROM-less-library rebuild and its follow-ons) rebuild a table
+that other tables reference via `ON DELETE CASCADE`, using the standard
+SQLite 12-step `ALTER TABLE` pattern; `PRAGMA foreign_keys` can only be
+toggled outside an active transaction, so the runner flips it off around such
+a migration's transaction (never inside the migration's own SQL) and restores
+it via a scope guard that fires on every exit path — success, early error
+return, or unwind — so a mid-migration failure can never leave the connection
+permanently in `foreign_keys = OFF` state.
 
 ## Repository layer
 
@@ -79,27 +107,44 @@ cores for one system without clearing is rejected as a conflict.
 
 ## App-support DB path and the W4 seam
 
-`db::default_db_path()` resolves
-`~/Library/Application Support/com.harmony.app/harmony.db`, creating the bundle
-directory if needed.
+The W4 seam has since been reconciled: `harmony_setup` (`lib.rs`) resolves the
+DB path via `config::paths::Paths::app_support()` + `paths.db_file()` — the
+single authority for every on-disk location (architecture §4.1), covering W3
+db, W8 art, W10 blur, W11 fleet, and telemetry alike. That resolver lives at
+`~/Library/Application Support/com.retro-game-player.app/harmony.db` (the
+bundle id changed from `com.harmony.app` in the W269 Harmony → Retro Game
+Player rename; `config::migrate` moves an existing user's app-support
+directory to the new root on first launch of a build that knows the new id).
 
-**W4 SEAM (reconciliation point for the integration master):** the path is
-currently resolved by a *local minimal* helper (`db::app_support_dir`, using
-`$HOME`). When W4's `config/paths.rs` lands — the single authority for
-app-support paths (architecture §4.1) — replace the body of `default_db_path`
-with a call to `crate::config::paths::app_support_dir()` and delete the local
-`app_support_dir` helper plus the `BUNDLE_ID` constant. The seam is marked with
-a `// W4 SEAM` comment in `db/mod.rs` and in the `harmony_setup` block in
-`lib.rs`. W3 does not hard-block on W4.
+`db::default_db_path()` and its private `app_support_dir()` helper still exist
+in `db/mod.rs`, resolving the same layout independently via `$HOME` and the
+now-stale local `BUNDLE_ID = "com.harmony.app"` constant, but neither is
+called from production code anymore — `db::Db::open` always receives its path
+from the caller (`harmony_setup`, or a `db_path` threaded through worker
+closures in `commands/*`), never from `default_db_path`. The function is kept
+only because its own unit test still exercises it. Treat it as legacy/dead
+code: any future cleanup should either delete it or rewire it to call
+`crate::config::paths::Paths::app_support()` so it can't drift from the real
+resolver again.
 
 ## Testing
 
 Every repo has CRUD unit tests against an in-memory database
 (`Db::open_in_memory`), plus: migrations apply and set `user_version`;
-migrations are idempotent (run twice → no error, version unchanged); all seven
-tables are created; FK cascade (folder→games, game→art_cache) works; the
-one-active-core partial-unique constraint is enforced; foreign keys are on; and
-`default_db_path` resolves under app-support.
+migrations are idempotent (run twice → no error, version unchanged); the
+original seven D1 tables are created, and each later migration has its own
+"table/column exists" and additive-upgrade-from-a-pre-migration-fixture-DB
+tests (schema now spans eleven tables: `content_folders`, `games`, `cores`,
+`settings`, `controller_bindings`, `search_providers`, `art_cache`,
+`console_meta`, `collections`, `collection_games`, `achievement_unlocks`); FK
+cascades (folder→games, game→art_cache, game→achievement_unlocks,
+collection↔game via `collection_games`) work and never cascade the wrong
+direction (e.g. deleting a collection never deletes its games); the
+one-active-core partial-unique constraint is enforced; the `games` table's
+either-rom-or-launch_descriptor `CHECK` and `(source, external_id)` uniqueness
+are enforced; foreign keys are on, including immediately after a
+`requires_fk_off` migration fails partway through; and `default_db_path`
+resolves under (the legacy, now-unused-in-production) app-support layout.
 
 ## Cross-links
 

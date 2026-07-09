@@ -160,11 +160,16 @@ controllers + providers + Familiar commands, `locate_retroarch`/`set_retroarch_p
 │  HintBar:  ◀▶ Section  ▲▼ Field  Ⓐ Edit  Ⓑ Back            │
 ```
 
-Section panes: **Folders** (add/remove content folders, rescan), **Cores**
-(deep-link to `/cores`), **Controllers** (binding editor, W14), **Providers**
-(search-provider CRUD, deep-link/inline), **Familiar** (probe status + base URL),
-**Appearance** (named-theme select — drives the anti-FOUC theme), **RetroArch**
-(locate/set path).
+Section panes (grown well past the original six — `SettingsPage.tsx`'s
+`SECTIONS` table is the source of truth): **Folders**, **Game Sources**,
+**Cores** (deep-link to `/cores`), **Core Options**, **Controllers** (binding
+editor, W14), **Providers** (search-provider CRUD), **Familiar** (probe status
++ base URL), **RetroAchievements**, **Playback**, **CRT Filter**,
+**Performance**, **Appearance** (named-theme select — drives the anti-FOUC
+theme), **RetroArch** (locate/set path). Each newer pane's own contract lives
+in its dedicated design doc (`core-options-design.md`, `retroachievements-design.md`,
+`crt-filter-design.md`, `performance-tooling-design.md`) rather than being
+re-described here.
 
 ### Key Aura components
 `<aura-nav>` left section list; `<aura-field>` for each setting (text, toggle,
@@ -365,6 +370,9 @@ W16 delivers the Cores Management screen at `/cores` as `src/features/cores/`.
   (● active / ○ installed / – available), inline action buttons (Install / Update /
   Set active), a CSS spinner while a long action is in flight, and an inline error card
   for `Unsupported` (non-arm64) or network failures.
+- `src/features/cores/CoreRowList.tsx` (added W366) — maps a `Core[]` to `CoreRow`s,
+  wiring each row's install/update/activate callbacks; extracted from two identical
+  mapping blocks that used to live inline in `CoresPage.tsx`.
 - `src/features/cores/SystemList.tsx` — focusable system list; ArrowUp/Down navigates
   within the list; selection drives the detail pane.
 - `src/features/cores/cores.css` — `cores-spin` keyframe; focus-ring wiring for
@@ -397,10 +405,12 @@ W16 delivers the Cores Management screen at `/cores` as `src/features/cores/`.
 
 `src/features/settings/SettingsPage.tsx` — two-column sectioned-form archetype.
 
-**Section nav (left column):** native `<nav>` with seven `<button>` items (tabIndex for
-controller focus). Active section highlighted with `--aura-primary` background.
+**Section nav (left column):** native `<nav>` with a `<button>` per entry in the
+`SECTIONS` table (tabIndex for controller focus; 13 sections as of v0.37 —
+see the list above). Active section highlighted with `--aura-primary`
+background.
 
-**Section panes (right column):**
+**Section panes (right column, original W15 set):**
 
 - **Folders** (`FoldersPane`): lists `ContentFolder[]` via `listContentFolders()`; add
   path via text input → `addContentFolder()` then `scanFolder()` immediately; remove via

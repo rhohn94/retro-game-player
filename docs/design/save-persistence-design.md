@@ -50,7 +50,7 @@ compatibility (see Compatibility below).
 - Auto-state: on `stop`, write `.state.auto` (best-effort; a core that returns
   serialize_size 0 is feature-detected and degrades to SRAM-only).
 - IPC: `save_native_state(slot)`, `load_native_state(slot)`,
-  `list_saves(game_id)` (shared with W231's data), returning slot metadata.
+  `list_game_saves(game_id)` (shared with W231's data), returning slot metadata.
 
 ## 3. EmulatorJS bridge (W231)
 
@@ -68,11 +68,14 @@ compatibility (see Compatibility below).
 
 - Overlay gains Save state / Load state entries → a 4-slot picker with
   timestamps (from `saves.json`), controller/keyboard/mouse navigable.
-- Detail page: when `list_saves` shows an auto or manual state for the active
-  path, the primary play affordance becomes **"Continue"** (boots, then
+- Detail page: when `list_game_saves` shows an auto or manual state for the
+  active path, the primary play affordance becomes **"Continue"** (boots, then
   restores the newest state); a secondary "Start fresh" keeps the cold boot.
-- Native path currently has no overlay (scope note in `NativePlayer.tsx`) —
-  W232 renders the shared overlay component around both players.
+- `NativePlayer.tsx` now hosts the same shared `PlayerOverlay` as the EJS
+  path (menu-hold summons it; it owns keyboard/controller navigation while
+  open) and shows a "Continue" button when `saveSlots.ts`'s `continueSlot()`
+  finds a state written by the native path — the "no overlay yet" gap this
+  section originally called out is closed.
 
 ## Verification
 

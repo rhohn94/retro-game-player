@@ -17,20 +17,25 @@ entire known game catalog.
 
 **Covers:**
 - A static, in-code **console catalog** (display name, manufacturer, generation,
-  debut year, abbreviation, Wikipedia title) for all 20 gen 2–6 home consoles.
+  debut year, abbreviation, CPU/GPU/RAM spec, Wikipedia title) for all 24
+  consoles — the 20 gen 2–6 home consoles from v0.10 plus the Game Boy family
+  (GB, GBC, GBA) and the Wii added in v0.34 (see
+  [console-catalog](console-catalog-design.md) §7).
 - Per-console **media**: a Wikipedia photo + summary, fetched once and cached
   (`console_meta` table + `console-art/` dir).
 - A **bundled per-console title catalog** (every known game title per console),
   generated from the community libretro-database datfiles and embedded in the
-  binary — names only, ~28.6k titles across 20 consoles, ~800 KB.
+  binary — names only, ~28.6k titles across the covered consoles, ~800 KB.
 - Two routes: `/consoles` (browse + search, grouped by generation) and
-  `/console/:key` (detail: hero + description, "Your games", and the full
-  searchable/paginated catalog with ownership badges + "Find downloads").
+  `/console/:key` (detail: hero + description, a hardware spec table, "Your
+  games", and the full searchable/paginated catalog with ownership badges +
+  "Find downloads").
 
 **Does not cover:**
 - Shipping any game content. The catalog is titles + checksums metadata only;
   Harmony downloads nothing (download-search stays links-only).
-- Handhelds or systems outside the gen 2–6 home-console set.
+- Handhelds or systems outside the covered set (e.g. Game Gear, Game Boy
+  Micro, PSP) or generations outside 2–7.
 - Cover art for catalog titles the user does not own (owned games use the
   existing libretro art path).
 
@@ -39,8 +44,11 @@ entire known game catalog.
 **Static catalog** ([`core/console/catalog.rs`](../../src-tauri/src/core/console/catalog.rs)):
 a `ConsoleInfo` table keyed by the same `system` key used across
 `core/cores/system_map.rs`, `core/library/mapper.rs`, and `games.system` — so a
-console's "Your games" list is just `list_games(Some(key))`. A test pins every
-key to a curated core-catalog system.
+console's "Your games" list is just `list_games(Some(key))`. Each row also
+carries a CPU/GPU/RAM hardware spec, rendered as a table on the detail page. A
+test pins every key to a curated core-catalog system, another pins the catalog
+to exactly 24 entries, and another asserts every row has non-empty hardware
+specs.
 
 **Title catalog** ([`core/console/titles.rs`](../../src-tauri/src/core/console/titles.rs)):
 `scripts/build-console-catalog.mjs` fetches each console's libretro-database
@@ -67,10 +75,10 @@ each row jumping to the links-only download search).
 
 ## Acceptance
 
-- `/consoles` lists all 20 consoles grouped by generation with name/maker/year and
+- `/consoles` lists all 24 consoles grouped by generation with name/maker/year and
   owned/catalog counts; search filters by name/maker/abbreviation.
-- Opening a console fetches + caches its photo + description (cached on revisit)
-  and lists the user's owned games for it.
+- Opening a console fetches + caches its photo + description (cached on revisit),
+  shows its CPU/GPU/RAM spec table, and lists the user's owned games for it.
 - The detail catalog browser searches + paginates the full title list; owned
   titles show an "In library" badge; a title jumps to download search.
 - Every console key has a non-empty bundled catalog (test-enforced); the catalog

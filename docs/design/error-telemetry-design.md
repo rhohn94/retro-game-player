@@ -30,6 +30,9 @@ existing bare `.catch(() => …)` sites) has no helper to route through.
   `harmony_setup` (`lib.rs`).
 - A `PanicRecord` type + `record_panic` writer in `telemetry.rs`, following
   the existing `RunRecord`/`record_run_start` shape (small file, timestamped).
+- A `record_recoverable_error(source, detail)` helper in `telemetry.rs` for
+  backend catch-and-continue sites, replacing their ad-hoc `eprintln!`
+  prefixes with the same `[telemetry]` channel (no file write — see Design).
 - Frontend `window.onerror` + `window.addEventListener("unhandledrejection")`
   handlers, installed once at app boot (`main.tsx`), that funnel into a
   shared recorder.
@@ -54,21 +57,31 @@ existing bare `.catch(() => …)` sites) has no helper to route through.
 
 ### Rust: panic hook → telemetry
 
-`telemetry.rs` gains a `PanicRecord` (message, optional location `file:line`,
-timestamp) and `record_panic(paths, record)` that appends/writes it — same
-`app-support` convention `RunRecord::write` already uses, so both land next
-to `run.json` in the deployed version dir (`panic.json`, last-panic-wins,
-matching `run.json`'s single-record shape rather than an unbounded log).
+`telemetry.rs` gains a `PanicRecord` (schema version, app version, message,
+optional location `file:line:column`, timestamp) and a
+`record_panic(paths, version, message, location)` writer — same `app-support`
+convention `RunRecord::write` already uses, so both land next to `run.json`
+in the deployed version dir (`panic.json`, last-panic-wins, matching
+`run.json`'s single-record shape rather than an unbounded log).
 
-`install_panic_hook(paths: Paths)` is called once from `harmony_setup`
-(`lib.rs`), right after `record_run_start` — the same place that already
-resolves `Paths`. It wraps `std::panic::set_hook`: the hook captures the
-panic message + location via `PanicHookInfo`, builds a `PanicRecord`, and
-calls `record_panic`, then chains to the previous default hook (still prints
-to stderr — we're adding a channel, not removing the existing one). The hook
-owns a cloned `Paths` (cheap: a couple of `PathBuf`s) so it doesn't depend on
-Tauri's managed-state machinery, which may not be reachable from an arbitrary
-panicking thread.
+`install_panic_hook(paths: Paths, version: impl Into<String>)` is called once
+from `harmony_setup` (`lib.rs`), right after `record_run_start` — the same
+place that already resolves `Paths` and the crate version. It wraps
+`std::panic::set_hook`: the hook captures the panic message + location via
+`PanicHookInfo`, builds a `PanicRecord`, and calls `record_panic`, then
+chains to the previous default hook (still prints to stderr — we're adding a
+channel, not removing the existing one). The hook owns a cloned `Paths`
+(cheap: a couple of `PathBuf`s) so it doesn't depend on Tauri's managed-state
+machinery, which may not be reachable from an arbitrary panicking thread.
+
+`telemetry.rs` also exports `record_recoverable_error(source, detail)` — a
+lighter-weight sink for the backend's non-fatal, caught-and-continued errors
+(a transient DB hiccup, a cache miss) that doesn't warrant a `panic.json`-style
+file write. It logs through the same `[telemetry]`-prefixed `eprintln!`
+channel rather than persisting, replacing the ad-hoc `"[rgp-achievements] ..."`
+-style prefixes call sites used before; `src-tauri/src/commands/achievements.rs`
+is the first (and, as of this writing, only) consumer, passing a fixed
+bracketed source tag at each of its several catch-and-continue sites.
 
 Tests: `record_panic` is a plain synchronous unit test (write, read back,
 assert fields) mirroring `record_run_start`'s existing test shape. The

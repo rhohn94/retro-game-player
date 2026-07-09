@@ -26,8 +26,8 @@ stood in for.
 Contract v1 wire types (`FleetStatus`, `FleetManifest`, `DependencyEdge`); the
 `fleet-instance.json` writer and `current` symlink; the localhost status server
 (`GET /fleet/v1/status` + `/healthz`); declared RetroArch + core dependency
-edges; the `get_fleet_status` IPC command + TS wrapper; the Mission Control
-registration snippet.
+edges; the `get_fleet_status` IPC command; the Mission Control registration
+snippet.
 
 **Not covered:** Mission Control itself; remote/authenticated transport (the
 server is loopback-only, unauthenticated by design); per-core version probing
@@ -150,7 +150,12 @@ register a local Harmony Ensign:
 | `mod.rs` | `start()` — resolve identity, write manifest, spawn server, return `Ensign` |
 
 The command adapter is `src-tauri/src/commands/fleet.rs` (`get_fleet_status`),
-registered via the append-only macro; the TS wrapper is `src/ipc/fleet.ts`.
+registered via the append-only macro. The frontend TS wrapper (`src/ipc/fleet.ts`)
+was removed as dead code in W365 (v0.36) — no UI surface currently calls
+`get_fleet_status`, so the Rust command is presently unreached from the UI. It is
+retained as-is (not deleted) pending the issue #39 self-update decision, which may
+depend on it. The localhost HTTP status server is unaffected and keeps running
+independently of the IPC command.
 
 ## Setup wiring
 

@@ -33,7 +33,9 @@ under Application Support, and records installed/active state in SQLite.
 - A typed TS wrapper (`src/ipc/cores.ts`) re-exported from the barrel.
 
 Out of scope (deferred): non-curated/arbitrary cores, x86_64/Rosetta fallback,
-core-option configuration, the Cores UI screen (W16).
+core-option configuration. The Cores UI screen (W16, `CoresPage`) has since
+been built — see [core-discovery-design.md](core-discovery-design.md) for the
+browse/search UI and `src/features/cores/CoresPage.tsx`.
 
 ## Module map (`src-tauri/src/core/cores/`)
 
@@ -51,15 +53,16 @@ commands/cores.rs # #[tauri::command] adapters + CoreDto (camelCase, +available)
 
 ### Curated system → core map
 
-| System | Cores (default first) |
-|---|---|
-| `nes`  | `mesen`, `fceumm` |
-| `snes` | `snes9x`, `bsnes` |
-| `n64`  | `mupen64plus_next` |
-
-Core ids are the exact buildbot filename stems, so `mesen` →
-`mesen_libretro.dylib.zip`. Adding a system/core is a one-line edit in
-`system_map.rs`; nothing else hard-codes core ids.
+The v0.1 map covered only `nes`/`snes`/`n64`; it has since grown to 24 systems
+(gen 1–6 home consoles plus the Game Boy family and Wii) via the v0.7 catalog
+broadening and the v0.10/v0.34 console-catalog sweeps — see
+[core-discovery-design.md](core-discovery-design.md) for the browse/search UI
+built on top of that broader catalog and
+[console-catalog-design.md](console-catalog-design.md) for the full curated
+list. `system_map.rs` remains the single source of truth; core ids are the
+exact buildbot filename stems, so `mesen` → `mesen_libretro.dylib.zip`. Adding
+a system/core is still a one-line edit in `system_map.rs`; nothing else
+hard-codes core ids.
 
 ### Buildbot client
 

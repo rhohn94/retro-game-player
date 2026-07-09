@@ -49,9 +49,9 @@ staging dir, with `fetch.rs`-style safeguards:
 |---|---|
 | Provider gate | provider exists ∧ `direct_download = 1`, else `Validation` error |
 | Scheme allow-list | `http`/`https` only |
-| Size cap | 256 MiB default (config), enforced while streaming |
-| Timeout | 60 s connect/idle (not total — large files stream) |
-| Staging | `app-support/downloads/<uuid>.part` → rename on completion; orphaned `.part` swept at startup |
+| Size cap | 256 MiB constant (`DOWNLOAD_CAP_BYTES`), enforced via `Content-Length` up front and again while streaming |
+| Timeout | 15 s connect, 10 min whole-request deadline (connect + headers + body streaming) — long enough to stream the cap on a slow link |
+| Staging | `app-support/downloads/dl-<id>.part` → renamed to its real filename on completion; orphaned `.part` files swept at startup |
 | Concurrency | one active download per provider; 3 global |
 
 Progress is emitted as a Tauri event (`download://progress` with

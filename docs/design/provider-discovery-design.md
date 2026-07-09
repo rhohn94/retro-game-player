@@ -76,6 +76,16 @@ missing term, or a term not present in the URL.
   **Browse providers** button (and the empty state). One click adds an entry;
   added entries show "✓ Added"; JS-rendered entries are badged.
 
+### Settings > Providers (pre-dates this design)
+
+`src/features/settings/panes/ProvidersPane.tsx` is a separate, simpler
+provider list (name/template add, enable toggle, remove) that pre-dates the
+discovery UX above and still ships alongside it as a Settings section. It does
+not gain `kind`, Detect, Test-provider, or the catalog gallery — those live
+only on the `ProviderDialog`/`ProviderCatalog` path from the Search screen.
+Both surfaces read/write the same `search_providers` table, so a provider
+added or edited in one is visible in the other.
+
 ## 7. Surfaces touched (v0.20)
 
 - Rust: `core/search/catalog.rs` (new), `core/search/fetch.rs`
@@ -88,8 +98,10 @@ missing term, or a term not present in the URL.
 
 ## 8. Out of scope (v0.20)
 
-- **JS-render fetch tier** — unlocking itch.io/GameJolt/GOG is the next release
-  (v0.21): an offscreen WebView renders the page before the generic scrape.
+- **JS-render fetch tier** — unlocking itch.io/GameJolt/GOG via an offscreen
+  WebView that renders the page before the generic scrape. Still not built as
+  of this writing (no `js_rendered`-aware fetch path exists yet); these
+  providers remain badged "needs JS · soon" in the catalog gallery.
 - **Open-web provider discovery** — not built (see §2).
 - **Per-provider API adapters** — deferred behind the JS-render tier ("APIs
   later").
