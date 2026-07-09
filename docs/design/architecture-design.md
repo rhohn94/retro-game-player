@@ -5,6 +5,16 @@
 > **Status:** authoritative master contract for v0.1 "Foundation". Every other
 > work item (D2, D3, W1–W21) implements against this doc. Where a feature design
 > doc disagrees with this file, **this file wins** until reconciled here.
+>
+> **This is a frozen v0.1 snapshot, not a living description of the app at its
+> current version.** The module map (§1), schema (§3, e.g. `games.system` as
+> `'nes'|'snes'|'n64'`), bundle id (§4.1, `com.harmony.app`), and screen list
+> reflect the app as scoped at launch. The project has since grown to ~20
+> systems, a `settings` feature with 13 sections, native emulation, in-page
+> play, RetroAchievements, collections, and non-ROM library sources — none of
+> that is retrofitted into this doc. For current behavior, follow the
+> per-feature docs in [§7 Cross-links](#7-cross-links) (kept in sync with
+> source) rather than treating this file's specifics as live.
 
 ## Motivation
 
@@ -581,16 +591,31 @@ pinned SHA, anti-FOUC, and archetype→screen map:
 |---|---|
 | [persistence-design.md](persistence-design.md) | W3 |
 | [app-infrastructure-design.md](app-infrastructure-design.md) | W4 |
-| [core-management-design.md](core-management-design.md) | W5 / W16 |
+| [core-management-design.md](core-management-design.md) / [core-discovery-design.md](core-discovery-design.md) | W5 / W16, v0.10/v0.34 |
 | [library-identification-design.md](library-identification-design.md) | W6 / W13 |
 | [emulation-launch-design.md](emulation-launch-design.md) | W7 |
 | [metadata-art-design.md](metadata-art-design.md) | W8 |
-| [file-search-design.md](file-search-design.md) | W9 / W17 |
+| [file-search-design.md](file-search-design.md) / [download-search-design.md](download-search-design.md) / [provider-discovery-design.md](provider-discovery-design.md) / [download-browsing-ux-design.md](download-browsing-ux-design.md) / [direct-download-design.md](direct-download-design.md) | W9 / W17, v0.24 |
 | [fleet-ensign-design.md](fleet-ensign-design.md) | W11 |
 | [familiar-enrichment-design.md](familiar-enrichment-design.md) | W12 |
 | [controller-input-design.md](controller-input-design.md) | W14 |
+| [settings-shell-design.md](settings-shell-design.md) | W15, extended through v0.38 |
+| [core-options-design.md](core-options-design.md) | v0.9 |
+| [presentation-shell-design.md](presentation-shell-design.md) / [harmony-ux-design.md](harmony-ux-design.md) | W15, v0.14 |
+| [console-browse-design.md](console-browse-design.md) / [console-catalog-design.md](console-catalog-design.md) | v0.12 "Curator" |
+| [library-import-design.md](library-import-design.md) / [library-filtering-design.md](library-filtering-design.md) / [library-life-design.md](library-life-design.md) / [collections-design.md](collections-design.md) | v0.12 / v0.26 / v0.37 |
+| [in-page-play-design.md](in-page-play-design.md) / [native-emulation-design.md](native-emulation-design.md) / [save-persistence-design.md](save-persistence-design.md) / [crt-filter-design.md](crt-filter-design.md) | v0.15 / v0.21 / v0.23 / v0.39 |
+| [retroachievements-design.md](retroachievements-design.md) | v0.37 "Trophies" |
+| [tv-mode-design.md](tv-mode-design.md) | v0.14+ |
+| [non-retro-library-design.md](non-retro-library-design.md) | v0.31 "Frontier" |
+| [error-telemetry-design.md](error-telemetry-design.md) | v0.36 |
+| [notarization-distribution-design.md](notarization-distribution-design.md) / [distribution/distribution-design.md](distribution/distribution-design.md) | v0.30 "Passport" |
 | [runtime-verification-design.md](runtime-verification-design.md) | W18 |
 | [dependency-channel-conformance.md](dependency-channel-conformance.md) | W19 |
+
+The full, continuously-maintained index (all 49 docs) lives in
+[README.md](README.md) — the table above is a forward-reference map, not a
+duplicate of that index.
 
 ---
 
