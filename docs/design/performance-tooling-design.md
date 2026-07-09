@@ -201,10 +201,16 @@ real measurement, and reduces `CrtWebglRenderer`'s own per-frame GPU work:
   (new file, `fpsCounter.ts`-shaped rolling mean) is fed from
   `NativePlayer.tsx`'s existing paint-loop rAF tick and shown as a second line
   on the on-screen FPS counter overlay (`FpsCounterOverlay`) — see
-  `crt-filter-design.md` §measurement for why this stays a client-side-only
-  surface rather than a new field on the Rust-owned `native-perf.log` (the
-  IPC frame contract with this release's W380 is frozen, and the log file
-  itself has no frontend-writable path).
+  `crt-filter-design.md` §measurement for why this doesn't become a new field
+  on the Rust-owned `native-perf.log` (the IPC frame contract with this
+  release's W380 is frozen, and the log file itself has no frontend-writable
+  path). Each resolved sample is additionally persisted, closing #35's
+  remaining acceptance criterion: `report_draw_cost_sample`/`read_draw_cost_log`
+  (`commands/perf_tools.rs`) append to a third durable sibling log,
+  `logs/draw-cost-perf.log` — the same "append over IPC, no Rust-side runtime
+  loop" shape as the EJS log — which `PerformancePane.tsx` reads back as a
+  third GUI section, "GPU draw cost" (table only, no sparkline, since draw-cost
+  lines carry no fps field). Full detail: `crt-filter-design.md` §measurement.
 
 ## Frame-path measurements (v0.38, W380)
 

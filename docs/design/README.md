@@ -53,6 +53,7 @@
 | [error-telemetry-design.md](error-telemetry-design.md) | v0.36 "Spring Cleaning" W360: unhandled-error observability foundations — Rust `panic::set_hook` → telemetry sink, frontend `window.onerror`/`unhandledrejection` handlers, a route-shell React `ErrorBoundary`, and the shared `swallow(err, context, severity?)` IPC-failure helper Pass-2 (W361) will consume at scale |
 | [retroachievements-design.md](retroachievements-design.md) | v0.37 "Trophies" W370–W372: RetroAchievements foundation on the native path (NES/SNES) — vendored rcheevos FFI + `rc_hash` RA-correct hashing, per-frame trigger evaluation over `RETRO_MEMORY_SYSTEM_RAM` in the core loop, keyed client + KeyStore credential + settings pane, unlock toasts + local `achievement_unlocks` persistence; submission/leaderboards/EJS-path deferred |
 | [collections-design.md](collections-design.md) | v0.37 "Trophies" W373 (closes #21): user-created collections — `collections` + `collection_games` junction schema (migration 015), repo submodule + IPC surface, detail-page membership picker, library collection filter, per-collection TV rails |
+| [settings-shell-design.md](settings-shell-design.md) | The Settings navigation shell (`SettingsPage.tsx`): sectioned-form archetype, two-column ARIA tablist/tabpanel wiring, `SectionId`/`SECTIONS` single-source-of-truth, `remap.ts`'s pure rebind/conflict-merge functions, and a pane→owning-doc cross-reference table |
 | *(add rows as docs are created)* | |
 
 ### UX tier (`docs/design/ux/`)

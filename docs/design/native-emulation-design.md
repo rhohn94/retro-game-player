@@ -100,13 +100,37 @@ distinct from the GPL cores that implement it — only the cores we bundle
 obligations.
 
 New module: `src-tauri/src/play/native/` —
-- `core.rs` — `LibretroCore` wraps the `libloading::Library` + the loaded
-  symbol table; owns `init`/`load_game`/`run`/`unload`/`deinit` lifecycle.
+- `host.rs` — `LibretroCore` wraps the `libloading::Library` + the loaded
+  symbol table; owns `load`/`set_environment`/`init`/`load_game`/`run_frame`/
+  `unload`/`deinit`, enforcing the libretro lifecycle order in safe Rust.
+- `ffi.rs` — the raw libretro C ABI surface (struct layouts, constants,
+  function-pointer typedefs) transcribed verbatim from `libretro.h` — the one
+  place a wrong line silently corrupts memory across the FFI boundary instead
+  of tripping a compiler error. Scope is intentionally narrow: only the
+  functions `host.rs` actually calls.
 - `callbacks.rs` — the `extern "C"` callback functions libretro calls into
   (video refresh, audio sample batch, input poll/state, environment); these
-  push into channels read by the runtime loop, never block on UI work.
-- `runtime.rs` — owns the run loop (one core tick per frame tick), the video
-  frame buffer (latest-frame-wins), and the audio ring buffer.
+  push into channels read by the runtime loop, never block on UI work. Since
+  libretro's pre-v2 callback ABI carries no userdata pointer, the callbacks
+  are free functions backed by process-global state (`SINKS`, per-port
+  `JOYPAD_STATE`, `CORE_VARIABLES`, `HW_RENDER_CONTEXT`) — safe in practice
+  because Harmony only ever runs one native core session at a time.
+- `audio.rs` — the realtime audio chain: a 4-point Catmull-Rom resampler with
+  dynamic rate control feeding a lock-free SPSC ring (`rtrb`) the `cpal`
+  output callback drains (no locks, no allocation, no logging on the realtime
+  path); owns the shared `PerfCounters` (frames run, underrun/overrun
+  samples, dropped video frames, frame-publish contention).
+- `runtime/` — owns the run loop (one core tick per frame tick, `clock.rs`'s
+  absolute-deadline scheduler), the video frame buffer (latest-frame-wins,
+  `runtime/video.rs`), and drives `audio.rs`'s ring. Split (v0.36 W363) into
+  `session.rs` (the public `NativeRuntime` handle), `core_loop.rs` (the
+  per-tick drive loop), `video.rs`, `audio.rs` (drain into the ring),
+  `perf.rs` (the periodic perf line), `manual.rs` (on-device harnesses), and
+  `tests/` — see §Module layout below.
+- `hw_render.rs` — the headless-CGL hardware-render subsystem (v0.34 W345,
+  see §HW-render subsystem + N64 below).
+- `systems.rs` — the `NATIVE_SYSTEMS` table (v0.34 W340, see §Multi-system
+  engine below).
 
 ### 2. Audio — `cpal` + a ring buffer + dynamic rate control
 
@@ -1218,14 +1242,30 @@ lives in. `NativeRuntime` remains the module's only `pub` re-export from
 
 ## Follow-ups
 
-- Broaden the native core catalog beyond NES once the hosting layer is proven.
+**Done since the original v0.21 scope (kept here for history, not re-opened
+as open work):**
+- Broaden the native core catalog beyond NES — done: v0.34 "Engines"
+  (W340/W342/W344/W345) grew `NATIVE_SYSTEMS` to 10 rows (NES, SNES, Genesis,
+  Master System, GB, GBC, GBA, Atari 2600, PC Engine, PS1, N64).
+- Preview-then-play attract mode in the library UI — done: v0.23 W235 (see
+  §Attract mode above), extended to the EmulatorJS fallback tier by v0.37
+  W376 (in-page-play-design.md §3).
+- Save states for the native path — done: v0.23 W230 (save persistence;
+  serialize/SRAM FFI, shared `saves/` store, save IPC surface).
+
+**Still open:**
 - Native NSView/Metal overlay frame delivery, if canvas/IPC paint proves to be
   a bottleneck (lower latency, true end-to-end native path).
-- Preview-then-play attract mode in the library UI, built on top of this
-  plumbing.
-- Save states / rewind / shaders for the native path (parity with what
-  EmulatorJS already offers).
+- Rewind / shaders for the native path (parity with what EmulatorJS already
+  offers — EmulatorJS's rewind/fast-forward are documented in
+  in-page-play-design.md §8; the native path has neither, since rewind needs
+  frame-history machinery this path doesn't carry).
+- Vulkan/MoltenVK support in `hw_render.rs` — the documented path to unblock
+  GameCube/Wii via Dolphin's Vulkan backend (see §HW-render GC/Wii note
+  above, #50).
+- 4-player input — the port-based input model (§Multiplayer input) doesn't
+  need to change shape, only `NUM_NATIVE_INPUT_PORTS` and a frontend
+  port-assignment policy.
 - Revisit the cheaper interim mitigation noted in #15 (keep the EmulatorJS
-  player mounted across navigation instead of unmounting) if native rollout is
-  slower than expected and the return-visit re-garble needs a stopgap in the
-  meantime.
+  player mounted across navigation instead of unmounting) if the return-visit
+  re-garble on the EJS fallback tier needs a stopgap.

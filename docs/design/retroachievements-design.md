@@ -76,23 +76,33 @@ is known; nothing when RA is unconfigured.
 
 ## Acceptance
 
-- [ ] rcheevos compiles into the app on aarch64 (clippy/lint clean).
-- [ ] `rc_hash` fixture tests: NES with/without iNES header, SNES.
-- [ ] Stub-core scripted memory change triggers exactly one unlock event.
-- [ ] No-set session shows no frame-loop regression (pacing tests green).
-- [ ] Client fixture tests: login-ok / bad-key / fetch-set / network-fail.
-- [ ] Credential round-trips through KeyStore (memory stub in tests).
-- [ ] No credential ⇒ zero network calls.
-- [ ] Unlock toast renders (component test) and persists one idempotent row.
-- [ ] Detail page count appears only when a set is known.
-- [ ] `recipe.py smoke` passes on every branch.
+v0.37 shipped with all of these satisfied:
+
+- [x] rcheevos compiles into the app on aarch64 (clippy/lint clean).
+- [x] `rc_hash` fixture tests: NES with/without iNES header, SNES.
+- [x] Stub-core scripted memory change triggers exactly one unlock event.
+- [x] No-set session shows no frame-loop regression (pacing tests green).
+- [x] Client fixture tests: login-ok / bad-key / fetch-set / network-fail.
+- [x] Credential round-trips through KeyStore (memory stub in tests).
+- [x] No credential ⇒ zero network calls.
+- [x] Unlock toast renders (component test) and persists one idempotent row.
+- [x] Detail page count appears only when a set is known.
+- [x] `recipe.py smoke` passes on every branch.
 
 ## Open questions
 
-- rcheevos pin: vendor the latest tagged release; record the tag + sha in
-  the vendored README (W370 decides and documents).
-- Memory-pointer stability across save-state loads — revalidate the peek
-  pointer after `retro_unserialize` (W370 verifies against the stub core).
+Both original questions are resolved and implemented:
+
+- rcheevos pin — vendored at tag `v12.3.0` (commit `e9ca3694c862b6…`),
+  documented in `src-tauri/vendor/rcheevos/README.md` alongside the exact
+  included/excluded source subset (disc, zip, and encrypted-ROM hashing are
+  compiled out; NES/SNES ROM-buffer hashing and the trigger runtime are in).
+- Memory-pointer stability across save-state loads — the core loop re-fetches
+  the system-RAM pointer from `LibretroCore::system_ram_pointer` after every
+  `retro_unserialize` and hands `AchievementRuntime::do_frame` a fresh slice
+  each tick, so a save-state load can never leave the evaluator peeking at a
+  stale region (covered by `host.rs`'s
+  `do_frame_reads_a_freshly_supplied_memory_slice_each_call` test).
 
 ## Achievement list (v0.38 W384)
 
@@ -125,7 +135,8 @@ stays fully excluded from polling, toasting, and persistence.
 
 ## Follow-ups
 
-- Server submission of unlocks + session "rich presence" ping (v0.39).
+- Server submission of unlocks + session "rich presence" ping (not yet
+  scheduled to a release).
 - Genesis/N64 expansion (plumbing is system-agnostic).
 - EJS-path support investigation (upstream EmulatorJS work required).
 - Hardcore mode semantics (disables save states — interacts with

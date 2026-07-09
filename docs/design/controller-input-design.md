@@ -69,13 +69,26 @@ the **bottom** face button (standard index 0) and back with the **right** one
 (index 1); **Switch Pro** mirrors them (physical A is on the right), so confirm =
 index 1, back = index 0. This is the classic Nintendo A/B swap.
 
-### 2.3 Sticks & edge detection
+### 2.3 Sticks, edge detection & D-pad hold-to-repeat
 
 `stickToNav(x, y)` maps the left analog stick to a single nav action with a
 deadzone (`STICK_DEADZONE = 0.5`); the dominant axis wins so a diagonal resolves
 to one move. `risingActions()` reports buttons newly pressed this frame
 (rising-edge), so one physical press fires exactly one action regardless of poll
 rate; the polling hook rate-limits held-stick repeats (`STICK_REPEAT_MS`).
+
+`confirm`/`back`/`menu`/`quit` stay strictly single-fire per press, but a held
+D-pad direction now auto-repeats (v0.26 W262, `useGamepadPoll.ts`), matching the
+leanback feel of the analog-stick repeat above: an initial `NAV_REPEAT_DELAY_MS`
+(400 ms) delay after the first press — long enough that a quick tap never
+double-fires — then a faster steady `NAV_REPEAT_INTERVAL_MS` (150 ms) cadence
+while held. The pure scheduler `navRepeatDue(heldMs, msSinceLastFire)` decides
+whether a repeat is due this frame and is unit-tested independently of the rAF
+loop. Each frame re-resolves which button (if any) is bound to a repeatable nav
+action and currently held, so a live rebind takes effect immediately and
+releasing/switching buttons resets the hold cleanly. Keyboard arrows get the
+same held-repeat feel for free via the browser's native OS key-repeat, unrelated
+to this polling logic.
 
 ### 2.4 Auxiliary (per-family, additive) bindings — W278
 

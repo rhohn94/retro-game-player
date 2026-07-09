@@ -16,7 +16,9 @@ fully without it. When the Familiar is absent, unauthorized, rate-limited, or
 slow, Harmony degrades **silently** — the AI affordances are simply hidden and
 every other feature keeps working. W12 implements the two-stage probe, the
 Keychain-backed Bearer key, the enrichment client, and the result cache behind the
-`probe_familiar` / `enrich_game` IPC commands.
+`probe_familiar` / `enrich_game` IPC commands. The Settings screen's Familiar
+pane (W15, [settings-shell-design.md](settings-shell-design.md)) persists the
+connection via a third command, `save_familiar_config`.
 
 ## Module map (`src-tauri/src/core/familiar/`)
 
@@ -31,11 +33,17 @@ core/
     cache.rs             # EnrichmentCache (in-memory, keyed by game id)
     client.rs            # FamiliarClient — composes transport + keystore + cache
 commands/
-  familiar.rs            # thin #[tauri::command] adapters: probe_familiar, enrich_game
+  familiar.rs            # thin #[tauri::command] adapters: probe_familiar, enrich_game, save_familiar_config
 ```
 
-The frontend wrapper is `src/ipc/familiar.ts` (`probeFamiliar`, `enrichGame`),
-re-exported from the `src/ipc/commands.ts` barrel.
+The frontend wrapper is `src/ipc/familiar.ts` (`probeFamiliar`, `enrichGame`,
+`saveFamiliarConfig`), re-exported from the `src/ipc/commands.ts` barrel.
+`save_familiar_config` persists the base URL to the file-backed `AppConfig`
+(W4) and, when a non-empty key is supplied, writes it straight to the
+Keychain (an empty string explicitly clears the stored key; omitting the
+field leaves it untouched) — the same never-serialize-the-key contract as
+the rest of this doc, just entered from the Settings form instead of a
+config file.
 
 ## Configuration
 
@@ -130,8 +138,7 @@ above).
 
 ## Open questions
 
-- The W4 `DEFAULT_FAMILIAR_BASE_URL` (`config/mod.rs`) is
-  `http://127.0.0.1:8765`, while the W12 acceptance specifies a default of
-  `http://127.0.0.1:2121`. W12 consumes the W4 config field (single source of
-  truth) rather than overriding it; reconciling the default value to `2121` is a
-  one-line W4 follow-up.
+None outstanding — the earlier `DEFAULT_FAMILIAR_BASE_URL` mismatch (W4's
+config default vs. the W12 acceptance value) was reconciled: `config/mod.rs`
+now defines `DEFAULT_FAMILIAR_BASE_URL` as `http://127.0.0.1:2121`, matching
+the W12 spec.

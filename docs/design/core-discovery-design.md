@@ -28,19 +28,27 @@ browse UI** — `CoresPage` browsed one system at a time with no search.
   write (the buildbot publishes no simple per-nightly hash).
 - **A remote/dynamic catalog index** — the curated `system_map` stays the source
   of truth.
-- New systems beyond nes/snes/n64 (those need scan/mapper support).
 
-## Broadened catalog (W71)
+## Broadened catalog (W71, and since)
 
 `src-tauri/src/core/cores/system_map.rs` is the single source of truth for what
-Harmony offers per system. It was broadened to well-known libretro cores:
+Harmony offers per system. W71 broadened the original three systems to
+well-known libretro cores:
 
 - **nes**: mesen, fceumm, nestopia, quicknes
 - **snes**: snes9x, bsnes, snes9x2010
 - **n64**: mupen64plus_next, parallel_n64
 
-The first id per system remains the recommended default. The real download path
-still validates `(system, core_id)` against this map before any network call.
+The catalog has since grown well past nes/snes/n64: the v0.10 console-catalog
+sweep added gen 1–6 home consoles (atari2600/5200/7800, intellivision,
+colecovision, odyssey2, mastersystem, genesis, pcengine, neogeo, ps1, saturn,
+3do, jaguar, dreamcast, ps2, gamecube), and v0.34 added the Game Boy family
+(gb/gbc/gba) and wii — 24 curated systems in total. See
+[console-catalog-design.md](console-catalog-design.md) for the full list and
+scan/mapper caveats (e.g. CD-based systems install a core but aren't yet
+extension-scannable). The first id per system remains the recommended default,
+and the real download path still validates `(system, core_id)` against this
+map before any network call.
 
 ## Browse + search experience (W72)
 

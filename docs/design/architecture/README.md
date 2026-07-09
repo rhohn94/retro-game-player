@@ -8,8 +8,8 @@ than one feature.
 
 ## Contents
 
-- [`architecture-design.md`](architecture-design.md) — top-level architecture
-  (skeleton — flesh out as the architecture solidifies).
+- [`architecture-design.md`](architecture-design.md) — cross-cutting module
+  boundaries, layering, and dependency-direction rules for the current app.
 
 ## See also
 

@@ -39,14 +39,22 @@ download search with a curated set of emulator ROM sites.
 **Import pipeline** ([`core/library/import.rs`](../../src-tauri/src/core/library/import.rs),
 Tauri-free + unit-tested): `import_file(db, games_dir, src, dat)` →
 identify system via [`mapper`](../../src-tauri/src/core/library/mapper.rs) (unknown
-extension is rejected) → hash (CRC32+MD5) → DAT/filename clean-name via
-[`matcher`](../../src-tauri/src/core/library/matcher.rs) → place under
+extension is rejected) → hash (CRC32+MD5) → **content dedup first**, before any
+copy: a `(crc32, system)` match against an existing `games` row short-circuits
+to that row (`already_present`), so re-importing the same ROM from a different
+folder or under a different filename never copies or inserts anything → DAT/filename
+clean-name via [`matcher`](../../src-tauri/src/core/library/matcher.rs) → place under
 `<games_dir>/<system>/` (register-in-place when the file is already inside the
-Games dir; otherwise copy to a never-clobber unique name) → ensure the Games dir
-is a `content_folder` → insert the game (dedupe by the `games.path` UNIQUE
-constraint). The command [`import_games`](../../src-tauri/src/commands/library.rs)
-resolves (or first-run-creates) `AppConfig.games_dir`, runs each file, and returns
-a per-file result (`imported` / `exists` / `unsupported` / `error`).
+Games dir; otherwise copy to a never-clobber unique name, appending ` (1)`, ` (2)`, …
+before the extension on a filename collision) → ensure the Games dir is a
+`content_folder` → insert the game, with the `games.path` UNIQUE constraint as a
+race-safe backstop (a losing racer, or a path already registered, resolves to the
+existing row rather than erroring). The command
+[`import_games`](../../src-tauri/src/commands/library.rs) resolves (or
+first-run-creates) `AppConfig.games_dir`, runs each file (currently always without
+a DAT index — `dat` is passed as `None`, so imported games are never DAT-matched
+even when a folder scan of the same system would be), and returns a per-file
+result (`imported` / `exists` / `unsupported` / `error`).
 
 **Drag-and-drop** is wired in [`LibraryPage`](../../src/features/library/LibraryPage.tsx)
 via Tauri's built-in webview `onDragDropEvent` (no plugin); the **file picker**

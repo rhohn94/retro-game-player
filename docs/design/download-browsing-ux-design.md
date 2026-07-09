@@ -62,53 +62,56 @@ model, refined for our provider grouping):
 
 ## 4. Prioritized roadmap
 
-Ranked value-vs-effort. The first slice is all **[T]** — no new scraping, no
-network probes — and is the recommended next increment.
+Ranked value-vs-effort. Everything tagged **done** below has since shipped
+(§7/§8 cover the relevance and reach work in more detail); 9, 11, 12 remain
+open.
 
-1. **Live fast-filter box over title + URL** [T] — one input that instantly
-   narrows visible results (substring; optional `*`/`?`). Highest value, lowest
-   effort. Filters within and across groups; empties hide.
-2. **Sortable groups/rows with persisted sort** [T] — sort rows by Title; sort
-   groups by name / count; remember the last choice between searches (the
-   Sonarr #7813 gap). Size/Age become sort keys only where scraped [M].
+1. **Live fast-filter box over title + URL** [T] — **done** (`resultFilter.ts`,
+   W171/v0.17). One input that instantly narrows visible results
+   (case-insensitive substring); filters within and across groups.
+2. **Sortable groups/rows with persisted sort** [T] — **done**
+   (`resultSort.ts`; `loadSortPref`/`saveSortPref` persist the choice across
+   searches and restarts). Size/Age remain out of scope as sort keys — no
+   listing exposes those strings [M].
 3. **Collapsible provider tree with counts** [T] — **done** (§2). Add a
    **"Other/Various"** bucket if/when results arrive ungrouped.
-4. **Cross-provider dedupe → "available from N providers"** [T] — NZBHydra's
-   signature move: normalize titles (strip region/format tokens, casing) to
-   collapse the same game from several providers into one row; expand to choose
-   the source. Inverts grouping from provider-first to **game-first** — likely
-   closer to user intent. Medium effort (normalization heuristics), no rich
-   metadata needed.
-5. **Multi-select + "Open all selected in browser"** [T] — checkboxes,
-   Select-All, selected-count footer, batch open (with a sane confirm above ~N
-   tabs). Our link-out analog to DTA's "Start".
-6. **Title-parsed badges** [T] — region (USA/EUR/JPN), revision, dump-quality
-   markers, file-type — all regex-extractable from anchor text, rendered as
-   compact colored chips like the *arr quality badges.
-7. **A structured facet beyond name: Provider chip + System/console chip** [T] —
-   avoid itch's name-only complaint; system facet derives from library context
-   or title tokens.
-8. **Inline status line, not hover-only icons** [T] — if a result is flagged
-   (dead, non-game, duplicate), say why inline (the *arr anti-pattern).
+4. **Cross-provider dedupe → "available from N providers"** [T] — **done**
+   (`resultDedup.ts`, W192/W194/v0.19; see §8.1).
+5. **Multi-select + "Open all selected in browser"** [T] — **done**
+   (`resultSelection.ts`, `useResultSelection`, `SelectionFooter.tsx`,
+   W173/v0.17). Checkboxes, Select-All, selected-count footer, batch open.
+6. **Title-parsed badges** [T] — **done** (`resultBadges.ts`,
+   `components/ResultBadges.tsx`, W174/v0.17). Region (USA/EUR/JPN), revision,
+   GoodTools dump-quality markers, and file-type parsed from the anchor text by
+   pure regex, rendered as compact colored chips.
+7. **A structured facet beyond name: Provider chip + System/console chip** [T]
+   — **done** as the console + region selects (§7.3, W181/W184/W185/v0.18);
+   avoids itch's name-only complaint.
+8. **Inline status line, not hover-only icons** [T] — open. Errored/empty
+   provider groups already show an inline reason (§2's red `error` pill), but
+   there is no per-row flagged-result status line beyond the liveness dot (§8.2).
 9. **Grid (cover-art) vs compact-list density toggle** [T, art optional] —
-   cover thumbnails for recognized titles (asset protocol already enabled),
-   text row otherwise.
-10. **Link liveness check — alive/dead/unknown** [N] — JDownloader's
-    online/offline via a cheap `HEAD`; **rule-compatible (no content download)**.
-    The highest-value "rich" signal — a 404 link is the worst browsing outcome.
-    Async, rate-limited, per-provider courtesy; gate behind a setting.
-11. **Size / Age / File-type columns + range filters** [M] — only where the
-    listing exposes these strings. Mostly per-provider scraping rules; defer.
-12. **Search history + favorite providers** [T] — recent queries, a "favorite"
-    toggle. Low effort, later-iteration nicety.
+   open. Cover thumbnails for recognized titles (asset protocol already
+   enabled), text row otherwise.
+10. **Link liveness check — alive/dead/unknown** [N] — **done**
+    (`probe_links`/`core::search::liveness`, `linkStatus.ts`,
+    W191/W193/W194/v0.19; see §8.2).
+11. **Size / Age / File-type columns + range filters** [M] — open. Only where
+    the listing exposes these strings; mostly per-provider scraping rules, so
+    still deferred.
+12. **Search history + favorite providers** [T] — open. Recent queries, a
+    "favorite" toggle.
 
 ## 5. Recommended slices
 
-- **Next (cheap, all [T]):** 1 (fast-filter), 2 (sort + persist), 5 (multi-select
-  open), 6 (title badges) — on top of the collapsible tree already landed.
-- **Differentiators (respect the no-download rule):** 4 (dedupe) and 10
-  (liveness) are the two standout features that set Harmony apart.
-- **Defer:** 9, 11, 12 until metadata/coverage justify them.
+All of the "Next" and "Differentiators" slices below have landed; 9, 11, 12
+remain the open backlog.
+
+- **Landed (all [T]):** 1 (fast-filter), 2 (sort + persist), 5 (multi-select
+  open), 6 (title badges), on top of the collapsible tree (§2).
+- **Landed differentiators (respect the no-download rule):** 4 (dedupe) and 10
+  (liveness) — see §8.
+- **Still deferred:** 9, 11, 12 until metadata/coverage justify them.
 
 ## 6. Out of scope / guardrails
 
