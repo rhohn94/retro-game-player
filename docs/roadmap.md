@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.40 — Loose Ends (planned)
+## v0.40 — Loose Ends (implementation complete — pending release)
 
 **No single flagship.** Closes three independently-tracked backlog gaps
 instead: the remainder of the keyboard-accessibility punch list
