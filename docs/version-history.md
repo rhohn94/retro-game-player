@@ -7,6 +7,28 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.40 — Loose Ends (2026-07-10)
+
+A tidying-up release: three long-open, independently-tracked gaps closed,
+no single flagship.
+
+- **Better keyboard support in Library, Search, and the game page.** Every
+  button, dialog, and result row on these three screens is now fully
+  operable with a keyboard alone — no dead-end controls. Fixed two search
+  buttons (the Search button and the provider Add/Browse buttons) that
+  quietly only worked with a controller. Escape now consistently closes
+  panels and dialogs, and screen-reader labeling was corrected on the
+  collections picker and search result lists.
+- **More resilient under the hood for future emulator cores.** Settings
+  storage for core options is now collision-proof against unusual core/system
+  identifiers, and option detection now also catches cores that declare their
+  settings later in the boot sequence rather than only at startup — neither
+  is reachable with today's supported cores, but both are now closed before
+  the core catalog grows.
+- **Cleaner UI foundations.** The interface toolkit's real, generated type
+  definitions are now used directly instead of a hand-written stand-in,
+  which catches UI mistakes earlier during development. No visible change.
+
 ## v0.39 — Focus (2026-07-07)
 
 A focused release: the CRT filter now looks as good as your monitor allows.
