@@ -320,6 +320,97 @@ quick crossfade when the active device family changes. No blur.
 - File search (W9/W17): `file-search-design.md`
 - Native vibrancy seam (D2): `native-vibrancy-design.md`
 
+---
+
+## 8. Keyboard accessibility — cross-cutting (W394)
+
+Issue #29 (filed 2026-07-02) proposed a global `:focus-visible` treatment plus
+a keyboard pass over Library/Search/Settings/Detail. Two things shipped
+first: **W283** gave every native focusable element a token-driven focus ring
+app-wide (`src/theme/focus-visible.css` — reused here, never re-implemented,
+per its own doc comment); **v0.38** ("Better with a keyboard") made TV menus,
+dialogs, and **Settings** properly focusable/escapable with correct
+screen-reader rail tracking. **W394** is the remainder: a keyboard-operability
++ ARIA pass over the three routes v0.38 didn't touch — **Library** (`/`),
+**Search** (`/search`), and **Game Detail** (`/game/:id`).
+
+**Escape convention (shared with §0/§6's controller model).** Keyboard Escape
+and controller Back/Quit are the SAME semantic action (`useKeyboardNav`,
+W283, `controller-input-design.md` §Keyboard as an input method) — a plain
+`Escape` keydown maps to `back` and is dispatched through the identical
+`ControllerProvider.dispatchAction` path a gamepad's Back button drives. An
+overlay that wants Escape to close ITSELF (not fall through to the shell's
+default `back` handler, which is `navigate(-1)` in `App.tsx`) must claim the
+controller's exclusive `"ui"` slot for its open lifetime (`claimExclusive`,
+the `TvSystemMenu`/`CreateGamesFolderDialog` precedent) — claims layer, so a
+dialog opened from within an already-open panel (e.g. `DeleteCollectionDialog`
+from inside `CollectionPicker`) correctly closes only the topmost one first.
+W394 found and closed two gaps in this convention:
+
+- **`CollectionPicker`'s dropdown panel** never claimed the exclusive slot, so
+  Escape while it was open fell through to `navigate(-1)` — unexpectedly
+  leaving the Game Detail page instead of just closing the picker. Fixed with
+  the same claim + local `onKeyDown` pattern used everywhere else, with one
+  addition: mid-rename, the first Escape cancels the rename (matching the
+  already-shipped inline-cancel behavior) and only a second Escape closes the
+  panel — nested-overlay Escape semantics, not a flat close.
+- **`ProviderCatalog`** (Search's "Browse providers" sheet) had no Escape
+  handling at all, unlike its sibling `ProviderDialog` (add/edit provider),
+  which already implemented the convention. Fixed identically.
+
+**ARIA roles audited.** `AchievementList.tsx` already carries a defensive
+`role="list"` on its `<ul>` (v0.38 W384) because Safari/WebKit — the exact
+engine Tauri's macOS WKWebView uses — drops a native `<ul>`'s implicit list
+semantics once `list-style: none` is applied, unless `role="list"` is
+present. That fix was never carried into Search's own result lists (also
+`list-style: none`, for the same layout reasons): `MergedResultsView`'s
+merged-results list and its per-row "available from N providers" expansion,
+`ProviderResultGroup`'s per-provider row list, `ProviderDialog`'s
+discovered-providers list, and `ProviderCatalog`'s catalog-entries list all
+picked up `role="list"` (plus an `aria-label` on the two ambiguous nested
+lists) to close the same gap. Separately, `CollectionPicker`'s dropdown panel
+carried `role="menu"` despite containing checkboxes and text inputs — not a
+valid ARIA menu (the APG menu pattern expects arrow-key/`menuitem` navigation,
+not native Tab-order form controls) — corrected to `role="group"` with an
+`aria-label` and an `aria-controls` link from its toggle button, a plain
+disclosure-panel semantic that matches what the DOM actually is. The Library
+system-filter tabs (`LibraryFilters.tsx`) already carry the correct
+`role="tablist"`/`role="tab"`/`aria-selected` trio and were left as-is — no
+other tabbed region exists on these three routes, and Search has none at all.
+
+**A keyboard/mouse activation gap, found via a live end-to-end check (not
+just unit tests).** `FocusableControls.tsx`'s `FocusableAction`, used with a
+custom `render` prop, hands the caller an `onClick` that ONLY claims
+controller focus (`useFocusable`'s `focus`) — the real action fires
+separately, via the controller's own `confirm` semantic dispatch once that id
+is the tracked focus (see `ResultsToolbar`'s checkbox/Expand-all/Collapse-all
+usages, which correctly call the real handler alongside `onClick` in their
+own wrapper). Two Search controls hadn't picked up that second half:
+`SearchQueryBar`'s **Search** button and `ProviderChipsBar`'s **+ Add** /
+**⊞ Browse providers** buttons passed the bare focus-claiming `onClick`
+straight through. Concretely, this meant a mouse click OR keyboard Tab+Enter
+on any of these three buttons did nothing at all — silently, since a
+contained-less `<aura-button>`'s own Enter/Space handling calls `this.click()`
+(re-firing the SAME inert `onClick`), and the global keyboard bridge yields to
+that as "the native control's own activation" (`keyboardMap.ts`'s
+`isNativeActivationTarget`) rather than double-dispatching. Only a real
+gamepad's confirm button worked, because `useGamepadPoll`'s rising edge calls
+the registered `onActivate` directly, bypassing the DOM click path entirely.
+This was invisible to the existing component tests (which exercise
+`dispatchAction` directly, not a real click) and was only caught by driving
+the built bundle in a real headless browser end-to-end. Fixed by having each
+button's `onClick` also invoke the real handler, mirroring the already-correct
+`ResultsToolbar` precedent — verified with a live click in the same harness
+post-fix, plus new `SearchQueryBar.test.tsx` / `ProviderChipsBar.test.tsx`
+regression coverage.
+
+**Deferred:** the same `FocusableAction`-with-custom-`render` shape is used
+elsewhere in the app (Settings/Cores are out of this item's scope per its
+release-plan boundary); whether any of those call sites have the identical
+gap is worth a follow-up sweep rather than a blind fix, since some (like the
+checkbox toggles here) correctly own their own activation via a native
+`onChange` and must NOT also get a redundant `onClick` call.
+
 ## Implementation (W13)
 
 The library grid + hero + detail screens are implemented under

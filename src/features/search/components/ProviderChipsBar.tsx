@@ -50,7 +50,17 @@ export function ProviderChipsBar({
             ref={ref}
             variant="ghost"
             style={{ fontSize: 13, padding: "4px 10px" }}
-            onClick={onClick}
+            onClick={() => {
+              // `onClick` alone only claims controller focus (FocusableAction's
+              // render-prop contract) — a contained-less AuraButton has no
+              // other native handler to own the real action, so a real mouse
+              // click or keyboard Enter/Space must also invoke it here
+              // directly (matches ResultsToolbar's Expand/Collapse-all
+              // precedent). Without this, clicking + Add silently did
+              // nothing — only a gamepad confirm actually opened the dialog.
+              onClick();
+              onAddProvider();
+            }}
           >
             + Add
           </AuraButton>
@@ -64,7 +74,11 @@ export function ProviderChipsBar({
             ref={ref}
             variant="ghost"
             style={{ fontSize: 13, padding: "4px 10px" }}
-            onClick={onClick}
+            onClick={() => {
+              // Same fix as + Add above — see that comment.
+              onClick();
+              onBrowse();
+            }}
           >
             ⊞ Browse providers
           </AuraButton>
