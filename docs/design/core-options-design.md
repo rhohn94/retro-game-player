@@ -105,12 +105,15 @@ different, larger integration problem than "add a GUI," and is out of scope.
 ### Headless declared-options probe (`core::core_options::probe`)
 
 The declared option list only exists as the *side effect* of a real
-`retro_init` call — there's no separate "ask the core its schema" libretro
-entrypoint. `list_core_options` therefore needs a real (but ROM-less) boot to
-learn what a core declares: `probe_declared_options` drives `LibretroCore`
-through `load` → `set_environment` → `init` (never `load_game`), captures the
-`VariablesDeclared` event off the environment channel with a bounded
-(500 ms) wait, then unloads. This is the same process-global callback
+`retro_init` and/or `retro_load_game` call — there's no separate "ask the
+core its schema" libretro entrypoint. `list_core_options` therefore needs a
+real (but caller-ROM-less) boot to learn what a core declares:
+`probe_declared_options` drives `LibretroCore` through `load` →
+`set_environment` → `init`, captures whatever `VariablesDeclared` event the
+environment channel saw with a bounded (500 ms) wait, then drives
+`load_game` (a throwaway stub ROM the probe writes itself — see "W395
+follow-up" below), captures a second bounded wait's worth of declarations,
+merges the two, and unloads. This is the same process-global callback
 plumbing (`install`/`environment`/`uninstall`) a live play session uses, so a
 `PROBE_LOCK` serializes concurrent probe calls; the test suites for both
 `callbacks.rs` and `probe.rs` additionally share one `lock_tests()` guard
@@ -143,6 +146,31 @@ is unchanged and keeps its original, narrower job (serializing two
 concurrent probes); the "no live session" guarantee now lives entirely at
 the call sites.
 
+**W395 follow-up (issue #33) — `retro_load_game`-declared options.** The
+v0.29 W282 pre-merge Reviewer flagged that the probe drove `load` →
+`set_environment` → `init` and stopped there, so a core that declares part
+(or all) of its option list only once it knows what ROM was loaded — inside
+`retro_load_game`, after doing its own ROM analysis — was silently reported
+as declaring nothing at all for those options. Unreachable by `fceumm` (the
+only native core in the catalog at the time, which declares everything
+during `retro_init`), but a latent gap as the native-hosted core catalog
+broadens. Resolved by extending `probe_declared_options` to also drive
+`retro_load_game` before unloading: it writes a small placeholder ROM to a
+scratch temp path (`StubRomFile` — a handful of zero bytes, process-id- and
+counter-qualified so concurrent probes across processes never share a path),
+passes that path to `LibretroCore::load_game`, and — if the core accepts
+it — drains the environment channel a second time for any further
+`VariablesDeclared` event. The two stages' results are combined by
+`merge_declared_options`: a key declared at only one stage is kept as-is; a
+key declared at *both* stages keeps its `retro_load_game` variant (the later,
+post-ROM-analysis declaration is treated as the more informed one); order is
+otherwise preserved, with `retro_load_game`-only keys appended after
+whatever `retro_init` already declared. A core that rejects the stub ROM
+(`load_game` returning an error) degrades gracefully to "nothing further
+declared" rather than failing the whole probe — this stage is strictly
+additive, so a core that only ever declares during `retro_init` (still true
+of every native core Harmony hosts today) sees no behavior change.
+
 ### Persistence (`core::core_options::persistence`)
 
 Reuses the existing generic `settings` key/value table (no new table, no
@@ -150,6 +178,28 @@ migration) — the `(system, core, option_key)` triple is encoded into one
 namespaced key, `core_option::<system>::<core>::<option_key>`, and the value
 is JSON-scalar-encoded the same way every other settings row is. `settings.rs`
 itself is untouched.
+
+**W395 follow-up (issue #33) — collision-proof key escaping.** The same
+Reviewer flagged that the three components were joined with a plain
+`format!` and no escaping, so a `system`/`core`/`option_key` containing a
+literal `::` could shift the apparent field boundaries and collide with an
+unrelated triple — e.g. `("a::b", "c", "d")` and `("a", "b::c", "d")` both
+naively joined to `core_option::a::b::c::d`. Unreachable in practice (every
+`system`/`core_id` Harmony generates today is a fixed internal identifier,
+and libretro option keys are C identifiers), but not guaranteed by any type-
+level constraint, so it was closed rather than left as an assumption.
+Resolved with a two-step percent-style escape (`escape_component`) applied to
+each component before joining — not the "separate columns" alternative the
+release plan also offered, since that would mean a schema change to the
+generic `settings` table this module deliberately avoids touching. Every raw
+`%` becomes `%25` and every raw `:` becomes `%3A`, `%` escaped first so an
+input that already contains a literal `%3A` or `%25` can never be mistaken
+for one this module produced (the same ordering real percent-encoding uses
+to keep its own escape character from colliding with itself). This makes
+`settings_key` injective — two distinct triples always produce distinct
+keys — while leaving every key Harmony has ever actually persisted
+byte-for-byte unchanged (`nes`, `fceumm`, `fceumm_region`, etc. contain
+neither `%` nor `:`, so `escape_component` is a no-op for all of them).
 
 ### Effective-value resolution and session seeding
 

@@ -19,12 +19,40 @@ use crate::error::{AppError, AppResult};
 /// settings (theme, retroarch_path, ...).
 const KEY_PREFIX: &str = "core_option";
 
+/// Escapes one `(system, core, option_key)` component so it can be joined
+/// with the `::` delimiter without its own content ever being mistaken for a
+/// field boundary. A two-step percent-style escape — `%` first, then `:` —
+/// so the encoding stays unambiguous even when a component already contains
+/// a literal `%`: every raw `%` becomes `%25` and every raw `:` becomes
+/// `%3A`, and because `%` is always escaped *before* `:` is considered, an
+/// escaped `%25`/`%3A` byte sequence in the output can only ever have come
+/// from a raw `%`/`:` in the input — never from some other combination of
+/// plain characters that happened to spell the same thing. That injectivity
+/// is what makes [`settings_key`] collision-proof: without it, a component
+/// containing a literal `::` could shift the apparent field boundaries and
+/// produce the exact same key for two different triples (e.g. `system =
+/// "a::b", core = "c"` and `system = "a", core = "b::c"` would otherwise both
+/// join to `a::b::c`).
+///
+/// Libretro option keys are C identifiers in practice and would never
+/// exercise this, but `system`/`core_id` are plain strings with no such
+/// constraint, so this closes the gap for them rather than assuming it can
+/// never happen.
+fn escape_component(component: &str) -> String {
+    component.replace('%', "%25").replace(':', "%3A")
+}
+
 /// Builds the namespaced settings key for one `(system, core, option_key)`
-/// triple. `::` is not a legal libretro option-key character in practice
-/// (they're C identifiers), so this encoding is unambiguous to decode were
-/// that ever needed.
+/// triple. Each component is escaped independently ([`escape_component`])
+/// before joining, so no component's content can ever be mistaken for the
+/// `::` delimiter — two distinct triples always produce distinct keys.
 fn settings_key(system: &str, core_id: &str, option_key: &str) -> String {
-    format!("{KEY_PREFIX}::{system}::{core_id}::{option_key}")
+    format!(
+        "{KEY_PREFIX}::{}::{}::{}",
+        escape_component(system),
+        escape_component(core_id),
+        escape_component(option_key)
+    )
 }
 
 /// Reads the persisted value for one option, or `None` if nothing has ever
@@ -139,5 +167,37 @@ mod tests {
             settings_key("nes", "fceumm", "a"),
             settings_key("nes", "mesen", "a")
         );
+
+        // A component containing a literal `::` must not be able to shift
+        // the triple's field boundaries: without escaping, `("a::b", "c",
+        // "d")` and `("a", "b::c", "d")` would both naively join to
+        // `core_option::a::b::c::d`.
+        assert_ne!(
+            settings_key("a::b", "c", "d"),
+            settings_key("a", "b::c", "d")
+        );
+        assert_ne!(
+            settings_key("nes", "fceumm", "a::b"),
+            settings_key("nes", "fceumm::a", "b")
+        );
+    }
+
+    #[test]
+    fn escape_component_passes_through_a_plain_component_unchanged() {
+        assert_eq!(escape_component("fceumm_region"), "fceumm_region");
+    }
+
+    #[test]
+    fn escape_component_escapes_embedded_delimiter_colons() {
+        assert_eq!(escape_component("a::b"), "a%3A%3Ab");
+    }
+
+    #[test]
+    fn escape_component_escapes_a_literal_percent_before_colon() {
+        // `%` is escaped first, so a component that already contains a
+        // literal `%3A` (three plain characters, no colon) never gets
+        // confused for an escaped colon.
+        assert_eq!(escape_component("%3A"), "%253A");
+        assert_ne!(escape_component("%3A"), escape_component(":"));
     }
 }
