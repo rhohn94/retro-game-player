@@ -325,7 +325,7 @@ export function ProviderDialog({
               </span>
             )}
             {discovered && discovered.length > 0 && (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
                 {discovered.map((d) => (
                   <li key={`${d.mechanism}:${d.urlTemplate}`}>
                     <button

@@ -104,7 +104,23 @@ export function SearchQueryBar({
         onActivate={onSearch}
         disabled={searchDisabled}
         render={({ ref, onClick, disabled }) => (
-          <AuraButton ref={ref} variant="primary" onClick={onClick} disabled={disabled}>
+          <AuraButton
+            ref={ref}
+            variant="primary"
+            onClick={() => {
+              // `onClick` alone only claims controller focus (FocusableAction's
+              // render-prop contract) — a contained-less AuraButton has no other
+              // native onChange/onClick to own the real action (unlike the
+              // checkbox toggles above), so a real mouse click or keyboard
+              // Enter/Space must also invoke it here directly (matches
+              // ResultsToolbar's Expand/Collapse-all precedent). Without this,
+              // clicking Search (or Tab+Enter to it) silently did nothing —
+              // only a gamepad confirm actually ran the search.
+              onClick();
+              onSearch();
+            }}
+            disabled={disabled}
+          >
             {running ? "Searching…" : "Search"}
           </AuraButton>
         )}
