@@ -236,7 +236,26 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.39 — Focus (implementation complete — pending release)
+## v0.40 — Loose Ends (planned)
+
+**No single flagship.** Closes three independently-tracked backlog gaps
+instead: the remainder of the keyboard-accessibility punch list
+([#29](https://github.com/rhohn94/retro-game-player/issues/29)) that v0.38's
+TV/dialog/settings pass didn't cover (Library/Search/Game-Detail keyboard
+operability + ARIA audit), a core-options probe robustness follow-up from the
+v0.29 review ([#33](https://github.com/rhohn94/retro-game-player/issues/33)),
+and adopting Aura's real upstream TypeScript types in place of the hand-rolled
+shim ([#40](https://github.com/rhohn94/retro-game-player/issues/40)).
+
+**Non-goals:** everything else in the backlog (RA, Vulkan, i18n, Windows/Linux
+ports, notarized DMG, metadata enrichment, etc.) — unchanged, carried from
+v0.39 §4.
+
+Plan: [`release-planning-v0.40.md`](release-planning/release-planning-v0.40.md).
+
+---
+
+## v0.39 — Focus (released — see version-history.md)
 
 **Flagship: CRT filter presentation quality.** Decouple the native-path CRT
 shader's rendering resolution from the emulated game's frame resolution —
@@ -256,7 +275,7 @@ Plan: [`release-planning-v0.39.md`](release-planning/release-planning-v0.39.md).
 
 ---
 
-## v0.38 — Tune-Up (implementation complete — pending release)
+## v0.38 — Tune-Up (released — see version-history.md)
 
 **Flagship: quality, performance, polish.** A measured pass over the
 engine and the v0.37 surfaces (user directive 2026-07-06): native
@@ -273,7 +292,7 @@ Plan: [`release-planning-v0.38.md`](release-planning/release-planning-v0.38.md).
 
 ---
 
-## v0.37 — Trophies (implementation complete — pending release)
+## v0.37 — Trophies (released — see version-history.md)
 
 **Theme:** RetroAchievements foundation (user directive 2026-07-06: autonomous
 next-release cycle; roadmap's "strongest unclaimed community differentiator")
@@ -369,7 +388,7 @@ Plan: [`release-planning-v0.34.md`](release-planning/release-planning-v0.34.md).
 
 ---
 
-## v0.33 — Bottles (implementation complete — pending release)
+## v0.33 — Bottles (released — see version-history.md)
 
 **Theme:** Horizon H2, first slice — CrossOver bottles on the shelves.
 

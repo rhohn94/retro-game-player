@@ -145,6 +145,8 @@ function MergedRow({
       <AnimatePresence initial={false}>
         {multi && expanded && (
           <motion.ul
+            role="list"
+            aria-label={`Sources for ${merged.title}`}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -252,6 +254,8 @@ export function MergedResultsView({
   }
   return (
     <motion.ul
+      role="list"
+      aria-label="Search results"
       variants={listContainer}
       initial="hidden"
       animate="visible"

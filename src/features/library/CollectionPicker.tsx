@@ -13,7 +13,7 @@
 // (inline edit, reusing the inline-create input pattern) + delete (behind
 // DeleteCollectionDialog's confirmation) affordances.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AuraButton, AuraField } from "@aura/react";
 import {
   addGameToCollection,
@@ -30,6 +30,7 @@ import { swallow } from "../../ipc/swallow";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorNotice } from "../../components/ErrorNotice";
 import { DeleteCollectionDialog } from "./DeleteCollectionDialog";
+import { useController } from "../controller";
 
 interface CollectionPickerProps {
   gameId: number;
@@ -191,7 +192,30 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
     });
   }, []);
 
+  // Escape must close THIS panel — or, mid-rename, just cancel the rename —
+  // rather than falling through to the shell's default `back` handler
+  // (`navigate(-1)` in App.tsx), matching the CreateGamesFolderDialog /
+  // DeleteCollectionDialog exclusive-claim convention (issue #29 remainder,
+  // W394): without this, opening the picker and pressing Escape unexpectedly
+  // navigated away from the detail page instead of just closing the picker.
+  // Refs mirror the latest renaming/cancel state so the claim effect only
+  // re-subscribes when `open` itself changes, not on every rename keystroke.
+  const { claimExclusive } = useController();
+  const renamingIdRef = useRef(renamingId);
+  renamingIdRef.current = renamingId;
+  const cancelRenameRef = useRef(cancelRename);
+  cancelRenameRef.current = cancelRename;
+  useEffect(() => {
+    if (!open) return;
+    return claimExclusive((action) => {
+      if (action !== "back" && action !== "quit") return;
+      if (renamingIdRef.current != null) cancelRenameRef.current();
+      else setOpen(false);
+    }, "ui");
+  }, [open, claimExclusive]);
+
   const sorted = sortCollectionsForPicker(collections);
+  const panelId = `collection-picker-panel-${gameId}`;
 
   return (
     <div className="rgp-collection-picker">
@@ -199,6 +223,7 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
         type="button"
         className="rgp-collection-picker__toggle"
         aria-expanded={open}
+        aria-controls={panelId}
         aria-label="Add to collection"
         onClick={() => setOpen((v) => !v)}
       >
@@ -206,7 +231,23 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
       </button>
 
       {open && (
-        <div className="rgp-collection-picker__panel" role="menu">
+        <div
+          className="rgp-collection-picker__panel"
+          id={panelId}
+          role="group"
+          aria-label="Collections"
+          onKeyDown={(e) => {
+            // Local, direct-DOM Escape handling (mirrors every other dialog's
+            // onKeyDown convention in this codebase) — `preventDefault` stops
+            // the global keyboard bridge from ALSO dispatching a `back`
+            // semantic action for this same keypress, so a mid-rename Escape
+            // cancels the rename exactly once rather than closing the panel too.
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            if (renamingId != null) cancelRename();
+            else setOpen(false);
+          }}
+        >
           {!loaded && !loadError && (
             <LoadingState>Loading collections…</LoadingState>
           )}
@@ -233,7 +274,14 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") confirmRename();
-                          if (e.key === "Escape") cancelRename();
+                          if (e.key === "Escape") {
+                            // Stop this Escape from also reaching the panel's
+                            // own Escape handler above (bubbling) — cancelling
+                            // the rename is the complete action; the panel
+                            // should stay open for a second Escape to close it.
+                            e.stopPropagation();
+                            cancelRename();
+                          }
                         }}
                       />
                     </AuraField>

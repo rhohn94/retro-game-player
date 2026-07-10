@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollectionPicker } from "./CollectionPicker";
-import { ControllerProvider } from "../controller";
+import { ControllerProvider, useController } from "../controller";
 import * as collectionsIpc from "../../ipc/collections";
 
 vi.mock("../../ipc/collections", () => ({
@@ -27,6 +27,16 @@ async function flush() {
     await Promise.resolve();
     await Promise.resolve();
   });
+}
+
+/** Exposes the controller's `dispatchAction` on `window` so tests can fire a
+ * semantic action (simulating a controller Back press) without a real
+ * gamepad poll — mirrors DeleteCollectionDialog.test.tsx's probe. */
+function DispatchProbe() {
+  const { dispatchAction } = useController();
+  (window as unknown as { __dispatchAction: typeof dispatchAction }).__dispatchAction =
+    dispatchAction;
+  return null;
 }
 
 /** Set a controlled `<input>`'s value through React's tracked native setter
@@ -61,12 +71,14 @@ describe("CollectionPicker", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as unknown as { __dispatchAction?: unknown }).__dispatchAction;
   });
 
   async function openPicker() {
     act(() => {
       root.render(
         <ControllerProvider>
+          <DispatchProbe />
           <CollectionPicker gameId={42} />
         </ControllerProvider>,
       );
@@ -255,6 +267,63 @@ describe("CollectionPicker", () => {
 
     expect(collectionsIpc.deleteCollection).not.toHaveBeenCalled();
     expect(container.querySelector(".rgp-delete-collection-dialog")).toBeNull();
+    expect(container.textContent).toContain("Kids");
+  });
+
+  // Keyboard-accessibility regression coverage (issue #29 remainder, W394):
+  // before this fix, Escape while the picker was open fell through to the
+  // app shell's default `back` handler (`navigate(-1)`) instead of closing
+  // just the picker, because the picker never claimed the controller's
+  // exclusive input slot.
+  it("exposes a group role (not a mismatched menu role) with a labelled toggle relationship", async () => {
+    await openPicker();
+    const toggle = container.querySelector<HTMLButtonElement>(".rgp-collection-picker__toggle")!;
+    const panel = container.querySelector<HTMLElement>(".rgp-collection-picker__panel")!;
+    expect(panel.getAttribute("role")).toBe("group");
+    expect(panel.getAttribute("aria-label")).toBe("Collections");
+    expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
+  });
+
+  it("closes the panel when a controller Back action fires while open", async () => {
+    await openPicker();
+    expect(container.querySelector(".rgp-collection-picker__panel")).not.toBeNull();
+
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("back");
+    });
+
+    expect(container.querySelector(".rgp-collection-picker__panel")).toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>(".rgp-collection-picker__toggle")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes the panel on a direct Escape keydown", async () => {
+    await openPicker();
+    const panel = container.querySelector<HTMLElement>(".rgp-collection-picker__panel")!;
+
+    act(() => {
+      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+
+    expect(container.querySelector(".rgp-collection-picker__panel")).toBeNull();
+  });
+
+  it("Escape cancels an in-progress rename without closing the panel", async () => {
+    await openPicker();
+    const renameButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Rename Kids"]',
+    )!;
+    act(() => renameButton.click());
+
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Rename Kids"]')!;
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+
+    // The rename input is gone (rename cancelled)...
+    expect(container.querySelector('input[aria-label="Rename Kids"]')).toBeNull();
+    // ...but the panel itself is still open, showing the plain row again.
+    expect(container.querySelector(".rgp-collection-picker__panel")).not.toBeNull();
     expect(container.textContent).toContain("Kids");
   });
 });

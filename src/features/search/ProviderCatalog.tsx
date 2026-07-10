@@ -11,7 +11,7 @@
  * without the user hand-crafting templates. It lists only legitimate sources;
  * anything else is added via the provider dialog.
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { AuraDialog, AuraButton, AuraField } from "@aura/react";
 import { dialogPop } from "../../lib/motion";
@@ -19,6 +19,7 @@ import { listProviderCatalog, addProvider } from "../../ipc/search";
 import type { CatalogProvider, SearchProvider } from "../../ipc/search";
 import { isAppError } from "../../ipc/commands";
 import { swallow } from "../../ipc/swallow";
+import { useController } from "../controller";
 
 interface ProviderCatalogProps {
   open: boolean;
@@ -153,6 +154,21 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
   const [addingName, setAddingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Claim the "ui" exclusive slot for the dialog's whole open lifetime
+  // (CreateGamesFolderDialog/ProviderDialog precedent, issue #29 remainder
+  // W394): without this, Back/Escape fell through to the shell's
+  // `navigate(-1)` instead of closing this dialog — the one Search-route
+  // overlay that had no Escape handling at all.
+  const { claimExclusive } = useController();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    return claimExclusive((action) => {
+      if (action === "back" || action === "quit") onCloseRef.current();
+    }, "ui");
+  }, [open, claimExclusive]);
+
   // Load the catalog whenever the sheet opens (so `added` reflects current state).
   useEffect(() => {
     if (!open) return;
@@ -217,6 +233,9 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
       <motion.div
         initial={dialogPop.initial}
         animate={dialogPop.animate}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onClose();
+        }}
         style={{ display: "flex", flexDirection: "column", gap: 12, padding: 4 }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -269,6 +288,7 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
         )}
 
         <ul
+          role="list"
           style={{
             listStyle: "none",
             margin: 0,

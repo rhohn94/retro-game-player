@@ -14,7 +14,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@aura/react": ["./src/theme/aura-react.d.ts"]
+      "@aura/react": ["./vendor/aura/bindings/react/aura-react.d.ts"],
+      "@aura/react/hooks": ["./vendor/aura/bindings/react/hooks.d.ts"]
     },
     "strict": true,
     "noUnusedLocals": true,

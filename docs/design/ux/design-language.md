@@ -92,17 +92,27 @@ git -C vendor/aura checkout <PINNED_SHA on v3.20 channel>   # W2
 
 ### 2.3 Import strategy
 
-Vite aliases let app code import the React adapter from the submodule tree:
+Vite aliases let app code import the React adapter from the vendored tree
+(`vendor/aura`, the Dependency Channel asset bundle — §2.2):
 
 ```ts
-// vite.config.ts  (W2 establishes the alias)
+// vite.config.ts
 resolve: {
   alias: {
-    "@aura/react": fileURLToPath(new URL("./vendor/aura/bindings/react", import.meta.url)),
-    "@aura/css":   fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
+    // Longest-prefix alias FIRST: plugin-alias matches "@aura/react" as a
+    // path-segment prefix of "@aura/react/hooks" too, so the hooks entry
+    // must be listed before the bare "@aura/react" one or it never wins.
+    "@aura/react/hooks": fileURLToPath(new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url)),
+    "@aura/react":       fileURLToPath(new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url)),
+    "@aura/css":         fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
   },
 }
 ```
+
+`vitest.config.ts` keeps its own copy of the same aliases (documented there as
+a deliberate mirror, so a `.tsx` spec importing an Aura-backed component
+resolves identically without pulling in the whole Vite config) — the two must
+be kept in sync by hand.
 
 ```ts
 // src/theme/AuraProvider.tsx  (D3/W2)
@@ -110,8 +120,36 @@ import "@aura/css/aura.css";              // the @layer barrel
 import { AuraApp, AuraCard, AuraButton } from "@aura/react";
 ```
 
-The `jsx.d.ts` from `vendor/aura/bindings/react` is added to `tsconfig`'s
-`include`/`types` so `<aura-*>` elements type-check in TSX.
+**Types (W396, closes design-language#40).** `tsconfig.json`'s `paths` maps
+`@aura/react` straight to the vendored, **generated** types —
+`vendor/aura/bindings/react/aura-react.d.ts` (v3.541.0 ships real types now;
+§7.1) — and `@aura/react/hooks` to the sibling `hooks.d.ts`, so both the
+typed wrappers (`AuraButtonProps`, `AuraDialogProps`, …) and the ~30 upstream
+hooks (`useAuraDialog`, `useAuraTheme`, …) resolve with their real, generated
+shapes. There is no per-project shim left for either surface — the former
+hand-rolled `src/theme/aura-react.d.ts` (which typed every component as a
+generic `AuraComponent` with `[attr: string]: unknown`) is deleted outright;
+nothing in the app depended on its `createAuraComponent`/`AuraWrapperProps`
+exports beyond the 5 typed wrappers actually used (`AuraApp`, `AuraButton`,
+`AuraCard`, `AuraField`, `AuraDialog`), and those all type-check unmodified
+against the real generated props. Adopting a specific hook is **not**
+required by this wiring — the alias only needs to resolve;
+`src/theme/auraReactHooks.test.ts` proves both the Vite/Vitest bundler alias
+and the tsconfig `paths` entry resolve, without exercising hook behavior.
+
+`src/theme/aura.d.ts` is now much smaller: it covers only the two ambient
+declarations that have no upstream `.d.ts` because they are app-local Vite
+aliases, not part of Aura's published type surface — the `@aura/runtime`
+side-effect import and the `@aura/css/*` CSS-barrel import. Raw `<aura-*>` JSX
+tags (if anything ever uses them — nothing in `src/` does today; every call
+site goes through a typed wrapper) type-check via the vendored
+`vendor/aura/bindings/react/jsx.d.ts` **without** a separate `tsconfig`
+`include`/`types` entry: `aura-react.d.ts` carries
+`/// <reference path="./jsx.d.ts" />` at its own top, and since `@aura/react`
+resolves to that file for every wrapper import already in `src/`, `jsx.d.ts`
+rides along transitively into the program. (§7.6 corrects the design's
+original `include`/`types` claim, which this item found to be unnecessary in
+practice.)
 
 ---
 
@@ -311,12 +349,20 @@ seams. Full vibrancy config + the transparent-webview CSS contract:
 Driving Aura's web components from React 19 surfaced real friction worth
 recording for the ecosystem:
 
-1. **`bindings/react` not in the release asset (design-language#858).** The
-   single biggest gap: the v3.20 asset bundle omits the React adapter, so a clean
-   package install yields custom elements with **no** typed wrappers, no hooks,
-   and no `jsx.d.ts`. Resolution: the **submodule pin** (§2). Without it, React
-   consumers must hand-write wrappers — exactly the duplication Aura's adapter
-   exists to prevent.
+1. **`bindings/react` not in the release asset (design-language#858) —
+   RESOLVED as of v3.541.0.** The original gap: the v3.20 asset bundle omitted
+   the React adapter, so a clean package install yielded custom elements with
+   **no** typed wrappers, no hooks, and no `jsx.d.ts`; Harmony's original
+   workaround was a **submodule pin** (§2.2, historical). The v3.541.0 asset
+   bundle now ships `bindings/react` complete with **generated** TypeScript
+   types — `aura-react.d.ts`, `hooks.d.ts`, `jsx.d.ts` — which is what let W19
+   migrate Harmony off the submodule onto the Dependency Channel asset bundle,
+   and what let **W396** (design-language#40) repoint `tsconfig.json`'s
+   `@aura/react`/`@aura/react/hooks` `paths` at the real generated types and
+   delete the hand-rolled per-project shim outright (§2.3). Adopting them
+   surfaced zero prop/event mismatches across the app's existing usage
+   (`AuraApp`, `AuraButton`, `AuraCard`, `AuraDialog`, `AuraField`) — the shim
+   and the real types happened to agree on every prop actually in use.
 
 2. **`events`/`class` vs `onChange`/`className`.** Aura custom elements emit DOM
    **CustomEvents** and key off the **`class`** attribute. React's synthetic
@@ -324,12 +370,30 @@ recording for the ecosystem:
    must use the typed wrappers (which bridge to `addEventListener` + `class`) — or
    `ref` + `addEventListener` by hand. Mixing React idioms onto raw `<aura-*>`
    silently no-ops. This is the most common foot-gun for UI agents; the
-   `theme/` + `components/` wrappers exist to hide it.
+   `theme/` + `components/` wrappers exist to hide it. Confirmed against the
+   real wrapper source (W396): an explicit `className` is accepted too (it
+   wins over `class` when both are set) and is bridged to a real `class="…"`
+   attribute on every supported React version — so
+   `<AuraApp className="rgp-shell">` (`src/App.tsx`) is correct as written,
+   not an instance of this foot-gun.
 
 3. **Controlled-input mismatch.** Because the change event isn't React's, the
-   usual `value` + `onChange` controlled-component pattern doesn't apply directly
-   to `<aura-field>`. The wrappers expose a React-idiomatic `value`/`onValueChange`
-   surface and reconcile it to the element's property + CustomEvent internally.
+   usual `value` + `onChange` controlled-component pattern doesn't apply
+   directly to Aura's value-bearing elements. **Correction (W396):** the real
+   generated types name the bridge prop `onChange` (not `onValueChange` as
+   earlier drafts of this doc claimed — no such prop exists anywhere in the
+   generated types or in this codebase), but its signature is the
+   **controlled-bridge sugar** `(value, event) => void` — not a native
+   `ChangeEvent` — reconciled from the element's `aura:change` CustomEvent
+   internally. Only elements that actually carry a value declare it (e.g.
+   `AuraCheckbox`, `AuraSelect`, `AuraRange`, `AuraSwitch`, `AuraStepper`);
+   `<aura-field>` itself is a label/hint/error **wrapper**, not a value
+   carrier — it has neither `value` nor `onChange`, and its wrapped child
+   control carries the pair instead. `AuraSelect`/`AuraRange` additionally
+   discriminate the pair on their `multiple`/`range` boolean prop via a typed
+   union (`AuraSelectModeProps`/`AuraRangeModeProps`), so `value`/`onChange`
+   narrow to `string`/`string[]` (or `number`/`number[]`) automatically —
+   worth knowing before a future item adopts either component.
 
 4. **SSR / hydration.** Custom elements are **client-only** in this app — Harmony
    is a Tauri SPA (no SSR), so hydration mismatch isn't a runtime risk here. But
@@ -343,12 +407,53 @@ recording for the ecosystem:
    provided override layer; otherwise specificity fights are unpredictable.
    Recorded so UI agents place overrides correctly.
 
-6. **Type wiring.** The `jsx.d.ts` must be in `tsconfig` `include` for TSX to
-   accept `<aura-*>` tags; this is easy to miss when consuming from a submodule
-   path rather than `node_modules`.
+6. **Type wiring — corrected (W396).** Earlier drafts of this doc claimed
+   `jsx.d.ts` "must be in `tsconfig` `include`" for raw `<aura-*>` tags to
+   type-check. In practice this was never wired up that way, and turns out to
+   be unnecessary: `aura-react.d.ts` (the file `@aura/react`'s `paths` entry
+   resolves to) carries `/// <reference path="./jsx.d.ts" />` at its own top,
+   so once any file imports a wrapper from `@aura/react` — which every screen
+   already does — `jsx.d.ts`'s global `JSX.IntrinsicElements` augmentation
+   rides along transitively, no separate `include`/`types` entry needed.
+   Verified empirically: a scratch raw `<aura-app bogusProp>` probe correctly
+   failed `tsc` against the real generated `AuraAppElementAttributes`, proving
+   the augmentation is live. One real hazard this surfaced:
+   `src/theme/aura.d.ts` used to hand-roll its own `JSX.IntrinsicElements`
+   entries for a 16-tag subset (`aura-app`, `aura-card`, …) as an app-local
+   stand-in for the
+   then-nonexistent real `jsx.d.ts`. With the real (55-tag) `jsx.d.ts` now
+   live transitively, that hand-rolled block became dead, duplicate, and
+   *structurally conflicting* (different prop shapes for the same tag names)
+   — silently, because `tsconfig.json`'s pre-existing `skipLibCheck: true`
+   suppresses exactly this class of cross-`.d.ts` inconsistency. No source
+   file used a raw tag (every call site goes through a typed wrapper), so
+   nothing broke, but it was a live landmine for the first future raw-tag
+   consumer. W396 removed the dead block; `aura.d.ts` now declares only the
+   two ambient module imports Aura's own types don't cover (`@aura/runtime`,
+   `@aura/css/*` — both app-local Vite aliases, not part of Aura's published
+   surface).
 
-These findings are also surfaced upstream where applicable (#858) and feed W19's
-Dependency-Channel reconciliation.
+7. **The real types are strictly narrower than the shim they replaced
+   (W396).** The deleted `src/theme/aura-react.d.ts` typed every wrapper as a
+   generic `AuraComponent` with `variant?: string` and a catch-all
+   `[attr: string]: unknown` — any prop name, any `variant` string, and any
+   `events` key type-checked. The real generated types are closed: `variant` (and
+   `elevation`, etc.) are the element's exact literal-string union, `events`
+   is a per-element **closed** map of only the CustomEvents that element
+   actually dispatches (a typo like `"aura:chnge"` is now a compile error,
+   not a silent no-op listener), and there is no catch-all index signature
+   beyond the `data-*`/`aria-*` template-literal keys — an unrecognized prop
+   is now a real excess-property error instead of silently passing through.
+   None of this broke anything in the existing codebase (finding 1), but it
+   is a meaningfully stricter contract for whatever's written against Aura
+   next: a consumer that needs to listen for a genuinely future/custom event
+   must widen explicitly via the exported `AuraEventHandlers` escape hatch
+   (`events={{ ...handlers } as AuraEventHandlers}`) rather than relying on an
+   implicit catch-all.
+
+Findings 2–5 and 7 remain live ecosystem signal for future Aura-in-React work;
+finding 1 (the asset/types gap, #858) and finding 6 (the type-wiring
+uncertainty) are resolved and kept here as historical record.
 
 ---
 

@@ -213,6 +213,8 @@ export function ProviderResultGroup({
               </p>
             ) : (
               <motion.ul
+                role="list"
+                aria-label={`Results from ${group.providerName}`}
                 variants={listContainer}
                 initial="hidden"
                 animate="visible"
