@@ -291,13 +291,15 @@ void *retro_get_memory_data(unsigned id) { return 0; }
 size_t retro_get_memory_size(unsigned id) { return 0; }
 "#;
 
-    /// Mirrors `host.rs`'s own `build_stub_core` helper (kept local rather
-    /// than shared — the two stub sources diverge, and this is a small,
-    /// self-contained test fixture).
-    fn build_stub_core(dir: &Path) -> Option<std::path::PathBuf> {
-        let c_path = dir.join("stub_options_core.c");
-        std::fs::write(&c_path, STUB_CORE_WITH_OPTIONS_C).ok()?;
-        let dylib_path = dir.join("stub_options_core.dylib");
+    /// Shared builder for this module's stub libretro cores: writes `source`
+    /// to `<dir>/<basename>.c` and compiles it to `<dir>/<basename>.dylib`.
+    /// The three stub cores in this module differ only in their C source and
+    /// file basename — this is the one place that knows how to turn either
+    /// into a loadable dylib.
+    fn build_stub_core_from(dir: &Path, basename: &str, source: &str) -> Option<std::path::PathBuf> {
+        let c_path = dir.join(format!("{basename}.c"));
+        std::fs::write(&c_path, source).ok()?;
+        let dylib_path = dir.join(format!("{basename}.dylib"));
         let status = Command::new("cc")
             .arg("-dynamiclib")
             .arg("-o")
@@ -306,6 +308,13 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
             .status()
             .ok()?;
         status.success().then_some(dylib_path)
+    }
+
+    /// Mirrors `host.rs`'s own `build_stub_core` helper (kept local rather
+    /// than shared — the two stub sources diverge, and this is a small,
+    /// self-contained test fixture).
+    fn build_stub_core(dir: &Path) -> Option<std::path::PathBuf> {
+        build_stub_core_from(dir, "stub_options_core", STUB_CORE_WITH_OPTIONS_C)
     }
 
     /// A minimal libretro core that declares its option list only once a
@@ -379,17 +388,11 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
 
     /// Mirrors [`build_stub_core`] but for [`STUB_CORE_DECLARES_AT_LOAD_GAME_C`].
     fn build_stub_core_declaring_at_load_game(dir: &Path) -> Option<std::path::PathBuf> {
-        let c_path = dir.join("stub_load_game_options_core.c");
-        std::fs::write(&c_path, STUB_CORE_DECLARES_AT_LOAD_GAME_C).ok()?;
-        let dylib_path = dir.join("stub_load_game_options_core.dylib");
-        let status = Command::new("cc")
-            .arg("-dynamiclib")
-            .arg("-o")
-            .arg(&dylib_path)
-            .arg(&c_path)
-            .status()
-            .ok()?;
-        status.success().then_some(dylib_path)
+        build_stub_core_from(
+            dir,
+            "stub_load_game_options_core",
+            STUB_CORE_DECLARES_AT_LOAD_GAME_C,
+        )
     }
 
     /// A minimal libretro core that declares a *different* option at each of
@@ -466,17 +469,11 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
 
     /// Mirrors [`build_stub_core`] but for [`STUB_CORE_DECLARES_AT_BOTH_STAGES_C`].
     fn build_stub_core_declaring_at_both_stages(dir: &Path) -> Option<std::path::PathBuf> {
-        let c_path = dir.join("stub_both_stages_options_core.c");
-        std::fs::write(&c_path, STUB_CORE_DECLARES_AT_BOTH_STAGES_C).ok()?;
-        let dylib_path = dir.join("stub_both_stages_options_core.dylib");
-        let status = Command::new("cc")
-            .arg("-dynamiclib")
-            .arg("-o")
-            .arg(&dylib_path)
-            .arg(&c_path)
-            .status()
-            .ok()?;
-        status.success().then_some(dylib_path)
+        build_stub_core_from(
+            dir,
+            "stub_both_stages_options_core",
+            STUB_CORE_DECLARES_AT_BOTH_STAGES_C,
+        )
     }
 
     #[test]

@@ -9,6 +9,8 @@
 //! convention — quoted so it round-trips as valid JSON like every other
 //! settings entry).
 
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+
 use crate::db::repo::settings::SettingsRepo;
 use crate::db::repo::Repository;
 use crate::db::Db;
@@ -19,27 +21,32 @@ use crate::error::{AppError, AppResult};
 /// settings (theme, retroarch_path, ...).
 const KEY_PREFIX: &str = "core_option";
 
+/// Bytes a `(system, core, option_key)` component must not contain
+/// unescaped: `%` (the percent-encoding escape byte itself) and `:` (the
+/// [`settings_key`] field delimiter). Built on [`CONTROLS`] so any stray
+/// control byte is escaped too, matching the sibling percent-encoding usage
+/// in `core::metadata::name_sanitizer`.
+const KEY_COMPONENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'%').add(b':');
+
 /// Escapes one `(system, core, option_key)` component so it can be joined
 /// with the `::` delimiter without its own content ever being mistaken for a
-/// field boundary. A two-step percent-style escape — `%` first, then `:` —
-/// so the encoding stays unambiguous even when a component already contains
-/// a literal `%`: every raw `%` becomes `%25` and every raw `:` becomes
-/// `%3A`, and because `%` is always escaped *before* `:` is considered, an
-/// escaped `%25`/`%3A` byte sequence in the output can only ever have come
-/// from a raw `%`/`:` in the input — never from some other combination of
-/// plain characters that happened to spell the same thing. That injectivity
-/// is what makes [`settings_key`] collision-proof: without it, a component
-/// containing a literal `::` could shift the apparent field boundaries and
-/// produce the exact same key for two different triples (e.g. `system =
-/// "a::b", core = "c"` and `system = "a", core = "b::c"` would otherwise both
-/// join to `a::b::c`).
+/// field boundary. Percent-encoding (`percent_encoding::utf8_percent_encode`)
+/// escapes every raw `%` and `:` byte in a single left-to-right pass — `%`
+/// becomes `%25` and `:` becomes `%3A` — so an escaped `%25`/`%3A` sequence in
+/// the output can only ever have come from a raw `%`/`:` in the input, never
+/// from some other combination of plain characters that happened to spell
+/// the same thing. That injectivity is what makes [`settings_key`]
+/// collision-proof: without it, a component containing a literal `::` could
+/// shift the apparent field boundaries and produce the exact same key for
+/// two different triples (e.g. `system = "a::b", core = "c"` and `system =
+/// "a", core = "b::c"` would otherwise both join to `a::b::c`).
 ///
 /// Libretro option keys are C identifiers in practice and would never
 /// exercise this, but `system`/`core_id` are plain strings with no such
 /// constraint, so this closes the gap for them rather than assuming it can
 /// never happen.
 fn escape_component(component: &str) -> String {
-    component.replace('%', "%25").replace(':', "%3A")
+    utf8_percent_encode(component, KEY_COMPONENT_ESCAPE).to_string()
 }
 
 /// Builds the namespaced settings key for one `(system, core, option_key)`
