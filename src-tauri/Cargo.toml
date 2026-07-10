@@ -1,6 +1,6 @@
 [package]
 name = "retro-game-player"
-version = "0.39.0"
+version = "0.40.0"
 description = "Retro Game Player — a Mac-native (Apple Silicon) retro game player."
 authors = ["Retro Game Player"]
 license = "GPL-3.0-only"
