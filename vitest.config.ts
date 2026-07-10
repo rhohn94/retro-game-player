@@ -14,6 +14,7 @@ export default defineConfig({
   // build, without duplicating the whole Vite config here.
   resolve: {
     alias: {
+      "@aura/react/hooks": fileURLToPath(new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url)),
       "@aura/react": fileURLToPath(new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url)),
       "@aura/css": fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
       "@aura/runtime": fileURLToPath(new URL("./vendor/aura/dist/aura.js", import.meta.url)),

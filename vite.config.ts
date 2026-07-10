@@ -53,6 +53,9 @@ export default defineConfig({
   // See docs/design/ux/design-language.md §2.3.
   resolve: {
     alias: {
+      "@aura/react/hooks": fileURLToPath(
+        new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url),
+      ),
       "@aura/react": fileURLToPath(
         new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url),
       ),
