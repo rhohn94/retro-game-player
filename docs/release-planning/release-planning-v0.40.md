@@ -166,10 +166,14 @@ parallel pass, no merge-order dependency.
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.40 |
 |---|---|---|---|---|
-| `w394-keyboard-a11y-remainder` (W394) | ☐ | ☐ | ☐ | ☐ |
-| `w395-core-options-probe-robustness` (W395) | ☐ | ☐ | ☐ | ☐ |
-| `w396-aura-upstream-types` (W396) | ☐ | ☐ | ☐ | ☐ |
+| `w394-keyboard-a11y-remainder` (W394) | ☑ | ☑ | ☑ (grm-reviewer: merge-ready, 0 blocking) | ☑ (b7d2a0d) |
+| `w395-core-options-probe-robustness` (W395) | ☑ | ☑ | ☑ (grm-reviewer: merge-ready, 0 blocking) | ☑ (c5c4302) |
+| `w396-aura-upstream-types` (W396) | ☑ | ☑ | ☑ (grm-reviewer: merge-ready, 0 blocking) | ☑ (1ff9f23) |
 
 ### Follow-ups discovered during implementation
+
+- **W394 (non-blocking, from grm-reviewer):** `harmony-ux-design.md` §8 says "two ambiguous nested lists" got an `aria-label` but the diff actually labels three `<ul>`s (includes the non-nested top-level `MergedResultsView` list) — cosmetic doc-wording fix. `CollectionPicker`'s toggle button leaves a dangling `aria-controls` pointing at the panel while it's closed/unmounted — standard disclosure-widget pattern, optional to tighten. The two new dead-button regression tests cover only the mouse-click path; a controller-confirm-path assertion would be a nice-to-have addition.
+- **W395 (from grm-reviewer) — one worth tracking:** `probe_declared_options`'s new `load_game` stage sets only the `environment` callback before calling `load_game`, unlike the real `bring_up_core` path which also sets `video_refresh`/`audio_sample_batch`/`input_poll`/`input_state` first. A future core (not fceumm) that invokes any AV/input callback from inside `retro_load_game` would dereference a NULL callback pointer instead of degrading gracefully — the exact "as the native core catalog broadens" scenario W395 exists to harden against. Filed as [issue #54](https://github.com/rhohn94/retro-game-player/issues/54) rather than silently left as a comment, since it's the same class of finding that produced issue #33 in the first place. Two minor/cosmetic follow-ups also noted: the probe's per-call latency roughly doubles (~500ms → ~1000ms, no early-exit on the second drain window) since every probe call now runs both stages; `probe_load_game_declarations` has no dedicated unit test (only exercised via 2 FFI integration tests) — acceptable given its FFI dependency.
+- **W396 (non-blocking, from grm-reviewer):** the `@aura/*` alias map is hand-duplicated across `vite.config.ts` and `vitest.config.ts`, and this item adds a silent ordering requirement (`/hooks` alias must precede the bare `@aura/react` alias) to that existing duplication — a good candidate for single-sourcing into one shared module. `design-language.md` §7.2's new claim that `className` "wins over `class`" when both are set is read from adapter source but not exercised by any call site or test — low-risk documentation-confidence note.
 
 _Empty at start; populated by release-phase-merge as branches land._
