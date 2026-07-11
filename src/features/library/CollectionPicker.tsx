@@ -223,7 +223,7 @@ export function CollectionPicker({ gameId }: CollectionPickerProps) {
         type="button"
         className="rgp-collection-picker__toggle"
         aria-expanded={open}
-        aria-controls={panelId}
+        aria-controls={open ? panelId : undefined}
         aria-label="Add to collection"
         onClick={() => setOpen((v) => !v)}
       >
