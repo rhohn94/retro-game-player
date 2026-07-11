@@ -236,7 +236,7 @@ Plan: [`release-planning-v0.29.1.md`](release-planning/release-planning-v0.29.1.
 
 ---
 
-## v0.40 — Loose Ends (implementation complete — pending release)
+## v0.40 — Loose Ends (released — see version-history.md)
 
 **No single flagship.** Closes three independently-tracked backlog gaps
 instead: the remainder of the keyboard-accessibility punch list
@@ -252,6 +252,29 @@ ports, notarized DMG, metadata enrichment, etc.) — unchanged, carried from
 v0.39 §4.
 
 Plan: [`release-planning-v0.40.md`](release-planning/release-planning-v0.40.md).
+
+---
+
+## v0.41 — Follow-Through (planned)
+
+**No roadmap flagship scheduled.** Clears the low-risk half of v0.40's own
+follow-up backlog: a doc-accuracy fix, a dangling-ARIA tightening, added test
+coverage in three spots, one real hardening fix
+([#54](https://github.com/rhohn94/retro-game-player/issues/54)), and an
+Aura alias-map config-duplication cleanup — all `design-ready` with no
+design-doc gaps.
+
+**Non-goals:** the riskier half of v0.40's follow-up pool — issue
+[#63](https://github.com/rhohn94/retro-game-player/issues/63)
+(FocusableAction render-prop inversion, 9 call sites), issue
+[#64](https://github.com/rhohn94/retro-game-player/issues/64)
+(`useUiExclusiveDismiss` extraction, ~11 files), the DispatchProbe
+test-helper triplication cleanup, the C-stub constants extraction (already
+rejected once on readability grounds), and the unconfirmed probe-latency
+regression — each deferred to a future release with dedicated review rather
+than bundled into a zero-checkpoint autonomous pass.
+
+Plan: [`release-planning-v0.41.md`](release-planning/release-planning-v0.41.md).
 
 ---
 

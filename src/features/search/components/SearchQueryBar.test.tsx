@@ -18,6 +18,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SearchQueryBar } from "./SearchQueryBar";
 import { ControllerProvider } from "../../controller";
+import { DispatchProbe } from "../../testing/DispatchProbe";
 
 describe("SearchQueryBar", () => {
   let container: HTMLDivElement;
@@ -34,12 +35,15 @@ describe("SearchQueryBar", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as unknown as { __dispatchAction?: unknown }).__dispatchAction;
+    delete (window as unknown as { __setFocus?: unknown }).__setFocus;
   });
 
   function render(overrides: Partial<Parameters<typeof SearchQueryBar>[0]> = {}) {
     act(() => {
       root.render(
         <ControllerProvider>
+          <DispatchProbe />
           <SearchQueryBar
             query="mario"
             onQueryChange={vi.fn()}
@@ -71,5 +75,19 @@ describe("SearchQueryBar", () => {
   it("does not run the search merely by claiming focus (no click)", () => {
     render();
     expect(onSearch).not.toHaveBeenCalled();
+  });
+
+  it("runs the search when a controller confirm fires while the Search button is focused", () => {
+    render();
+    // Claims focus directly via the probe rather than a D-pad move: jsdom's
+    // zero-size layout rects make the real spatial-nav path unreliable here,
+    // and reaching onActivate via confirm requires holding focus first.
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus("search:run");
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onSearch).toHaveBeenCalledTimes(1);
   });
 });

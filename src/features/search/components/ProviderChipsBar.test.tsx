@@ -18,6 +18,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderChipsBar } from "./ProviderChipsBar";
 import { ControllerProvider } from "../../controller";
+import { DispatchProbe } from "../../testing/DispatchProbe";
 import type { SearchProvider } from "../../../ipc/search";
 
 const PROVIDER: SearchProvider = {
@@ -47,12 +48,15 @@ describe("ProviderChipsBar", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as unknown as { __dispatchAction?: unknown }).__dispatchAction;
+    delete (window as unknown as { __setFocus?: unknown }).__setFocus;
   });
 
   function render() {
     act(() => {
       root.render(
         <ControllerProvider>
+          <DispatchProbe />
           <ProviderChipsBar
             providers={[PROVIDER]}
             hasProviders
@@ -91,5 +95,34 @@ describe("ProviderChipsBar", () => {
     render();
     expect(onAddProvider).not.toHaveBeenCalled();
     expect(onBrowse).not.toHaveBeenCalled();
+  });
+
+  it("opens the add-provider dialog when a controller confirm fires while + Add is focused", () => {
+    render();
+    // Claims focus directly via the probe rather than a D-pad move: jsdom's
+    // zero-size layout rects make the real spatial-nav path unreliable here,
+    // and reaching onActivate via confirm requires holding focus first.
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus(
+        "search:add-provider",
+      );
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onAddProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the catalog when a controller confirm fires while Browse providers is focused", () => {
+    render();
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus(
+        "search:browse-providers",
+      );
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onBrowse).toHaveBeenCalledTimes(1);
   });
 });

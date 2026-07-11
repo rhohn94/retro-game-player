@@ -8,7 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollectionPicker } from "./CollectionPicker";
-import { ControllerProvider, useController } from "../controller";
+import { ControllerProvider } from "../controller";
+import { DispatchProbe } from "../testing/DispatchProbe";
 import * as collectionsIpc from "../../ipc/collections";
 
 vi.mock("../../ipc/collections", () => ({
@@ -27,16 +28,6 @@ async function flush() {
     await Promise.resolve();
     await Promise.resolve();
   });
-}
-
-/** Exposes the controller's `dispatchAction` on `window` so tests can fire a
- * semantic action (simulating a controller Back press) without a real
- * gamepad poll — mirrors DeleteCollectionDialog.test.tsx's probe. */
-function DispatchProbe() {
-  const { dispatchAction } = useController();
-  (window as unknown as { __dispatchAction: typeof dispatchAction }).__dispatchAction =
-    dispatchAction;
-  return null;
 }
 
 /** Set a controlled `<input>`'s value through React's tracked native setter
@@ -282,6 +273,22 @@ describe("CollectionPicker", () => {
     expect(panel.getAttribute("role")).toBe("group");
     expect(panel.getAttribute("aria-label")).toBe("Collections");
     expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
+  });
+
+  // aria-controls tightening (W402): the toggle must not reference the panel
+  // id while the panel is closed/unmounted, since that leaves a dangling
+  // ARIA reference (an id with no matching element in the DOM).
+  it("omits aria-controls on the toggle while the panel is closed", () => {
+    act(() => {
+      root.render(
+        <ControllerProvider>
+          <CollectionPicker gameId={42} />
+        </ControllerProvider>,
+      );
+    });
+    const toggle = container.querySelector<HTMLButtonElement>(".rgp-collection-picker__toggle")!;
+    expect(toggle.hasAttribute("aria-controls")).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("closes the panel when a controller Back action fires while open", async () => {

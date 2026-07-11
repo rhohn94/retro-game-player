@@ -367,8 +367,11 @@ present. That fix was never carried into Search's own result lists (also
 merged-results list and its per-row "available from N providers" expansion,
 `ProviderResultGroup`'s per-provider row list, `ProviderDialog`'s
 discovered-providers list, and `ProviderCatalog`'s catalog-entries list all
-picked up `role="list"` (plus an `aria-label` on the two ambiguous nested
-lists) to close the same gap. Separately, `CollectionPicker`'s dropdown panel
+picked up `role="list"` (plus an `aria-label` on three ambiguous lists —
+`MergedResultsView`'s own merged-results list, alongside the two
+nested-list cases: its per-row "available from N providers" expansion and
+`ProviderResultGroup`'s per-provider row list) to close the same gap.
+Separately, `CollectionPicker`'s dropdown panel
 carried `role="menu"` despite containing checkboxes and text inputs — not a
 valid ARIA menu (the APG menu pattern expects arrow-key/`menuitem` navigation,
 not native Tab-order form controls) — corrected to `role="group"` with an
