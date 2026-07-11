@@ -115,30 +115,31 @@ function RebindRow({
   const label = buttonDisplayLabel(buttonIndex);
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      role="row"
-      tabIndex={0}
-      className={`rgp-remap-row${isFocused ? " rgp-remap-row--focused" : ""}`}
-      onFocus={focus}
-      onClick={() => onCapture(family, action)}
-    >
-      <span className="rgp-remap-row__action" role="cell">
-        {ACTION_LABEL[action]}
-      </span>
-      <span
-        className={`rgp-remap-row__button${buttonIndex === UNBOUND ? " rgp-remap-row__button--unbound" : ""}`}
-        role="cell"
+    <div role="row">
+      <button
+        ref={ref}
+        type="button"
+        tabIndex={0}
+        className={`rgp-remap-row${isFocused ? " rgp-remap-row--focused" : ""}`}
+        onFocus={focus}
+        onClick={() => onCapture(family, action)}
       >
-        {glyph && (
-          <span className="rgp-remap-row__button-glyph" aria-hidden>
-            {glyph.glyph}
-          </span>
-        )}
-        {label}
-      </span>
-    </button>
+        <span className="rgp-remap-row__action" role="cell">
+          {ACTION_LABEL[action]}
+        </span>
+        <span
+          className={`rgp-remap-row__button${buttonIndex === UNBOUND ? " rgp-remap-row__button--unbound" : ""}`}
+          role="cell"
+        >
+          {glyph && (
+            <span className="rgp-remap-row__button-glyph" aria-hidden>
+              {glyph.glyph}
+            </span>
+          )}
+          {label}
+        </span>
+      </button>
+    </div>
   );
 }
 
