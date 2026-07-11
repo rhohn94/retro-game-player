@@ -93,26 +93,32 @@ git -C vendor/aura checkout <PINNED_SHA on v3.20 channel>   # W2
 ### 2.3 Import strategy
 
 Vite aliases let app code import the React adapter from the vendored tree
-(`vendor/aura`, the Dependency Channel asset bundle — §2.2):
+(`vendor/aura`, the Dependency Channel asset bundle — §2.2). The `@aura/*`
+alias map is single-sourced in `vite/aura-aliases.ts` (a shared module, not a
+`.d.ts`); both `vite.config.ts` (dev server + build) and `vitest.config.ts`
+(unit tests, so a `.tsx` spec importing an Aura-backed component resolves the
+same way it does in the app build) import `auraAliases` from it and pass it
+straight through as `resolve.alias`, so there is no hand-kept mirror to drift:
 
 ```ts
-// vite.config.ts
-resolve: {
-  alias: {
-    // Longest-prefix alias FIRST: plugin-alias matches "@aura/react" as a
-    // path-segment prefix of "@aura/react/hooks" too, so the hooks entry
-    // must be listed before the bare "@aura/react" one or it never wins.
-    "@aura/react/hooks": fileURLToPath(new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url)),
-    "@aura/react":       fileURLToPath(new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url)),
-    "@aura/css":         fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
-  },
-}
+// vite/aura-aliases.ts
+export const auraAliases: Record<string, string> = {
+  // Longest-prefix alias FIRST: plugin-alias matches "@aura/react" as a
+  // path-segment prefix of "@aura/react/hooks" too, so the hooks entry
+  // must be listed before the bare "@aura/react" one or it never wins.
+  "@aura/react/hooks": resolveVendored("vendor/aura/bindings/react/hooks.js"),
+  "@aura/react":       resolveVendored("vendor/aura/bindings/react/aura-react.js"),
+  "@aura/css":         resolveVendored("vendor/aura/css"),
+  "@aura/runtime":     resolveVendored("vendor/aura/dist/aura.js"),
+};
 ```
 
-`vitest.config.ts` keeps its own copy of the same aliases (documented there as
-a deliberate mirror, so a `.tsx` spec importing an Aura-backed component
-resolves identically without pulling in the whole Vite config) — the two must
-be kept in sync by hand.
+```ts
+// vite.config.ts / vitest.config.ts
+import { auraAliases } from "./vite/aura-aliases";
+// ...
+resolve: { alias: auraAliases },
+```
 
 ```ts
 // src/theme/AuraProvider.tsx  (D3/W2)

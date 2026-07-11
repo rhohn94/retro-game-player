@@ -1,5 +1,5 @@
-import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vitest/config";
+import { auraAliases } from "./vite/aura-aliases";
 
 // Vitest config kept separate from vite.config.ts so the `test` block does not
 // collide with Vite's UserConfig type under tsc. The frontend unit tests run in
@@ -8,17 +8,12 @@ import { defineConfig } from "vitest/config";
 // `environmentMatchGlobs` since they need a real DOM to mount React components,
 // while every existing `.test.ts` spec keeps the cheaper node environment.
 export default defineConfig({
-  // Mirrors vite.config.ts's `@aura/*` aliases (vendor/aura Dependency
-  // Channel bundle) so a `.tsx` spec importing an Aura-backed component
-  // (e.g. ErrorNotice -> AuraCard) resolves the same way it does in the app
-  // build, without duplicating the whole Vite config here.
+  // Single-sourced from vite/aura-aliases.ts (shared with vite.config.ts) so a
+  // `.tsx` spec importing an Aura-backed component (e.g. ErrorNotice ->
+  // AuraCard) resolves the same way it does in the app build, without
+  // duplicating the whole Vite config here or hand-mirroring the alias map.
   resolve: {
-    alias: {
-      "@aura/react/hooks": fileURLToPath(new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url)),
-      "@aura/react": fileURLToPath(new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url)),
-      "@aura/css": fileURLToPath(new URL("./vendor/aura/css", import.meta.url)),
-      "@aura/runtime": fileURLToPath(new URL("./vendor/aura/dist/aura.js", import.meta.url)),
-    },
+    alias: auraAliases,
   },
   test: {
     globals: true,
