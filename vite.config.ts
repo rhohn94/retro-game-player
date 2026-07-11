@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { auraAliases } from "./vite/aura-aliases";
 
 // Vite config for the Retro Game Player frontend. The Tauri dev server expects
 // a fixed port; the build emits a static bundle the Rust shell loads.
@@ -49,23 +50,11 @@ export default defineConfig({
   // v3.541.0 asset bundle). design-language#858 (asset omitted bindings/react)
   // is fixed, which unblocked the migration off the former git submodule; the
   // committed vendor/aura tree sits at the same path, so these aliases let app
-  // code import Aura by stable names, unchanged.
+  // code import Aura by stable names, unchanged. The alias map itself is
+  // single-sourced in vite/aura-aliases.ts (shared with vitest.config.ts).
   // See docs/design/ux/design-language.md §2.3.
   resolve: {
-    alias: {
-      "@aura/react/hooks": fileURLToPath(
-        new URL("./vendor/aura/bindings/react/hooks.js", import.meta.url),
-      ),
-      "@aura/react": fileURLToPath(
-        new URL("./vendor/aura/bindings/react/aura-react.js", import.meta.url),
-      ),
-      "@aura/css": fileURLToPath(
-        new URL("./vendor/aura/css", import.meta.url),
-      ),
-      "@aura/runtime": fileURLToPath(
-        new URL("./vendor/aura/dist/aura.js", import.meta.url),
-      ),
-    },
+    alias: auraAliases,
   },
   server: {
     port: TAURI_DEV_PORT,
