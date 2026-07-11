@@ -236,8 +236,11 @@ fn percent_encode_path(s: &str) -> String {
     })
 }
 
-/// Shared percent-encoder: bytes for which `keep` returns true pass through.
-fn encode_with(s: &str, keep: impl Fn(u8) -> bool) -> String {
+/// Shared percent-encoder: bytes for which `keep` returns true pass through,
+/// everything else becomes an uppercase-hex `%XX` escape. `pub(crate)` (W421)
+/// so `core::search::template`'s RFC 3986 encoder can reuse this same
+/// byte-level scaffold instead of hand-rolling an identical copy.
+pub(crate) fn encode_with(s: &str, keep: impl Fn(u8) -> bool) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for byte in s.bytes() {
         if keep(byte) {
