@@ -7,26 +7,18 @@
 //! Encoding follows RFC 3986 unreserved characters (A-Z a-z 0-9 `-._~`).
 //! Everything else, including spaces and `+`, is percent-encoded.
 
+use crate::core::metadata::wikipedia::encode_with;
 use crate::error::{AppError, AppResult};
 
 /// Percent-encode a query string following RFC 3986 (unreserved chars pass
-/// through; everything else is `%XX`).
+/// through; everything else is `%XX`). Delegates to the shared byte-level
+/// encoder in `core::metadata::wikipedia` (W421) rather than hand-rolling
+/// the same nibble-to-hex scaffold a second time.
 fn percent_encode(query: &str) -> String {
-    let mut out = String::with_capacity(query.len() * 3);
-    for byte in query.bytes() {
-        match byte {
-            // RFC 3986 unreserved characters
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(byte as char);
-            }
-            _ => {
-                out.push('%');
-                out.push(char::from_digit((byte >> 4) as u32, 16).unwrap().to_ascii_uppercase());
-                out.push(char::from_digit((byte & 0xf) as u32, 16).unwrap().to_ascii_uppercase());
-            }
-        }
-    }
-    out
+    encode_with(query, |byte| {
+        // RFC 3986 unreserved characters
+        matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~')
+    })
 }
 
 /// Substitute `{query}` in `url_template` with the percent-encoded `query`.

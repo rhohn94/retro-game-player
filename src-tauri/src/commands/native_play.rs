@@ -186,19 +186,8 @@ pub fn start_native_play(
     })?;
     let core_path = native::resolve_native_core_path(&db, &system)?;
     let rom_path = PathBuf::from(&path);
-    // Save persistence (W230): best-effort — an unavailable saves dir means
-    // the session plays without persistence rather than failing to boot.
-    let saves = Paths::app_support()
-        .and_then(|p| p.saves_dir())
-        .map(|root| GameSaves::new(&root, &system, &rom_path))
-        .ok();
-    // Perf telemetry file (W274): best-effort — an unresolvable logs dir
-    // means the perf line stays stderr-only rather than failing the boot.
-    let perf_log_path = Paths::app_support()
-        .and_then(|p| p.native_perf_log_file())
-        .ok();
     let (saves, perf_log_path) =
-        session_side_effects(preview.unwrap_or(false), saves, perf_log_path);
+        resolve_save_and_perf_paths(preview.unwrap_or(false), &system, &rom_path);
     // Concurrency fix (post-W282 hotfix): hold the NativeSession mutex for
     // the whole teardown-seed-install sequence below, not just the final
     // assignment. Previously the old session stayed alive (and its core
@@ -232,28 +221,68 @@ pub fn start_native_play(
     // which is exactly today's pre-W282 behavior (GET_VARIABLE unhandled).
     seed_persisted_core_variables(&db, &system, support.core_id, &core_path);
     let runtime = native::NativeRuntime::start(&core_path, &rom_path, saves, perf_log_path)?;
-    // v0.37 W372 (retroachievements-design.md §Unlock UX + persistence): a
-    // preview session (W273 no-trace spectator) never arms achievements —
-    // it must leave exactly as little trace as it does for saves/perf-log,
-    // so `disarm` runs unconditionally and the fetch/load only happens for a
-    // real session. Best-effort: any failure here (no credential, no RA set,
-    // network) leaves the session running achievement-free, never fails the
-    // boot — see `commands::achievements::arm_for_session`'s own doc.
-    if preview.unwrap_or(false) {
-        crate::commands::achievements::disarm(&active_achievements);
-    } else if let Ok(rom_bytes) = std::fs::read(&rom_path) {
+    arm_or_disarm_achievements(
+        preview.unwrap_or(false),
+        &active_achievements,
+        &runtime,
+        game_id,
+        &system,
+        &rom_path,
+    );
+    *guard = Some(runtime);
+    Ok(())
+}
+
+/// Resolves the best-effort save + perf-log paths for a new session (W230
+/// saves: an unavailable saves dir means the session plays without
+/// persistence rather than failing to boot; W274 perf log: an unresolvable
+/// logs dir means the perf line stays stderr-only rather than failing the
+/// boot), then routes both through [`session_side_effects`] so a preview
+/// session (W273) drops both regardless.
+fn resolve_save_and_perf_paths(
+    preview: bool,
+    system: &str,
+    rom_path: &Path,
+) -> (Option<GameSaves>, Option<PathBuf>) {
+    let saves = Paths::app_support()
+        .and_then(|p| p.saves_dir())
+        .map(|root| GameSaves::new(&root, system, rom_path))
+        .ok();
+    let perf_log_path = Paths::app_support()
+        .and_then(|p| p.native_perf_log_file())
+        .ok();
+    session_side_effects(preview, saves, perf_log_path)
+}
+
+/// Arms (or disarms) the just-started session's achievement runtime (v0.37
+/// W372). A preview session (W273 no-trace spectator) never arms
+/// achievements — it must leave exactly as little trace as it does for
+/// saves/perf-log, so `disarm` runs unconditionally and the fetch/load only
+/// happens for a real session. Best-effort for a real session: any failure
+/// here (unreadable ROM, no credential, no RA set, network) leaves the
+/// session running achievement-free, never fails the boot — see
+/// `commands::achievements::arm_for_session`'s own doc.
+fn arm_or_disarm_achievements(
+    preview: bool,
+    active_achievements: &crate::commands::achievements::ActiveAchievementSet,
+    runtime: &native::NativeRuntime,
+    game_id: i64,
+    system: &str,
+    rom_path: &Path,
+) {
+    if preview {
+        crate::commands::achievements::disarm(active_achievements);
+    } else if let Ok(rom_bytes) = std::fs::read(rom_path) {
         crate::commands::achievements::arm_for_session(
-            &active_achievements,
-            &runtime,
+            active_achievements,
+            runtime,
             game_id,
-            &system,
+            system,
             &rom_bytes,
         );
     } else {
-        crate::commands::achievements::disarm(&active_achievements);
+        crate::commands::achievements::disarm(active_achievements);
     }
-    *guard = Some(runtime);
-    Ok(())
 }
 
 /// Sets the native session's audio gain [0, 1] — the attract-mode duck
