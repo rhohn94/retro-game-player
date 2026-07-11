@@ -184,12 +184,14 @@ NULL function pointer and crashed, instead of degrading gracefully the way
 the rest of the probe already does. Resolved by having
 `probe_load_game_declarations` register all four before calling
 `load_game`, mirroring `bring_up_core`'s registration order exactly. Since
-the probe never renders or plays anything, it registers small no-op stubs
-(`probe_video_refresh`/`probe_audio_sample_batch`/`probe_input_poll`/
-`probe_input_state`, local to `probe.rs`) rather than the live-session
+the probe never renders or plays anything, `video_refresh`/`audio_sample_batch`
+get small no-op stubs local to `probe.rs` rather than the live-session
 callbacks that forward into the process-global media channels — the probe
 only needs non-null, crash-safe callback pointers, not anywhere for their
-data to go. Covered by a dedicated unit test that drives
+data to go. `input_poll`/`input_state` reuse the live-session callbacks
+directly instead of a local stub: both are already no-ops/always-"not
+pressed" absent real gameplay, so there is nothing probe-specific to add.
+Covered by a dedicated unit test that drives
 `probe_load_game_declarations` directly (bypassing `probe_declared_options`)
 against a stub core that invokes all four callbacks from `retro_load_game`,
 in addition to the pre-existing FFI integration tests that exercise it

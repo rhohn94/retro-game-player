@@ -109,21 +109,17 @@ pub fn probe_declared_options(core_path: &Path) -> AppResult<Vec<CoreVariable>> 
 /// ever declares during `retro_init` must see no behavior change.
 ///
 /// **W404 follow-up (issue #54) — AV/input callbacks registered before
-/// `load_game`.** The real playback path (`bring_up_core` in
-/// `play::native::runtime::session`) registers `video_refresh`,
-/// `audio_sample_batch`, `input_poll`, and `input_state` *before* calling
-/// `load_game` — this stage previously registered only `environment`
-/// (already set by [`probe_declared_options`] ahead of `retro_init`), so a
-/// future non-`fceumm` core that invokes any of those four from inside
-/// `retro_load_game` (before returning) would call through a NULL function
-/// pointer on the core's side and crash. Mirroring `bring_up_core`'s
-/// registration order here closes that gap. The probe never renders or
-/// plays anything, so these register no-op stubs
-/// ([`probe_video_refresh`]/[`probe_audio_sample_batch`]/
-/// [`probe_input_poll`]/[`probe_input_state`]) rather than the live-session
-/// callbacks that forward into the process-global media channels — the
-/// probe only needs *non-null, crash-safe* callback pointers, not anywhere
-/// for their data to go.
+/// `load_game`.** Mirrors `bring_up_core`'s (`play::native::runtime::session`)
+/// registration order so a core that invokes any of these four callbacks from
+/// inside `retro_load_game` sees a real function pointer instead of NULL —
+/// see core-options-design.md's W404 entry for the full incident writeup.
+/// `input_poll`/`input_state` reuse [`native::input_poll`]/
+/// [`native::input_state`] directly: both are already no-ops/always-"not
+/// pressed" absent real gameplay, and [`native::install`] resets the global
+/// joypad state on entry, so there is nothing probe-specific to add.
+/// `video_refresh`/`audio_sample_batch` get their own probe-local stubs
+/// below instead, since the real callbacks dereference the incoming data and
+/// forward it into channels the probe never drains.
 fn probe_load_game_declarations(
     core: &mut LibretroCore,
     channels: &native::CallbackChannels,
@@ -133,8 +129,8 @@ fn probe_load_game_declarations(
     };
     core.set_video_refresh(probe_video_refresh);
     core.set_audio_sample_batch(probe_audio_sample_batch);
-    core.set_input_poll(probe_input_poll);
-    core.set_input_state(probe_input_state);
+    core.set_input_poll(native::input_poll);
+    core.set_input_state(native::input_state);
     if core.load_game(stub_rom.path()).is_err() {
         return Vec::new();
     }
@@ -166,28 +162,6 @@ unsafe extern "C" fn probe_video_refresh(_data: *const c_void, _width: u32, _hei
 /// `unsafe extern "C"` only to match `retro_audio_sample_batch_t`'s ABI.
 unsafe extern "C" fn probe_audio_sample_batch(_data: *const i16, frames: usize) -> usize {
     frames
-}
-
-/// `retro_input_poll_t` stub for the probe's `load_game` stage (W404, issue
-/// #54) — see [`probe_video_refresh`]'s doc for why this is a no-op.
-///
-/// # Safety
-/// Takes no arguments and touches no pointers; safe to call
-/// unconditionally. Marked `unsafe extern "C"` only to match
-/// `retro_input_poll_t`'s ABI.
-unsafe extern "C" fn probe_input_poll() {}
-
-/// `retro_input_state_t` stub for the probe's `load_game` stage (W404, issue
-/// #54) — see [`probe_video_refresh`]'s doc for why this is a no-op. Always
-/// reports "not pressed": the probe drives no real input, and this is only
-/// ever called by a core curious about button state during its own
-/// ROM-analysis at `retro_load_game` time.
-///
-/// # Safety
-/// Touches no pointers; safe to call unconditionally. Marked
-/// `unsafe extern "C"` only to match `retro_input_state_t`'s ABI.
-unsafe extern "C" fn probe_input_state(_port: u32, _device: u32, _index: u32, _id: u32) -> i16 {
-    0
 }
 
 /// Combines the option lists a core declared at its two possible declaration

@@ -8,7 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollectionPicker } from "./CollectionPicker";
-import { ControllerProvider, useController } from "../controller";
+import { ControllerProvider } from "../controller";
+import { DispatchProbe } from "../testing/DispatchProbe";
 import * as collectionsIpc from "../../ipc/collections";
 
 vi.mock("../../ipc/collections", () => ({
@@ -27,16 +28,6 @@ async function flush() {
     await Promise.resolve();
     await Promise.resolve();
   });
-}
-
-/** Exposes the controller's `dispatchAction` on `window` so tests can fire a
- * semantic action (simulating a controller Back press) without a real
- * gamepad poll — mirrors DeleteCollectionDialog.test.tsx's probe. */
-function DispatchProbe() {
-  const { dispatchAction } = useController();
-  (window as unknown as { __dispatchAction: typeof dispatchAction }).__dispatchAction =
-    dispatchAction;
-  return null;
 }
 
 /** Set a controlled `<input>`'s value through React's tracked native setter

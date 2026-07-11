@@ -17,33 +17,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderChipsBar } from "./ProviderChipsBar";
-import { ControllerProvider, useController } from "../../controller";
+import { ControllerProvider } from "../../controller";
+import { DispatchProbe } from "../../testing/DispatchProbe";
 import type { SearchProvider } from "../../../ipc/search";
-
-/** Exposes the controller's `dispatchAction` and `setFocus` on `window` so
- *  tests can simulate a controller Confirm press (a real gamepad's rising
- *  edge, with no DOM click involved) without a real gamepad poll — mirrors
- *  CollectionPicker.test.tsx's probe. `setFocus` is additionally exposed
- *  because, unlike that probe's `back` case, reaching a chip button's
- *  `onActivate` via `confirm` requires it to hold controller focus first;
- *  jsdom's zero-size layout rects make the real spatial-nav path
- *  (D-pad move) unreliable to drive here, so the test claims focus directly. */
-function DispatchProbe() {
-  const { dispatchAction, setFocus } = useController();
-  (
-    window as unknown as {
-      __dispatchAction: typeof dispatchAction;
-      __setFocus: typeof setFocus;
-    }
-  ).__dispatchAction = dispatchAction;
-  (
-    window as unknown as {
-      __dispatchAction: typeof dispatchAction;
-      __setFocus: typeof setFocus;
-    }
-  ).__setFocus = setFocus;
-  return null;
-}
 
 const PROVIDER: SearchProvider = {
   id: 1,
@@ -123,6 +99,9 @@ describe("ProviderChipsBar", () => {
 
   it("opens the add-provider dialog when a controller confirm fires while + Add is focused", () => {
     render();
+    // Claims focus directly via the probe rather than a D-pad move: jsdom's
+    // zero-size layout rects make the real spatial-nav path unreliable here,
+    // and reaching onActivate via confirm requires holding focus first.
     act(() => {
       (window as unknown as { __setFocus: (id: string) => void }).__setFocus(
         "search:add-provider",

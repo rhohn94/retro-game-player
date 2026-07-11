@@ -239,10 +239,12 @@ review. Non-blocking notes, none scheduled:
   slightly beyond the literal ask but harmless and consistent with the
   existing open-state test's style.
 - **W403:** `SearchQueryBar.test.tsx`/`ProviderChipsBar.test.tsx` each
-  re-declare a near-identical `DispatchProbe` component — now a third copy
-  alongside `CollectionPicker.test.tsx`'s (the pre-existing v0.40 follow-up
-  candidate for extracting this into a shared test helper, deferred out of
-  v0.41 scope §4, now has one more site to consolidate).
+  re-declared a near-identical `DispatchProbe` component, duplicating
+  `CollectionPicker.test.tsx`'s. **Resolved by the post-merge simplify pass:**
+  extracted to `src/features/testing/DispatchProbe.tsx`; all three files now
+  import it. `DeleteCollectionDialog.test.tsx` and `ProviderCatalog.test.tsx`
+  carry their own pre-existing copies too, outside this diff's scope — still
+  open as a follow-up candidate to migrate onto the same shared helper.
 - **W404:** `probe.rs`'s new `probe_video_refresh` signature line runs 107
   chars (repo convention ~100, not lint-enforced); the four no-op probe
   callback stubs mirror `play::native::callbacks`' shape and would be a good
@@ -260,3 +262,11 @@ review. Non-blocking notes, none scheduled:
 **Quality gate (post-merge, full suite on version/0.41):** 768 vitest / 1020
 cargo (10 ignored, live-GL-gated) / `pnpm typecheck` clean / `cargo check`
 clean / `pnpm lint` clean / `cargo clippy -D warnings` clean.
+
+- **Post-merge simplify pass (2026-07-10):** 4 parallel cleanup reviews (reuse/simplification/efficiency/altitude) over the full `dev...version/0.41` diff. Applied directly: `probe.rs`'s `probe_input_poll`/`probe_input_state` no-op stubs deleted — both duplicated already-exported, already-equivalent `native::input_poll`/`native::input_state` (confirmed byte-identical/behaviorally-identical, and `native::install()` clears the global joypad state on entry so nothing probe-specific was needed); `core_options-design.md`'s W404 entry updated to match. Extracted the triplicated `DispatchProbe` test component (`CollectionPicker.test.tsx`, `ProviderChipsBar.test.tsx`, `SearchQueryBar.test.tsx` each hand-rolled a near-identical copy) into a shared `src/features/testing/DispatchProbe.tsx`, preserving each call site's `setFocus`-requires-focus-first rationale as an inline comment at its usage site instead of a per-copy doc comment. Efficiency review found no issues (the new callback registrations are one-time, non-allocating FFI calls). Verified against the full suite: 768 vitest / 1020 cargo / `pnpm typecheck` / `cargo check` / `pnpm lint` / `cargo clippy -D warnings` all clean. Skipped: a 4th near-identical C-stub boilerplate block in `probe.rs`'s test module (already explicitly rejected on readability grounds by the v0.40 simplify pass — same judgment applies); `DeleteCollectionDialog.test.tsx`/`ProviderCatalog.test.tsx`'s own pre-existing `DispatchProbe` copies (outside this diff's scope, left as a follow-up to migrate onto the same shared helper).
+
+### Coding-practices audit (2026-07-10, post-merge)
+
+Ran the `grm-coding-practices-audit` 5-category fan-out (rust/javascript/css/html-a11y/architecture-and-telemetry) against the full `src/` + `src-tauri/src/` tree (not just this release's diff), deduped against the open issues from the v0.40 post-merge audit (#55–#62). 36 new findings (0 error, ~28 warn, ~8 info); filed 35 as [#65](https://github.com/rhohn94/retro-game-player/issues/65)–[#99](https://github.com/rhohn94/retro-game-player/issues/99). Skipped filing `telemetry-web-interactions` (App.tsx route-change tracking gap) — a documented non-goal per `error-telemetry-design.md`, not a gap, matching the same exclusion made in the 2026-07-09 audit session.
+
+_Populated by release-phase-merge as branches land, and by the post-merge simplify/audit passes._
