@@ -13,7 +13,7 @@
 |---|---|
 | **Version** | `v0.41` |
 | **Previous** | v0.40 "Loose Ends" (closed three independently-tracked backlog gaps: keyboard a11y remainder, core-options probe robustness, Aura upstream TS types) |
-| **Theme** | **"Polish"** — no roadmap flagship is scheduled for v0.41 (`docs/roadmap.md` has no `v0.41` entry). This release clears the low-risk half of v0.40's own follow-up backlog: doc-accuracy fixes, a dangling-ARIA tightening, added test coverage, one real hardening fix (issue #54), and a config-duplication cleanup — all independently verified `design-ready` with no design-doc gaps. |
+| **Theme** | **"Follow-Through"** — no roadmap flagship is scheduled for v0.41 (`docs/roadmap.md` has no `v0.41` entry). This release clears the low-risk half of v0.40's own follow-up backlog: doc-accuracy fixes, a dangling-ARIA tightening, added test coverage, one real hardening fix (issue #54), and a config-duplication cleanup — all independently verified `design-ready` with no design-doc gaps. |
 
 ---
 
