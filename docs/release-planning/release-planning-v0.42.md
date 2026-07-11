@@ -186,12 +186,61 @@ tracker read returned zero open, 2026-07-11).
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.42 |
 |---|---|---|---|---|
-| `w421-rust-conformance` (W421) | n/a | ☐ | ☐ | ☐ |
-| `w422-ts-promise-magic` (W422) | n/a | ☐ | ☐ | ☐ |
-| `w423-search-components` (W423) | n/a | ☐ | ☐ | ☐ |
-| `w424-css-conformance` (W424) | n/a | ☐ | ☐ | ☐ |
-| `w425-settings-a11y` (W425) | n/a | ☐ | ☐ | ☐ |
+| `w421-rust-conformance` (W421) | n/a | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (53093f8) |
+| `w422-ts-promise-magic` (W422) | n/a | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (35768e1) |
+| `w423-search-components` (W423) | n/a | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (6b02f73) |
+| `w424-css-conformance` (W424) | n/a | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (c08d08b) |
+| `w425-settings-a11y` (W425) | n/a | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (ba1caa6) |
+
+**Quality gate (post-merge, full integrated suite on version/0.42 @ ba1caa6):**
+768 vitest / 1020 cargo / `pnpm typecheck` clean / `pnpm lint` clean /
+`cargo check` clean / `cargo clippy -D warnings` clean / `recipe.py smoke`
+exit 0 (all 12 routes render, guiOk=true).
+
+**Pre-merge review:** adversarial per-branch review (one reviewer per branch,
+high effort, each blocking finding independently re-verified) — all five
+`merge-ready`, `behaviorPreserved: true`, `acceptanceMet: true`, **zero**
+confirmed blocking findings, zero unjustified out-of-scope files.
 
 ### Follow-ups discovered during implementation
 
-_Empty at start; populated by release-phase-merge as branches land._
+All 28 issues (#56,#57,#60,#70–#89,#91–#96,#79,#81) landed with zero blocking
+findings. Non-blocking notes and deferred items:
+
+- **W421 / #70:** the `#[allow(clippy::too_many_arguments)]` on `drain_video`
+  was already function-scoped — the fix added a justifying comment (matching
+  `commands/search.rs`'s pattern), so the "narrow blanket allow" framing was
+  really a documentation add; zero behaviour impact.
+- **W421 (deferred):** two more hand-rolled percent-encoders
+  (`core/retroachievements/client.rs`, `core/metadata/steamgriddb_client.rs`)
+  share #57's DRY smell — outside this lane's file scope; candidate for a
+  future DRY pass.
+- **W421 (pre-existing, not introduced):** `cargo fmt --check` flags nearly the
+  whole tree — a local rustfmt/toolchain version drift, not caused by this
+  release; intentionally not reformatted inside a conformance run.
+- **W422 / #78 (deferred):** the deeper root cause of the SearchPage
+  floating-promise lives in `useResultSelection.ts`'s `openSelected()`
+  await-loop; the call-site `.catch()` satisfies the lint finding but does not
+  surface a specific-link-open failure in the UI — a small future UX item.
+- **W423 / #77:** the reveal-item-in-dir failure routes to `swallow()`
+  (telemetry) rather than the error UI (which would replace the whole panel) —
+  defensible divergence from the "route into error UI" framing; not a
+  correctness change.
+- **W424 / #56 (latent fragility):** the `--aura-surface-2`-override hover
+  trick is behaviour-identical for the current cores-row composition and does
+  not leak into neutral AuraButtons, but if a tint-resolving Aura component
+  (select/chip/badge/hovered ghost-button) were ever nested inside a cores
+  row, it would newly tint on row hover. The in-file comment documents the
+  mechanism but not this containment assumption — worth a comment/guard if
+  cores-row markup grows.
+- **W425 (a11y visual change):** the `AuraField label=` additions (#92) render
+  a **visible** label that duplicates the existing placeholder text in several
+  settings panes — intended, consistent with the existing
+  `LocateToolPane`/`RetroAchievementsPane` pattern, and behaviour-preserving,
+  but a small visible/layout change rather than an invisible `aria-label`.
+- **W425 (pre-existing crash, filed separately):** `FamiliarPane.tsx:81` reads
+  `probe.capabilities.length` with no null-guard; the mock-IPC `probe_familiar`
+  stub returns `{available:false}` with no `capabilities`, throwing and
+  blanking the Settings page via the ErrorBoundary. Confirmed unrelated to this
+  lane's edits; filed as its own follow-up task (does not trip route-mount
+  smoke — a deeper probe path). **Candidate v0.43 bug-fix item.**
