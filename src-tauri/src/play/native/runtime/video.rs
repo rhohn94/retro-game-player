@@ -127,6 +127,10 @@ fn bring_up_hw_render(ctx: &mut CoreLoop<'_>, request: HwRenderRequest) {
 /// newer one replaced it before anyone painted it) bumps
 /// `counters.dropped_video_frames` (v0.29 W281) — this is the core outpacing
 /// the frontend's poll cadence, not a decode/paint failure.
+// Each argument is a distinct piece of per-tick core-loop state (channels,
+// two independent locks, the optional HW-render context, the scratch buffer,
+// and the perf counters); grouping them into a struct would just relocate
+// the same six fields behind one more layer with no cohesion gained.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drain_video(
     channels: &callbacks::CallbackChannels,
