@@ -284,6 +284,22 @@ describe("CollectionPicker", () => {
     expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
   });
 
+  // aria-controls tightening (W402): the toggle must not reference the panel
+  // id while the panel is closed/unmounted, since that leaves a dangling
+  // ARIA reference (an id with no matching element in the DOM).
+  it("omits aria-controls on the toggle while the panel is closed", () => {
+    act(() => {
+      root.render(
+        <ControllerProvider>
+          <CollectionPicker gameId={42} />
+        </ControllerProvider>,
+      );
+    });
+    const toggle = container.querySelector<HTMLButtonElement>(".rgp-collection-picker__toggle")!;
+    expect(toggle.hasAttribute("aria-controls")).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("closes the panel when a controller Back action fires while open", async () => {
     await openPicker();
     expect(container.querySelector(".rgp-collection-picker__panel")).not.toBeNull();
