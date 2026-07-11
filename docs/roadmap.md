@@ -255,7 +255,7 @@ Plan: [`release-planning-v0.40.md`](release-planning/release-planning-v0.40.md).
 
 ---
 
-## v0.41 — Follow-Through (planned)
+## v0.41 — Follow-Through (implementation complete — pending release)
 
 **No roadmap flagship scheduled.** Clears the low-risk half of v0.40's own
 follow-up backlog: a doc-accuracy fix, a dangling-ARIA tightening, added test
