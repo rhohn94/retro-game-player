@@ -7,6 +7,27 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.42 — Conformance (2026-07-11)
+
+A code-quality release, clearing a batch of the standing code-conformance
+backlog — no single flagship. Mostly under-the-hood, with a few accessibility
+touch-ups you may notice in Settings.
+
+- **More accessible Settings and provider forms.** Text fields across the
+  Settings panes and the "Add provider" dialog now carry proper labels,
+  input types, and autofill hints — screen readers announce each field
+  correctly, password managers offer to fill API-key fields, and URL fields
+  are marked as URLs. The controller-remap list also reports its table
+  structure more correctly to assistive tech.
+- **More resilient error handling.** A handful of background actions
+  (starting/stopping a game session, cancelling a download, picking a game
+  folder) that could previously fail silently now route their errors into the
+  existing on-screen error states instead of being dropped.
+- **Under-the-hood cleanup.** Sizeable internal tidying with no visible
+  change: long backend functions split into smaller named pieces, duplicated
+  helpers consolidated, and the stylesheet cleaned up to use shared design
+  tokens and simpler selectors.
+
 ## v0.41 — Follow-Through (2026-07-11)
 
 Another tidying-up release, closing out low-risk carryovers from v0.40's own
