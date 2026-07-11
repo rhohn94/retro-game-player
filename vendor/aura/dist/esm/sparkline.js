@@ -105,6 +105,9 @@ import "./element-base.js";
 
     /* Build the inner SVG skeleton once. _sync() fills the path data. */
     _build() {
+      /* Ensure the base class is present so CSS custom properties resolve. */
+      this.classList.add("aura-sparkline");
+
       /* Reuse an existing build (HTMX / server-render) if already present. */
       if (this.querySelector(":scope > svg.aura-sparkline__plot")) return;
 

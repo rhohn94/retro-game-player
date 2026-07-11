@@ -11,13 +11,21 @@
    comes from the central rule (theme/focus-visible.css) — no per-component
    rule needed here. */
 
-/* Shelf row hover lift (pointer-optional affordance; does not break gamepad). */
-.cores-row:hover {
-  background: var(--aura-surface-3) !important;
+/* Shelf row hover lift (pointer-optional affordance; does not break gamepad).
+   CoreRow sets the row's resting background inline (`background:
+   var(--aura-surface-2)`, CoreRow.tsx) — an inline declaration always
+   outranks any stylesheet rule for that same property, `!important` or not.
+   Rather than fighting the "background" property with `!important`, this
+   overrides the CUSTOM PROPERTY the inline value reads (`--aura-surface-2`),
+   which the inline style never sets itself: that resolves through the normal
+   (non-!important) cascade, so the inline `var(--aura-surface-2)` reference
+   legitimately re-resolves to the hover tint on this element. */
+.rgp-cores-row:hover {
+  --aura-surface-2: var(--aura-surface-3);
 }
 
 /* Catalog browse/search box (v0.7). Token-driven like the library filter. */
-.cores-search {
+.rgp-cores-search {
   width: 100%;
   max-width: 420px;
   margin-bottom: var(--aura-space-4);
@@ -30,6 +38,6 @@
   transition: border-color var(--rgp-dur-fast) var(--rgp-ease-out);
 }
 /* Extra border-color on focus (the ring itself comes from the central rule). */
-.cores-search:focus-visible {
+.rgp-cores-search:focus-visible {
   border-color: var(--aura-primary);
 }

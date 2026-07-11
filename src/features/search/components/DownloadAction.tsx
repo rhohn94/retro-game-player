@@ -12,6 +12,7 @@ import {
   startDownload,
 } from "../../../ipc/downloads";
 import { revealItemInDir } from "../../../ipc/opener";
+import { swallow } from "../../../ipc/swallow";
 
 type DownloadState =
   | { kind: "idle" }
@@ -21,6 +22,16 @@ type DownloadState =
   | { kind: "error"; message: string };
 
 const label = { fontSize: 11, flexShrink: 0 } as const;
+
+/** Error messages are truncated in the row so a long IPC failure never blows
+ *  out the layout; the full text stays available in the `title` tooltip. */
+const ERROR_MESSAGE_TRUNCATE_LEN = 60;
+
+/** Normalize a caught value into a displayable message (shared by every
+ *  catch site below so the extraction logic never drifts between them). */
+function toErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export function DownloadAction({ providerId, url }: { providerId: number; url: string }) {
   const navigate = useNavigate();
@@ -66,7 +77,7 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
         setState({ kind: "downloading", id, pct: null });
       })
       .catch((err: unknown) => {
-        setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        setState({ kind: "error", message: toErrorMessage(err) });
       });
   };
 
@@ -88,7 +99,11 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
         {state.pct === null ? "downloading…" : `${state.pct}%`}
         <button
           type="button"
-          onClick={() => void cancelDownload(state.id)}
+          onClick={() =>
+            void cancelDownload(state.id).catch((err: unknown) =>
+              setState({ kind: "error", message: toErrorMessage(err) }),
+            )
+          }
           style={{ ...label, background: "none", border: "none", cursor: "pointer", color: "var(--aura-error)" }}
         >
           cancel
@@ -114,7 +129,11 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
         not a recognized ROM
         <button
           type="button"
-          onClick={() => void revealItemInDir(state.stagedPath)}
+          onClick={() =>
+            void revealItemInDir(state.stagedPath).catch((err: unknown) =>
+              swallow(err, "DownloadAction.reveal"),
+            )
+          }
           style={{ ...label, background: "none", border: "none", cursor: "pointer", color: "var(--aura-primary)" }}
         >
           reveal
@@ -122,7 +141,9 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
         <button
           type="button"
           onClick={() =>
-            void discardStagedDownload(state.stagedPath).then(() => setState({ kind: "idle" }))
+            void discardStagedDownload(state.stagedPath)
+              .then(() => setState({ kind: "idle" }))
+              .catch((err: unknown) => setState({ kind: "error", message: toErrorMessage(err) }))
           }
           style={{ ...label, background: "none", border: "none", cursor: "pointer", color: "var(--aura-error)" }}
         >
@@ -133,7 +154,10 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
   }
   return (
     <span style={{ ...label, color: "var(--aura-error)" }} title={state.message}>
-      ⚠ {state.message.length > 60 ? `${state.message.slice(0, 60)}…` : state.message}
+      ⚠{" "}
+      {state.message.length > ERROR_MESSAGE_TRUNCATE_LEN
+        ? `${state.message.slice(0, ERROR_MESSAGE_TRUNCATE_LEN)}…`
+        : state.message}
     </span>
   );
 }

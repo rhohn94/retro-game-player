@@ -180,6 +180,40 @@ Use `auraTokenVars` over hardcoded `var(--aura-accent)` strings so your code ben
 | `useAuraMenu` | `(ref) → { isOpen, openAtAnchor, closeAll, selection }` | Track `<aura-menu>` open state via `MutationObserver` on the `aura-menu--open` class. `openAtAnchor(anchorEl)` positions and opens the menu below a trigger. `selection` holds the last `aura:menu-select` payload `{ value, label, checked, action }` (`null` before first pick). |
 | `useAuraSplit` | `(ref) → { ratios }` | Track live panel size ratios (fr values, sum = 100) from an `<aura-split>` element via `aura:change` events. Seeded from the element's `ratios` getter on mount; `[]` only before the element connects. |
 
+**`useAuraMenu` example** — a "⋯" button anchoring a rich `<aura-menu>` via
+the hook's imperative `openAtAnchor`, as an alternative to the declarative
+`data-aura-menu` + `data-aura-menu-trigger="click"` attribute pair:
+
+```jsx
+import { useRef } from "react";
+import { AuraButton } from "@aura-design/core/bindings/react";
+import { useAuraMenu } from "@aura-design/core/bindings/react/hooks";
+
+function RowActions() {
+  const menuRef = useRef(null);
+  const triggerRef = useRef(null);
+  const { isOpen, openAtAnchor, selection } = useAuraMenu(menuRef);
+
+  return (
+    <>
+      <AuraButton ref={triggerRef} onClick={() => openAtAnchor(triggerRef.current)}>
+        ⋯
+      </AuraButton>
+      <aura-menu ref={menuRef} id="row-menu" hidden>
+        <aura-menu-item icon="edit">Edit</aura-menu-item>
+        <aura-menu-item icon="copy">Duplicate</aura-menu-item>
+        <aura-menu-item icon="trash" variant="danger">Delete</aura-menu-item>
+      </aura-menu>
+      {selection && <p>Last pick: {selection.label}</p>}
+    </>
+  );
+}
+```
+
+`isOpen` is handy for driving a `⋯` button's `aria-expanded`; `selection`
+updates on every `aura:menu-select` so you don't need a separate event
+listener.
+
 ### Picker state
 
 | Hook | Signature | What it does |

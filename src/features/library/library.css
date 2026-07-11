@@ -10,6 +10,23 @@
  */
 
 @layer rgp-theme {
+  /* Library-local design tokens. These extend the shared --aura-space and
+     --aura-z stacking scales (src/theme/aura-theme.css,
+     vendor/aura/css/tokens.css) for values this feature needs that neither
+     scale already covers; where an existing --aura-z-* rung matches exactly
+     (1000, 1100) the component rules below reference it directly instead of
+     duplicating a token. */
+  :root {
+    --rgp-space-0-5: 0.125rem; /* 2px — half of --aura-space-1 (4px); the
+      recurring "hairline" margin/gap value below --aura-space-1 */
+    --rgp-z-dropzone: 50; /* import drag-drop overlay */
+    --rgp-z-hud: 1050; /* in-game HUD chips (hold-indicator, fps-counter) —
+      one tier above --aura-z-overlay (1000), below --aura-z-menu (1100) */
+    --rgp-z-game-toast: 1080; /* achievement-unlock toast — above the HUD
+      chips, still below --aura-z-menu (1100) so it never outranks the pause
+      overlay */
+  }
+
   /* ---- shared ---- */
   .rgp-muted {
     color: var(--aura-on-surface-muted);
@@ -501,12 +518,12 @@
     font-weight: 600;
   }
   .rgp-achievement-list__desc {
-    margin: 2px 0 0;
+    margin: var(--rgp-space-0-5) 0 0;
     font-size: var(--rgp-font-caption);
     color: var(--aura-on-surface-muted);
   }
   .rgp-achievement-list__unlocked-at {
-    margin: 2px 0 0;
+    margin: var(--rgp-space-0-5) 0 0;
     font-size: var(--rgp-font-caption);
     color: var(--aura-accent);
   }
@@ -522,7 +539,7 @@
     border-radius: var(--aura-radius-sm);
     object-fit: cover;
   }
-  span.rgp-achievement-badge {
+  .rgp-achievement-badge--placeholder {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -541,7 +558,7 @@
   .rgp-detail__meta {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--rgp-space-0-5);
     margin-top: var(--aura-space-2);
   }
   .rgp-detail__row {
@@ -578,7 +595,7 @@
   .rgp-dropzone {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: var(--rgp-z-dropzone);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -705,7 +722,7 @@
   .rgp-player--immersive {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: var(--aura-z-overlay);
     margin: 0;
     background: black;
   }
@@ -752,7 +769,7 @@
   .rgp-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1100;
+    z-index: var(--aura-z-menu);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -852,8 +869,12 @@
   }
 
   /* Get-core panel (v0.24 W241) — the player slot's "core not installed"
-     affordance; sits where the player would mount. */
-  .rgp-getcore {
+     affordance; sits where the player would mount. Shares its panel chrome
+     and message text with the external-only notice below (same "player slot
+     notice" shape, different body content) via one grouped rule instead of
+     two copy-pasted blocks. */
+  .rgp-getcore,
+  .rgp-external-only {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -863,7 +884,8 @@
     background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
     color: var(--aura-on-surface);
   }
-  .rgp-getcore__message {
+  .rgp-getcore__message,
+  .rgp-external-only__message {
     margin: 0;
     font-size: 14px;
   }
@@ -892,21 +914,8 @@
   }
 
   /* External-only notice (v0.34 W346) — the player slot's affordance for a
-     system with no in-page or native path at all (e.g. GameCube/Wii). */
-  .rgp-external-only {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--aura-space-3);
-    padding: var(--aura-space-5) var(--aura-space-5);
-    border-radius: var(--rgp-radius-card);
-    background: color-mix(in oklch, var(--aura-surface) 85%, var(--aura-primary));
-    color: var(--aura-on-surface);
-  }
-  .rgp-external-only__message {
-    margin: 0;
-    font-size: 14px;
-  }
+     system with no in-page or native path at all (e.g. GameCube/Wii). Panel
+     chrome + message text are shared with .rgp-getcore above. */
 
   /* Overlay volume row (v0.24 W243). */
   .rgp-overlay__volume {
@@ -941,7 +950,7 @@
     position: absolute;
     top: var(--aura-space-4);
     right: var(--aura-space-4);
-    z-index: 1050;
+    z-index: var(--rgp-z-hud);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -982,7 +991,7 @@
     position: absolute;
     top: var(--aura-space-4);
     left: var(--aura-space-4);
-    z-index: 1050;
+    z-index: var(--rgp-z-hud);
     padding: var(--aura-space-1) var(--aura-space-2);
     border-radius: var(--aura-radius-sm);
     background: color-mix(in srgb, var(--aura-surface) 72%, transparent);
@@ -1011,7 +1020,7 @@
     top: var(--aura-space-4);
     left: 50%;
     transform: translateX(-50%);
-    z-index: 1080;
+    z-index: var(--rgp-z-game-toast);
     display: flex;
     align-items: center;
     gap: var(--aura-space-3);
@@ -1032,7 +1041,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--rgp-space-0-5);
   }
   .rgp-achievement-toast__title {
     margin: 0;

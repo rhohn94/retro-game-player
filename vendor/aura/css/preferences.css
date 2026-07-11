@@ -46,7 +46,9 @@
      --aura-menu-surface-solid     aura-menu.aura-menu--open
      --aura-tooltip-surface-solid  .aura-tooltip, .aura-tooltip__arrow
      --aura-toast-surface-solid    .aura-toast
-     --aura-footer-surface-solid   aura-footer, .aura-footer
+     --aura-footer-surface-solid   aura-footer, .aura-footer,
+                                    .aura-footer__panel (independent panel,
+                                    #1047 — its own glass surface, same seam)
      --aura-lightbox-scrim-solid   .aura-lightbox__scrim   (dimmer, not surface)
      (blur-only, no fill swap)     .aura-dialog-scrim       (scrim dim kept)
    The nav-header's portaled panels, accent flyout and global-search command
@@ -143,6 +145,7 @@
   .aura-toast,
   aura-footer,
   .aura-footer,
+  .aura-footer__panel,
   .aura-sidebar {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -152,7 +155,8 @@
   .aura-tooltip__arrow { background: var(--aura-glass-tint-layer), var(--aura-tooltip-surface-solid); }
   .aura-toast { background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid); }
   aura-footer,
-  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+  .aura-footer,
+  .aura-footer__panel { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
   .aura-sidebar { background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid); }
 
   /* The CSS-only tooltip bubble raises to the bare opaque seam — its lite
@@ -262,6 +266,7 @@
   .aura-toast,
   aura-footer,
   .aura-footer,
+  .aura-footer__panel,
   .aura-sidebar {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -271,7 +276,8 @@
   .aura-tooltip__arrow { background: var(--aura-glass-tint-layer), var(--aura-tooltip-surface-solid); }
   .aura-toast { background: var(--aura-glass-tint-layer), var(--aura-toast-surface-solid); }
   aura-footer,
-  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+  .aura-footer,
+  .aura-footer__panel { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
   .aura-sidebar { background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid); }
 
   /* The CSS-only tooltip bubble raises to the bare opaque seam — its lite
@@ -307,9 +313,12 @@
   /* #811 — prefers-contrast strengthened footer border (#672 inventory parity):
      when high contrast is active the glass backdrop is already removed (backdrop
      disabled above); also strengthen the border to a 2px stroke so the footer
-     boundary is clearly legible without the glass elevation cue. */
+     boundary is clearly legible without the glass elevation cue. The independent
+     floating panel (#1047) gets the identical treatment — it is its own glass
+     surface now, not merely a passenger on the circle's rule. */
   aura-footer,
-  .aura-footer {
+  .aura-footer,
+  .aura-footer__panel {
     border-block-start: 2px solid var(--aura-footer-border-color);
     background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
   }
@@ -326,12 +335,22 @@
    always wins. Mirrors the per-component block in css/footer.css; both blocks
    are required: css/footer.css owns the component CSS (it is in its own layer),
    and this block provides the unified maintenance inventory for glass surfaces.
-   Surface inventory: aura-footer / .aura-footer — same as the prefers-contrast
-   inventory above (#672 invariant).
+   Surface inventory: aura-footer / .aura-footer / .aura-footer__panel — same
+   as the prefers-contrast inventory above (#672 invariant); the independent
+   floating panel (#1047) already carries this same treatment directly in
+   css/footer.css, mirrored here for the unified maintenance inventory.
    -------------------------------------------------------------------------- */
 @media (forced-colors: active) {
   aura-footer,
   .aura-footer {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: Canvas;
+    border-block-start: 1px solid ButtonText;
+    color: CanvasText;
+    box-shadow: none;
+  }
+  .aura-footer__panel {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: Canvas;

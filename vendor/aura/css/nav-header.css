@@ -714,30 +714,36 @@
   display: inline-flex;
 }
 
-/* ---- User FMB: top-right viewport anchor ----------------------------------
-   Auto-created by JS (ensureUserFmb) when a stash nav-header carries a
-   [data-nav-zone="user"]. Gives the user menu its own ghost FMB at the
-   top-right corner when the nav stashes and the user zone disappears into the
-   nav's 48px logo circle. JS shows/hides it in sync with data-stashed and
-   delegates clicks to the actual [data-nav-user-menu] button so the portal
-   system stays on one logical trigger and the menu panels portal correctly.
+/* ---- User FMB: top-right viewport anchor (v3.543 #1012 first-class promotion)
+   Dual-source (js/nav-header.js §User FMB): a consumer may author
+   [data-aura-user-fmb] directly as a standalone element, or ensureUserFmb()
+   auto-creates the proxy as sugar when a stash nav-header carries a
+   [data-nav-zone="user"] whose menu would otherwise become unreachable once
+   the bar shrinks to the FMB circle. Either way JS shows/hides the sugar
+   proxy in sync with data-stashed and delegates clicks to the actual
+   [data-nav-user-menu] button so the portal system stays on one logical
+   trigger. Geometry/motion read the dedicated --aura-user-fmb-* tokens
+   (tokens.json, each defaulting to its nav-header counterpart) rather than
+   the nav-header's own scoped tokens, per decision 5.
 
-   Ghosted-FMB contract audit (v3.541, #1021): this proxy is NOT a glow host —
-   ensureUserFmb() creates it with neither .aura-glow nor .aura-sheen, and the
-   glow registry (js/glow.js) selects exactly ".aura-glow, .aura-sheen" — so
-   no rim/halo pseudo-element exists on it and no ghost-window suppression
-   chain is needed (it would be dead code). Its ghosting is host opacity +
-   grayscale alone, restored by the :hover/:focus-within rules below. If the
-   proxy is ever promoted to a glow member, adopt sidebar.css's reference
-   :not(...)::after chain at the same time. Contract:
-   docs/design/proximity-glow-design.md §Ghosted FMB rim suppression. */
+   Glow membership + ghost suppression (v3.541 #1021, promoted v3.543 #1012):
+   js/nav-header.js's enhanceUserFmb() now adds .aura-glow to every enhanced
+   host (sidebar/footer/nav-header coverage-principle parity), so this host
+   IS a glow member with a real rim/halo pseudo-element — the promotion rule
+   this comment documents applies. Adopting the sidebar REFERENCE :not(...)
+   chain (docs/design/proximity-glow-design.md §Ghosted FMB rim suppression)
+   below suppresses the rim while ghosted at rest so it never composites
+   through the host's own opacity:0.35 + grayscale(1) as the desaturated
+   smudge the contract forbids (v3.532 #A); it restores at full fidelity the
+   instant any expand state applies (hover / focus-within / JS proximity /
+   pin). See docs/design/fmb-user-design.md. */
 [data-aura-user-fmb] {
   position: fixed;
   inset-block-start: var(--aura-nav-header-pad-inline);
   inset-inline-end: var(--aura-nav-header-pad-inline);
   inset-inline-start: auto;
-  inline-size: var(--aura-nav-header-fmb-size);
-  block-size: var(--aura-nav-header-fmb-size);
+  inline-size: var(--aura-user-fmb-size);
+  block-size: var(--aura-user-fmb-size);
   border-radius: 50%;
   overflow: hidden;
   padding: 0;
@@ -752,13 +758,19 @@
   /* Ghost resting state — matches the nav FMB opacity + desaturate. */
   opacity: 0.35;
   filter: grayscale(1);
+  /* inset-block-start/inset-inline-end transition (v3.543, #1012 ITEM-3):
+     animates the stash-handoff relocation into the FMB column's right-anchor
+     cell — see the :root:has(aura-fmb-column[data-fmb-column-active]) rule
+     below and docs/design/fmb-user-design.md §Stash handoff. */
   transition:
-    opacity       var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-    filter        var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-    inline-size   var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-    block-size    var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-    border-radius var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-    box-shadow    var(--aura-nav-header-duration) var(--aura-nav-header-easing);
+    opacity            var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    filter             var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    inline-size        var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    block-size         var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    border-radius      var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    box-shadow         var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    inset-block-start  var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    inset-inline-end   var(--aura-user-fmb-duration) var(--aura-user-fmb-easing);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   [data-aura-user-fmb] { background: var(--aura-glass-tint-layer), var(--aura-surface-solid); }
@@ -775,10 +787,80 @@
   cursor: pointer;
   color: inherit;
 }
+/* Expand states: hover / focus-within (a11y — keyboard focus on the inner
+   button reveals full fidelity, mirroring every other FMB) / the JS
+   proximity ring (data-user-fmb-expanded) / click-to-pin (data-fmb-pinned).
+   Single-control unification (v3.551, #1048): these four states drive the
+   circle's ghost-fade un-suppression exactly as before, but as of this
+   version js/nav-header.js's syncOneUserFmb()/onUserFmbPinClick() ALSO open
+   the real user menu in lockstep with hover/proximity and pin it open on
+   click — the same trigger list, now wired to a real behavioural outcome
+   instead of only a visual one. See docs/design/fmb-user-design.md
+   §Single-control model. */
 [data-aura-user-fmb]:hover,
-[data-aura-user-fmb]:focus-within {
+[data-aura-user-fmb]:focus-within,
+[data-aura-user-fmb][data-user-fmb-expanded],
+[data-aura-user-fmb][data-fmb-pinned] {
   opacity: 1;
   filter: none;
+}
+/* Glow-vs-ghost suppression (v3.541 #1021 promotion; sidebar reference shape
+   — docs/design/proximity-glow-design.md §Ghosted FMB rim suppression). One
+   :not() term per expand state, mirroring css/sidebar.css's
+   .aura-sidebar[data-aura-sidebar]:not(...)::after chain exactly (same four
+   states: hover, focus-within, JS-proximity-expanded, pinned). */
+[data-aura-user-fmb]:not(:hover):not(:focus-within):not([data-user-fmb-expanded]):not([data-fmb-pinned])::after {
+  opacity: 0;
+}
+/* ---- Informational button content (resolved decision, v3.551 #1048) -----
+   Reuses the "User zone avatar tooltip" mechanism above verbatim (same
+   attribute, same visual language), extended to also cover the FMB circle's
+   own button — js/nav-header.js's enhanceUserFmb() defaults data-tooltip
+   from the button's aria-label when the author/sugar path did not already
+   set one. An absolutely-positioned overlay anchored OUTSIDE the button's
+   own box, so it never affects the circle's bounding rect (button-stability
+   invariant) — appears briefly on hover/focus-visible before the real menu
+   (which now also opens on hover) supersedes it, same as the in-header
+   tooltip already does via the [aria-expanded="true"] rule below. */
+[data-aura-user-fmb] button[data-tooltip] {
+  position: relative;
+}
+[data-aura-user-fmb] button[data-tooltip]::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset-block-end: calc(100% + var(--aura-space-2));
+  inset-inline-end: 0;
+  inline-size: max-content;
+  max-inline-size: 14rem;
+  padding: var(--aura-space-1) var(--aura-space-2);
+  font-size: var(--aura-text-xs);
+  font-weight: var(--aura-weight-regular);
+  color: var(--aura-text);
+  background: var(--aura-glass-tint-layer), var(--aura-nav-panel-surface);
+  -webkit-backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+          backdrop-filter: blur(var(--aura-nav-panel-blur)) saturate(var(--aura-nav-panel-saturate));
+  border: 1px solid var(--aura-surface-stroke-strong);
+  border-radius: var(--aura-radius-sm);
+  box-shadow: var(--aura-shadow-4);
+  pointer-events: none;
+  z-index: var(--aura-z-menu);
+  opacity: 0;
+  translate: 0 4px;
+  transition:
+    opacity   var(--aura-user-fmb-duration) var(--aura-user-fmb-easing),
+    translate var(--aura-user-fmb-duration) var(--aura-user-fmb-easing);
+}
+[data-aura-user-fmb] button[data-tooltip]:hover::before,
+[data-aura-user-fmb] button[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  translate: 0 0;
+}
+[data-aura-user-fmb] button[data-tooltip][aria-expanded="true"]::before {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-aura-user-fmb] button[data-tooltip]::before { transition: none; }
 }
 @media (forced-colors: active) {
   [data-aura-user-fmb] {
@@ -794,22 +876,106 @@
    below (nav glass family, ~line 6080) — the gate's block scanner returns only
    the FIRST @media block matching a given feature per file, so a second,
    separate block here would silently never be seen by the coverage check. */
-/* KNOWN NO-OP (v3.541 ghost-audit finding, from ITEM-2/#1020): this block
-   intends to keep the ghost fade/desaturate channels animating under reduced
-   motion, but it is fully shadowed by base.css's central reduced-motion net —
-   the net's `transition-property: transform, translate, scale, rotate, filter,
-   backdrop-filter, box-shadow !important` drops `opacity` from the
-   transitionable set and its `transition-duration: 0.01ms !important` out-
-   cascades these non-!important declarations, so both channels snap
-   regardless. Left in place (rather than deleted) as the documented seam for
-   a future deliberate fix; a real override would need !important and a
-   decision on whether the user-FMB should animate where every other FMB
-   snaps (sidebar/footer use `transition: none` — see css/sidebar.css). */
+/* ---- FMB column re-anchoring (v3.549 ITEM-2 rewrite of the v3.543 #1012
+   "stash handoff") -----------------------------------------------------------
+   PRE-v3.549: when the single shared <aura-fmb-column> bar activated (ALL
+   configured members simultaneously Stashed), the user-FMB circle relocated
+   from its resting top-right viewport corner into the bar's right-anchor
+   cell, and the nav-header's ghost opacity/filter was overridden to full
+   strength — both driven by one global
+   `:root:has(aura-fmb-column[data-fmb-column-active])` rule keyed off the
+   OLD root-level attribute.
+
+   v3.549 (docs/design/fmb-design.md): there is no more global "column-wide"
+   state — every FMB has its own independent Stashed/Opened/Pinned state, and
+   the CSS rewrite (ITEM-1) re-anchors data-fmb-column-active to each
+   PER-STACK container, not the root element (see catalog/aura-fmb-column/
+   component.json). The two behaviors above are migrated to be **per-member**,
+   driven by the user-FMB's and nav-header's OWN state, not a global
+   "any member anywhere is Stashed" condition:
+
+   1. The user-FMB's resting top-right position (inset-block-start:
+      --aura-nav-header-pad-inline; inset-inline-end: --aura-nav-header-pad-inline
+      — the base [data-aura-user-fmb] rule above) is now ALSO its column
+      slot position: the user-FMB defaults to column=end/anchor=start
+      (js/fmb-column.js's migration default), which the ITEM-1 CSS renders as
+      a top-right-pinned stack (inset-inline-end: 0 on the stack container,
+      inset-block-start: 0 on the block-start anchor). Since the button-
+      stability invariant (fmb-design.md §The three states) requires the
+      button to sit at ONE fixed on-screen location across all three states,
+      there is no longer a separate "handoff" transition to make: the circle
+      already rests where its slot is. No inset re-anchoring rule is needed.
+
+      Position parity is NOT size parity, though: --aura-user-fmb-size
+      (css/tokens.css) is unconditionally --aura-nav-header-height-shrunk
+      (48px) while the column's slot cell is unconditionally
+      --aura-fmb-column-size (96px, css/fmb-column.css's [data-fmb-slot]
+      rule) — without extra coordination the circle would render undersized
+      inside/beside the oversized glass tile once Stashed into an active
+      stack. Real per-member size coordination for the user-FMB's specific
+      (column=end, anchor=start) stack now lives in css/fmb-column.css (the
+      "User-FMB size coordination" rule, just below its [data-fmb-column-
+      active] opacity rule) — a review-fix restoring the effect the old
+      pre-v3.549 global `:root:has(aura-fmb-column[data-fmb-column-active])`
+      rule used to provide, scoped per-stack instead of globally. A prior
+      draft of this comment claimed that coordination already existed here;
+      it did not — ITEM-1 dropped it and never restored it until this fix.
+
+   2. The nav-header ghost-opacity override below now fires on the
+      nav-header's OWN [data-expanded]/[data-fmb-pinned]/:hover/:focus-within
+      state (already covered by the .aura-nav-header[data-stashed][data-expanded]
+      etc. rule earlier in this file) rather than a global column-active
+      condition — so no additional rule is needed here either; removing the
+      stale :has() selector does not regress this host, because its own
+      Opened/Pinned states independently restore full opacity already.
+
+   3. What DOES need a genuine per-member replacement is the Z-INDEX bump the
+      old rule provided (raising the user-FMB and nav-header's stashed circle
+      above the column's z-overlay tier so they stay clickable/hoverable once
+      any FMB is Opened/Pinned). Neither host had its OWN z-index bump before
+      v3.549 — both sat at a flat, static z-index in every state
+      (--aura-z-sticky / --aura-z-sticky - 1), below the column's
+      --aura-z-overlay. Restored below, keyed off each host's OWN expand
+      signal (fmb-design.md's reused data-{member}-expanded / data-fmb-pinned
+      vocabulary) rather than the retired global rule.
+
+      Trigger states MUST mirror the opacity/filter "Opened" rule above
+      exactly (:hover, :focus-within, [data-user-fmb-expanded],
+      [data-fmb-pinned]) — data-user-fmb-expanded is set only by JS
+      pointer-proximity math (js/nav-header.js's syncOneUserFmb), never by
+      keyboard focus, so omitting :hover/:focus-within here left a keyboard
+      user tabbing onto the user-FMB with full opacity but no z-index bump,
+      letting its menu render behind the column's glass stack (reviewer
+      finding, v3.549 review-fix). */
+[data-aura-user-fmb]:hover,
+[data-aura-user-fmb]:focus-within,
+[data-aura-user-fmb][data-user-fmb-expanded],
+[data-aura-user-fmb][data-fmb-pinned] {
+  /* Shared token (v3.549 review-fix, tokens.json "FMB active z-index bump"):
+     was an independently hand-written calc(var(--aura-z-overlay, 1000) + 1)
+     literal here, in css/sidebar.css, and in css/footer.css — deduplicated
+     into one --aura-z-fmb-active token all four sites now consume. */
+  z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+}
+.aura-nav-header[data-stashed][data-expanded],
+.aura-nav-header[data-stashed]:hover,
+.aura-nav-header[data-stashed]:focus-within,
+.aura-nav-header[data-stashed][data-fmb-pinned] {
+  z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+}
+/* Reduced motion (carry-over fix, v3.543 #1012 — was a documented NO-OP under
+   v3.541's #1020 ghost-audit finding): the FMB ↔ expanded state change still
+   HAPPENS — it just snaps, with no animated fade/resize, matching the
+   sidebar/footer FMB precedent (css/sidebar.css / css/footer.css both use
+   `transition: none` rather than fighting base.css's central reduced-motion
+   net). z-index is never an animatable/transitioned channel regardless, so
+   the v3.549 per-member z-index bump above needs no reduced-motion handling
+   of its own — this block only still applies to the user-FMB's own
+   opacity/filter/inline-size/block-size/border-radius/box-shadow channels
+   declared on the base [data-aura-user-fmb] rule. */
 @media (prefers-reduced-motion: reduce) {
   [data-aura-user-fmb] {
-    transition:
-      opacity var(--aura-nav-header-duration) var(--aura-nav-header-easing),
-      filter  var(--aura-nav-header-duration) var(--aura-nav-header-easing);
+    transition: none;
   }
 }
 
@@ -2588,6 +2754,66 @@ aura-nav-header:not(:defined) [role="menu"] { display: none; }
     min-block-size: var(--aura-tap-min, 44px);
     justify-content: center;
   }
+}
+
+/* ---- FMB mobile-column reveal coordination (v3.552, #1052 ITEM-2) --------
+   [data-nav-collapsed] (above) and the Stashed-circle geometry
+   ([data-stashed], line ~579) are TWO INDEPENDENT CONCERNS — see
+   docs/design/nav-header-design.md §Mobile FMB circle & the merged reveal
+   control for the full reconciliation writeup:
+     - data-nav-collapsed / .aura-nav-hamburger: the in-header NAV-LINKS
+       disclosure only (does a hamburger button replace the inline nav
+       links at this container width?). Purely a container-width read
+       (syncHamburgerFor()); never touches data-stashed.
+     - data-stashed / the FMB circle: this header's OWN scroll-driven
+       three-state membership in the shared column/anchor model
+       (fmb-design.md), unrelated to container width — a header can be
+       Stashed at any viewport size.
+   Neither mechanism ever gates the other; both key off the same 640px
+   (--aura-bp-mobile) breakpoint value independently and may disagree in
+   the abstract (e.g. a Stashed circle rendered inside a still-wide,
+   non-collapsed container) with no visual conflict, because they animate
+   disjoint channels (nav-links visibility vs. bar-to-circle geometry).
+
+   The actual pre-v3.552 GAP: js/nav-header.js's own reveal paths
+   (top-edge hot-zone, FMB-proximity) require a real pointer and are
+   explicitly skipped on coarse/touch pointers (armed only when
+   `!coarsePointer()`); keyboard focus still works, but a touch-only user
+   with no external keyboard had no path back from a Stashed circle other
+   than a direct, unassisted tap on the small circle itself — never wired
+   to the shared, always-tap-target-sized `[data-fmb-reveal]` control
+   `js/fmb-column.js` already builds for the merged mobile column (nav-header
+   is already one of its LEGACY_MEMBERS). This rule closes that gap: while
+   the merged column is open (`<aura-fmb-column data-fmb-column-revealed>`),
+   any Stashed header un-ghosts and expands to the full pill using THE SAME
+   restore rule the hover/focus-within/pinned paths already use (line ~666)
+   — one more entry in that selector group, not a parallel mechanism. The
+   JS half (js/nav-header.js's installFmbColumnRevealSync) additionally
+   clears data-stashed itself on the same signal, so isStashed()'s
+   "nav" case in js/fmb-column.js (host.hasAttribute("data-stashed")) and
+   the on-screen geometry never disagree — this rule is therefore a pure
+   restore-on-signal convenience (matches the very next render), not the
+   only thing standing between the two states. */
+:root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-nav-header[data-stashed] {
+  translate: 0 0;
+  margin-inline: var(--aura-nav-header-pad-inline);
+  padding-inline: var(--aura-nav-header-pad-inline);
+  border-radius: var(--aura-radius-lg);
+  opacity: 1;
+  filter: none;
+}
+:root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-nav-header[data-stashed] > :not([data-nav-zone="logo"]) {
+  max-inline-size: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+:root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-nav-header[data-stashed] > [data-nav-zone="logo"] {
+  flex: none;
+  justify-content: flex-start;
+  align-self: center;
+}
+:root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-nav-header[data-nav-collapsed][data-stashed] .aura-nav-hamburger {
+  display: inline-flex;
 }
 
 /* ---- Nav zone 2-row wrap at medium viewports (nav r20-4) -----------------

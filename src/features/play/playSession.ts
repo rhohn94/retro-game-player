@@ -18,9 +18,18 @@ export class PlaySessionTracker {
   private sessionId: number | null = null;
   private ending = false;
 
-  /** Begins tracking; resolves once the backend has assigned a session id. */
+  /** Begins tracking; resolves once the backend has assigned a session id (or
+   * swallows a failed start, leaving no session tracked — matching `end()`'s
+   * own posture of never letting an IPC rejection escape as an unhandled
+   * promise rejection). */
   async start(gameId: number): Promise<void> {
-    const id = await recordPlayStart(gameId);
+    let id: number;
+    try {
+      id = await recordPlayStart(gameId);
+    } catch (err: unknown) {
+      swallow(err, "PlaySessionTracker.start");
+      return;
+    }
     // If `end()` already ran before `start()` resolved (a very fast
     // mount/unmount), don't leave an orphaned session dangling — end it
     // immediately instead of "reviving" a session the caller already

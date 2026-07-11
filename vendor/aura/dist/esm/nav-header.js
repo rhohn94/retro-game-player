@@ -90,6 +90,30 @@ import "./overlay.js";
   var UNIFIED_STASHED_ATTR = "data-aura-stashed";
   var ROOT_SEL = "aura-nav-header, .aura-nav-header";
 
+  /* ---- User FMB attribute vocabulary (v3.543, #1012; single-control
+     unification v3.551, #1048) --------------------------------------------
+     data-aura-user-fmb is the public identity — DUAL-SOURCE: a consumer may
+     author it directly as a standalone element with no nav-header present, or
+     it is auto-created as a sugar proxy by ensureUserFmb() when a stash
+     nav-header carries a [data-nav-zone="user"]. One shared enhancement
+     routine (enhanceUserFmb) serves both paths so hot-zone, open/pin, glow,
+     stash mirror, and a11y wiring live in exactly one place.
+
+     v3.551 unifies what used to be TWO uncoordinated affordances (hover only
+     un-ghosted opacity; a separate click on the button opened/closed the
+     menu; a separate click on the surrounding chrome toggled data-fmb-pinned
+     with no effect on the menu) onto fmb-design.md's general single-control
+     contract: hover/focus-within/JS-proximity OPENS the menu (not just the
+     ghost fade); clicking the host while Opened PINS it (keeps the menu open
+     regardless of pointer/focus location); clicking again while Pinned (or
+     Escape, or an outside click) unpins AND closes it. data-user-fmb-expanded
+     and data-fmb-pinned keep their names (already the unified vocabulary
+     fmb-design.md documents) — only what they DRIVE changes. */
+  var USER_FMB_SEL          = "[data-aura-user-fmb]";
+  var USER_FMB_EXPANDED_ATTR = "data-user-fmb-expanded";   /* JS proximity ring + hover-opens signal */
+  var USER_FMB_PINNED_ATTR   = "data-fmb-pinned";           /* click-to-pin (unified) — now also keeps the menu open */
+  var USER_FMB_STASHED_ATTR  = "data-aura-stashed";         /* unified stash mirror */
+
   /* ---- Lifecycle teardown registries (#421) ------------------------------
      SPA frameworks (React route changes, StrictMode double-mounts) connect
      and disconnect <aura-nav-header> repeatedly, so everything this module —
@@ -558,6 +582,18 @@ import "./overlay.js";
         if (!h.hasAttribute(STASHED_ATTR)) {
           h.setAttribute(STASHED_ATTR, "");
           _applyFmbSemantics(h, true);
+          /* Bugfix (pre-existing, found alongside the v3.551 cross-trigger
+             audit): this branch is the one stash-transition path that used to
+             skip updateUserFmb() — restash() and the other two STASHED_ATTR
+             call sites all call it, but a plain scroll-triggered stash (a
+             "stash" header, not "stash-default") never did, so the sugar
+             proxy stayed permanently hidden through a scroll-driven stash
+             with no hot-zone/focus reveal-then-restash cycle to correct it.
+             Also the one path with no hasOpenMenu() guard, so it is where a
+             menu opened via the generic pre-unification bypass (see
+             updateUserFmb's own comment) can still be open at the moment of
+             stashing — updateUserFmb() now reconciles that case. */
+          updateUserFmb(h, true);
         }
       }
       /* Scrolling UP while past the shrink-threshold leaves the stash state
@@ -1067,6 +1103,81 @@ import "./overlay.js";
       panel._panelResizeObserver = null;
       panel._panelResizeTrigger  = null;
     }
+  }
+
+  /* ---- Narrow user-menu re-anchor on FMB-column activate/deactivate
+     (v3.543, #1012 ITEM-3, decision 4) --------------------------------------
+     The user FMB's fixed circle physically relocates (top-right viewport
+     corner → the column's right-anchor cell, see css/nav-header.css's
+     :root:has(aura-fmb-column[data-fmb-column-active]) block) whenever
+     <aura-fmb-column> flips data-fmb-column-active. If the user menu panel
+     is OPEN and portaled at that exact moment, its cached anchor rect
+     (captured at open time via _overridePortalRect / trigger.getBoundingClientRect())
+     goes stale — the panel would keep blooming from the pre-handoff position.
+
+     This is deliberately narrow: it does NOT become a general anchored-panel
+     engine (#1016/#1025 territory). It only re-runs the EXISTING open-time
+     mechanism (portalPosition, which itself still owns all flip/clamp/bloom
+     geometry) for the one portal that can visibly desync — the user panel —
+     triggered by the one attribute flip that can move its trigger's rect
+     out from under it. Non-user panels are untouched: nav submenus and
+     mega-menus anchor to nav-header zones that the FMB column handoff does
+     not relocate. */
+  function reanchorOpenUserPanel() {
+    var panel = document.querySelector("[data-aura-nav-portal]:not([hidden])");
+    if (!panel || !panel._portalIsUser) return;
+    var trigger = panel._panelResizeTrigger;
+    if (!trigger) return;
+    /* The geometry that actually relocates on a column flip is the SUGAR
+       PROXY's fixed circle (css/nav-header.css's
+       :root:has(aura-fmb-column[data-fmb-column-active]) [data-aura-user-fmb]
+       rule) — never the real in-header trigger, which stays put inside the
+       (possibly still-hidden) [data-nav-zone="user"] zone. The open-time path
+       (ensureUserFmb()'s click handler) already knows this: it seeds
+       _overridePortalRect from the PROXY's rect, not the trigger's, before
+       delegating the click. Mirror that exact rect source here — read the
+       owning header's _userFmb proxy rect when one exists (sugar path);
+       otherwise fall back to the trigger's own rect (a standalone
+       [data-aura-user-fmb] author might portal a panel without ever going
+       through ensureUserFmb's delegation, though the shipped sugar path
+       always has a proxy). */
+    var ownerHeader = trigger.closest(ROOT_SEL);
+    var proxy = ownerHeader && ownerHeader._userFmb;
+    var rectSource = (proxy && !proxy.hidden) ? proxy : trigger;
+    /* Force a fresh rect read: the proxy's fixed position just changed via
+       CSS custom-property-driven insets (a synchronous style recalc, no
+       animation frame to wait out under reduced-motion; under motion the
+       transition is mid-flight, but re-running on every subsequent resize/
+       scroll dismissal check already tolerates a settle window — this pass
+       only needs to land within the same ballpark portalPosition already
+       tolerates for any other trigger move). */
+    trigger._overridePortalRect = rectSource.getBoundingClientRect();
+    portalPosition(panel, trigger);
+  }
+
+  /* Installed once (page-level singleton, mirrors installUserFmbMove):
+     watches EVERY <aura-fmb-column> in the document for its
+     data-fmb-column-active flip and re-anchors the open user panel, if any,
+     immediately after. There is normally at most one column per page, but
+     the observer is written to tolerate more without assuming a singleton. */
+  var fmbColumnReanchorInstalled = false;
+  function installFmbColumnReanchor() {
+    if (fmbColumnReanchorInstalled) return;
+    fmbColumnReanchorInstalled = true;
+    if (typeof MutationObserver === "undefined") return;
+    var mo = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].attributeName === "data-fmb-column-active") {
+          reanchorOpenUserPanel();
+          return; // one re-anchor pass per batch is sufficient
+        }
+      }
+    });
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-fmb-column-active"],
+      subtree: true
+    });
   }
 
   /* ---- Panel proximity glow — cursor-tracking --_cursor-x-pct (r20-11) ---
@@ -1784,6 +1895,15 @@ import "./overlay.js";
   function closeMenu(trigger, restoreFocus) {
     var panel = panelFor(trigger);
     if (!panel) return;
+    /* Single-control unification (v3.551, #1048): ANY path that closes the
+       user menu — Escape, outside click, a sibling menu opening, this
+       trigger's own toggle — must also clear a pinned user-FMB host's
+       data-fmb-pinned, so the FMB circle's visual state (ghost-fade
+       suppression, z-index bump) never lags a menu the user just dismissed
+       by a route other than re-clicking the FMB itself. Centralizing this
+       here (rather than duplicating it at every closeMenu() call site) keeps
+       the pin↔open coupling correct regardless of dismissal path. */
+    unpinUserFmbHostFor(trigger);
     /* Cancel any debounced panel announcement for this close (nav r20-9). */
     if (_announceTimer !== null) { window.clearTimeout(_announceTimer); _announceTimer = null; }
     /* If this was a Themes panel with an active preview, revert on dismiss
@@ -2052,6 +2172,44 @@ import "./overlay.js";
       if (isPinned(sub)) continue;
       closeMenu(open[i], false);
     }
+    /* User-FMB hosts (single-control unification, v3.551 #1048): BOTH
+       provenances' own button lives OUTSIDE ROOT_SEL — the standalone
+       author's element has no header at all, and the sugar proxy is
+       inserted as the header's SIBLING (ensureUserFmb(), so position:fixed
+       is never trapped by the header's own translate containing block), not
+       its descendant — so the header-scoped query above never reaches
+       either shape's own button (it only ever closes the real in-header
+       navBtn the sugar proxy delegates to). Sweep every host directly so
+       outside-click/Escape unpins + closes it exactly like any other
+       trigger this function handles; closeMenu() resolves the panel via the
+       host's own button's aria-controls (copied from navBtn at proxy
+       creation time for the sugar path) and is idempotent against an
+       already-closed panel. Deliberately NOT skipped by data-fmb-pinned
+       (unlike the [data-nav-submenu] pin above): fmb-design.md's contract
+       has an outside click/Escape unpin an FMB regardless of its own pin
+       state — data-fmb-pinned only means "stays open while the
+       pointer/focus wanders elsewhere," not "immune to explicit
+       dismissal." */
+    var userFmbHosts = (scope || document).querySelectorAll(USER_FMB_SEL);
+    for (var si = 0; si < userFmbHosts.length; si++) {
+      var host = userFmbHosts[si];
+      var trigger = userFmbTriggerFor(host);
+      if (trigger && isOpen(trigger)) closeMenu(trigger, false);
+      else if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+    }
+    /* FMB circle Pinned exit (#1068): fold the header-root's own
+       data-fmb-pinned (set by the logo-zone click above, distinct from the
+       user-FMB proxy's data-fmb-pinned swept above) into this same
+       outside-click cleanup — fmb-design.md requires an outside click to
+       unpin exactly like Escape does. No restash/focus-move here: an
+       outside click never returns focus (contrast the Escape branch, which
+       does), and the pinned circle is by definition already Stashed. */
+    var pinnedRoots = (scope || document).querySelectorAll(ROOT_SEL);
+    for (var pri = 0; pri < pinnedRoots.length; pri++) {
+      if (pinnedRoots[pri].hasAttribute("data-fmb-pinned")) {
+        pinnedRoots[pri].removeAttribute("data-fmb-pinned");
+      }
+    }
   }
 
   /* ---- Delegated document wiring (HTMX-safe, registered once) ----------- */
@@ -2164,9 +2322,22 @@ import "./overlay.js";
       }
     }
 
-    /* Outside click — close every open header menu + overflow panels. */
+    /* Outside click — close every open header menu + overflow panels.
+       [data-aura-user-fmb] is excluded for the same reason onPointerDown's
+       equivalent check excludes it (single-control unification, v3.551
+       #1048): a click on the FMB's own button bubbles up to this same
+       delegated onClick, and without this exclusion it would read as an
+       "outside" click on every OTHER trigger and immediately re-close/unpin
+       the menu onUserFmbPinClick just opened+pinned earlier in the same
+       bubble phase. The FMB circle's own logo zone (#1068) is excluded for
+       the identical reason: onPointerDown fires before this click handler,
+       and a press on a Pinned circle's logo must not let closeAllIn()
+       unpin it here a beat before the click branch above runs its own
+       toggle — that race would flip an intended unpin back into a re-pin. */
     if (!t.closest("[data-nav-submenu], [data-nav-user-menu]") &&
         !t.closest("[data-aura-nav-portal]") &&
+        !t.closest(USER_FMB_SEL) &&
+        !t.closest('[data-nav-zone="logo"] a, a[data-nav-zone="logo"]') &&
         !t.closest("." + OVERFLOW_WRAP_CLASS)) {
       closeAllIn(document);
       var openOvrTriggers = document.querySelectorAll("." + OVERFLOW_TRIGGER_CLASS + "[aria-expanded='true']");
@@ -2181,12 +2352,26 @@ import "./overlay.js";
   /* Outside pointerdown (the design's dismissal trigger) closes open menus when
      the press starts outside any menu region. Portaled panels are at body level
      so their selector check needs [data-aura-nav-portal] in addition to the
-     normal region attributes. */
+     normal region attributes. [data-aura-user-fmb] is excluded for the same
+     reason [data-nav-submenu]/[data-nav-user-menu] are (single-control
+     unification, v3.551 #1048): BOTH user-FMB provenances live outside
+     ROOT_SEL (sibling for the sugar proxy, no header at all for a standalone
+     author), so without this exclusion a press on the FMB's own button would
+     race its own click handler — closeAllIn() closing the menu on
+     pointerdown a beat before onUserFmbPinClick's click handler re-opens/pins
+     it, the same click-vs-pointerdown ordering hazard the header's own
+     triggers already avoid via this same exclusion list. */
   function onPointerDown(e) {
     var t = e.target;
     if (!t || !t.closest) return;
     if (t.closest("[data-nav-submenu], [data-nav-user-menu]")) return;
     if (t.closest("[data-aura-nav-portal]")) return;
+    if (t.closest(USER_FMB_SEL)) return;
+    /* FMB circle logo zone (#1068) excluded for the same click-vs-pointerdown
+       ordering hazard as USER_FMB_SEL above: a press on a Pinned circle's
+       logo must not unpin it here a beat before its own click handler's
+       toggle runs. */
+    if (t.closest('[data-nav-zone="logo"] a, a[data-nav-zone="logo"]')) return;
     closeAllIn(document);
   }
 
@@ -2419,6 +2604,30 @@ import "./overlay.js";
           closeMenu(trigger, true);     // Escape returns focus to the trigger
           return;
         }
+      }
+      /* FMB circle Pinned exit (#1068): fmb-design.md's exit vocabulary
+         requires Escape (in addition to the second-logo-click toggle
+         already wired at the FMB logo-zone click site above) to unpin the
+         header — mirroring js/sidebar.js's Escape handling (sidebar.js
+         ~380-392). Pinned is layered atop Stashed for this shape (the bar
+         IS the FMB circle), so unpinning restores the resting Stashed
+         circle (restash) rather than leaving the bar in limbo, and focus
+         returns to the logo — the control that pinned it — like every
+         other Escape branch here returns focus to the trigger it closed.
+         Swept the same way the drawer-closing loop just below scans every
+         header for its own global state flag, rather than scoping to `t`'s
+         closest header, since a page normally carries a single stash-family
+         header and Pinned is (like the drawer) a document-visible latch. */
+      var pinnedHeaders = document.querySelectorAll(ROOT_SEL);
+      for (var phi = 0; phi < pinnedHeaders.length; phi++) {
+        var pinnedHeader = pinnedHeaders[phi];
+        if (!pinnedHeader.hasAttribute("data-fmb-pinned")) continue;
+        e.preventDefault();
+        pinnedHeader.removeAttribute("data-fmb-pinned");
+        if (!pinnedHeader.hasAttribute(STASHED_ATTR)) restash(pinnedHeader);
+        var pinnedLogo = pinnedHeader.querySelector('[data-nav-zone="logo"] a, a[data-nav-zone="logo"]');
+        if (pinnedLogo) pinnedLogo.focus({ preventScroll: true });
+        return;
       }
       /* The collapsed-nav drawer is open (#380): close it and return focus to
          the hamburger disclosure so keyboard users are not stranded in a
@@ -2692,20 +2901,510 @@ import "./overlay.js";
     header.insertBefore(btn, navZone);
   }
 
-  /* ---- User FMB (top-right corner) --------------------------------------- */
-  /* When a stash-enabled nav-header carries a [data-nav-zone="user"] the user
+  /* ---- User FMB (top-right corner, v3.543 #1012 first-class promotion) ---
+     Dual-source (decision 1): (a) a consumer authors [data-aura-user-fmb]
+     directly — a standalone element that works with no nav-header at all; (b)
+     ensureUserFmb() stays as SUGAR, auto-creating the proxy when a stash
+     nav-header carries a [data-nav-zone="user"] whose menu would otherwise
+     become unreachable once the bar shrinks to the FMB circle. Both paths
+     converge on ONE shared routine, enhanceUserFmb(), so hot-zone, click-to-
+     pin, the stash mirror, glow membership + ghost suppression, and keyboard
+     a11y are wired in exactly one place regardless of provenance. */
+
+  /* ---- Module-level proximity registry (mirrors js/footer.js §FMB proximity
+     detection) — one shared rAF-throttled pointermove listener serves every
+     enhanced user-FMB on the page, not one listener per instance. */
+  var userFmbPointerX = -1;
+  var userFmbPointerY = -1;
+  var userFmbRafPending = false;
+  var userFmbInstances = [];
+
+  /* Resolve --aura-user-fmb-size → px via a probe element (resolves var()
+     chains a plain getComputedStyle().getPropertyValue() cannot, #744-style).
+     Defaults to 48 (3rem at 16px root) — the historical nav FMB circle size. */
+  function userFmbSizePx(el) {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;visibility:hidden;width:var(--aura-user-fmb-size,3rem)";
+    el.appendChild(probe);
+    var px = parseFloat(getComputedStyle(probe).width) || 48;
+    el.removeChild(probe);
+    return px;
+  }
+
+  /* Resolve --aura-nav-header-fmb-expand-px (the nav FMB's own expand ring —
+     the user-FMB shares the same invisible-hit-region radius so cursor
+     behaviour feels identical approaching either circle) → numeric px. */
+  function userFmbExpandPx(el) {
+    var v = parseFloat(getComputedStyle(el).getPropertyValue("--aura-nav-header-fmb-expand-px")) || 12;
+    return v >= 0 ? v : 12;
+  }
+
+  /* Resolve the single control this host opens/closes/pins through
+     (single-control unification, v3.551 #1048). Two provenances:
+       - Sugar proxy: the REAL in-header navBtn (el._userFmbNavBtn, stashed
+         by ensureUserFmb() at creation time) stays the canonical trigger
+         openMenu()/closeMenu() operate on — it already owns aria-expanded
+         end-to-end, and the proxy's own button only ever MIRRORS that state
+         (see the aria-expanded MutationObserver in ensureUserFmb()). Driving
+         open/close through the proxy's button instead would invert that
+         mirror and desync navBtn once the header un-stashes while a
+         hover/pin-opened menu is still showing.
+       - Standalone: no navBtn exists — the host's own inner <button> IS the
+         trigger. */
+  function userFmbTriggerFor(el) {
+    return el._userFmbNavBtn || el.querySelector("button");
+  }
+
+  /* Reverse lookup (single-control unification, v3.551 #1048): given a
+     trigger button, resolve the user-FMB HOST it belongs to, IFF trigger is
+     actually that host's OWN controlling trigger — not merely "some trigger
+     sharing an ancestor header with a user-FMB." Two provenances: (a)
+     standalone — trigger is the host's own inner button, found by walking
+     up; (b) sugar — trigger is the real in-header navBtn, found via the
+     header's cached _userFmb reference (the proxy button is a SEPARATE
+     element that only mirrors navBtn's aria-expanded, so walking up from
+     navBtn itself would never reach the proxy).
+
+     Identity check (bugfix, v3.551 follow-up, cross-trigger false-positive):
+     an earlier version of this function returned "closest header's
+     _userFmb" for ANY trigger inside that header — including an unrelated
+     ordinary nav-submenu trigger sharing the same header. closeMenu() calls
+     this for every close regardless of trigger shape, so closing an
+     unrelated submenu silently cleared the user-FMB's pin. Guard the sugar
+     path with userFmbTriggerFor(host) so only navBtn itself (the host's own
+     cached trigger) resolves to the host — an ordinary submenu trigger,
+     which merely happens to live in the same header, now correctly no-ops. */
+  function userFmbHostFor(trigger) {
+    var standalone = trigger.closest(USER_FMB_SEL);
+    if (standalone) return standalone;
+    var header = trigger.closest(ROOT_SEL);
+    var host = header && header._userFmb;
+    if (host && userFmbTriggerFor(host) === trigger) return host;
+    return null;
+  }
+
+  /* Clear a controlling user-FMB host's pin (and, for the direct-unpin
+     callers below, close its menu too) — the single hook every closeMenu()
+     call site funnels through so the FMB's visual state never lags a menu
+     dismissed via Escape/outside-click/sibling-open rather than a re-click
+     on the FMB itself. No-ops harmlessly when the trigger has no
+     controlling user-FMB host (an ordinary nav submenu). */
+  function unpinUserFmbHostFor(trigger) {
+    var host = userFmbHostFor(trigger);
+    if (host && host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+  }
+
+  /* True when (x, y) falls within a portaled panel's rect, expanded by a
+     small buffer — lets the pointer travel from the circle into its OPEN
+     menu without the hover-opens signal retracting mid-transit. The menu
+     portals to document.body (portalOpen()), so it is not a DOM descendant
+     of the host and CSS :hover cannot cover it the way sidebar/footer's
+     inline (non-portaled) panels are covered by their host's :hover — this
+     rAF sync is where that containment has to live instead. */
+  function userFmbPointerInPanel(el, x, y) {
+    var trigger = userFmbTriggerFor(el);
+    if (!trigger) return false;
+    var panel = panelFor(trigger);
+    if (!panel || panel.hidden) return false;
+    var rect = panel.getBoundingClientRect();
+    var buf = 4;
+    return x >= rect.left - buf && x <= rect.right + buf &&
+           y >= rect.top - buf && y <= rect.bottom + buf;
+  }
+
+  /* rAF-throttled proximity sync — fires for every registered instance. */
+  function syncUserFmbHotzones() {
+    userFmbRafPending = false;
+    for (var i = 0; i < userFmbInstances.length; i++) {
+      syncOneUserFmb(userFmbInstances[i]);
+    }
+  }
+
+  function syncOneUserFmb(el) {
+    /* Click-pinned: CSS keeps it expanded regardless — skip proximity compute. */
+    if (el.hasAttribute(USER_FMB_PINNED_ATTR)) return;
+    if (el.hidden) return;               /* sugar proxy hidden while nav is not stashed */
+    if (userFmbPointerX < 0) return;
+
+    /* Anchor the ring to the circle's FIXED top-left corner with the TOKEN
+       radius, not the live box — GOTCHA (project memory, mirrors
+       js/nav-header.js's own top-edge hot-zone + js/sidebar.js + js/footer.js):
+       while the host animates between ghost circle and expanded state,
+       getBoundingClientRect() can return in-between geometry, and a width-
+       derived centre + radius would swell the ring mid-transition and thrash
+       the pill/circle reveal↔restash cycle. rect.left/top stay put (fixed
+       inset), so they are safe to read; only inline-size/block-size are
+       untrustworthy mid-transition. */
+    var r = el._userFmbRadius;
+    var rect = el.getBoundingClientRect();
+    var cx = rect.left + r;
+    var cy = rect.top + r;
+    var expand = el._userFmbExpand;
+
+    var dx = userFmbPointerX - cx;
+    var dy = userFmbPointerY - cy;
+    var inProximity = (dx * dx + dy * dy) <= (r + expand) * (r + expand);
+    /* Also count as "in proximity" while the pointer is over the already-open
+       (portaled) menu, so travelling from the circle into the dropdown to
+       click an item does not retract the expand state mid-transit. */
+    var inPanel = !inProximity && userFmbPointerInPanel(el, userFmbPointerX, userFmbPointerY);
+    var stayOpen = inProximity || inPanel;
+
+    if (stayOpen) {
+      if (!el.hasAttribute(USER_FMB_EXPANDED_ATTR)) el.setAttribute(USER_FMB_EXPANDED_ATTR, "");
+      /* Single-control unification (v3.551, #1048): hover/proximity now
+         actually OPENS the menu, not merely the ghost-fade un-suppression
+         the pre-v3.551 behavior stopped at. Idempotent — openUserFmbMenu()
+         on an already-open trigger is a harmless no-op via openMenu()'s own
+         panel check. */
+      openUserFmbMenu(el);
+    } else {
+      if (el.hasAttribute(USER_FMB_EXPANDED_ATTR)) el.removeAttribute(USER_FMB_EXPANDED_ATTR);
+      /* Pointer left both the circle and the panel while unpinned — close the
+         menu (mirrors fmb-design.md's Opened→Stashed exit condition:
+         "pointer/focus leaves the button AND the open menu, with no Pinned
+         state set"). closeUserFmbMenuIfIdle() itself no-ops while the host
+         is :focus-within (a keyboard user tabbed in should not be closed out
+         from under their feet by an unrelated mouse-proximity computation). */
+      closeUserFmbMenuIfIdle(el);
+    }
+  }
+
+  /* Global pointermove listener — installed once, serves all instances
+     (mirrors js/footer.js installFmbMove / js/sidebar.js installMove). */
+  var userFmbMoveInstalled = false;
+  function installUserFmbMove() {
+    if (userFmbMoveInstalled) return;
+    userFmbMoveInstalled = true;
+    /* Coarse/touch pointers have no hover — skip, mirroring the nav-header's
+       own top-edge hot-zone listener gate. */
+    var coarse = Aura.env && Aura.env.coarsePointer && Aura.env.coarsePointer();
+    if (coarse) return;
+    document.addEventListener("pointermove", function (e) {
+      userFmbPointerX = e.clientX;
+      userFmbPointerY = e.clientY;
+      if (!userFmbRafPending && userFmbInstances.length > 0) {
+        userFmbRafPending = true;
+        requestAnimationFrame(syncUserFmbHotzones);
+      }
+    }, { passive: true });
+  }
+
+  /* Unified stash-state mirror (v3.541, #1019 pattern): data-aura-stashed is
+     present while the proxy is ghosted at rest — neither JS-proximity-expanded
+     nor click-pinned, AND (sugar path only) visible. A standalone user-FMB has
+     no `hidden` concept, so it is stashed whenever collapsed regardless of
+     visibility — the v3.541 mirror-as-template contract
+     (fmb-column-design.md §Unified FMB contract) requires this host to reflect
+     data-aura-stashed natively; fmb-column.js's stash-detection template for
+     the user slot is literally "data-aura-user-fmb present AND data-aura-
+     stashed present" (ITEM-2, #1012). */
+  function syncUserFmbStashMirror(el) {
+    var stashed = !el.hidden &&
+      !el.hasAttribute(USER_FMB_EXPANDED_ATTR) &&
+      !el.hasAttribute(USER_FMB_PINNED_ATTR);
+    if (stashed !== el.hasAttribute(USER_FMB_STASHED_ATTR)) {
+      el.toggleAttribute(USER_FMB_STASHED_ATTR, stashed);
+    }
+  }
+  function armUserFmbStashMirror(el) {
+    syncUserFmbStashMirror(el);
+    if (typeof MutationObserver === "undefined") return;   // mirror stays static
+    el._userFmbStashMo = new MutationObserver(function () { syncUserFmbStashMirror(el); });
+    el._userFmbStashMo.observe(el, {
+      attributes: true,
+      attributeFilter: [USER_FMB_EXPANDED_ATTR, USER_FMB_PINNED_ATTR, "hidden"]
+    });
+  }
+
+  /* ---- Single-control open/pin engine (v3.551, #1048) --------------------
+     fmb-design.md's general contract, applied to the one control this host
+     now exposes: hover/focus-within/JS-proximity OPENS the menu (see
+     syncOneUserFmb above + the focus listeners in enhanceUserFmb below);
+     clicking the control while Opened PINS it (keeps the menu open
+     regardless of pointer/focus location); clicking again while Pinned (or
+     Escape, or an outside click — both already handled by the existing
+     nav-header-wide dismissal machinery, wired to also unpin below) closes
+     it. This replaces the pre-v3.551 split where click ONLY opened/closed
+     the menu (via the generic [data-nav-user-menu] trigger-toggle in onClick)
+     and a SEPARATE click on the surrounding chrome ONLY toggled
+     data-fmb-pinned with no effect on the menu — two uncoordinated
+     behaviors on two-plus click targets, per the resolved product decision
+     (docs/design/fmb-design.md §Open questions, "Resolved 2026-07-04"). */
+
+  /* Open the menu this host controls (idempotent — openMenu() itself no-ops
+     if the panel is already open or missing/unwired, e.g. a bare standalone
+     button with no aria-controls/menu region). Delegates to the SAME
+     openMenu() every other nav trigger uses so portal/alignment/focus/glow
+     wiring stays owned in exactly one place. */
+  function openUserFmbMenu(el) {
+    var trigger = userFmbTriggerFor(el);
+    if (!trigger || isOpen(trigger)) return;
+    trigger._overridePortalRect = el.getBoundingClientRect();
+    openMenu(trigger);
+  }
+
+  /* Close the menu this host controls, but ONLY if neither the host nor its
+     portaled panel currently holds focus (a keyboard user navigating the
+     open menu must never be closed out from under them by an unrelated
+     pointer-proximity computation) and it is not pinned. */
+  function closeUserFmbMenuIfIdle(el) {
+    if (el.hasAttribute(USER_FMB_PINNED_ATTR)) return;
+    var trigger = userFmbTriggerFor(el);
+    if (!trigger || !isOpen(trigger)) return;
+    var active = document.activeElement;
+    if (active && (el.contains(active) || (panelFor(trigger) && panelFor(trigger).contains(active)))) return;
+    closeMenu(trigger, false);
+  }
+
+  /* Click-to-pin/open (acceptance criteria): a click while Stashed or merely
+     Opened (hover/proximity, not yet pinned) PINS the host — ensuring the
+     menu is open and keeping it open regardless of pointer/focus location.
+     A click while already Pinned unpins AND closes the menu, matching every
+     other FMB member's click-again-to-dismiss contract. The trigger button
+     fills the entire host box (css/nav-header.css), so it IS the single
+     control surface — no interactive-descendant exclusion is needed anymore
+     (contrast the pre-v3.551 version, which excluded the button because it
+     had its own separate open/close click meaning). */
+  function onUserFmbPinClick(e) {
+    var el = e.currentTarget;
+    var pinning = !el.hasAttribute(USER_FMB_PINNED_ATTR);
+    el.toggleAttribute(USER_FMB_PINNED_ATTR, pinning);
+    if (pinning) {
+      openUserFmbMenu(el);
+    } else {
+      var trigger = userFmbTriggerFor(el);
+      if (trigger && isOpen(trigger)) closeMenu(trigger, false);
+    }
+  }
+
+  /* Keyboard accessibility (acceptance criteria): the circle must be
+     reachable and pinnable via keyboard, consistent with the sidebar/footer
+     FMBs. The visible control is always the inner <button> (present on both
+     the sugar proxy and any standalone markup carrying its own button), and
+     its native click (from Enter/Space activation) already runs
+     onUserFmbPinClick above via the host-level click listener — no separate
+     Shift+Enter path is needed post-unification (the pre-v3.551 version
+     needed one because plain Enter/Space activated the DIFFERENT
+     open/close-only click meaning; now there is only one meaning to
+     activate). Escape while focus is inside unpins + closes, mirroring
+     every other FMB member's dismissal contract. */
+  function onUserFmbKeydown(e) {
+    if (e.key !== "Escape") return;
+    var el = e.currentTarget.closest(USER_FMB_SEL);
+    if (!el || !el.hasAttribute(USER_FMB_PINNED_ATTR)) return;
+    e.preventDefault();
+    el.removeAttribute(USER_FMB_PINNED_ATTR);
+    var trigger = userFmbTriggerFor(el);
+    if (trigger && isOpen(trigger)) closeMenu(trigger, true);
+  }
+
+  /* Shared enhancement routine (decision 1): wires every behaviour a
+     first-class FMB needs onto ANY [data-aura-user-fmb] element, whether it
+     was hand-authored (standalone) or created by ensureUserFmb() (sugar).
+     Idempotent per element. */
+  function enhanceUserFmb(el) {
+    if (el._userFmbEnhanced) return;
+    el._userFmbEnhanced = true;
+
+    /* Cache FMB geometry tokens once — design-system constants that do not
+       change at runtime, so probing them on every rAF tick is unnecessary
+       (mirrors js/sidebar.js's enhance()-time caching). */
+    el._userFmbRadius = userFmbSizePx(el) / 2;
+    el._userFmbExpand = userFmbExpandPx(el);
+    if (userFmbInstances.indexOf(el) < 0) userFmbInstances.push(el);
+    installUserFmbMove();
+
+    armUserFmbStashMirror(el);
+
+    /* Glow membership (coverage principle) WITH the #1021 ghost-state
+       suppression chain: the proxy is a real click target (pin-click below),
+       so it becomes a fully-fledged .aura-glow host — magnetic lean +
+       proximity rim like any other interactive widget. The rim-suppression
+       :not(...)::after chain adopting the sidebar reference shape lives in
+       css/nav-header.css (the User-FMB block) so the ghost-composite smudge
+       (v3.532 #A) never renders while the circle is ghosted at rest. The
+       glow engine caches ONE sub-part target per host (project memory) —
+       this host has no distinguished sub-part, so it glows as a whole,
+       exactly like the sidebar/footer hosts. */
+    el.classList.add("aura-glow");
+
+    el._userFmbPinClick = onUserFmbPinClick;
+    el.addEventListener("click", el._userFmbPinClick);
+
+    var btn = el.querySelector("button");
+    if (btn) {
+      el._userFmbKeydown = onUserFmbKeydown;
+      btn.addEventListener("keydown", el._userFmbKeydown);
+
+      /* Informational button content (resolved decision, fmb-design.md
+         §Open questions "Resolved 2026-07-04": "the button itself may be
+         informational... to signal its purpose now that it's the only
+         control"). Reuses the EXISTING data-tooltip mechanism
+         (css/nav-header.css's "User zone avatar tooltip" block, already
+         proven on the in-header trigger) rather than inventing a new visual
+         language — a small glass caption that appears above the circle on
+         hover/focus-visible. Deliberately NOT a permanent, always-visible
+         label baked into the circle's own layout: the button-stability
+         invariant requires this host's bounding rect to stay IDENTICAL
+         across Stashed/Opened/Pinned, and a tooltip is an absolutely
+         positioned overlay anchored to (but outside) the button's own box,
+         so it satisfies that invariant for free, whereas a permanent inline
+         label would need either extra circle real estate (growing the box)
+         or cramming small text over the avatar (illegible at 48px). Only
+         set a default when the author/sugar path did not already provide
+         one, so a standalone author's own data-tooltip is never overridden. */
+      if (!btn.hasAttribute("data-tooltip")) {
+        var fmbLabel = btn.getAttribute("aria-label") || navStr("userMenu", el) || "User menu";
+        btn.setAttribute("data-tooltip", fmbLabel);
+      }
+    }
+
+    /* Keyboard-only open (single-control unification, v3.551 #1048): Tab onto
+       the button must open the menu exactly like a pointer hover does — the
+       CSS expand-state selector list already includes :focus-within (full
+       ghost-fade un-suppression on focus), but the MENU itself only opened
+       via a pointer-proximity computation in syncOneUserFmb, which never
+       runs for a keyboard-only interaction (no pointermove fires). Wire the
+       same openUserFmbMenu()/closeUserFmbMenuIfIdle() pair to focusin/focusout
+       so both input modalities reach the same Opened state through the same
+       two functions. focusout's relatedTarget check skips the close when
+       focus is merely moving from the button into its own (portaled) panel. */
+    el._userFmbFocusIn = function () { openUserFmbMenu(el); };
+    el._userFmbFocusOut = function (e) {
+      var next = e.relatedTarget;
+      if (next && el.contains(next)) return;
+      var trigger = userFmbTriggerFor(el);
+      var panel = trigger && panelFor(trigger);
+      if (next && panel && panel.contains(next)) return;
+      closeUserFmbMenuIfIdle(el);
+    };
+    el.addEventListener("focusin", el._userFmbFocusIn);
+    el.addEventListener("focusout", el._userFmbFocusOut);
+
+    /* Reflect the live pin state into aria-pressed on the inner button so
+       assistive tech announces the pin — DELIBERATELY aria-pressed, not
+       aria-expanded: the button's aria-expanded is owned end-to-end by the
+       user MENU's own open/close logic (sugar path: mirrored from the real
+       nav trigger; standalone path: author-owned). Post-unification (v3.551,
+       #1048) the two are no longer independent — pinning always ensures the
+       menu is open (openUserFmbMenu() in onUserFmbPinClick above) — but they
+       still answer different questions and both stay meaningful together:
+       aria-expanded says "is the menu currently visible" (true for a plain
+       hover-opened, unpinned state too), aria-pressed says "is this control
+       HELD open regardless of pointer/focus location." A screen-reader user
+       hearing "expanded, not pressed" correctly learns the menu will close
+       if they look away; "expanded, pressed" tells them it won't. */
+    el._userFmbPinMo = new MutationObserver(function () {
+      var pinned = el.hasAttribute(USER_FMB_PINNED_ATTR);
+      var b = el.querySelector("button");
+      if (b) b.setAttribute("aria-pressed", pinned ? "true" : "false");
+    });
+    el._userFmbPinMo.observe(el, { attributes: true, attributeFilter: [USER_FMB_PINNED_ATTR] });
+  }
+
+  /* Tear down everything enhanceUserFmb() armed — used both by the sugar
+     path (nav-header teardown, via onHeaderTeardown) and by the standalone
+     path (element removed from the DOM, via the shared body MutationObserver
+     below). Leaves the element itself untouched beyond its own attributes so
+     a later re-mount (Aura.onMount re-runs on DOM insertion) starts clean. */
+  function teardownUserFmb(el) {
+    var idx = userFmbInstances.indexOf(el);
+    if (idx >= 0) userFmbInstances.splice(idx, 1);
+    if (el._userFmbStashMo) { el._userFmbStashMo.disconnect(); el._userFmbStashMo = null; }
+    if (el._userFmbPinMo)   { el._userFmbPinMo.disconnect();   el._userFmbPinMo = null; }
+    if (el._userFmbPinClick) { el.removeEventListener("click", el._userFmbPinClick); el._userFmbPinClick = null; }
+    var btn = el.querySelector("button");
+    if (btn && el._userFmbKeydown) btn.removeEventListener("keydown", el._userFmbKeydown);
+    el._userFmbKeydown = null;
+    if (el._userFmbFocusIn)  { el.removeEventListener("focusin",  el._userFmbFocusIn);  el._userFmbFocusIn  = null; }
+    if (el._userFmbFocusOut) { el.removeEventListener("focusout", el._userFmbFocusOut); el._userFmbFocusOut = null; }
+    el.classList.remove("aura-glow");
+    el.removeAttribute(USER_FMB_STASHED_ATTR);
+    el.removeAttribute(USER_FMB_EXPANDED_ATTR);
+    el.removeAttribute(USER_FMB_PINNED_ATTR);
+    el._userFmbRadius = el._userFmbExpand = 0;
+    el._userFmbNavBtn = null;
+    el._userFmbEnhanced = false;
+  }
+
+  /* ---- Standalone path (decision 1a): scan for any [data-aura-user-fmb]
+     the page authored directly (no nav-header sugar involved) and enhance it.
+     Idempotent + non-mutating (enhanceUserFmb only sets attributes/classes on
+     the SAME element, never inserts DOM), so this is safe to run from
+     Aura.onMount, which re-fires on every observed DOM mutation. Elements
+     created by ensureUserFmb() are ALSO enhanced through this same scan (it
+     selects on the attribute, not provenance) — the sugar path only owns
+     proxy DOM CREATION + show/hide sync (updateUserFmb), not the behavioural
+     wiring, which is why there is exactly one enhancement routine. */
+  function scanStandaloneUserFmbs(root) {
+    var scope = root || document;
+    var els = scope.querySelectorAll ? scope.querySelectorAll(USER_FMB_SEL) : [];
+    for (var i = 0; i < els.length; i++) enhanceUserFmb(els[i]);
+    if (scope.nodeType === 1 && scope.matches && scope.matches(USER_FMB_SEL)) {
+      enhanceUserFmb(scope);
+    }
+  }
+
+  /* Teardown-on-removal for the standalone path: a lightweight body-level
+     MutationObserver watching for [data-aura-user-fmb] subtrees leaving the
+     document (mirrors js/sidebar.js's applyToNodes + mo.observe pattern).
+     The sugar path's proxy is torn down via onHeaderTeardown instead (see
+     ensureUserFmb below), since its lifecycle is owned by the nav-header. */
+  if (typeof MutationObserver !== "undefined") {
+    var userFmbRemovalObserver = new MutationObserver(function (mutations) {
+      for (var mi = 0; mi < mutations.length; mi++) {
+        var removed = mutations[mi].removedNodes;
+        for (var ni = 0; ni < removed.length; ni++) {
+          var node = removed[ni];
+          if (node.nodeType !== 1) continue;
+          if (node.matches && node.matches(USER_FMB_SEL) && node._userFmbEnhanced) {
+            teardownUserFmb(node);
+          }
+          if (node.querySelectorAll) {
+            var nested = node.querySelectorAll(USER_FMB_SEL);
+            for (var qi = 0; qi < nested.length; qi++) {
+              if (nested[qi]._userFmbEnhanced) teardownUserFmb(nested[qi]);
+            }
+          }
+        }
+      }
+    });
+    userFmbRemovalObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  }
+
+  /* ---- Sugar path (decision 1b) ------------------------------------------
+     When a stash-enabled nav-header carries a [data-nav-zone="user"] the user
      menu becomes unreachable once the bar shrinks to the 48px logo circle.
      ensureUserFmb() auto-creates a ghost FMB proxy at the top-right corner of
      the viewport — a sibling element outside the nav-header so it isn't clipped
      by the header's overflow:hidden or constrained by its translate containing
      block. Clicks on the proxy delegate to the actual [data-nav-user-menu]
-     button via _overridePortalRect so menu panels portal at the proxy position. */
+     button via _overridePortalRect so menu panels portal at the proxy position.
+     The proxy DOM this function creates is enhanced through the SAME
+     enhanceUserFmb() routine a standalone author's markup goes through — this
+     function's own job is narrowed to DOM creation + nav-driven show/hide.
+
+     Trigger selection (v3.546, #1043 hardening): the user zone can legitimately
+     host controls that are NOT the account menu — an environment picker, a
+     notify button, other page-specific chrome (see site/templates/app.html's
+     user_actions block) — any of which may itself be a button[aria-expanded]
+     (e.g. a select's internal disclosure). Grabbing the FIRST such match
+     opportunistically proxied whatever happened to render first, which on
+     app.html was an unrelated "Production" env-select rather than an account
+     menu. The trigger MUST now carry the explicit data-aura-user-menu marker;
+     with no marked trigger present, fail closed (no proxy at all) rather than
+     fabricate one from the wrong element — a missing proxy is recoverable
+     (the real control is still reachable while the bar is unstashed), a
+     mislabeled one is a silent identity bug. */
+  var USER_FMB_TRIGGER_SEL = "button[data-aura-user-menu]";
+
   function ensureUserFmb(h) {
     if (!isStashHeader(h)) return;      /* only stash-family headers need this */
     var userZone = h.querySelector('[data-nav-zone="user"]');
     if (!userZone) return;
-    var navBtn = userZone.querySelector('button[aria-expanded]');
-    if (!navBtn) return;
+    var navBtn = userZone.querySelector(USER_FMB_TRIGGER_SEL);
+    if (!navBtn) return;                /* fail closed — no marked trigger, no proxy */
     if (h._userFmb) return;             /* idempotent */
 
     /* Build the proxy element: a fixed-position circle sibling. */
@@ -2740,7 +3439,17 @@ import "./overlay.js";
     h.parentNode.insertBefore(proxy, h.nextSibling);
     h._userFmb = proxy;
 
-    /* Sync aria-expanded on the proxy whenever the nav button's state changes. */
+    /* Single-control unification (v3.551, #1048): stash the REAL trigger so
+       userFmbTriggerFor() (and everything built on it — openUserFmbMenu(),
+       onUserFmbPinClick(), closeUserFmbMenuIfIdle(), the focusin/focusout
+       pair) drives navBtn directly instead of the proxy's own mirrored
+       button. navBtn stays the one place aria-expanded/portal machinery is
+       owned; see userFmbTriggerFor()'s comment for why inverting that
+       mirror would desync the two once the header un-stashes mid-menu. */
+    proxy._userFmbNavBtn = navBtn;
+
+    /* Sync aria-expanded on the proxy whenever the nav button's state changes
+       (navBtn stays authoritative — see userFmbTriggerFor() above). */
     if (typeof MutationObserver !== "undefined") {
       var mo = new MutationObserver(function () {
         btn.setAttribute("aria-expanded", navBtn.getAttribute("aria-expanded") || "false");
@@ -2749,12 +3458,32 @@ import "./overlay.js";
       proxy._userFmbObserver = mo;
     }
 
-    /* Click: pass the proxy's viewport rect to portalPosition via _overridePortalRect
-       so the user menu blooms from the top-right corner, then delegate to the
-       actual nav button (which owns the menu-open logic and portal machinery). */
-    btn.addEventListener("click", function () {
-      navBtn._overridePortalRect = proxy.getBoundingClientRect();
-      navBtn.click();
+    /* Pre-v3.551 this button click delegated to navBtn.click(), relying on
+       the document-level onClick trigger-toggle to open/close the menu.
+       Single-control unification removes that: hover/focus-within/JS-
+       proximity now open the menu (syncOneUserFmb(), the focusin listener),
+       and enhanceUserFmb()'s own click listener on the HOST (which this
+       button is inside, so the click bubbles to it) now owns click's new
+       pin-toggle meaning via onUserFmbPinClick() — a second delegated click
+       on navBtn would race/undo that (navBtn's own aria-expanded toggle is a
+       DIFFERENT meaning: open-if-closed/close-if-open, which would fight the
+       pin engine's "click while Opened PINS, does not close" contract). No
+       replacement listener is added here; enhanceUserFmb() below wires the
+       proxy exactly like any other user-FMB host. */
+
+    /* Wire the shared behaviour routine onto the freshly created proxy. */
+    enhanceUserFmb(proxy);
+
+    /* Unmount undo (#421): the proxy lives OUTSIDE the header's own subtree
+       (a body-level sibling), so it must be reclaimed on header teardown —
+       release the shared enhancement state, disconnect the aria-expanded
+       mirror, and remove the proxy from the DOM entirely (it is sugar the
+       nav-header owns; a re-mount recreates it fresh). */
+    onHeaderTeardown(h, function () {
+      teardownUserFmb(proxy);
+      if (proxy._userFmbObserver) { proxy._userFmbObserver.disconnect(); proxy._userFmbObserver = null; }
+      if (proxy.parentNode) proxy.parentNode.removeChild(proxy);
+      h._userFmb = null;
     });
   }
 
@@ -2763,6 +3492,36 @@ import "./overlay.js";
     var proxy = h._userFmb;
     if (!proxy) return;
     proxy.hidden = !isStashed;
+    /* Stash-transition reconciliation (bugfix, v3.551 follow-up): while the
+       header is unstashed, a direct click on the real navBtn is a plain
+       [data-nav-user-menu] button[aria-controls] match in the document-level
+       onClick — the OLD generic open/close toggle, which predates the
+       single-control pin engine and does not know about it — so the menu can
+       end up open (navBtn aria-expanded="true") with the proxy's own
+       USER_FMB_EXPANDED_ATTR never set. If the header then stashes while
+       that menu is still open, the proxy would appear ghosted/Stashed even
+       though its controlled menu is visibly open underneath — a visual
+       desync. Reconcile here, the one place a hidden→visible proxy
+       transition funnels through regardless of which stash path triggered
+       it: mirror the real trigger's current open state onto the proxy's
+       Opened signal before the stash-mirror recompute below runs. This does
+       not touch data-fmb-pinned — a bypassed click never pinned anything,
+       so the reconciled state is Opened (closes on next pointer/focus-away),
+       never Pinned, which is the correct (unclaimed) outcome for a click
+       that went through the generic toggle rather than the pin engine. */
+    if (isStashed) {
+      var trigger = userFmbTriggerFor(proxy);
+      if (trigger && isOpen(trigger) && !proxy.hasAttribute(USER_FMB_PINNED_ATTR)) {
+        proxy.setAttribute(USER_FMB_EXPANDED_ATTR, "");
+      }
+    }
+    /* hidden participates in the stash-mirror predicate (a sugar proxy that
+       is hidden is never "stashed" — it isn't even in the FMB family view at
+       that moment) — re-sync immediately rather than waiting for the
+       MutationObserver's attributeFilter, which does not watch `hidden`
+       (a DOM property, not reliably observed as an attribute mutation across
+       every set path) — see armUserFmbStashMirror's attributeFilter comment. */
+    if (proxy._userFmbEnhanced) syncUserFmbStashMirror(proxy);
   }
 
   /* ---- Hamburger collapse (narrow-CONTAINER nav, #403) ------------------ */
@@ -2814,6 +3573,71 @@ import "./overlay.js";
       header.setAttribute(NAV_OPEN_ATTR, "");
       btn.setAttribute("aria-expanded", "true");
     }
+  }
+
+  /* ---- FMB mobile-column reveal coordination (v3.552, #1052 ITEM-2) ------
+     data-nav-collapsed (above) and the Stashed-circle's own data-stashed are
+     deliberately left as two INDEPENDENT signals — see the css/nav-header.css
+     comment at this same section for the full two-concerns writeup and
+     docs/design/nav-header-design.md §Mobile FMB circle & the merged reveal
+     control for the documented decision. Reconciling them into one attribute
+     was considered and rejected: data-nav-collapsed answers "is the
+     container narrow enough that inline nav links become a hamburger
+     disclosure" (a pure width read), while data-stashed answers "has this
+     header's OWN scroll/proximity state collapsed it to an FMB circle" (a
+     pure scroll-position read) — the two questions have different inputs,
+     different owners (syncHamburgerFor's ResizeObserver vs. syncShrink's
+     scroll listener), and no shared consumer ever needs them merged. Forcing
+     one attribute to mean both would require one of the two mechanisms to
+     start reading the other's input, coupling two currently-independent
+     concerns for no behavioral gain.
+
+     The ACTUAL coordination gap this item closes is different: the header's
+     own reveal paths (revealStash() via top-edge hot-zone / FMB-proximity)
+     require a real pointer and are explicitly skipped on coarse/touch
+     pointers (see wireDelegation's `if (!coarse)` guard on the pointermove
+     listener) — keyboard focus still reaches a Stashed circle, but a
+     touch-only user with no external keyboard had no path back except an
+     unassisted tap on the small circle itself, never routed through the
+     shared, always-tap-target-sized [data-fmb-reveal] control
+     js/fmb-column.js already builds for the merged mobile column (nav-header
+     is already registered there — LEGACY_MEMBERS' "nav" slot). This installs
+     a page-level MutationObserver (mirrors installFmbColumnReanchor's exact
+     pattern) that watches every <aura-fmb-column> host for its
+     data-fmb-column-revealed flip and calls the SAME revealStash() every
+     other reveal path uses on any currently-Stashed header — one more
+     trigger for the existing single reveal funnel, not a parallel one. This
+     keeps js/fmb-column.js's isStashed() (host.hasAttribute("data-stashed"))
+     and the on-screen geometry from ever disagreeing: the css/nav-header.css
+     :root:has(aura-fmb-column[data-fmb-column-revealed]) rule is a pure
+     belt-and-suspenders restore (matches what this handler produces one
+     frame later) — clearing data-stashed here is the actual source of
+     truth. */
+  var fmbColumnRevealSyncInstalled = false;
+  function installFmbColumnRevealSync() {
+    if (fmbColumnRevealSyncInstalled) return;
+    fmbColumnRevealSyncInstalled = true;
+    if (typeof MutationObserver === "undefined") return;
+    var mo = new MutationObserver(function (mutations) {
+      var revealed = false;
+      for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].attributeName === "data-fmb-column-revealed" &&
+            mutations[i].target.hasAttribute("data-fmb-column-revealed")) {
+          revealed = true;
+          break;
+        }
+      }
+      if (!revealed) return; /* only react to the column OPENING, never closing */
+      var headers = document.querySelectorAll(ROOT_SEL);
+      for (var j = 0; j < headers.length; j++) {
+        if (headers[j].hasAttribute(STASHED_ATTR)) revealStash(headers[j]);
+      }
+    });
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-fmb-column-revealed"],
+      subtree: true
+    });
   }
 
   /* ---- Nested sub-panel (3rd-level side flyout) ------------------------- */
@@ -4901,6 +5725,11 @@ import "./overlay.js";
        succeeding. The block is verbatim the old tail of this callback. */
     wireDelegation();
     mountStep("primeHeaders", function () { primeHeaders(root); });
+    /* Dual-source enhancement (v3.543, #1012 decision 1): a consumer-authored
+       standalone [data-aura-user-fmb] works with no nav-header present at
+       all — scan for it independently of primeHeaders' per-header sugar
+       path. Idempotent + non-mutating, so it is safe on every mount pass. */
+    mountStep("scanStandaloneUserFmbs", function () { scanStandaloneUserFmbs(root); });
     mountStep("armColorSchemeSync", function () { armColorSchemeSync(); });
     mountStep("seedBadges", function () { seedBadges(root); });
     mountStep("armBadgeSync", function () { armBadgeSync(); });
@@ -4937,6 +5766,15 @@ import "./overlay.js";
     /* Arm swipe panel navigation (nav r16-4) — document-level touch listeners,
        so they belong with the rest of the one-time delegation. */
     armSwipeNav();
+    /* Arm the narrow user-menu re-anchor pass (v3.543, #1012 ITEM-3,
+       decision 4) — watches for any <aura-fmb-column> activation flip and
+       re-runs portalPosition for the open user panel, if any. */
+    installFmbColumnReanchor();
+    /* Arm the mobile reveal-control coordination pass (v3.552, #1052
+       ITEM-2) — watches for the merged mobile column's reveal flip and
+       un-stashes any currently-Stashed header through the existing
+       revealStash() funnel. */
+    installFmbColumnRevealSync();
     /* Clear pending shimmer on actual page unload (r12-r6). */
     window.addEventListener("beforeunload", function () {
       var hs = document.querySelectorAll(ROOT_SEL + "[data-nav-pending]");

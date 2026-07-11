@@ -89,6 +89,15 @@
      face (≈1.6:1). The cyan hue is high-luminance even when deepened, so only
      the -900 ramp tone (deep teal) clears AA here — 6.99:1. Token swap only. */
   --aura-btn-secondary-text: var(--aura-secondary-900);
+  /* #1079: the Primary button's face is ALSO forced to the opaque Win95 grey
+     by --aura-frame-face below (it's painted over --aura-btn-tint for every
+     variant, by design — that's how the flat chrome face stays uniform), so
+     --aura-on-primary's white (correct for white-on-magenta everywhere else:
+     chips, badges, progress fills that keep the real solid --aura-primary
+     background) goes near-invisible on the grey button face. Retint just the
+     button label to the same near-black ink the other variants already read
+     fine with — token swap only, mirrors --aura-btn-secondary-text above. */
+  --aura-btn-primary-text: var(--aura-text);
   /* Same light-surface defect for the timepicker selected cell: the default pale
      --aura-primary-100 text on the --aura-primary-a15 tile reads ≈1.2:1 on silver.
      Deepen to the -800 primary ramp tone (token swap only; no component CSS). */

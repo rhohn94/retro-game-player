@@ -81,7 +81,7 @@ export function FoldersPane() {
       )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <AuraField tabIndex={0} style={{ flex: 1 }}>
+        <AuraField label="Folder path" tabIndex={0} style={{ flex: 1 }}>
           <input
             ref={addInputRef}
             type="text"

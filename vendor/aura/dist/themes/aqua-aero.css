@@ -16,7 +16,11 @@
   --aura-primary: oklch(0.62 0.11 219.3);
   --aura-secondary: oklch(0.615 0.182 254.3);
   --aura-on-primary: oklch(0.972 0.007 286.3);
-  --aura-bg: oklch(0 0 0);
+  /* #1078: was oklch(0 0 0) (pure black) — with --aura-glass-tint-strength
+     previously 0, that flattened the panel to a lightless void with no aqua
+     character. A dark, faintly aqua-tinted navy keeps the dark axis reading
+     as "night water" rather than an off-brand void. */
+  --aura-bg: oklch(0.16 0.03 219.3);
   --aura-bg-2: #0e1019;
   --aura-surface-solid: #14161f;
   --aura-surface-stroke: color-mix(in srgb, white 12%, transparent);
@@ -43,8 +47,13 @@
   --aura-border-width: 0.5px;
   --aura-hover-lift: 1px;
   --aura-glass-saturate: 1.5;
-  --aura-glass-tint: oklch(0 0 0);
-  --aura-glass-tint-strength: 0;
+  /* #1078: was oklch(0 0 0) at strength 0 (a no-op wash) — the glass carried
+     no aqua identity at all, reading as flat black/grey once composited over
+     the (also-fixed) dark bg. Wash the glass in the theme's own aqua-blue
+     primary so the signature "glossy aqua-blue glass" reads in both modes,
+     mirroring frutiger-aero's and warm-dusk's tinted-glass treatment. */
+  --aura-glass-tint: var(--aura-primary);
+  --aura-glass-tint-strength: 0.08;
   --aura-blur-2: 2px;
   --aura-dur-fast: 120ms;
   --aura-dur-base: 200ms;
@@ -63,17 +72,23 @@
   --aura-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --aura-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
   --aura-text-md: 1rem;
-  --aura-text-lg: 0rem;
-  --aura-text-xl: 0rem;
   --aura-weight-regular: 400;
   --aura-weight-semibold: 600;
   --aura-weight-bold: 700;
   --aura-leading-normal: 1.5;
   --aura-tracking-wide: 0.04em;
   --aura-border-style: solid;
-  --aura-frame-face: #000000;
-  --aura-frame-highlight: #000000;
-  --aura-frame-shadow: #000000;
+  /* #1078: was #000000 (opaque black) on all three frame tokens. frame-face
+     is painted as an opaque colour stop UNDER the glass-tint layer in every
+     glass surface's background stack (aura-card, .aura-btn, …); an opaque
+     black face there completely occludes the surface tint and glass-tint
+     wash beneath it, which is what flattened the whole preview panel to a
+     pure-black rectangle with no depth or aqua character. transparent is the
+     documented no-op default (tokens.css) — aqua-aero doesn't want retro-pc's
+     hard Win95 bevel, so it must stay a no-op like the base theme. */
+  --aura-frame-face: transparent;
+  --aura-frame-highlight: transparent;
+  --aura-frame-shadow: transparent;
   --aura-frame-inset: inset 0 0 0 0 transparent;
   --aura-surface-pattern: none;
   --aura-bevel-light: color-mix(in srgb, white calc(26% * 1), transparent);

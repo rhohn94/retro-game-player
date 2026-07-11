@@ -258,6 +258,8 @@ export declare const auraTokens: Readonly<{
   "fmbColumnBreakpoint": "640px";
   "fmbColumnDuration": "200ms";
   "fmbColumnEasing": "cubic-bezier(0.16, 1, 0.3, 1)";
+  "fmbColumnGap": "0.75rem";
+  "fmbColumnRevealSize": "44px";
   "fmbColumnSize": "96px";
   "fmbColumnWidth": "96px";
   "footerBg": "color(srgb 1 1 1 / 0.11)";
@@ -355,9 +357,10 @@ export declare const auraTokens: Readonly<{
   "sidebarPadBlock": "0.75rem";
   "sidebarPadInline": "1rem";
   "sidebarSaturate": "1.5";
-  "sidebarSurface": "color(srgb 1 1 1 / 0.11)";
+  "sidebarSurface": "oklch(0.880709 0.0639375 286.532 / 0.107)";
   "sidebarSurfaceSolid": "rgb(20, 22, 31)";
   "sidebarWidth": "16rem";
+  "sidebarZ": "calc(100 - 1)";
   "splitHandleSize": "0.5rem";
   "splitMax": "90%";
   "splitMin": "10%";
@@ -376,9 +379,14 @@ export declare const auraTokens: Readonly<{
   "tooltipSaturate": "1.5";
   "tooltipSurface": "color(srgb 1 1 1 / 0.11)";
   "tooltipSurfaceSolid": "rgb(20, 22, 31)";
+  "userFmbDuration": "200ms";
+  "userFmbEasing": "cubic-bezier(0.16, 1, 0.3, 1)";
+  "userFmbSize": "3rem";
   "videoCaptionScrim": "color(srgb 0 0 0 / 0.6)";
   "videoCaptionText": "oklch(0.97 0.01 270)";
   "videoLetterbox": "rgb(10, 11, 18)";
+  "zFmbActive": "calc(1000 + 1)";
+  "zFmbReveal": "calc(calc(1000 + 1) + 1)";
 }>;
 
 /** Union of every Aura token name (camelCase). */

@@ -66,19 +66,26 @@ import "./element-base.js";
       }
     }
 
-    /* Walk the direct <a> children and apply aria-current="page" to the one
-       matching `current`. Match strategy: if `current` looks like a URL
-       (contains "/" or "#") match against the child's href; otherwise treat it
-       as a 1-based page index and match the Nth <a>. */
+    /* Walk the direct <a> children and apply aria-current="page" to the first one
+       matching `current`. Skip prev/next-style arrow items (those with aria-labels
+       containing "prev" or "next", or with aria-disabled="true").
+       Match strategy: if `current` looks like a URL (contains "/" or "#") match
+       against the child's href; otherwise treat it as a 1-based page index and
+       match the Nth <a>. */
     _markCurrentPage() {
       var current = this.getAttribute("current");
       var links = Array.prototype.slice.call(
         this.querySelectorAll(":scope > .aura-pagination__item, :scope > a")
       );
+      var foundCurrent = false;
 
       links.forEach(function (a, i) {
+        var isArrow =
+          a.getAttribute("aria-disabled") === "true" ||
+          /(prev|next)/i.test(a.getAttribute("aria-label") || "");
+
         var match = false;
-        if (current !== null && current !== "") {
+        if (!foundCurrent && !isArrow && current !== null && current !== "") {
           /* Try href match first (URL or fragment). */
           if (current.indexOf("/") !== -1 || current.indexOf("#") !== -1) {
             match = a.getAttribute("href") === current;
@@ -88,8 +95,12 @@ import "./element-base.js";
             if (!isNaN(n)) match = (i + 1) === n;
           }
         }
-        if (match) a.setAttribute("aria-current", "page");
-        else a.removeAttribute("aria-current");
+        if (match) {
+          a.setAttribute("aria-current", "page");
+          foundCurrent = true;
+        } else {
+          a.removeAttribute("aria-current");
+        }
       });
     }
   });

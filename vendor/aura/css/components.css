@@ -169,6 +169,21 @@ aura-button > a {
      collapses to a flat --aura-btn-tint fill; at higher depth it domes harder.
      A variant retints by swapping --aura-btn-tint ONLY — the recipe is never
      re-authored. (frame-face folds in for transparent-theme hooks.) */
+  /* #1076: --aura-btn-glass-face is RE-DECLARED here (not just consumed via
+     var()) so its var(--aura-btn-tint) reference resolves against THIS
+     element's cascaded tint. tokens.css only declares the recipe at :root,
+     where --aura-btn-tint is the neutral default (--aura-surface-2) — an
+     inherited custom property's var() substitutions are fixed at the element
+     that actually SPECIFIES it, so every button was silently inheriting a
+     glass-face baked with the NEUTRAL surface-2 tint, never its own variant
+     tint. That was invisible on the default theme (dark surface-2 is a ~6%
+     white wash, barely visible over a filled tint) but the light theme
+     re-derives surface-2 to ~58% white (theme.css) — that heavier neutral
+     wash then floods every filled variant (primary/secondary/danger) to
+     near-white while `color` stays on-tint, cratering label contrast. Neutral
+     (untinted) buttons are unaffected: their --aura-btn-tint IS surface-2, so
+     re-deriving the gradient here reproduces the same wash they always had. */
+  --aura-btn-glass-face: linear-gradient(180deg, color-mix(in oklch, var(--aura-btn-tint), white var(--aura-btn-face-amount)), var(--aura-btn-tint));
   background:
     var(--aura-surface-pattern),
     var(--aura-btn-glass-face),
@@ -256,8 +271,17 @@ aura-button > a {
   --aura-btn-face-amount: min(3%, calc(3% * var(--aura-depth)));
   --aura-btn-glow: var(--aura-primary-a40);
   border-color: var(--aura-primary-600);
-  color: var(--aura-on-primary);
-  --aura-btn-spinner-color: var(--aura-on-primary);
+  /* #1079: routed through --aura-btn-primary-text (default --aura-on-primary,
+     unchanged for every theme that actually paints the primary tint through
+     to the face). A theme whose frame-face is opaque and painted OVER the
+     tint (retro-pc's Win95 bevel — see the shared background stack above)
+     renders every button variant on the SAME opaque face colour regardless
+     of --aura-btn-tint, so --aura-on-primary's white (correct for white-on-
+     magenta) goes near-invisible on that theme's silver face. Mirrors the
+     existing --aura-btn-secondary-text seam so such a theme can retint just
+     the label with no component CSS. */
+  color: var(--aura-btn-primary-text, var(--aura-on-primary));
+  --aura-btn-spinner-color: var(--aura-btn-primary-text, var(--aura-on-primary));
 }
 .aura-btn--primary:hover, aura-button[variant="primary"]:hover {
   /* Re-assert the brand tint on hover. The universal .aura-btn:hover sets
@@ -1115,6 +1139,7 @@ aura-tooltip[data-aura-effects="lite"]::after {
   display: flex;
   align-items: flex-start;
   gap: var(--aura-space-2);
+  inline-size: 100%;
   margin: 0; padding: 0;
   list-style: none;
   counter-reset: aura-step;
@@ -1308,11 +1333,23 @@ aura-code {
   line-height: 1.4;
   vertical-align: 0.05em;
 }
-/* Light mode: darker secondary tone for AA contrast. */
-[data-aura-theme="light"] aura-code { color: var(--aura-secondary-700); }
+/* Light mode: darker secondary tone for AA contrast. #1044/v3.547: every prior
+   <aura-code> usage happened to sit inside .hub-card__desc, which already
+   overrides to --aura-secondary-900 (secondary-700 only reaches ~4.0:1,
+   below AA — the same gap fixed for .hub-card__desc code / .demo-gallery
+   code, see demo/demo-scaffold.css). The gallery's new bare specimen exposed
+   that the element's OWN default was never actually raised to match — fixed
+   here so every consumer gets AA contrast, not just the demo pages that
+   happened to override it locally. */
+[data-aura-theme="light"] aura-code { color: var(--aura-secondary-900); }
 @media (prefers-color-scheme: light) {
-  [data-aura-theme="auto"] aura-code { color: var(--aura-secondary-700); }
+  [data-aura-theme="auto"] aura-code { color: var(--aura-secondary-900); }
 }
+/* retro-pc: grey-surfaced named theme — the dark-tuned secondary-300 pale
+   cyan is near-invisible on its grey chip (same class of fix as #436 for
+   .demo-gallery code). Step to secondary-900, which resolves against
+   retro-pc's own brand seed. */
+[data-aura-theme-name="retro-pc"] aura-code { color: var(--aura-secondary-900); }
 /* Block form: shed the inline chip treatment; .aura-code (from code.css) takes over. */
 aura-code[block] {
   display: block;

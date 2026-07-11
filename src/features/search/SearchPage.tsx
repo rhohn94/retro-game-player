@@ -186,7 +186,11 @@ export function SearchPage() {
           onToggleGroupSelection={selection.toggleGroupSelection}
           onToggleMergedExpand={selection.toggleMergedExpand}
           onClearSelection={selection.clearSelection}
-          onOpenSelected={() => void selection.openSelected()}
+          onOpenSelected={() =>
+            void selection
+              .openSelected()
+              .catch((err: unknown) => swallow(err, "SearchPage.onOpenSelected"))
+          }
           groupViews={groupViews}
           mergedViews={mergedViews}
           mergedTotal={mergedTotal}

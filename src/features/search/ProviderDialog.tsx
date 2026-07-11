@@ -265,10 +265,11 @@ export function ProviderDialog({
 
         {/* Name */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={labelStyle}>Name</label>
+          <label style={labelStyle} htmlFor="provider-name-input">Name</label>
           <AuraField>
             <input
               ref={nameRef}
+              id="provider-name-input"
               name="provider-name"
               className="rgp-input"
               type="text"
@@ -281,14 +282,15 @@ export function ProviderDialog({
 
         {/* URL template */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={labelStyle}>
+          <label style={labelStyle} htmlFor="provider-url-template-input">
             URL Template <span style={{ opacity: 0.6 }}>(must contain &#123;query&#125;)</span>
           </label>
           <AuraField>
             <input
+              id="provider-url-template-input"
               name="provider-url"
               className="rgp-input"
-              type="text"
+              type="url"
               value={urlTemplate}
               placeholder="https://example.com/search?q={query}"
               onChange={(e) => {
@@ -312,6 +314,7 @@ export function ProviderDialog({
                   type="text"
                   value={discoverUrl}
                   placeholder="Site home URL, e.g. en.wikipedia.org"
+                  aria-label="Site home URL"
                   onChange={(e) => setDiscoverUrl(e.target.value)}
                 />
               </AuraField>
@@ -369,6 +372,7 @@ export function ProviderDialog({
                 type="text"
                 value={pasteUrl}
                 placeholder="Paste a results URL, e.g. https://site.com/search?q=mario"
+                aria-label="Results URL"
                 onChange={(e) => setPasteUrl(e.target.value)}
               />
             </AuraField>
@@ -380,6 +384,7 @@ export function ProviderDialog({
                   type="text"
                   value={pasteTerm}
                   placeholder="The term you searched (e.g. mario)"
+                  aria-label="Search term"
                   onChange={(e) => setPasteTerm(e.target.value)}
                 />
               </AuraField>
@@ -397,8 +402,9 @@ export function ProviderDialog({
 
         {/* Kind selector */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={labelStyle}>Type</label>
+          <label style={labelStyle} htmlFor="provider-kind-select">Type</label>
           <select
+            id="provider-kind-select"
             name="provider-kind"
             className="rgp-input"
             value={kind}

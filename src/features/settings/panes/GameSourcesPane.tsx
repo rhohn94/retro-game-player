@@ -162,16 +162,21 @@ export function GameSourcesPane() {
   const [manualBusy, setManualBusy] = useState(false);
 
   async function handlePickTarget() {
-    const picked = await openFileDialog({
-      multiple: false,
-      directory: false,
-      filters: [{ name: "Applications", extensions: ["app"] }],
-    });
-    if (!picked || Array.isArray(picked)) return;
-    if (picked.endsWith(".app")) {
-      setManualTarget({ kind: "app", bundlePath: picked });
-    } else {
-      setManualTarget({ kind: "exec", program: picked, args: [] });
+    setError(null);
+    try {
+      const picked = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Applications", extensions: ["app"] }],
+      });
+      if (!picked || Array.isArray(picked)) return;
+      if (picked.endsWith(".app")) {
+        setManualTarget({ kind: "app", bundlePath: picked });
+      } else {
+        setManualTarget({ kind: "exec", program: picked, args: [] });
+      }
+    } catch (e: unknown) {
+      setError(isAppError(e) ? e.detail : String(e));
     }
   }
 

@@ -20,6 +20,7 @@ use super::PersistingSource;
 pub use super::ScanReport;
 use crate::core::library::dat::DatIndex;
 use crate::core::library::disc_ident::{self, DiscIdentification};
+use crate::core::library::hasher::RomHashes;
 use crate::core::library::matcher::Matcher;
 use crate::core::library::{hasher, mapper, walker};
 use crate::db::repo::library::{Game, GameSource as GameSourceKind, LibraryRepo, NewGame};
@@ -111,156 +112,229 @@ impl<'a> PersistingSource for RomSource<'a> {
         let empty = DatIndex::default();
         let index = dat.unwrap_or(&empty);
         let matcher = Matcher::new(index);
-
-        let candidates = walker::walk(root);
-        let mut scanned = candidates.len();
-        let mut identified = 0usize;
-        let mut unidentified = 0usize;
-        let mut added = 0usize;
         let now = now_epoch_secs();
 
-        for cand in candidates {
-            let path_str = cand.path.to_string_lossy().to_string();
-
-            let bytes = match std::fs::read(&cand.path) {
-                Ok(b) => b,
-                Err(_) => continue, // unreadable file — skip, already counted as scanned
-            };
-            let size_bytes = bytes.len() as i64;
-            let hashes = hasher::hash_rom(&bytes, &cand.mapping.system);
-            let outcome = matcher.match_rom(&hashes, &cand.path);
-
-            if outcome.dat_matched {
-                identified += 1;
-            } else {
-                unidentified += 1;
-            }
-
-            // Dedup by path; a rescan re-counts identify stats but inserts
-            // nothing new.
-            if known.contains(&path_str) {
-                continue;
-            }
-
-            let new_game = NewGame {
-                folder_id: Some(folder_id),
-                path: Some(path_str.clone()),
-                system: Some(cand.mapping.system.clone()),
-                crc32: Some(hashes.crc32),
-                md5: Some(hashes.md5),
-                clean_name: outcome.clean_name,
-                dat_matched: outcome.dat_matched,
-                core_hint: Some(cand.mapping.core_hint.clone()),
-                art_path: None,
-                size_bytes,
-                added_at: now,
-                // Metadata is populated by future enrichment, not by the scan (W61).
-                year: None,
-                developer: None,
-                publisher: None,
-                aliases: None,
-                source: GameSourceKind::Rom,
-                launch_descriptor: None,
-                external_id: None,
-            };
-
-            if persist_new_game(&repo, &new_game, &path_str, &mut known)? {
-                added += 1;
-            }
-        }
-
-        // Disc images (W343): `.cue`/`.chd`/`.bin` are ambiguous by extension
-        // (see `mapper`'s scope note) so they never reach the loop above.
-        // Content-sniff each one; a positive identification becomes exactly
-        // one game row keyed on its canonical path (the `.cue` for a
-        // cue/bin set, or the image itself for a bare `.bin`/`.chd`).
-        // Everything not positively identified — including every `.bin`
-        // that a `.cue` already claimed — stays unscanned, exactly as today.
-        let disc_candidates = walker::walk_disc_candidates(root);
-
-        // Files referenced by any `.cue` in this folder are that cue set's
-        // own track data, not independent candidates — a `.cue` (identified
-        // or not) claims EVERY file its `FILE` lines reference, so none of
-        // them is separately sniffed/counted/persisted. This is what
-        // collapses a cue/bin set to exactly one row keyed on the `.cue`.
-        // Claims are compared case-insensitively via [`claim_key`] (macOS's
-        // default filesystem is case-insensitive, so a cue's `FILE`
-        // reference may spell the on-disk name differently).
-        let claimed_bins: HashSet<String> = disc_candidates
-            .iter()
-            .filter(|cand| is_cue(&cand.path))
-            .flat_map(|cand| disc_ident::referenced_files(&cand.path))
-            .map(|path| claim_key(&path))
-            .collect();
-
-        let identifications: Vec<DiscIdentification> = disc_candidates
-            .iter()
-            .filter(|cand| !(is_bin(&cand.path) && claimed_bins.contains(&claim_key(&cand.path))))
-            .filter_map(|cand| disc_ident::sniff_disc_image(&cand.path))
-            .collect();
-
-        for ident in &identifications {
-            scanned += 1;
-
-            let path_str = ident.canonical_path.to_string_lossy().to_string();
-            // Disc-row hashes are PREFIX-WINDOW hashes: only the leading
-            // [`DISC_HASH_PREFIX_BYTES`] are hashed (a `.bin`/`.chd` can be
-            // multi-GB, and DAT matching does not apply to disc rows this
-            // release); a `.cue` is tiny text far below the window, so it is
-            // still hashed in full.
-            let bytes = match read_disc_hash_window(&ident.canonical_path) {
-                Ok(b) => b,
-                Err(_) => continue, // unreadable — counted as scanned, never identified
-            };
-            identified += 1;
-            // Row size is the file's true on-disk size, not the hash window's.
-            let size_bytes = std::fs::metadata(&ident.canonical_path)
-                .map(|m| m.len() as i64)
-                .unwrap_or(bytes.len() as i64);
-            let hashes = hasher::hash_rom(&bytes, &ident.system);
-            let outcome = matcher.match_rom(&hashes, &ident.canonical_path);
-            let core_hint = mapper::core_hint_for_system(&ident.system).map(str::to_string);
-
-            let new_game = NewGame {
-                folder_id: Some(folder_id),
-                path: Some(path_str.clone()),
-                system: Some(ident.system.clone()),
-                crc32: Some(hashes.crc32),
-                md5: Some(hashes.md5),
-                clean_name: outcome.clean_name,
-                dat_matched: outcome.dat_matched,
-                core_hint,
-                art_path: None,
-                size_bytes,
-                added_at: now,
-                year: None,
-                developer: None,
-                publisher: None,
-                aliases: None,
-                source: GameSourceKind::Rom,
-                launch_descriptor: None,
-                external_id: None,
-            };
-
-            if persist_new_game(&repo, &new_game, &path_str, &mut known)? {
-                added += 1;
-            }
-        }
+        let rom_totals = scan_rom_candidates(root, &matcher, folder_id, now, &repo, &mut known)?;
         // Disc candidates that were not positively identified (including the
         // sniff failing on every `.bin` a `.cue` referenced) intentionally
         // contribute nothing further — `unidentified` here mirrors the ROM
         // loop's meaning (DAT-unmatched, not un-sniffed): an un-sniffed disc
         // stays unscanned rather than becoming an "unidentified" row, per
         // the acceptance contract ("stays unscanned exactly as today").
+        let disc_totals = scan_disc_candidates(root, &matcher, folder_id, now, &repo, &mut known)?;
 
         Ok(ScanReport {
             folder_id,
-            scanned,
-            identified,
-            unidentified,
-            added,
+            scanned: rom_totals.scanned + disc_totals.scanned,
+            identified: rom_totals.identified + disc_totals.identified,
+            unidentified: rom_totals.unidentified + disc_totals.unidentified,
+            added: rom_totals.added + disc_totals.added,
         })
     }
+}
+
+/// Running totals one candidate category (ROM files or disc images)
+/// contributes to a scan's [`ScanReport`]; the caller folds both categories'
+/// totals together into the final report.
+struct CandidateScanTotals {
+    scanned: usize,
+    identified: usize,
+    unidentified: usize,
+    added: usize,
+}
+
+/// Build the `NewGame` row for a freshly identified candidate — shared by the
+/// ROM-loop and disc-loop persistence paths (`scan_rom_candidates` /
+/// `scan_disc_candidates`), which differ only in `path`/`system`/`hashes`/
+/// `core_hint`; every other field is this same fixed template.
+// Each argument is one of the exact fields the two call sites disagree on, or
+// a value they both need (folder_id/size_bytes/now); bundling them into a
+// params struct would just move the same fields behind an extra layer for a
+// function whose only two callers sit a few lines below it in this file.
+#[allow(clippy::too_many_arguments)]
+fn build_new_game(
+    folder_id: i64,
+    path: String,
+    system: String,
+    hashes: &RomHashes,
+    clean_name: String,
+    dat_matched: bool,
+    core_hint: Option<String>,
+    size_bytes: i64,
+    now: i64,
+) -> NewGame {
+    NewGame {
+        folder_id: Some(folder_id),
+        path: Some(path),
+        system: Some(system),
+        crc32: Some(hashes.crc32.clone()),
+        md5: Some(hashes.md5.clone()),
+        clean_name,
+        dat_matched,
+        core_hint,
+        art_path: None,
+        size_bytes,
+        added_at: now,
+        // Metadata is populated by future enrichment, not by the scan (W61).
+        year: None,
+        developer: None,
+        publisher: None,
+        aliases: None,
+        source: GameSourceKind::Rom,
+        launch_descriptor: None,
+        external_id: None,
+    }
+}
+
+/// Walk `root` for unambiguous-extension ROM candidates, hash + DAT-match
+/// each one, and persist the ones not already `known`. Split out of
+/// `scan_and_persist` (W421) as the ROM half of the scan; see
+/// `scan_disc_candidates` for the sibling disc-image half.
+fn scan_rom_candidates(
+    root: &Path,
+    matcher: &Matcher<'_>,
+    folder_id: i64,
+    now: i64,
+    repo: &LibraryRepo<'_>,
+    known: &mut HashSet<String>,
+) -> AppResult<CandidateScanTotals> {
+    let candidates = walker::walk(root);
+    let mut totals = CandidateScanTotals {
+        scanned: candidates.len(),
+        identified: 0,
+        unidentified: 0,
+        added: 0,
+    };
+
+    for cand in candidates {
+        let path_str = cand.path.to_string_lossy().to_string();
+
+        let bytes = match std::fs::read(&cand.path) {
+            Ok(b) => b,
+            Err(_) => continue, // unreadable file — skip, already counted as scanned
+        };
+        let size_bytes = bytes.len() as i64;
+        let hashes = hasher::hash_rom(&bytes, &cand.mapping.system);
+        let outcome = matcher.match_rom(&hashes, &cand.path);
+
+        if outcome.dat_matched {
+            totals.identified += 1;
+        } else {
+            totals.unidentified += 1;
+        }
+
+        // Dedup by path; a rescan re-counts identify stats but inserts
+        // nothing new.
+        if known.contains(&path_str) {
+            continue;
+        }
+
+        let new_game = build_new_game(
+            folder_id,
+            path_str.clone(),
+            cand.mapping.system.clone(),
+            &hashes,
+            outcome.clean_name,
+            outcome.dat_matched,
+            Some(cand.mapping.core_hint.clone()),
+            size_bytes,
+            now,
+        );
+
+        if persist_new_game(repo, &new_game, &path_str, known)? {
+            totals.added += 1;
+        }
+    }
+
+    Ok(totals)
+}
+
+/// Walk `root` for disc-image candidates (W343: `.cue`/`.chd`/`.bin`, ambiguous
+/// by extension so they never reach `scan_rom_candidates`), content-sniff each
+/// one, and persist the positively identified ones not already `known`. A
+/// positive identification becomes exactly one game row keyed on its
+/// canonical path (the `.cue` for a cue/bin set, or the image itself for a
+/// bare `.bin`/`.chd`); everything not positively identified — including
+/// every `.bin` that a `.cue` already claimed — stays unscanned, exactly as
+/// today.
+fn scan_disc_candidates(
+    root: &Path,
+    matcher: &Matcher<'_>,
+    folder_id: i64,
+    now: i64,
+    repo: &LibraryRepo<'_>,
+    known: &mut HashSet<String>,
+) -> AppResult<CandidateScanTotals> {
+    let disc_candidates = walker::walk_disc_candidates(root);
+
+    // Files referenced by any `.cue` in this folder are that cue set's own
+    // track data, not independent candidates — a `.cue` (identified or not)
+    // claims EVERY file its `FILE` lines reference, so none of them is
+    // separately sniffed/counted/persisted. This is what collapses a cue/bin
+    // set to exactly one row keyed on the `.cue`. Claims are compared
+    // case-insensitively via [`claim_key`] (macOS's default filesystem is
+    // case-insensitive, so a cue's `FILE` reference may spell the on-disk
+    // name differently).
+    let claimed_bins: HashSet<String> = disc_candidates
+        .iter()
+        .filter(|cand| is_cue(&cand.path))
+        .flat_map(|cand| disc_ident::referenced_files(&cand.path))
+        .map(|path| claim_key(&path))
+        .collect();
+
+    let identifications: Vec<DiscIdentification> = disc_candidates
+        .iter()
+        .filter(|cand| !(is_bin(&cand.path) && claimed_bins.contains(&claim_key(&cand.path))))
+        .filter_map(|cand| disc_ident::sniff_disc_image(&cand.path))
+        .collect();
+
+    let mut totals = CandidateScanTotals {
+        scanned: 0,
+        identified: 0,
+        unidentified: 0,
+        added: 0,
+    };
+
+    for ident in &identifications {
+        totals.scanned += 1;
+
+        let path_str = ident.canonical_path.to_string_lossy().to_string();
+        // Disc-row hashes are PREFIX-WINDOW hashes: only the leading
+        // [`DISC_HASH_PREFIX_BYTES`] are hashed (a `.bin`/`.chd` can be
+        // multi-GB, and DAT matching does not apply to disc rows this
+        // release); a `.cue` is tiny text far below the window, so it is
+        // still hashed in full.
+        let bytes = match read_disc_hash_window(&ident.canonical_path) {
+            Ok(b) => b,
+            Err(_) => continue, // unreadable — counted as scanned, never identified
+        };
+        totals.identified += 1;
+        // Row size is the file's true on-disk size, not the hash window's.
+        let size_bytes = std::fs::metadata(&ident.canonical_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(bytes.len() as i64);
+        let hashes = hasher::hash_rom(&bytes, &ident.system);
+        let outcome = matcher.match_rom(&hashes, &ident.canonical_path);
+        let core_hint = mapper::core_hint_for_system(&ident.system).map(str::to_string);
+
+        let new_game = build_new_game(
+            folder_id,
+            path_str.clone(),
+            ident.system.clone(),
+            &hashes,
+            outcome.clean_name,
+            outcome.dat_matched,
+            core_hint,
+            size_bytes,
+            now,
+        );
+
+        if persist_new_game(repo, &new_game, &path_str, known)? {
+            totals.added += 1;
+        }
+    }
+
+    Ok(totals)
 }
 
 /// Insert `new_game` if `path_str` is not already known, updating the dedup

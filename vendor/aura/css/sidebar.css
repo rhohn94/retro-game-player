@@ -1,30 +1,126 @@
 /* ==========================================================================
-   Aura — sidebar FMB (v3.88)
+   Aura — sidebar FMB (v3.88; genuine full-height engine v3.542, #1014;
+   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049)
 
    A fixed-position Floating Menu Button anchored just below the nav-header
-   FMB on the left side. Collapses to a compact circle at rest; expands on
-   hover, focus, JS proximity (js/sidebar.js), or click-pin (data-fmb-pinned).
-   Mirrors the nav-header FMB geometry and ghostly rest appearance.
+   FMB on the left side by default. The PILL ([data-sidebar-zone="mark"]) is a
+   fixed-size circle that never resizes, relocates, or hides across Stashed /
+   Opened / Pinned — the button-stability invariant (docs/design/fmb-design.md
+   "Hard requirement"). The full-height surface
+   ([data-sidebar-zone="content"]) is an INDEPENDENT floating panel, anchored
+   to the pill's position, that opens/closes on top of it without the pill's
+   own box ever changing — mirroring css/nav-header.css's
+   [data-aura-user-fmb] circle-stays-put-while-its-menu-is-a-separate-layer
+   pattern (docs/design/fmb-user-design.md §Design).
 
-   FMB collapse mechanism:
-     inline-size: fmb-size  — circle width
-     block-size: fmb-size   — circle height → border-radius:50% circle
-     border-radius: 50%     — round form
-     overflow: hidden       — clips content zone
-     opacity: 0.35          — ghostly
-     filter: grayscale(1)   — monochrome
+   Placement variants (v3.551, #1049): the host may author
+   data-sidebar-column="start"|"end" and/or data-sidebar-anchor="start"|"end"
+   — matching the vocabulary <aura-fmb-column> already establishes
+   (docs/design/fmb-design.md §Column positioning) — to render at the
+   inline-end column and/or block-end anchor instead of the default
+   inline-start/block-start. Unset defaults to "start"/"start" (today's exact
+   position, unchanged). All geometry stays in LOGICAL properties
+   (inset-inline-{start,end}, inset-block-{start,end}) so every combination
+   mirrors correctly under dir="rtl" for free — see
+   docs/design/sidebar-fmb-design.md §Placement variants.
 
-   Expand restores natural sizing, border-radius, opacity, filter.
+   Three-part structure:
+     .aura-sidebar[data-aura-sidebar]     — positioning root only. Fixed at the
+                                             anchor point; never painted, never
+                                             sized — exists to scope click-to-
+                                             pin / keyboard / focus-trap /
+                                             MutationObserver behavior across
+                                             both children below.
+     [data-sidebar-zone="mark"]           — THE BUTTON. Fixed fmb-size circle,
+                                             glass surface, ghost opacity/
+                                             filter, glow-hosting. Identical
+                                             bounding rect in all three states.
+     [data-sidebar-zone="content"]        — THE PANEL. Hidden (opacity:0,
+                                             visibility:hidden) at rest;
+                                             becomes the real full-height,
+                                             scroll-owning surface when Opened
+                                             or Pinned. Independent fixed box,
+                                             anchored to the same top-left
+                                             point the pill occupies.
+
+   See docs/design/sidebar-fmb-design.md for the full contract (button/panel
+   decoupling, overlay vs push, focus/dismissal, RTL matrix, mobile
+   reconciliation).
    ========================================================================== */
 @layer sidebar {
+  /* ---- Positioning root: never painted, never sized -----------------------
+     Exists only so click-to-pin / Escape / trapFocus / isolateBackground /
+     MutationObservers have one element scoping both the pill and the panel.
+     Its own box plays no role in any geometry contract — it is not measured
+     by anything, has no background/border, and never changes size.
+
+     padding/border/margin/background are explicitly zeroed (not merely
+     omitted): css/shell-nav.css's earlier-declared `shell-nav` layer paints
+     a bare `[data-aura-sidebar]` baseline (padding: var(--aura-space-4);
+     border-inline-end: 1px solid …) for the genuine app-shell DRAWER variant
+     of this same attribute — the `sidebar` layer is declared AFTER
+     `shell-nav` in css/aura.css, so normal-priority declarations here
+     already win the cascade, but they must actually BE declared to win
+     anything; an omitted property lets the earlier layer's value through
+     untouched. Discovered live (v3.550 #1047): without this explicit zero,
+     the host measured 33px (16px+16px padding + 1px border) instead of 0. */
   .aura-sidebar[data-aura-sidebar] {
-    /* Anchored to the same left edge as the nav-header FMB, just below it. */
     position: fixed;
-    /* space-5 (24px) = nav-header fmb-size margin-block-start (space-2=8px) + desired 16px gap */
     inset-block-start: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
     inset-inline-start: var(--aura-nav-header-pad-inline);
-    /* One layer below the nav-header so the header always wins on overlap. */
-    z-index: calc(var(--aura-z-sticky) - 1);
+    inline-size: 0;
+    block-size: 0;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    overflow: visible;
+    z-index: var(--aura-sidebar-z);
+    box-sizing: border-box;
+  }
+
+  /* ---- Placement variants (v3.551, #1049): column + anchor overrides -----
+     data-sidebar-column="end" swaps the inline anchor from inset-inline-start
+     to inset-inline-end (logical properties — mirrors under dir="rtl" for
+     free, no physical left/right anywhere). data-sidebar-anchor="end" swaps
+     the block anchor from inset-block-start to inset-block-end. Both are
+     independent — all four combinations are expressible by mixing these two
+     override blocks. Unset (or any other value) keeps the default
+     start/start rest position declared above untouched. Applied identically
+     to the host (this rule), the pill, and the panel below — the three
+     elements share the same fixed anchor point by contract (button-stability
+     invariant), so a placement change must move all three in lockstep. */
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"] {
+    inset-inline-start: auto;
+    inset-inline-end: var(--aura-nav-header-pad-inline);
+  }
+  .aura-sidebar[data-aura-sidebar][data-sidebar-anchor="end"] {
+    inset-block-start: auto;
+    inset-block-end: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+  }
+
+  /* ---- The pill: fixed-size circle, NEVER resizes (button-stability
+     invariant, fmb-design.md "Hard requirement") --------------------------
+     Anchored to the SAME fixed point as the positioning root above, so its
+     on-screen location is identical to the root's own inset values in every
+     state. No state selector below ever touches inline-size, block-size,
+     border-radius, or position for this element — only opacity/filter
+     (ghost ⇄ awake) and glow membership change. */
+  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
+    position: fixed;
+    inset-block-start: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+    inset-inline-start: var(--aura-nav-header-pad-inline);
+    inline-size: var(--aura-sidebar-fmb-size);
+    block-size: var(--aura-sidebar-fmb-size);
+    z-index: var(--aura-sidebar-z);
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    box-sizing: border-box;
 
     /* Glass surface: same tier as nav-header chrome-over-content. */
     background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface);
@@ -33,129 +129,242 @@
     border: 1px solid var(--aura-surface-stroke);
     color: var(--aura-text);
 
-    /* FMB resting state: compact circle. Structural flex centering ensures the
-       mark zone icon is centred by container properties, not manual offsets.
-       The mark zone carries its own explicit block-size so align-items:center
-       (not stretch) is safe here — the zone fills the circle via block-size. */
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0;
-    padding: 0;
-    inline-size: var(--aura-sidebar-fmb-size);
-    block-size: var(--aura-sidebar-fmb-size);
-    border-radius: 50%;
-    overflow: hidden;
-
-    /* Ghostly monochrome at rest; restores on expand (mirrors nav-header FMB). */
+    /* Ghostly monochrome at rest; restores on expand (mirrors nav-header FMB
+       and [data-aura-user-fmb]). Only opacity/filter ever transition here —
+       the button's geometry is constant, so no size/radius/position channels
+       are needed in this list at all. */
     opacity: 0.35;
     filter: grayscale(1);
-
-    /* Bidirectional FMB ↔ panel transition channels. */
     transition:
-      inline-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      block-size    var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      border-radius var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      padding       var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      opacity       var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      filter        var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+      opacity var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      filter  var(--aura-sidebar-duration) var(--aura-sidebar-easing);
   }
 
-  /* Glow-vs-ghost conflict (v3.532 #A): the host's own `opacity:0.35` +
+  /* ---- Placement variants: pill (v3.551, #1049) --------------------------
+     Mirrors the host's own column/anchor overrides above — the pill anchors
+     to the SAME fixed point as the positioning root in every combination
+     (button-stability invariant: the pill's box never depends on which
+     corner it lives in, only WHERE that corner is). */
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"] [data-sidebar-zone="mark"] {
+    inset-inline-start: auto;
+    inset-inline-end: var(--aura-nav-header-pad-inline);
+  }
+  .aura-sidebar[data-aura-sidebar][data-sidebar-anchor="end"] [data-sidebar-zone="mark"] {
+    inset-block-start: auto;
+    inset-block-end: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+  }
+
+  /* Glow-vs-ghost conflict (v3.532 #A): the pill's own `opacity:0.35` +
      `filter:grayscale(1)` composite through the .aura-glow rim too (CSS
      filter/opacity apply to the whole rendered subtree, pseudo-elements
      included) — so as the cursor approaches within the 130px glow radius but
      before it crosses the FMB's own tight ~14px expand-px ring, the vivid
      --aura-edge-color rim would render fully desaturated and at ~0.27
      effective opacity: a barely-visible smudge rather than the intended
-     "you're getting close" cue. Verified via preview (computed styles +
-     scaled screenshot). Rather than let that illegible state show, suppress
-     the rim while still collapsed; it un-suppresses the instant the FMB
-     itself expands (the block above already sets opacity:1/filter:none at
+     "you're getting close" cue. Rather than let that illegible state show,
+     suppress the rim while still ghosted; it un-suppresses the instant the
+     pill itself wakes (the block below already sets opacity:1/filter:none at
      that point, so the rim renders vivid and undimmed from then on). The
-     host stays a fully-fledged .aura-glow member throughout — magnetic lean
-     and :focus-visible intensity pinning are unaffected — only the rim
-     pseudo-element's visibility window is scoped to skip the conflicting
-     ghost state. This `:not()` chain (one term per expand state) is the
-     REFERENCE selector shape for the unified FMB glow-suppression contract:
+     pill stays a fully-fledged .aura-glow member throughout (v3.550: glow
+     membership moved from the outer host onto the pill itself — see
+     js/sidebar.js's enhance() — since the glow rim (.aura-glow::after) is
+     sized to inset:0 of whichever element carries the class; the outer host
+     no longer has a meaningful box to size a rim to). This `:not()` chain
+     (one term per expand state) is the REFERENCE selector shape for the
+     unified FMB glow-suppression contract:
      docs/design/proximity-glow-design.md §Ghosted FMB rim suppression
-     (v3.541, #1021). */
-  .aura-sidebar[data-aura-sidebar]:not(:hover):not(:focus-within):not([data-sidebar-expanded]):not([data-fmb-pinned])::after {
+     (v3.541, #1021). Host-scoped :focus-within (not a bare :focus-visible on
+     the pill alone) so tabbing onto a link INSIDE the open content zone —
+     not just the pill itself — still counts as "awake", matching the
+     pre-v3.550 single-box behavior where the whole host's :focus-within
+     drove this same rule. */
+  .aura-sidebar[data-aura-sidebar]:not(:hover):not(:focus-within):not([data-sidebar-expanded]):not([data-fmb-pinned]) [data-sidebar-zone="mark"]::after {
     opacity: 0;
   }
 
   /* Opaque fallback — engines without backdrop-filter support (#491). */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .aura-sidebar[data-aura-sidebar] {
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
       background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
     }
   }
 
   /* Opaque swap — [data-aura-effects="lite"] page-wide reduce-effects hatch (#491/#401). */
-  [data-aura-effects="lite"] .aura-sidebar[data-aura-sidebar] {
+  [data-aura-effects="lite"] .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
   }
 
-  /* ---- Mark zone: icon shown in FMB circle state. ---- */
-  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
-    flex-shrink: 0;
-    block-size: var(--aura-sidebar-fmb-size);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--aura-text);
-    transition:
-      opacity        var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      max-block-size var(--aura-sidebar-duration) var(--aura-sidebar-easing);
-  }
-
-  /* ---- Content zone: hidden in FMB state (overflow hidden clips it). ---- */
-  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
-    max-block-size: 0;
-    overflow: hidden;
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      max-block-size var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      opacity        var(--aura-sidebar-duration) var(--aura-sidebar-easing);
-  }
-
-  /* ---- FMB → panel: hover / focus / JS proximity / click-pin ------------ */
-  .aura-sidebar[data-aura-sidebar]:hover,
-  .aura-sidebar[data-aura-sidebar]:focus-within,
-  .aura-sidebar[data-aura-sidebar][data-sidebar-expanded],
-  .aura-sidebar[data-aura-sidebar][data-fmb-pinned] {
-    inline-size: var(--aura-sidebar-width);
-    block-size: auto;
-    border-radius: var(--aura-radius-lg);
-    overflow: visible;
-    padding: var(--aura-sidebar-pad-block) var(--aura-sidebar-pad-inline);
-    opacity: 1;
-    filter: none;
-  }
-
-  /* Mark zone: collapse when expanded (content takes over). */
+  /* Pill wakes (full opacity/color) on hover ANYWHERE in the host, focus-
+     within the host (pill OR an open panel link), JS proximity, or pin — but
+     its BOX never changes; only the ghost treatment lifts. Host-scoped
+     :hover/:focus-within (not bare :hover/:focus-visible on the pill alone)
+     preserves the pre-v3.550 behavior: hovering the OPEN panel keeps the
+     pill awake too, exactly as hovering anywhere on the former single box
+     did. Mirrors [data-aura-user-fmb]'s own expand-state opacity/filter rule. */
   .aura-sidebar[data-aura-sidebar]:hover [data-sidebar-zone="mark"],
   .aura-sidebar[data-aura-sidebar]:focus-within [data-sidebar-zone="mark"],
   .aura-sidebar[data-aura-sidebar][data-sidebar-expanded] [data-sidebar-zone="mark"],
   .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="mark"] {
-    max-block-size: 0;
-    overflow: hidden;
-    opacity: 0;
+    opacity: 1;
+    filter: none;
   }
 
-  /* Content zone: reveal when expanded. */
+  /* ---- FMB column preview z-index bump (v3.549 ITEM-2 migration; v3.550:
+     retargeted to the pill, the element that now actually needs to stay
+     clickable above the column's glass tile) --------------------------------
+     Keyed off the HOST's own Opened signal, reached via a plain descendant
+     combinator into the pill — the trigger vocabulary is unchanged from
+     fmb-design.md: there is no more global column-wide state. Excludes
+     [data-fmb-pinned] so Pinned keeps the pill's original, lower,
+     permanent-surface tier — unchanged behavior. */
+  .aura-sidebar[data-aura-sidebar]:not([data-fmb-pinned]):is(:hover, :focus-within, [data-sidebar-expanded]) [data-sidebar-zone="mark"] {
+    /* Shared token (v3.549 review-fix, tokens.json "FMB active z-index
+       bump") — deduplicates this literal from css/nav-header.css (x2) and
+       css/footer.css; all four sites now consume one source of truth. */
+    z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+  }
+
+  /* ---- The panel: independent floating surface, hidden at rest ----------
+     THE PANEL is [data-sidebar-zone="content"] — a completely separate box
+     from the pill above. At rest it is invisible and inert (visibility, not
+     just opacity, so it can never intercept focus/pointer/scroll while
+     hidden). It anchors to the SAME top-left point the pill occupies, so
+     opening it never requires the pill's own box to move or resize (the
+     button-stability invariant). This is the "genuine full-height surface"
+     introduced in v3.542 (#1014) — v3.550 changes WHERE it lives (an
+     independent fixed box instead of the resized host box) but not what it
+     IS (real inset-block:0 geometry, real content-zone scroll ownership). */
+  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
+    position: fixed;
+    inset-block-start: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+    inset-inline-start: var(--aura-nav-header-pad-inline);
+    inset-block-end: auto;
+    inline-size: 0;
+    block-size: 0;
+    z-index: var(--aura-sidebar-z);
+
+    box-sizing: border-box;
+    overflow: hidden;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+
+    /* Glass surface: same tier as nav-header chrome-over-content. */
+    background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface);
+    -webkit-backdrop-filter: blur(var(--aura-sidebar-blur)) saturate(var(--aura-sidebar-saturate));
+    backdrop-filter: blur(var(--aura-sidebar-blur)) saturate(var(--aura-sidebar-saturate));
+    border: 1px solid var(--aura-surface-stroke);
+    color: var(--aura-text);
+    padding: 0;
+
+    transition:
+      inline-size  var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      block-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      padding      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      opacity      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      visibility   0s linear var(--aura-sidebar-duration),
+      transform    var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+    transform: translateX(-100%);
+  }
+
+  /* ---- Placement variants: panel rest state (v3.551, #1049) --------------
+     Same fixed anchor point as the host/pill overrides above. The rest-state
+     slide-off transform also flips: a panel anchored to the inline-END edge
+     must rest OFF-SCREEN to the end side, not the start side (translateX
+     signs below are LTR-authored — like the pre-existing RTL block further
+     down, `dir="rtl"` needs its own guard, handled in §RTL below). */
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"] [data-sidebar-zone="content"] {
+    inset-inline-start: auto;
+    inset-inline-end: var(--aura-nav-header-pad-inline);
+    transform: translateX(100%);
+  }
+  .aura-sidebar[data-aura-sidebar][data-sidebar-anchor="end"] [data-sidebar-zone="content"] {
+    inset-block-start: auto;
+    inset-block-end: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
+  }
+
+  /* Opaque fallback / lite mode for the panel — same treatment as the pill. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
+      background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
+    }
+  }
+  [data-aura-effects="lite"] .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
+  }
+
+  /* ---- Panel → genuine full-height surface (v3.542, #1014; relocated onto
+     the independent panel box, v3.550, #1047) -------------------------------
+     hover / focus / JS proximity (preview, no trap/isolation) all open the
+     SAME real surface as click-pin (data-fmb-pinned, full behavior) — one
+     engine, not a parallel mini panel. inset-block: 0 makes the panel span
+     the full viewport block axis (subject to the FMB-column co-existence
+     override below); the content zone's OWN inner scroll region becomes the
+     scroll owner. Slides in from the inline-start edge — transform channel
+     lives on the panel's own transition list (mirrors the mobile drawer's
+     translate slide in css/mobile.css §3c). The pill above is completely
+     unaffected by any of this — its box never appears in this rule. */
   .aura-sidebar[data-aura-sidebar]:hover [data-sidebar-zone="content"],
   .aura-sidebar[data-aura-sidebar]:focus-within [data-sidebar-zone="content"],
   .aura-sidebar[data-aura-sidebar][data-sidebar-expanded] [data-sidebar-zone="content"],
   .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="content"] {
-    max-block-size: 60dvh;
+    inset-block: 0;
+    inset-inline-start: 0;
+    inline-size: var(--aura-sidebar-width);
+    block-size: auto;
+    padding: var(--aura-sidebar-pad-block) var(--aura-sidebar-pad-inline);
+    visibility: visible;
     opacity: 1;
     pointer-events: auto;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Real surface, real stacking layer — one tier below the nav-header FMB,
+       same as the resting pill (never overlaps the header chrome). */
+    z-index: var(--aura-sidebar-z);
+    /* Open state: slid fully into view. Carried here (not only on the
+       narrower z-index-bump rule below) so a Pinned-only sidebar — e.g.
+       keyboard-pinned via Enter/Space then blurred, or pinned
+       programmatically with no concurrent :hover/:focus-within — still
+       animates in instead of snapping open with zero transition. */
+    transform: translateX(0);
+    transition:
+      inline-size  var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      block-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      padding      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      opacity      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      visibility   0s linear 0s,
+      transform    var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* ---- Placement variants: open panel docks against the inline-END edge
+     (v3.551, #1049) --------------------------------------------------------
+     The open-state rule above always docks the panel's leading edge at
+     inset-inline-start: 0 (the viewport's inline-start edge) — correct for
+     the default column, wrong for data-sidebar-column="end", where the panel
+     must dock against the inline-END viewport edge instead so it opens
+     toward the page's center from the same side the pill/rest state anchors
+     to. translateX(0) itself needs no sign flip (0 is direction-agnostic);
+     only which inset property is 0 changes. Same selector list + specificity
+     as the open-state rule above (attribute-qualified descendant selector),
+     so normal cascade order (this block declared AFTER) decides the
+     inset-inline winner without needing !important. */
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"]:hover [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"]:focus-within [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-expanded] [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-fmb-pinned] [data-sidebar-zone="content"] {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+  }
+
+  /* ---- FMB column preview z-index bump for the OPEN PANEL (v3.549 ITEM-2
+     migration; v3.550: split from the pill's own bump above since the two
+     are now different boxes needing the same treatment independently). ---- */
+  .aura-sidebar[data-aura-sidebar]:not([data-fmb-pinned]):is(:hover, :focus-within, [data-sidebar-expanded]) [data-sidebar-zone="content"] {
+    z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
   }
 
   /* ---- Sidebar navigation links. ---- */
@@ -193,32 +402,321 @@
     }
   }
 
-  /* ---- Reduced motion (#1020) -------------------------------------------- */
-  /* The FMB ↔ panel state change still HAPPENS — it just snaps, with no
-     animated resize/fade (space-economy + animation contract; mirrors the
-     footer's reveal treatment in css/footer.css). Covers the host's six
-     transition channels plus every transitioning descendant: the mark zone,
-     the content zone, and the nav links. NOTE: keep this the file's SINGLE
-     `prefers-reduced-motion` block — the coverage gate's block scanner only
-     sees the FIRST matching @media block per file (see css/nav-header.css,
-     the #700 consolidation note), so a second block here would silently
-     escape the coverage check. */
+  /* ---- RTL: pill rest position + panel both states explicitly guarded
+     (v3.542, #1014; re-scoped to pill/panel, v3.550, #1047) ---------------
+     Past incident (css/mobile.css §3c, the app-shell drawer): an unguarded
+     `[dir="rtl"]` hidden-state rule shared the OPEN rule's specificity and
+     landed later in the cascade, silently winning over the open state too
+     and pushing an OPEN drawer off-screen. The FMB reproduces the fix
+     PATTERN (state-guarded transforms, open state re-asserted at higher
+     specificity) — but NOT the drawer's off-screen rest value: unlike a
+     drawer, the PILL's rest state must stay a VISIBLE circle (the summon
+     affordance) — it carries no transform at all, so there is nothing to
+     guard on the pill itself; its anchoring uses logical inset-inline-start,
+     which mirrors on its own. The PANEL's rest state, however, is genuinely
+     off-screen (translateX(-100%)) and DOES need the same RTL guard the
+     v3.542 surface had: rest is an explicit mirrored transform, and the open
+     state re-asserts translateX(0) at higher specificity so no blanket RTL
+     transform — this one or a future one — can ever push an OPEN panel
+     off-screen. */
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"] {
+    transform: translateX(100%);
+  }
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar]:hover [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar]:focus-within [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-expanded] [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="content"] {
+    transform: translateX(0);
+  }
+
+  /* ---- RTL: placement-variant rest transform flip for column="end"
+     (v3.551, #1049) ---------------------------------------------------------
+     translateX is a PHYSICAL operation (unlike inset-inline-*, it does not
+     mirror on its own), so every combination of {column, dir} needs its own
+     resolved sign — the table below is exhaustive:
+       LTR + column=start (default): inset-inline-start = physical left;  rest slides further LEFT   → translateX(-100%) (base rule above)
+       RTL + column=start (default): inset-inline-start = physical right; rest slides further RIGHT  → translateX(100%)  (RTL rule above)
+       LTR + column=end:             inset-inline-end   = physical right; rest slides further RIGHT  → translateX(100%)  (column=end rule, §panel rest)
+       RTL + column=end:             inset-inline-end   = physical left;  rest slides further LEFT    → translateX(-100%) (THIS rule — the one combination
+                                                                                                          the two blocks above do not already cover)
+     The open state re-asserts translateX(0) regardless of column/dir (0 has
+     no sign to flip) — but THIS rule's selector
+     ([dir="rtl"] + [data-sidebar-column="end"], specificity (0,4,0)) is
+     higher-specificity than the generic open-state re-assert two blocks up
+     ([dir="rtl"] + :hover-etc, specificity (0,3,0)), so without a state guard
+     it would keep winning even while genuinely open — reproducing the exact
+     "unguarded rule beats the open state" incident this file's whole RTL
+     section exists to prevent (see the css/mobile.css §3c history above).
+     :not() every open-trigger so this rule only ever applies to the true rest
+     state; the dedicated open re-assert below (same specificity family)
+     handles the open case explicitly instead. */
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"]:not(:hover):not(:focus-within):not([data-sidebar-expanded]):not([data-fmb-pinned]) [data-sidebar-zone="content"] {
+    transform: translateX(-100%);
+  }
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"]:hover [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"]:focus-within [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-expanded] [data-sidebar-zone="content"],
+  [dir="rtl"] .aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-fmb-pinned] [data-sidebar-zone="content"] {
+    transform: translateX(0);
+  }
+
+  /* ---- <40rem container: no defeat block needed (#1014 original hazard;
+     mobile-defeat `!important` block REMOVED v3.553, #1052 part 2) --------
+     Historical hazard: css/mobile.css §3c used to style the bare
+     `[data-aura-sidebar]` attribute selector (no `:not()` guard) inside
+     `@container (max-width: 40rem)`, which matched the FMB sidebar's outer
+     host too and, because `aura.css` declares `mobile` AFTER `sidebar` in
+     the @layer order (a later layer beats an earlier one regardless of
+     selector specificity), silently out-cascaded every normal-priority rule
+     in this file at narrow container widths. v3.542 defeated that the only
+     way available at the time — a matching `!important` block re-asserting
+     the same rest/open/RTL/placement-variant geometry inside the same
+     `<40rem` container query, since important declarations beat normal ones
+     in every layer and among importants the earlier-declared layer wins.
+
+     v3.552 (#1052 part 1) fixed the actual collision at its source instead:
+     `css/mobile.css` §3c's selector is now
+     `[data-aura-sidebar]:not([data-aura-sidebar="reveal"])` on every one of
+     its rules (rest, RTL rest, open re-assert, RTL open re-assert, and its
+     own reduced-motion transition-suppression rule) — see that file's own
+     §3c banner comment. `"reveal"` is the FMB-mode marker `js/sidebar.js`'s
+     enhance() gates all pin-engine behavior on (`BEHAVIOR_ATTR !== "reveal"`
+     bails out) and every FMB-mode sidebar in this codebase authors it
+     (confirmed across all 19 demo pages). So §3c's selector no longer
+     MATCHES an FMB-mode host at all — this is not a priority contest §3c
+     loses, it is a selector that never fires on this element in the first
+     place. With no competing declaration reachable inside a `<40rem`
+     container, the base (always-active) rules above — rest position, the
+     placement-variant column/anchor overrides, the open-state re-assert, and
+     the dedicated RTL guards in §RTL above — already resolve the correct
+     geometry unaided, at their existing normal priority. Re-asserting them a
+     second time here would have had nothing left to defeat, so v3.553
+     (#1052 part 2) removed the block entirely rather than keep a
+     defense-in-depth copy with no live threat to defend against — verified
+     empirically (not assumed) by running the full RTL × column × anchor ×
+     narrow-container matrix with the block deleted before landing this
+     change; see docs/design/sidebar-fmb-design.md §Known hazard and
+     tests/unit/sidebar-mobile-cascade.test.js / tests/layout/sidebar-fmb.spec.js
+     for the empirical lock. */
+
+  /* ---- Sidebar modes: overlay (default) vs push (v3.542, #1014) ---------
+     data-sidebar-mode is a NEW host attribute, orthogonal to data-aura-sidebar
+     (fmb-column eligibility keys off "reveal" — never overload that value
+     set). Overlay is chrome-over-content glass with NO scrim (unlike the
+     mobile shell drawer, a different chrome tier that keeps its scrim) —
+     content is simply covered while pinned; JS arms trapFocus +
+     isolateBackground (inert/aria-hidden, no visual scrim) ONLY while pinned.
+     Push has no trap; it yields shell-level content out of the way via a
+     CSS-only :root:has() derived offset consumed as padding — see below.
+     Overlay is the default (no attribute needed). Unchanged by the v3.550
+     decoupling — push/overlay is a PANEL-level concern (whether the open
+     panel covers or displaces content), independent of the pill/panel split. */
+
+  /* Push-mode content offset — CSS-only, no JS setProperty call needed
+     (mirrors --aura-fmb-column-active-offset-block-start's :root-token
+     pattern, but derived purely from selector state via :has() rather than
+     set imperatively). Consumed as padding-inline-start by shell-level
+     content (mirrors css/layout.css's aura-region/aura-split block-start
+     offset consumption for the FMB column). Transitions so the yield reads
+     as a push, not a jump; snaps under reduced motion in the single block
+     below (extended, not duplicated).
+
+     Placement variants (v3.551, #1049): a SINGLE token still carries the
+     offset MAGNITUDE regardless of which column the sidebar is placed in —
+     only WHICH padding property consumes it differs (padding-inline-start
+     for the default inline-start column, padding-inline-end for
+     data-sidebar-column="end"), matching fmb-design.md §Reflow policy's rule
+     that a reflowing FMB "offsets sibling content on the *same edge* the
+     FMB's column lives on". Both :has() selectors below are mutually
+     exclusive (a pinned+push sidebar is in exactly one column), so at most
+     one ever contributes a non-zero padding at a time. */
+  :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-mode="push"][data-fmb-pinned]) {
+    --aura-sidebar-push-inline: var(--aura-sidebar-width);
+  }
+
+  aura-region,
+  .aura-region,
+  aura-split,
+  .aura-split {
+    padding-inline-start: var(--aura-sidebar-push-inline, 0px);
+    transition: padding-inline-start var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* Inline-END column pushes from the END edge instead — the default
+     padding-inline-start above stays 0 in this case since the token is only
+     ever set (non-zero) while the pinned+push sidebar's OWN column matches;
+     the :has() below only fires for an end-column pinned+push sidebar, so
+     the two padding properties never both carry a non-zero value at once. */
+  :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-mode="push"][data-fmb-pinned])
+    :is(aura-region, .aura-region, aura-split, .aura-split) {
+    padding-inline-start: 0px;
+    padding-inline-end: var(--aura-sidebar-push-inline, 0px);
+    transition: padding-inline-end var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+  }
+
+  /* ---- Push-mode fix: neutralize a centered child's auto-margin theft
+     (v3.546, #1041) ---------------------------------------------------------
+     The padding-inline-start above DOES resolve and DOES shrink aura-region's
+     available inline space by the full sidebar width — confirmed live via
+     getComputedStyle AND a matched-rule walk (no other declaration touches
+     padding on aura-region; this is not an @layer-order defeat). The bug is
+     downstream: any consumer content that centers itself with the extremely
+     common `max-width + margin-inline: auto` pattern (every demo page's
+     `.page`/`.wrap`/etc. — see demo/demo-scaffold.css) reacts to the SMALLER
+     available width by redistributing the lost space across BOTH auto
+     margins, not just the leading one. Measured live: at 1280px the leading
+     shift lands at only half the reserved sidebar width; at 1440px only
+     roughly a third — the split (and the shortfall) scales with viewport,
+     so content never reliably clears the sidebar. Zeroing the leading margin
+     on direct scroll-owner children while pinned+push makes that content hug
+     the reserved edge instead of ceding half the offset back to centering —
+     the standard "content docks against the drawer" push affordance, and the
+     only way to guarantee content actually clears the sidebar regardless of
+     viewport or the child's own width. `!important` is required: this file's
+     `sidebar` layer is authored BEFORE consumer content such as
+     demo-scaffold.css, and like all un-@layer-ed author CSS that content
+     outranks every layer regardless of import order (see the `<40rem`
+     co-existence block above for the general rule); scoped to a plain child
+     combinator so it only overrides margin, never width/max-width/padding. */
+  :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-mode="push"][data-fmb-pinned])
+    :is(aura-region, .aura-region, aura-split, .aura-split) > * {
+    margin-inline-start: 0 !important;
+  }
+
+  /* Inline-END column: the auto-margin theft fix above zeroes the LEADING
+     margin (correct for the default start-column push, which reserves
+     padding-inline-start) — an end-column push reserves padding-inline-end
+     instead, so the trailing margin is the one a centered child would claw
+     the offset back from. Same reasoning, mirrored side; scoped to the
+     end-column pinned+push :has() so the two margin fixes stay mutually
+     exclusive like the padding rules above. */
+  :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-mode="push"][data-fmb-pinned])
+    :is(aura-region, .aura-region, aura-split, .aura-split) > * {
+    margin-inline-end: 0 !important;
+  }
+
+  /* ---- Reduced motion (#1020; extended v3.542 #1014; re-scoped to pill +
+     panel, v3.550 #1047; end-column specificity fix, v3.551 review #1049) ---
+     The pill ↔ panel state change still HAPPENS — it just snaps, with no
+     animated resize/fade/slide (space-economy + animation contract; mirrors
+     the footer's reveal treatment in css/footer.css). Covers the pill (only
+     opacity/filter now — its geometry never transitioned even outside
+     reduced motion), the panel (its full morph channels), the nav links, and
+     the push-mode content offset on the shell's scroll-owning
+     regions/splits — a blanket `transition: none` on the plain
+     `aura-region, .aura-region, aura-split, .aura-split` selector, which is
+     enough to beat the DEFAULT (start-column) push-padding rule above
+     (§Push-mode content offset): that rule shares this same low specificity,
+     so ordinary source order (this block declared after it) decides the
+     winner, same layer.
+
+     The END-COLUMN push-padding rule (§Push-mode content offset,
+     `:root:has(...[data-sidebar-column="end"]...) :is(aura-region, ...)`)
+     is NOT beaten by the plain selector above: `:has()`'s specificity is that
+     of its most specific argument, so that rule's selector carries far more
+     weight than a bare type/class selector, and since the whole file lives in
+     ONE `@layer sidebar`, specificity — not source order — decides the
+     winner once specificities differ. Without a matching-specificity
+     override here, that rule's `transition: padding-inline-end ...` would
+     keep animating the end-column reflow even under reduced motion (caught
+     in review — the claim that the blanket selector alone covers this
+     channel was wrong). Re-declaring the SAME `:root:has()` selector shape
+     inside this block matches its specificity exactly; declared later in
+     source (this block already sits after §Push-mode content offset), so it
+     wins the same way the plain selector wins for the default column.
+
+     EXTEND ONLY — NOTE: keep this the file's SINGLE `prefers-reduced-motion`
+     block — the coverage gate's block scanner only sees the FIRST matching
+     @media block per file (see css/nav-header.css, the #700 consolidation
+     note), so a second block here would silently escape the coverage
+     check. */
   @media (prefers-reduced-motion: reduce) {
-    .aura-sidebar[data-aura-sidebar],
     .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"],
     .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="content"],
-    .aura-sidebar-link {
+    .aura-sidebar-link,
+    aura-region,
+    .aura-region,
+    aura-split,
+    .aura-split {
+      transition: none;
+    }
+
+    /* Matches §Push-mode content offset's end-column rule's own selector
+       shape so specificity ties (not source order) decide the winner —
+       this rule is declared after it, so the tie resolves here. */
+    :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-mode="push"][data-fmb-pinned])
+      :is(aura-region, .aura-region, aura-split, .aura-split) {
       transition: none;
     }
   }
 
-  /* ---- FMB column co-existence: panel opens below the top bar (#949) ---- */
-  /* When the FMB top-bar is active, the sidebar panel opens below the bar.
-     inset-block-start positions the panel below the bar's height; inset-inline-start
-     anchors it to the left edge. Direction-agnostic — no RTL mirror needed.
-     --aura-fmb-column-active-offset-block-start is set by js/fmb-column.js on :root
-     whenever [data-fmb-column-active] is present. */
-  :root:has(aura-fmb-column[data-fmb-column-active]) .aura-sidebar[data-aura-sidebar] {
+  /* ---- Nav-header co-existence: open panel reserves the header (#1012
+     review follow-up; re-anchored v3.549 ITEM-2; re-scoped to the panel,
+     v3.550 #1047; guarded to the default placement, v3.551 #1049) ----------
+     The open-state rule above sets inset-block: 0 unconditionally on the
+     PANEL — correct when nothing else occupies the top of the viewport, but
+     position:fixed geometry doesn't participate in document flow, so on an
+     ordinary page (a nav-header present, the column's start/start stack NOT
+     active) the open panel's content would start flush at y=0 and render
+     BEHIND the header (sidebar-z is permanently one tier below
+     --aura-z-sticky) — the header visually covers the first ~64px of panel
+     content. Reserves the header's full (un-shrunk) height so the open panel
+     never overlaps it in either scroll state; the shrunk header just leaves
+     a small unused gap, an acceptable trade against overlap. Scoped to the
+     OPEN panel states only (mirrors the block below) — the resting pill's
+     own calibrated offset (fmb-size + space-5, already clears the header
+     with an intentional gap, see the pill rule's comment) is untouched.
+
+     v3.551 (#1049) placement-variant guard: this rule was authored assuming
+     the sidebar occupies the SAME top-left corner as the nav-header (both
+     default to column=start/anchor=start per js/fmb-column.js's
+     LEGACY_MEMBERS) — it is a two-member, same-corner collision fix, not a
+     generic "always reserve the header" rule. A sidebar explicitly
+     repositioned to data-sidebar-column="end" or data-sidebar-anchor="end"
+     no longer shares that corner with the nav-header (which always renders
+     top-left), so this reservation no longer applies and must not fire —
+     otherwise a bottom-anchored or end-column panel would get an incorrect
+     top-edge offset it doesn't need. Extending this to reason about the
+     nav-header's OWN placement (e.g. if a future item lets the nav-header
+     move too) is a general multi-member coordination question out of scope
+     for this item — see docs/design/sidebar-fmb-design.md §Placement
+     variants' collision-risk note. */
+  :root:has(aura-nav-header, .aura-nav-header):not(:has(aura-fmb-column [data-fmb-column="start"][data-fmb-anchor="start"][data-fmb-column-active]))
+    .aura-sidebar[data-aura-sidebar]:not([data-sidebar-column="end"]):not([data-sidebar-anchor="end"]):is(:hover, :focus-within, [data-sidebar-expanded], [data-fmb-pinned]) [data-sidebar-zone="content"] {
+    inset-block-start: var(--aura-nav-header-height);
+  }
+
+  /* ---- FMB column co-existence: pill + panel open below the start/start
+     stack (#949; re-anchored v3.549 ITEM-2; re-scoped to pill/panel, v3.550
+     #1047; guarded to the default placement, v3.551 #1049) ------------------
+     When the column's start/start stack is active (has ≥1 Stashed member —
+     nav-header and/or sidebar itself, per js/fmb-column.js's per-stack
+     accounting), BOTH the resting pill and the open panel relocate below
+     that stack's own live footprint — the pill so its fixed anchor point
+     genuinely matches where the column renders it, the panel so it keeps
+     opening from the same point the pill now occupies (button-stability:
+     the panel must anchor to wherever the pill actually is).
+     --aura-fmb-column-active-offset-block-start is set by js/fmb-column.js
+     on :root to the start/start stack's own measured footprint (NOT a
+     generic page-reflow token — see js/fmb-column.js's _syncStartStartOffset()
+     banner comment; fmb-design.md §Reflow policy keeps the column itself
+     non-reflowing for ordinary page content, this is a narrow same-corner
+     collision-avoidance export, the sidebar's only remaining consumer).
+
+     v3.551 (#1049) placement-variant guard: identical reasoning to the
+     nav-header co-existence rule above — this collision-avoidance export is
+     scoped to the start/start stack specifically (fmb-column.js has no
+     equivalent offset for the end column or either block-end anchor), so it
+     must only apply while the sidebar itself is ALSO in the default
+     start/start placement; a repositioned sidebar does not occupy that
+     corner and must not have its inset-inline-start forced to 0 (which would
+     silently relocate an end-column sidebar back to the start edge). */
+  :root:has(aura-fmb-column [data-fmb-column="start"][data-fmb-anchor="start"][data-fmb-column-active]) .aura-sidebar[data-aura-sidebar]:not([data-sidebar-column="end"]):not([data-sidebar-anchor="end"]) {
+    inset-block-start: var(--aura-fmb-column-active-offset-block-start, 0);
+    inset-inline-start: 0;
+  }
+  :root:has(aura-fmb-column [data-fmb-column="start"][data-fmb-anchor="start"][data-fmb-column-active]) .aura-sidebar[data-aura-sidebar]:not([data-sidebar-column="end"]):not([data-sidebar-anchor="end"]) [data-sidebar-zone="mark"],
+  :root:has(aura-fmb-column [data-fmb-column="start"][data-fmb-anchor="start"][data-fmb-column-active]) .aura-sidebar[data-aura-sidebar]:not([data-sidebar-column="end"]):not([data-sidebar-anchor="end"]) [data-sidebar-zone="content"] {
     inset-block-start: var(--aura-fmb-column-active-offset-block-start, 0);
     inset-inline-start: 0;
   }

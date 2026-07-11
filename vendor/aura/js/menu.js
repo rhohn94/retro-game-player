@@ -60,6 +60,17 @@
     if (menu.getAttribute("role") !== "menu") menu.setAttribute("role", "menu");
     if (!menu.hasAttribute("tabindex")) menu.tabIndex = -1;
 
+    /* Empty-menu diagnostic (#1023): a menu with zero direct-level items is
+       almost always a misuse — an id typo pointing the trigger at the wrong
+       block, or a template that failed to populate its items. Warn once per
+       menu (not once per open) using the same idempotency-marker style as
+       __auraDecorated below, so repeat opens of a still-broken menu don't
+       spam the console. */
+    if (!menu.__auraWarnedEmpty && levelItems(menu).length === 0) {
+      menu.__auraWarnedEmpty = true;
+      Aura.warn("[Aura] menu: no <aura-menu-item> children found — the menu will open empty.", menu);
+    }
+
     /* Groups & separators: explicit ARIA roles so the role="menu" container
        has no role-less element children (axe aria-required-children, #394).
        The group header is painted by CSS (::before content:attr(label)) and
@@ -170,6 +181,34 @@
       item.__auraDecorated = true;
     });
   }
+
+  /* Orphaned-submenu diagnostic (#1023): the documented nested-submenu
+     pattern is `<aura-menu-item>…<aura-menu slot="submenu">…</aura-menu-item>`
+     (see docs/design/context-menu-design.md). decorate() finds a submenu
+     structurally (":scope > aura-menu" under its owning item), so a
+     slot="submenu" block authored OUTSIDE an <aura-menu-item> ancestor is
+     never reached by the normal decorate() walk at all — it silently never
+     opens. That requires an independent, document-wide scan rather than a
+     decorate()-time check, so it rides the standard Aura.onMount harness
+     (idempotent, DOM-non-mutating, re-runs on initial load/HTMX
+     settle/mutation — see js/core.js). Dedupe once per element via a marker
+     in the same style as __auraDecorated so repeated mount passes don't
+     re-warn on a still-broken block. */
+  function checkOrphanedSubmenus(root) {
+    var candidates = root.querySelectorAll
+      ? root.querySelectorAll('aura-menu[slot="submenu"]')
+      : [];
+    Array.prototype.forEach.call(candidates, function (sub) {
+      if (sub.__auraWarnedOrphan) return;
+      if (sub.closest("aura-menu-item")) return; // correctly nested
+      sub.__auraWarnedOrphan = true;
+      Aura.warn(
+        "[Aura] menu: <aura-menu slot=\"submenu\"> found outside an <aura-menu-item> ancestor — it will never open. See docs/design/context-menu-design.md.",
+        sub
+      );
+    });
+  }
+  Aura.onMount(checkOrphanedSubmenus);
 
   /* ---- Geometry -------------------------------------------------------- */
   function vw() { return window.innerWidth; }
@@ -396,6 +435,17 @@
   }
 
   function openAtAnchor(menu, rect, opener) {
+    /* Zero-rect anchor diagnostic (#1023): a detached, display:none, or
+       0x0 anchor almost always means the trigger element was measured before
+       layout (or never rendered), so the menu opens pinned to the viewport
+       origin instead of the intended control. This is not fatal — placement
+       still degrades gracefully — so we warn and PROCEED rather than throw
+       or block the open. Fires per occurrence (not deduped): a genuinely
+       broken anchor is rare enough, and each call already corresponds to one
+       explicit user/programmatic open, not a loop or retry. */
+    if (rect && rect.width === 0 && rect.height === 0) {
+      Aura.warn("[Aura] menu: openAtAnchor called with a zero-sized anchor rect (detached, hidden, or unlaid-out element) — opening anyway, but placement may be wrong.", opener || rect);
+    }
     closeAll();
     cancelMenuClose(menu); /* abort if this menu itself was mid-close */
     decorate(menu);
@@ -585,9 +635,68 @@
   }
 
   /* ---- Delegated triggers --------------------------------------------- */
+  /* resolveMenu never throws: an invalid selector (e.g. unbalanced brackets)
+     is caught and treated the same as a valid-but-missing selector (both
+     return null) so every call site has one failure shape to handle. */
   function resolveMenu(sel) {
     if (!sel) return null;
     try { return document.querySelector(sel); } catch (e) { return null; }
+  }
+
+  /* Short, human-scannable description of an element for a diagnostic —
+     tag name plus id/class if present — so a developer can find the mis-wired
+     trigger markup without a live DOM reference (the warning may be read from
+     a copy-pasted console log). */
+  function describeElement(el) {
+    if (!el || !el.tagName) return String(el);
+    var d = el.tagName.toLowerCase();
+    if (el.id) d += "#" + el.id;
+    else if (el.className && typeof el.className === "string") {
+      d += "." + el.className.trim().split(/\s+/).join(".");
+    }
+    return d;
+  }
+
+  /* Selector-miss diagnostic (#1023): resolveMenu() returning null covers
+     both an invalid selector AND a valid selector matching nothing — from a
+     misuse standpoint they are the same mistake (the id/selector on the
+     trigger doesn't point at a real <aura-menu>), so one warning covers both.
+     Names the bad selector AND the trigger element so a developer can find
+     the mis-wired markup. Fires per distinct resolution attempt (not
+     deduped): each is a separate user gesture or explicit API call, not a
+     loop, so there is no spam risk to guard against. */
+  function resolveMenuWarn(sel, triggerEl) {
+    var menu = resolveMenu(sel);
+    if (!menu) {
+      Aura.warn("[Aura] menu: selector \"" + sel + "\" did not resolve to an <aura-menu> — trigger: " + describeElement(triggerEl));
+    }
+    return menu;
+  }
+
+  /* data-aura-menu-open sugar (#1024, v3.545): PURE ALIAS for the low-level
+     click-trigger pair — `data-aura-menu-open="#m"` is exactly equivalent to
+     `data-aura-menu="#m" data-aura-menu-trigger="click"`. Resolving the
+     selector belongs here (one place) rather than inlined at the click-handler
+     call site, because the both-attrs precedence case below needs the same
+     lookup+selector logic twice (once to pick the winning selector, once
+     implicitly via resolveMenuWarn).
+
+     Both-attrs precedence: when a trigger carries BOTH data-aura-menu-open AND
+     the low-level data-aura-menu/data-aura-menu-trigger pair, data-aura-menu-open
+     governs — this is authoring redundancy/conflict at best, so warn (debug-gated,
+     deduped per element the same way __auraWarnedEmpty dedupes per menu) advising
+     the author to use one form or the other. */
+  function sugarMenuSelector(t) {
+    var sugar = t.getAttribute("data-aura-menu-open");
+    if (sugar && t.hasAttribute("data-aura-menu")) {
+      if (!t.__auraWarnedSugarConflict) {
+        t.__auraWarnedSugarConflict = true;
+        Aura.warn(
+          "[Aura] menu: trigger has both data-aura-menu-open and data-aura-menu/data-aura-menu-trigger — data-aura-menu-open governs; use one form or the other. Trigger: " + describeElement(t)
+        );
+      }
+    }
+    return sugar || t.getAttribute("data-aura-menu");
   }
 
   document.addEventListener("contextmenu", function (e) {
@@ -597,7 +706,7 @@
       if (stack.length) closeAll();
       return;
     }
-    var menu = resolveMenu(t.getAttribute("data-aura-menu"));
+    var menu = resolveMenuWarn(t.getAttribute("data-aura-menu"), t);
     if (!menu) return;
     e.preventDefault();
     openRoot(menu, e.clientX, e.clientY, t);
@@ -612,9 +721,12 @@
       }
       return;
     }
-    var t = e.target.closest('[data-aura-menu][data-aura-menu-trigger="click"]');
+    /* [data-aura-menu-open] is the D1/D2 sugar (#1024): normalized into this
+       SAME delegated click branch rather than a parallel code path — it opens
+       exactly like the low-level click-trigger pair, anchored at the trigger. */
+    var t = e.target.closest('[data-aura-menu][data-aura-menu-trigger="click"], [data-aura-menu-open]');
     if (t) {
-      var menu = resolveMenu(t.getAttribute("data-aura-menu"));
+      var menu = resolveMenuWarn(sugarMenuSelector(t), t);
       if (!menu) return;
       e.preventDefault();
       if (stack.length && stack[0] === menu) { closeAll(); return; } // toggle
@@ -792,15 +904,24 @@
 
   /* ---- Public API ------------------------------------------------------ */
   Aura.menu = {
+    /* selectorOrEl accepts a live element directly, so a string that fails to
+       resolve is always a genuine selector-miss (#1023) — warned via
+       resolveMenuWarn. There is no trigger element in the programmatic-call
+       sense here (x/y are bare coordinates), so the "trigger" named in the
+       warning is the open() call site itself. */
     open: function (selectorOrEl, x, y) {
-      var m = typeof selectorOrEl === "string" ? resolveMenu(selectorOrEl) : selectorOrEl;
+      var m = typeof selectorOrEl === "string"
+        ? resolveMenuWarn(selectorOrEl, "Aura.menu.open() call")
+        : selectorOrEl;
       if (m) openRoot(m, x || 100, y || 100, null);
     },
     /* Open a menu anchored below an element (e.g. for dropdowns/selects).
        anchorEl must be a DOM element whose getBoundingClientRect() is used to
        position the menu. opener is the element that gets focus on close. */
     openAtAnchor: function (selectorOrEl, anchorEl, opener) {
-      var m = typeof selectorOrEl === "string" ? resolveMenu(selectorOrEl) : selectorOrEl;
+      var m = typeof selectorOrEl === "string"
+        ? resolveMenuWarn(selectorOrEl, opener || anchorEl)
+        : selectorOrEl;
       if (m) openAtAnchor(m, anchorEl.getBoundingClientRect(), opener || null);
     },
     closeAll: closeAll,

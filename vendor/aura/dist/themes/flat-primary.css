@@ -62,6 +62,15 @@
   --aura-info: var(--aura-secondary);
   /* Danger stays vivid — no hue-shift needed. */
   --aura-danger: oklch(0.63 0.22 25);
+  /* #1079 audit: --aura-danger-a15/-a25 (tokens.css) are declared once at
+     :root as color-mix(in srgb, var(--aura-danger) N%, transparent); that
+     var() resolves against :root's OWN cascade, not this theme's, so without
+     re-stating it here the Danger button/chip fill stayed pinned to the
+     DEFAULT danger hue while the label tracked this theme's override — the
+     pair measured ≈4.17:1, just under WCAG AA. Re-derive both from this
+     theme's own --aura-danger so text and fill share one source colour. */
+  --aura-danger-a15: color-mix(in srgb, var(--aura-danger) 15%, transparent);
+  --aura-danger-a25: color-mix(in srgb, var(--aura-danger) 25%, transparent);
 
   /* ---- Cursor-light chain stays linked to the (now deep-indigo) primary -- */
   --aura-glow-color: var(--aura-primary);

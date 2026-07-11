@@ -33,6 +33,19 @@
   /* Semantic — kept LINKED so the derivation survives the export. */
   --aura-info: var(--aura-secondary);
   --aura-danger: oklch(0.543 0.174 29.7);    /* warm red, in-key    */
+  /* #1079: --aura-danger-a15/-a25 (tokens.css) are declared ONCE at :root as
+     color-mix(in srgb, var(--aura-danger) N%, transparent) — a custom
+     property's var() references resolve against the cascade AT THE SCOPE
+     WHERE THE DECLARATION LIVES, not at each consuming descendant. Since
+     :root never sees this theme's --aura-danger override, the Danger
+     button/chip/alert fill stayed pinned to the DEFAULT danger hue (#fb7185)
+     while the label correctly tracked --aura-danger directly (a live
+     reference at point of use) — text and fill drifted out of the same hue
+     family and the pairing measured ≈3:1, below WCAG AA. Re-derive both
+     here, in the same scope as the override, so the fill and text share one
+     source colour again (mirrors the --aura-info re-link above). */
+  --aura-danger-a15: color-mix(in srgb, var(--aura-danger) 15%, transparent);
+  --aura-danger-a25: color-mix(in srgb, var(--aura-danger) 25%, transparent);
 
   /* Cursor-light chain stays linked to the (now warm) primary. */
   --aura-glow-color: var(--aura-primary);
