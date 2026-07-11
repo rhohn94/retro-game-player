@@ -202,6 +202,8 @@ the correct location for each plan's era.
 - [`release-planning/release-planning-v0.37.md`](release-planning/release-planning-v0.37.md)
 - [`release-planning/release-planning-v0.38.md`](release-planning/release-planning-v0.38.md)
 - [`release-planning/release-planning-v0.39.md`](release-planning/release-planning-v0.39.md)
+- [`release-planning/release-planning-v0.40.md`](release-planning/release-planning-v0.40.md)
+- [`release-planning/release-planning-v0.41.md`](release-planning/release-planning-v0.41.md)
 
 ### `template-files/`
 
