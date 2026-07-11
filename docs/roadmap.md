@@ -278,7 +278,7 @@ Plan: [`release-planning-v0.41.md`](release-planning/release-planning-v0.41.md).
 
 ---
 
-## v0.42 — Conformance (implementation in progress)
+## v0.42 — Conformance (released — see version-history.md)
 
 **No roadmap flagship scheduled.** Clears a collision-free batch of the open
 coding-practices audit backlog (the v0.41 audit batch #70–#99 plus still-open
