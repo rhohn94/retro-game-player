@@ -171,6 +171,30 @@ declared" rather than failing the whole probe — this stage is strictly
 additive, so a core that only ever declares during `retro_init` (still true
 of every native core Harmony hosts today) sees no behavior change.
 
+**W404 follow-up (issue #54, resolved) — AV/input callbacks registered
+before `load_game`.** The W395 `retro_load_game` stage above set only the
+`environment` callback before driving `load_game`, unlike the real playback
+path (`bring_up_core` in `play::native::runtime::session`), which also sets
+`video_refresh`/`audio_sample_batch`/`input_poll`/`input_state` first.
+`fceumm` (the only native core in the catalog) rejects the probe's stub ROM
+before emitting any frames, so this was unreachable in practice — but a
+future non-`fceumm` core that invokes any of those four callbacks from
+inside `retro_load_game` (before returning) would have called through a
+NULL function pointer and crashed, instead of degrading gracefully the way
+the rest of the probe already does. Resolved by having
+`probe_load_game_declarations` register all four before calling
+`load_game`, mirroring `bring_up_core`'s registration order exactly. Since
+the probe never renders or plays anything, it registers small no-op stubs
+(`probe_video_refresh`/`probe_audio_sample_batch`/`probe_input_poll`/
+`probe_input_state`, local to `probe.rs`) rather than the live-session
+callbacks that forward into the process-global media channels — the probe
+only needs non-null, crash-safe callback pointers, not anywhere for their
+data to go. Covered by a dedicated unit test that drives
+`probe_load_game_declarations` directly (bypassing `probe_declared_options`)
+against a stub core that invokes all four callbacks from `retro_load_game`,
+in addition to the pre-existing FFI integration tests that exercise it
+transitively. No behavior change to the existing `fceumm`-only path.
+
 ### Persistence (`core::core_options::persistence`)
 
 Reuses the existing generic `settings` key/value table (no new table, no
