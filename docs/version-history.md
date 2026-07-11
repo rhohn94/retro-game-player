@@ -7,6 +7,24 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.41 — Follow-Through (2026-07-11)
+
+Another tidying-up release, closing out low-risk carryovers from v0.40's own
+follow-up list — no single flagship.
+
+- **Cleaner picker behavior.** The Collections picker's toggle button no
+  longer references its panel in the background once it's closed, tightening
+  up how the interface describes itself to screen readers.
+- **More resilient under the hood for future emulator cores.** The
+  core-options probe now registers safe placeholder video/audio/input
+  callbacks before test-loading a core, closing a gap where a future
+  (not-yet-supported) core could crash Harmony by calling one of those
+  callbacks too early — not reachable with today's supported cores, but
+  closed before the catalog grows.
+- **Build tooling cleanup.** The interface toolkit's module aliases are now
+  defined in one shared place instead of being hand-copied between the app's
+  dev and test configurations. No visible change.
+
 ## v0.40 — Loose Ends (2026-07-10)
 
 A tidying-up release: three long-open, independently-tracked gaps closed,
