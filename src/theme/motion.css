@@ -32,6 +32,12 @@
    * handled in one place by <MotionConfig reducedMotion="user"> (App.tsx).
    * Together these are the single source of reduced-motion truth — individual
    * components no longer need their own media query.
+   *
+   * `!important` is load-bearing here (documented last resort, css.md
+   * "css-no-important"): this universal, lowest-specificity `*` selector must
+   * win over every per-component animation/transition rule in the app,
+   * regardless of that rule's own specificity, so reduced-motion is honoured
+   * everywhere without every component having to opt back in.
    */
   @media (prefers-reduced-motion: reduce) {
     *,

@@ -278,6 +278,27 @@ Plan: [`release-planning-v0.41.md`](release-planning/release-planning-v0.41.md).
 
 ---
 
+## v0.42 — Conformance (implementation in progress)
+
+**No roadmap flagship scheduled.** Clears a collision-free batch of the open
+coding-practices audit backlog (the v0.41 audit batch #70–#99 plus still-open
+v0.40 items #56/#57/#60): Rust fn-length + blanket-allow narrowing, TypeScript
+floating-promise + magic-number fixes, CSS token/specificity/`!important`
+cleanup, and a settings-panes + ProviderDialog accessibility pass — five
+disjoint-file lanes, no design-doc gaps.
+
+**Non-goals:** the systemic/architectural and on-device items — #55
+(systemic inline-style), #58 (public-surface `index.ts`), #59 (dep-pin), #61
+(module-size), #62 (relative-units), #63/#64 (too-risky-unsupervised
+refactors), #82 (settings-panes DRY), #90 (ambiguous routed-page h1), #97
+(vendor layout), #98/#99 (module-size splits), and feature work #27/#48/#50 —
+each deferred to a dedicated pass rather than bundled into a zero-checkpoint
+autonomous run.
+
+Plan: [`release-planning-v0.42.md`](release-planning/release-planning-v0.42.md).
+
+---
+
 ## v0.39 — Focus (released — see version-history.md)
 
 **Flagship: CRT filter presentation quality.** Decouple the native-path CRT

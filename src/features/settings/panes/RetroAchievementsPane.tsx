@@ -131,6 +131,7 @@ export function RetroAchievementsPane() {
         <input
           type="text"
           placeholder="RetroAchievements username"
+          autoComplete="username"
           tabIndex={0}
           value={username}
           onChange={(e) => setUsername(e.currentTarget.value)}
@@ -142,6 +143,7 @@ export function RetroAchievementsPane() {
         <input
           type="password"
           placeholder={hasKey ? "•••••••• (already saved to the system Keychain)" : "Web API key from your RA settings page"}
+          autoComplete="new-password"
           tabIndex={0}
           value={apiKey}
           onChange={(e) => setApiKey(e.currentTarget.value)}

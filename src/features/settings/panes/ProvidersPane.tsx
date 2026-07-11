@@ -91,7 +91,7 @@ export function ProvidersPane() {
       >
         <p style={{ margin: 0, fontWeight: 500, fontSize: 13 }}>Add provider</p>
         <div style={{ display: "flex", gap: 8 }}>
-          <AuraField tabIndex={0} style={{ flex: 1 }}>
+          <AuraField label="Name" tabIndex={0} style={{ flex: 1 }}>
             <input
               type="text"
               placeholder="Name"
@@ -101,9 +101,9 @@ export function ProvidersPane() {
               style={inputStyle}
             />
           </AuraField>
-          <AuraField tabIndex={0} style={{ flex: 2 }}>
+          <AuraField label="URL Template" tabIndex={0} style={{ flex: 2 }}>
             <input
-              type="text"
+              type="url"
               placeholder="https://example.com/search?q={query}"
               tabIndex={0}
               value={addTemplate}

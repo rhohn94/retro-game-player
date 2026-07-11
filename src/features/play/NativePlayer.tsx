@@ -686,7 +686,7 @@ export function NativePlayer({
       window.removeEventListener("focus", onFocus);
       // v0.35 W351: release every port before tearing down
       void releaseAllNativeInput().catch((err: unknown) => swallow(err, "NativePlayer.teardown.release"));
-      void stopNativePlay();
+      void stopNativePlay().catch((err: unknown) => swallow(err, "NativePlayer.teardown.stop"));
       renderer?.dispose(); // free the GL texture/VAO/program before the canvas unmounts
     };
     // Intentionally re-subscribes per gameId/preview only (open/close

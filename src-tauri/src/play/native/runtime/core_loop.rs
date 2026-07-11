@@ -76,6 +76,96 @@ pub(super) struct CoreLoop<'a> {
     pub(super) frame_counter: u64,
 }
 
+/// Per-tick scratch state `run_core_loop`'s tick loop mutates across
+/// iterations — pacing clock, save/perf-log book-keeping, and frame
+/// conversion buffers — built once by [`setup_core_loop`] before the loop
+/// starts (W421: split out of `run_core_loop` as its setup half).
+struct CoreLoopState {
+    frame_duration: Duration,
+    clock: FrameClock,
+    last_flushed_sram: Option<Vec<u8>>,
+    last_flush_check: Instant,
+    perf: PerfLog,
+    /// Reused across frames so steady-state conversion allocates nothing.
+    /// Pre-sized to the core's declared max geometry (W380) so even the
+    /// first frame after boot avoids a reallocation, not just later frames
+    /// at a now-familiar size — see `frame.rs::max_rgba8_capacity` and its
+    /// `video_scratch_reallocs` perf counter.
+    rgba_scratch: Vec<u8>,
+    resample_scratch: Vec<f32>,
+    was_paused: bool,
+    /// v0.29 W281 (performance-tooling-design.md): wall-clock timestamp of
+    /// the previous iteration's start, so each new iteration's tick-to-tick
+    /// delta can be recorded as one frame-time sample. `None` for the very
+    /// first tick (no prior iteration to measure from) and reset across a
+    /// pause/resume (a resumed session's first tick spans the pause, which
+    /// is not a real frame-time regression).
+    last_tick_start: Option<Instant>,
+}
+
+/// Builds a session's per-tick loop state and performs the initial
+/// environment drain before `run_core_loop`'s tick loop starts.
+///
+/// Draining once here (not waiting for the post-`run_frame` drain inside the
+/// loop) matters specifically for HW-render (W345): a core negotiates
+/// HW-render (and pixel format, and its option list) during
+/// `retro_init`/`retro_load_game` — both of which already happened inside
+/// `bring_up_core`, before `run_core_loop` was ever called — so those events
+/// are sitting in the channel right now. The libretro contract calls for
+/// `context_reset` to fire once the context + FBO are ready but BEFORE the
+/// core's first `retro_run`, and the core's own copy of
+/// `get_current_framebuffer`/`get_proc_address` (captured at negotiation
+/// time) is only valid once `bring_up_hw_render` has filled them in — a
+/// first `retro_run` before this drain would call through function pointers
+/// the core hasn't resolved via `get_proc_address` yet, producing a blank
+/// first frame at best.
+fn setup_core_loop(ctx: &mut CoreLoop<'_>) -> CoreLoopState {
+    drain_environment(ctx);
+    let frame_duration = Duration::from_secs_f64(1.0 / ctx.fps);
+    let clock = FrameClock::new(frame_duration);
+    // The perf logger takes the session's file sink; the placeholder left in
+    // ctx is disabled (CoreLoop is used whole by the loop below, so the
+    // field cannot be partially moved out).
+    let perf_file = std::mem::replace(&mut ctx.perf_file, PerfLogFile::disabled());
+    let perf = PerfLog::new(&ctx.counters, perf_file);
+    let rgba_scratch: Vec<u8> =
+        Vec::with_capacity(crate::play::native::frame::max_rgba8_capacity(
+            ctx.max_width,
+            ctx.max_height,
+        ));
+
+    CoreLoopState {
+        frame_duration,
+        clock,
+        last_flushed_sram: None,
+        last_flush_check: Instant::now(),
+        perf,
+        rgba_scratch,
+        resample_scratch: Vec::new(),
+        was_paused: false,
+        last_tick_start: None,
+    }
+}
+
+/// Session-end teardown: flush any dirty battery SRAM and write the final
+/// auto save-state (W421: split out of `run_core_loop` as its teardown
+/// half). Best-effort throughout — a failed write logs rather than blocking
+/// shutdown.
+fn teardown_core_loop(ctx: &mut CoreLoop<'_>, last_flushed_sram: &mut Option<Vec<u8>>) {
+    flush_sram_if_dirty(ctx, last_flushed_sram);
+    if let Some(saves) = &ctx.saves {
+        match ctx.core.serialize() {
+            Ok(Some(state)) => {
+                if let Err(e) = saves.write_state(AUTO_SLOT, &state, PlayPath::Native) {
+                    eprintln!("[rgp-native] auto save-state write failed: {e}");
+                }
+            }
+            Ok(None) => {} // core has no serialize support — SRAM-only
+            Err(e) => eprintln!("[rgp-native] auto save-state failed: {e}"),
+        }
+    }
+}
+
 /// Drives `retro_run` on an absolute-deadline [`FrameClock`] (`1/fps`
 /// period) until `stop` is set, draining each frame's environment/video/
 /// audio callback output into the shared buffers, executing save/load
@@ -83,48 +173,17 @@ pub(super) struct CoreLoop<'a> {
 /// logging perf counters, and writing the final SRAM + auto save-state on
 /// exit.
 pub(super) fn run_core_loop(mut ctx: CoreLoop<'_>) {
-    // Drain once before the loop starts: a core negotiates HW-render (and
-    // pixel format, and its option list) during `retro_init`/`retro_load_game`
-    // — both of which already happened inside `bring_up_core`, before this
-    // function was ever called — so those events are sitting in the channel
-    // right now. Draining them here (not waiting for the post-`run_frame`
-    // drain inside the loop below) matters specifically for HW-render
-    // (W345): the libretro contract calls for `context_reset` to fire once
-    // the context + FBO are ready but BEFORE the core's first `retro_run`,
-    // and the core's own copy of `get_current_framebuffer`/`get_proc_address`
-    // (captured at negotiation time) is only valid once `bring_up_hw_render`
-    // has filled them in — a first `retro_run` before this drain would call
-    // through function pointers the core hasn't resolved via
-    // `get_proc_address` yet, producing a blank first frame at best.
-    drain_environment(&mut ctx);
-    let frame_duration = Duration::from_secs_f64(1.0 / ctx.fps);
-    let mut clock = FrameClock::new(frame_duration);
-    let mut last_flushed_sram: Option<Vec<u8>> = None;
-    let mut last_flush_check = Instant::now();
-    // The perf logger takes the session's file sink; the placeholder left in
-    // ctx is disabled (CoreLoop is used whole by the helpers below, so the
-    // field cannot be partially moved out).
-    let perf_file = std::mem::replace(&mut ctx.perf_file, PerfLogFile::disabled());
-    let mut perf = PerfLog::new(&ctx.counters, perf_file);
-    // Reused across frames so steady-state conversion allocates nothing.
-    // Pre-sized to the core's declared max geometry (W380) so even the
-    // first frame after boot avoids a reallocation, not just later frames
-    // at a now-familiar size — see `frame.rs::max_rgba8_capacity` and its
-    // `video_scratch_reallocs` perf counter.
-    let mut rgba_scratch: Vec<u8> =
-        Vec::with_capacity(crate::play::native::frame::max_rgba8_capacity(
-            ctx.max_width,
-            ctx.max_height,
-        ));
-    let mut resample_scratch: Vec<f32> = Vec::new();
-    let mut was_paused = false;
-    // v0.29 W281 (performance-tooling-design.md): wall-clock timestamp of the
-    // previous iteration's start, so each new iteration's tick-to-tick delta
-    // can be recorded as one frame-time sample. `None` for the very first
-    // tick (no prior iteration to measure from) and reset across a
-    // pause/resume (a resumed session's first tick spans the pause, which is
-    // not a real frame-time regression).
-    let mut last_tick_start: Option<Instant> = None;
+    let CoreLoopState {
+        frame_duration,
+        mut clock,
+        mut last_flushed_sram,
+        mut last_flush_check,
+        mut perf,
+        mut rgba_scratch,
+        mut resample_scratch,
+        mut was_paused,
+        mut last_tick_start,
+    } = setup_core_loop(&mut ctx);
     while !ctx.stop.load(Ordering::Relaxed) {
         if ctx.paused.load(Ordering::Relaxed) {
             // Frozen behind the overlay: no frames tick, but save/load
@@ -190,19 +249,7 @@ pub(super) fn run_core_loop(mut ctx: CoreLoop<'_>) {
         clock.tick();
     }
     // Session end: persist battery progress and a Continue point.
-    // Best-effort — a failed write logs rather than blocking teardown.
-    flush_sram_if_dirty(&ctx, &mut last_flushed_sram);
-    if let Some(saves) = &ctx.saves {
-        match ctx.core.serialize() {
-            Ok(Some(state)) => {
-                if let Err(e) = saves.write_state(AUTO_SLOT, &state, PlayPath::Native) {
-                    eprintln!("[rgp-native] auto save-state write failed: {e}");
-                }
-            }
-            Ok(None) => {} // core has no serialize support — SRAM-only
-            Err(e) => eprintln!("[rgp-native] auto save-state failed: {e}"),
-        }
-    }
+    teardown_core_loop(&mut ctx, &mut last_flushed_sram);
 }
 
 /// Executes queued save/load commands between frames.

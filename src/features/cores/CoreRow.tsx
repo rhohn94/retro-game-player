@@ -116,7 +116,7 @@ export function CoreRow({
       transition={SPRING.snappy}
     >
       <AuraCard
-        class="cores-row"
+        class="rgp-cores-row"
         style={{
           display: "flex",
           alignItems: "center",

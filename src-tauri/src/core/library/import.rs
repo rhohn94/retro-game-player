@@ -18,9 +18,9 @@
 //! best-effort metadata enrichment afterwards.
 
 use super::dat::DatIndex;
-use super::hasher::hash_rom;
-use super::mapper::map_extension;
-use super::matcher::Matcher;
+use super::hasher::{hash_rom, RomHashes};
+use super::mapper::{map_extension, SystemMapping};
+use super::matcher::{MatchOutcome, Matcher};
 use crate::db::repo::library::{LibraryRepo, NewContentFolder, NewGame};
 use crate::db::repo::Repository;
 use crate::db::Db;
@@ -69,62 +69,34 @@ pub fn import_file(
     }
 
     // 1. Identify the system from the extension (reject unknown types).
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .ok_or_else(|| AppError::Unsupported(format!("file has no extension: {}", src.display())))?;
-    let mapping = map_extension(ext).ok_or_else(|| {
-        AppError::Unsupported(format!("unrecognized ROM extension: .{ext}"))
-    })?;
+    let mapping = resolve_system(src)?;
     let system = mapping.system;
 
     // 2. Hash + resolve a clean name.
-    let bytes = std::fs::read(src)
-        .map_err(|e| AppError::Io(format!("failed to read {}: {e}", src.display())))?;
+    let (bytes, hashes, outcome) = hash_and_match(src, &system, dat)?;
     let size_bytes = bytes.len() as i64;
-    let hashes = hash_rom(&bytes, &system);
-    let empty = DatIndex::default();
-    let matcher = Matcher::new(dat.unwrap_or(&empty));
-    let outcome = matcher.match_rom(&hashes, src);
 
     let repo = LibraryRepo::new(db);
 
     // 3. Content dedup FIRST (before any copy): re-importing the same ROM — even
     //    from a different folder or under a different filename — resolves to the
     //    existing library row and copies nothing. Keyed by (crc32, system).
-    if let Some(existing) = repo.find_game_by_hash(&hashes.crc32, &system)? {
-        return Ok(ImportOutcome {
-            game_id: existing.id,
-            system,
-            // A crc32/system hash match is only ever a `rom` row (v0.31
-            // W310), which always has `path` set.
-            stored_path: existing.path.unwrap_or_default(),
-            already_present: true,
-        });
+    if let Some(existing) = dedup_by_hash(&repo, &hashes.crc32, &system)? {
+        return Ok(existing);
     }
 
     // 4. Place the file inside the Games directory (register in place if it is
-    //    already there; otherwise copy to a never-clobber unique path).
-    let stored = place_file(games_dir, &system, src)?;
-    let stored_str = stored
-        .to_str()
-        .ok_or_else(|| AppError::Internal("stored path is not valid UTF-8".to_string()))?
-        .to_string();
+    //    already there; otherwise copy to a never-clobber unique path), ensure
+    //    it is a registered content folder, and dedup again by the resulting
+    //    stored path (a racing import landing at the same destination).
+    let (stored_str, folder_id) = match place_and_dedup_by_path(&repo, games_dir, &system, src)? {
+        Placement::AlreadyPresent(existing) => return Ok(existing),
+        Placement::New { stored_path, folder_id } => (stored_path, folder_id),
+    };
 
-    // 5. Ensure the Games dir is a content folder, then insert. The `games.path`
-    //    UNIQUE constraint is the backstop: a racing insert at the same path is
-    //    caught as a benign Conflict and resolved to the pre-existing row.
-    let folder_id = ensure_games_folder(&repo, games_dir)?;
-
-    if let Some(existing) = repo.get_game_by_path(&stored_str)? {
-        return Ok(ImportOutcome {
-            game_id: existing.id,
-            system,
-            stored_path: stored_str,
-            already_present: true,
-        });
-    }
-
+    // 5. Insert the game row. The `games.path` UNIQUE constraint is the
+    //    backstop: a racing insert at the same path is caught as a benign
+    //    Conflict and resolved to the pre-existing row.
     let new_game = NewGame {
         folder_id: Some(folder_id),
         path: Some(stored_str.clone()),
@@ -145,10 +117,113 @@ pub fn import_file(
         launch_descriptor: None,
         external_id: None,
     };
+    insert_or_resolve_conflict(&repo, new_game, &system, stored_str)
+}
+
+/// Step 1: identify the system from `src`'s extension, rejecting a missing or
+/// unrecognized extension so an import never registers junk.
+fn resolve_system(src: &Path) -> AppResult<SystemMapping> {
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or_else(|| AppError::Unsupported(format!("file has no extension: {}", src.display())))?;
+    map_extension(ext)
+        .ok_or_else(|| AppError::Unsupported(format!("unrecognized ROM extension: .{ext}")))
+}
+
+/// Step 2: read `src`'s bytes, hash them for `system`, and resolve a clean
+/// name / dat-matched flag via `dat` (falls back to the filename with no
+/// DAT). Returns the raw bytes too — the caller still needs `bytes.len()`
+/// for `size_bytes`.
+fn hash_and_match(
+    src: &Path,
+    system: &str,
+    dat: Option<&DatIndex>,
+) -> AppResult<(Vec<u8>, RomHashes, MatchOutcome)> {
+    let bytes = std::fs::read(src)
+        .map_err(|e| AppError::Io(format!("failed to read {}: {e}", src.display())))?;
+    let hashes = hash_rom(&bytes, system);
+    let empty = DatIndex::default();
+    let matcher = Matcher::new(dat.unwrap_or(&empty));
+    let outcome = matcher.match_rom(&hashes, src);
+    Ok((bytes, hashes, outcome))
+}
+
+/// Step 3: content dedup by hash — re-importing the same ROM (even from a
+/// different folder or under a different filename) resolves to the existing
+/// library row rather than copying anything. Keyed by (crc32, system).
+fn dedup_by_hash(
+    repo: &LibraryRepo<'_>,
+    crc32: &str,
+    system: &str,
+) -> AppResult<Option<ImportOutcome>> {
+    let Some(existing) = repo.find_game_by_hash(crc32, system)? else {
+        return Ok(None);
+    };
+    Ok(Some(ImportOutcome {
+        game_id: existing.id,
+        system: system.to_string(),
+        // A crc32/system hash match is only ever a `rom` row (v0.31 W310),
+        // which always has `path` set.
+        stored_path: existing.path.unwrap_or_default(),
+        already_present: true,
+    }))
+}
+
+/// The result of step 4: either a racing import already landed a row at this
+/// destination (resolve to it), or a fresh stored path + owning folder id to
+/// insert a new row at.
+enum Placement {
+    AlreadyPresent(ImportOutcome),
+    New { stored_path: String, folder_id: i64 },
+}
+
+/// Step 4: place `src` inside the Games directory (register in place if
+/// already there, else copy to a never-clobber unique path), ensure the
+/// Games dir is a registered content folder, and dedup by the resulting
+/// stored path.
+fn place_and_dedup_by_path(
+    repo: &LibraryRepo<'_>,
+    games_dir: &Path,
+    system: &str,
+    src: &Path,
+) -> AppResult<Placement> {
+    let stored = place_file(games_dir, system, src)?;
+    let stored_str = stored
+        .to_str()
+        .ok_or_else(|| AppError::Internal("stored path is not valid UTF-8".to_string()))?
+        .to_string();
+
+    let folder_id = ensure_games_folder(repo, games_dir)?;
+
+    if let Some(existing) = repo.get_game_by_path(&stored_str)? {
+        return Ok(Placement::AlreadyPresent(ImportOutcome {
+            game_id: existing.id,
+            system: system.to_string(),
+            stored_path: stored_str,
+            already_present: true,
+        }));
+    }
+
+    Ok(Placement::New {
+        stored_path: stored_str,
+        folder_id,
+    })
+}
+
+/// Step 5: insert `new_game`, resolving a racing UNIQUE(path) insert to the
+/// pre-existing row instead of failing (the same benign-conflict pattern as
+/// steps 3/4).
+fn insert_or_resolve_conflict(
+    repo: &LibraryRepo<'_>,
+    new_game: NewGame,
+    system: &str,
+    stored_str: String,
+) -> AppResult<ImportOutcome> {
     match repo.add_game(&new_game) {
         Ok(game_id) => Ok(ImportOutcome {
             game_id,
-            system,
+            system: system.to_string(),
             stored_path: stored_str,
             already_present: false,
         }),
@@ -159,7 +234,7 @@ pub fn import_file(
             })?;
             Ok(ImportOutcome {
                 game_id: existing.id,
-                system,
+                system: system.to_string(),
                 stored_path: stored_str,
                 already_present: true,
             })
