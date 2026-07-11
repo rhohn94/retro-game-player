@@ -43,13 +43,16 @@ export function AchievementBadge({ badgeName, unlocked }: AchievementBadgeProps)
   );
 
   const url = path ? artUrl(path) : null;
-  const className = `rgp-achievement-badge${unlocked ? "" : " rgp-achievement-badge--locked"}`;
+  const lockedModifier = unlocked ? "" : " rgp-achievement-badge--locked";
 
   if (url) {
-    return <img src={url} alt="" className={className} />;
+    return <img src={url} alt="" className={`rgp-achievement-badge${lockedModifier}`} />;
   }
   return (
-    <span className={className} aria-hidden="true">
+    <span
+      className={`rgp-achievement-badge rgp-achievement-badge--placeholder${lockedModifier}`}
+      aria-hidden="true"
+    >
       {PLACEHOLDER_GLYPH}
     </span>
   );
