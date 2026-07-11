@@ -90,6 +90,7 @@ export function FamiliarPane() {
         <input
           type="password"
           placeholder="sk-…  (sent to Keychain, not stored here)"
+          autoComplete="new-password"
           value={apiKey}
           tabIndex={0}
           onChange={(e) => setApiKey(e.currentTarget.value)}
