@@ -1,5 +1,6 @@
 //! Headless declared-options probe (W282, core-options-design.md; extended
-//! for `retro_load_game`-stage declarations by W395).
+//! for `retro_load_game`-stage declarations by W395; hardened against a
+//! NULL AV/input callback deref from within that stage by W404, issue #54).
 //!
 //! Loads a libretro core `.dylib` far enough to observe its
 //! `RETRO_ENVIRONMENT_SET_VARIABLES` declaration(s) — `load` →
@@ -35,6 +36,7 @@
 
 use crate::error::AppResult;
 use crate::play::native::{self, CoreVariable, EnvironmentEvent, LibretroCore};
+use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -105,6 +107,23 @@ pub fn probe_declared_options(core_path: &Path) -> AppResult<Vec<CoreVariable>> 
 /// declared" rather than propagating an error: this stage is strictly
 /// additive to whatever `retro_init` already captured, and a core that only
 /// ever declares during `retro_init` must see no behavior change.
+///
+/// **W404 follow-up (issue #54) — AV/input callbacks registered before
+/// `load_game`.** The real playback path (`bring_up_core` in
+/// `play::native::runtime::session`) registers `video_refresh`,
+/// `audio_sample_batch`, `input_poll`, and `input_state` *before* calling
+/// `load_game` — this stage previously registered only `environment`
+/// (already set by [`probe_declared_options`] ahead of `retro_init`), so a
+/// future non-`fceumm` core that invokes any of those four from inside
+/// `retro_load_game` (before returning) would call through a NULL function
+/// pointer on the core's side and crash. Mirroring `bring_up_core`'s
+/// registration order here closes that gap. The probe never renders or
+/// plays anything, so these register no-op stubs
+/// ([`probe_video_refresh`]/[`probe_audio_sample_batch`]/
+/// [`probe_input_poll`]/[`probe_input_state`]) rather than the live-session
+/// callbacks that forward into the process-global media channels — the
+/// probe only needs *non-null, crash-safe* callback pointers, not anywhere
+/// for their data to go.
 fn probe_load_game_declarations(
     core: &mut LibretroCore,
     channels: &native::CallbackChannels,
@@ -112,10 +131,63 @@ fn probe_load_game_declarations(
     let Ok(stub_rom) = StubRomFile::write() else {
         return Vec::new();
     };
+    core.set_video_refresh(probe_video_refresh);
+    core.set_audio_sample_batch(probe_audio_sample_batch);
+    core.set_input_poll(probe_input_poll);
+    core.set_input_state(probe_input_state);
     if core.load_game(stub_rom.path()).is_err() {
         return Vec::new();
     }
     drain_declared_options(channels, DECLARE_TIMEOUT)
+}
+
+/// `retro_video_refresh_t` stub for the probe's `load_game` stage (W404,
+/// issue #54) — a no-op, present only so a core that invokes it from inside
+/// `retro_load_game` calls a real function pointer instead of NULL. The
+/// probe never needs a rendered frame, so unlike the live-session
+/// `play::native::callbacks::video_refresh` this drops the data outright
+/// rather than forwarding it anywhere.
+///
+/// # Safety
+/// Touches no pointers itself (the incoming `data` is never dereferenced);
+/// safe to call unconditionally. Marked `unsafe extern "C"` only to match
+/// `retro_video_refresh_t`'s ABI, the contract [`LibretroCore::set_video_refresh`]
+/// requires.
+unsafe extern "C" fn probe_video_refresh(_data: *const c_void, _width: u32, _height: u32, _pitch: usize) {}
+
+/// `retro_audio_sample_batch_t` stub for the probe's `load_game` stage (W404,
+/// issue #54) — see [`probe_video_refresh`]'s doc for why this is a no-op.
+/// Reports the full batch consumed, matching the real
+/// `play::native::callbacks::audio_sample_batch`'s contract (Harmony has no
+/// partial-consume backpressure protocol at this layer).
+///
+/// # Safety
+/// Touches no pointers itself; safe to call unconditionally. Marked
+/// `unsafe extern "C"` only to match `retro_audio_sample_batch_t`'s ABI.
+unsafe extern "C" fn probe_audio_sample_batch(_data: *const i16, frames: usize) -> usize {
+    frames
+}
+
+/// `retro_input_poll_t` stub for the probe's `load_game` stage (W404, issue
+/// #54) — see [`probe_video_refresh`]'s doc for why this is a no-op.
+///
+/// # Safety
+/// Takes no arguments and touches no pointers; safe to call
+/// unconditionally. Marked `unsafe extern "C"` only to match
+/// `retro_input_poll_t`'s ABI.
+unsafe extern "C" fn probe_input_poll() {}
+
+/// `retro_input_state_t` stub for the probe's `load_game` stage (W404, issue
+/// #54) — see [`probe_video_refresh`]'s doc for why this is a no-op. Always
+/// reports "not pressed": the probe drives no real input, and this is only
+/// ever called by a core curious about button state during its own
+/// ROM-analysis at `retro_load_game` time.
+///
+/// # Safety
+/// Touches no pointers; safe to call unconditionally. Marked
+/// `unsafe extern "C"` only to match `retro_input_state_t`'s ABI.
+unsafe extern "C" fn probe_input_state(_port: u32, _device: u32, _index: u32, _id: u32) -> i16 {
+    0
 }
 
 /// Combines the option lists a core declared at its two possible declaration
@@ -293,9 +365,9 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
 
     /// Shared builder for this module's stub libretro cores: writes `source`
     /// to `<dir>/<basename>.c` and compiles it to `<dir>/<basename>.dylib`.
-    /// The three stub cores in this module differ only in their C source and
-    /// file basename — this is the one place that knows how to turn either
-    /// into a loadable dylib.
+    /// The stub cores in this module differ only in their C source and file
+    /// basename — this is the one place that knows how to turn either into a
+    /// loadable dylib.
     fn build_stub_core_from(dir: &Path, basename: &str, source: &str) -> Option<std::path::PathBuf> {
         let c_path = dir.join(format!("{basename}.c"));
         std::fs::write(&c_path, source).ok()?;
@@ -476,6 +548,102 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         )
     }
 
+    /// A minimal libretro core that invokes all four AV/input callbacks
+    /// (`video_refresh`, `audio_sample_batch`, `input_poll`, `input_state`)
+    /// from *inside* `retro_load_game`, before returning — the W404 (issue
+    /// #54) regression scenario: before that fix, none of these four were
+    /// registered ahead of the probe's `load_game` stage, so a core doing
+    /// this would call through a NULL function pointer and crash. Each
+    /// callback is invoked through the pointer the host registered via the
+    /// matching `retro_set_*` call, exactly as a real core would; a core
+    /// that skips this (like every native core Harmony hosts today,
+    /// `fceumm` included) never reaches this code path at all.
+    const STUB_CORE_INVOKES_CALLBACKS_AT_LOAD_GAME_C: &str = r#"
+#include <stddef.h>
+#include <stdbool.h>
+
+struct retro_variable { const char *key; const char *value; };
+typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
+typedef size_t (*retro_audio_sample_batch_t)(const short *data, size_t frames);
+typedef void (*retro_input_poll_t)(void);
+typedef short (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+struct retro_system_info {
+    const char *library_name;
+    const char *library_version;
+    const char *valid_extensions;
+    bool need_fullpath;
+    bool block_extract;
+};
+struct retro_game_geometry { unsigned base_width, base_height, max_width, max_height; float aspect_ratio; };
+struct retro_system_timing { double fps, sample_rate; };
+struct retro_system_av_info { struct retro_game_geometry geometry; struct retro_system_timing timing; };
+struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
+
+static retro_environment_t env_cb = 0;
+static retro_video_refresh_t video_cb = 0;
+static retro_audio_sample_batch_t audio_cb = 0;
+static retro_input_poll_t input_poll_cb = 0;
+static retro_input_state_t input_state_cb = 0;
+
+static struct retro_variable LOAD_GAME_OPTIONS[] = {
+    { "stub_after_callbacks_option", "After Callbacks; a|b" },
+    { 0, 0 },
+};
+
+void retro_init(void) {}
+void retro_deinit(void) {}
+unsigned retro_api_version(void) { return 1; }
+void retro_get_system_info(struct retro_system_info *info) {
+    info->library_name = "Stub Invokes-Callbacks-At-Load-Game Core";
+    info->library_version = "1.0";
+    info->valid_extensions = "nes";
+    info->need_fullpath = false;
+    info->block_extract = false;
+}
+void retro_get_system_av_info(struct retro_system_av_info *info) {
+    info->geometry.base_width = 256; info->geometry.base_height = 240;
+    info->geometry.max_width = 256; info->geometry.max_height = 240;
+    info->geometry.aspect_ratio = 0.0f;
+    info->timing.fps = 60.0; info->timing.sample_rate = 44100.0;
+}
+void retro_set_environment(retro_environment_t cb) { env_cb = cb; }
+void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) { audio_cb = cb; }
+void retro_set_input_poll(retro_input_poll_t cb) { input_poll_cb = cb; }
+void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
+bool retro_load_game(const struct retro_game_info *game) {
+    // Would call through a NULL function pointer (crash) here before W404's
+    // fix, since none of the four callbacks below were registered ahead of
+    // this call in the probe's load_game stage.
+    unsigned char pixel = 0;
+    video_cb(&pixel, 1, 1, 1);
+    short sample = 0;
+    audio_cb(&sample, 1);
+    input_poll_cb();
+    input_state_cb(0, 0, 0, 0);
+    env_cb(16 /* RETRO_ENVIRONMENT_SET_VARIABLES */, LOAD_GAME_OPTIONS);
+    return true;
+}
+void retro_unload_game(void) {}
+void retro_run(void) {}
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { return false; }
+bool retro_unserialize(const void *data, size_t size) { return false; }
+void *retro_get_memory_data(unsigned id) { return 0; }
+size_t retro_get_memory_size(unsigned id) { return 0; }
+"#;
+
+    /// Mirrors [`build_stub_core`] but for
+    /// [`STUB_CORE_INVOKES_CALLBACKS_AT_LOAD_GAME_C`].
+    fn build_stub_core_invoking_callbacks_at_load_game(dir: &Path) -> Option<std::path::PathBuf> {
+        build_stub_core_from(
+            dir,
+            "stub_invokes_callbacks_at_load_game_core",
+            STUB_CORE_INVOKES_CALLBACKS_AT_LOAD_GAME_C,
+        )
+    }
+
     #[test]
     fn probe_captures_the_declared_option_list() {
         // The probe drives the same process-global FFI callback state as
@@ -555,6 +723,42 @@ size_t retro_get_memory_size(unsigned id) { return 0; }
         assert_eq!(declared.len(), 2);
         assert_eq!(declared[0].key, "stub_init_option");
         assert_eq!(declared[1].key, "stub_load_game_option");
+    }
+
+    // ---- W404 (issue #54): AV/input callbacks registered before load_game ----
+
+    #[test]
+    fn probe_load_game_declarations_survives_a_core_invoking_av_and_input_callbacks() {
+        // Drives probe_load_game_declarations directly, bypassing
+        // probe_declared_options entirely — this is the dedicated unit test
+        // the W404 acceptance criteria call for, reusing this module's
+        // existing stub-core-builder helpers rather than only the pre-existing
+        // 2 FFI integration tests that exercise this function transitively.
+        //
+        // Before W404's fix, `retro_load_game` calling any of
+        // video_refresh/audio_sample_batch/input_poll/input_state here would
+        // call through a NULL function pointer on the core's C side and crash
+        // the whole test process — this test's mere completion (whichever
+        // assertion runs) is itself proof of the fix.
+        let _guard = native::lock_tests();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let Some(dylib) = build_stub_core_invoking_callbacks_at_load_game(dir.path()) else {
+            eprintln!("skipping: no C toolchain on PATH");
+            return;
+        };
+        let channels = native::install();
+        let mut core = LibretroCore::load(&dylib).expect("core loads");
+        core.set_environment(native::environment);
+        core.init().expect("core inits");
+
+        let declared = probe_load_game_declarations(&mut core, &channels);
+
+        drop(core);
+        native::uninstall();
+        assert_eq!(declared.len(), 1);
+        assert_eq!(declared[0].key, "stub_after_callbacks_option");
+        assert_eq!(declared[0].description, "After Callbacks");
+        assert_eq!(declared[0].choices, vec!["a", "b"]);
     }
 
     // ---- merge_declared_options (pure, no FFI needed) ----
