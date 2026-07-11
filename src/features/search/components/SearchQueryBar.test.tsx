@@ -17,7 +17,32 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SearchQueryBar } from "./SearchQueryBar";
-import { ControllerProvider } from "../../controller";
+import { ControllerProvider, useController } from "../../controller";
+
+/** Exposes the controller's `dispatchAction` and `setFocus` on `window` so
+ *  tests can simulate a controller Confirm press (a real gamepad's rising
+ *  edge, with no DOM click involved) without a real gamepad poll — mirrors
+ *  CollectionPicker.test.tsx's probe. `setFocus` is additionally exposed
+ *  because, unlike that probe's `back` case, reaching the Search button's
+ *  `onActivate` via `confirm` requires it to hold controller focus first;
+ *  jsdom's zero-size layout rects make the real spatial-nav path
+ *  (D-pad move) unreliable to drive here, so the test claims focus directly. */
+function DispatchProbe() {
+  const { dispatchAction, setFocus } = useController();
+  (
+    window as unknown as {
+      __dispatchAction: typeof dispatchAction;
+      __setFocus: typeof setFocus;
+    }
+  ).__dispatchAction = dispatchAction;
+  (
+    window as unknown as {
+      __dispatchAction: typeof dispatchAction;
+      __setFocus: typeof setFocus;
+    }
+  ).__setFocus = setFocus;
+  return null;
+}
 
 describe("SearchQueryBar", () => {
   let container: HTMLDivElement;
@@ -34,12 +59,15 @@ describe("SearchQueryBar", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as unknown as { __dispatchAction?: unknown }).__dispatchAction;
+    delete (window as unknown as { __setFocus?: unknown }).__setFocus;
   });
 
   function render(overrides: Partial<Parameters<typeof SearchQueryBar>[0]> = {}) {
     act(() => {
       root.render(
         <ControllerProvider>
+          <DispatchProbe />
           <SearchQueryBar
             query="mario"
             onQueryChange={vi.fn()}
@@ -71,5 +99,16 @@ describe("SearchQueryBar", () => {
   it("does not run the search merely by claiming focus (no click)", () => {
     render();
     expect(onSearch).not.toHaveBeenCalled();
+  });
+
+  it("runs the search when a controller confirm fires while the Search button is focused", () => {
+    render();
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus("search:run");
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onSearch).toHaveBeenCalledTimes(1);
   });
 });

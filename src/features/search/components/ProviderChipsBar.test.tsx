@@ -17,8 +17,33 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderChipsBar } from "./ProviderChipsBar";
-import { ControllerProvider } from "../../controller";
+import { ControllerProvider, useController } from "../../controller";
 import type { SearchProvider } from "../../../ipc/search";
+
+/** Exposes the controller's `dispatchAction` and `setFocus` on `window` so
+ *  tests can simulate a controller Confirm press (a real gamepad's rising
+ *  edge, with no DOM click involved) without a real gamepad poll — mirrors
+ *  CollectionPicker.test.tsx's probe. `setFocus` is additionally exposed
+ *  because, unlike that probe's `back` case, reaching a chip button's
+ *  `onActivate` via `confirm` requires it to hold controller focus first;
+ *  jsdom's zero-size layout rects make the real spatial-nav path
+ *  (D-pad move) unreliable to drive here, so the test claims focus directly. */
+function DispatchProbe() {
+  const { dispatchAction, setFocus } = useController();
+  (
+    window as unknown as {
+      __dispatchAction: typeof dispatchAction;
+      __setFocus: typeof setFocus;
+    }
+  ).__dispatchAction = dispatchAction;
+  (
+    window as unknown as {
+      __dispatchAction: typeof dispatchAction;
+      __setFocus: typeof setFocus;
+    }
+  ).__setFocus = setFocus;
+  return null;
+}
 
 const PROVIDER: SearchProvider = {
   id: 1,
@@ -47,12 +72,15 @@ describe("ProviderChipsBar", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as unknown as { __dispatchAction?: unknown }).__dispatchAction;
+    delete (window as unknown as { __setFocus?: unknown }).__setFocus;
   });
 
   function render() {
     act(() => {
       root.render(
         <ControllerProvider>
+          <DispatchProbe />
           <ProviderChipsBar
             providers={[PROVIDER]}
             hasProviders
@@ -91,5 +119,31 @@ describe("ProviderChipsBar", () => {
     render();
     expect(onAddProvider).not.toHaveBeenCalled();
     expect(onBrowse).not.toHaveBeenCalled();
+  });
+
+  it("opens the add-provider dialog when a controller confirm fires while + Add is focused", () => {
+    render();
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus(
+        "search:add-provider",
+      );
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onAddProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the catalog when a controller confirm fires while Browse providers is focused", () => {
+    render();
+    act(() => {
+      (window as unknown as { __setFocus: (id: string) => void }).__setFocus(
+        "search:browse-providers",
+      );
+    });
+    act(() => {
+      (window as unknown as { __dispatchAction: (a: string) => void }).__dispatchAction("confirm");
+    });
+    expect(onBrowse).toHaveBeenCalledTimes(1);
   });
 });
