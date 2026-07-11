@@ -88,7 +88,7 @@ export function CoresPage() {
       {!fetchError && (
         <input
           type="search"
-          className="cores-search"
+          className="rgp-cores-search"
           placeholder="Search all cores by name or system…"
           aria-label="Search cores by name or system"
           value={query}
