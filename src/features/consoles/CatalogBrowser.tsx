@@ -15,6 +15,9 @@ import { useCancellableEffect } from "../../hooks/useCancellableEffect";
 import { listContainer, listItem } from "../../lib/motion";
 
 const PAGE_SIZE = 60;
+// Debounces the server-side search while the user is still typing; an empty
+// (cleared) query re-lists immediately with no debounce.
+const SEARCH_DEBOUNCE_MS = 180;
 
 export function CatalogBrowser({ system }: { system: string }) {
   const navigate = useNavigate();
@@ -52,7 +55,7 @@ export function CatalogBrowser({ system }: { system: string }) {
               if (!isCancelled()) setLoading(false);
             });
         },
-        trimmed ? 180 : 0,
+        trimmed ? SEARCH_DEBOUNCE_MS : 0,
       );
       return () => clearTimeout(handle);
     },
