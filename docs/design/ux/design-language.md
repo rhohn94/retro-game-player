@@ -375,7 +375,10 @@ recording for the ecosystem:
    wins over `class` when both are set) and is bridged to a real `class="…"`
    attribute on every supported React version — so
    `<AuraApp className="rgp-shell">` (`src/App.tsx`) is correct as written,
-   not an instance of this foot-gun.
+   not an instance of this foot-gun. The precedence claim is now test-backed
+   (W406): `src/theme/aura-react-classname.test.tsx` mounts a generated
+   wrapper with both `class` and `className` set and asserts `className`
+   wins outright.
 
 3. **Controlled-input mismatch.** Because the change event isn't React's, the
    usual `value` + `onChange` controlled-component pattern doesn't apply
