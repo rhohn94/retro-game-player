@@ -12,19 +12,19 @@
  */
 html,
 body,
-#root {
+.rgp-root {
   background: transparent !important;
 }
 
 html,
 body,
-#root {
+.rgp-root {
   margin: 0;
   padding: 0;
   height: 100%;
 }
 
-#root {
+.rgp-root {
   min-height: 100vh;
 }
 
