@@ -220,13 +220,43 @@ same-file conflict between them.)
 
 | Branch | Design doc | Implemented | Reviewed | Merged into version/0.41 |
 |---|---|---|---|---|
-| `w401-harmony-ux-doc-fix` (W401) | ☐ | ☐ | ☐ | ☐ |
-| `w402-collectionpicker-aria-controls` (W402) | ☐ | ☐ | ☐ | ☐ |
-| `w403-dead-button-controller-confirm-test` (W403) | ☐ | ☐ | ☐ | ☐ |
-| `w404-core-options-probe-hardening` (W404) | ☐ | ☐ | ☐ | ☐ |
-| `w405-aura-alias-single-source` (W405) | ☐ | ☐ | ☐ | ☐ |
-| `w406-aura-classname-precedence-test` (W406) | ☐ | ☐ | ☐ | ☐ |
+| `w401-harmony-ux-doc-fix` (W401) | ☑ | ☑ | ☑ (grm-reviewer-equivalent: merge-ready, 0 blocking) | ☑ (59ae7f0) |
+| `w402-collectionpicker-aria-controls` (W402) | ☑ | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (063c525) |
+| `w403-dead-button-controller-confirm-test` (W403) | ☑ | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (17c6490) |
+| `w404-core-options-probe-hardening` (W404) | ☑ | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (0df0cac) |
+| `w405-aura-alias-single-source` (W405) | ☑ | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (3681709) |
+| `w406-aura-classname-precedence-test` (W406) | ☑ | ☑ | ☑ (merge-ready, 0 blocking) | ☑ (43dafb0) |
 
 ### Follow-ups discovered during implementation
 
-_Populated by release-phase-merge as branches land._
+All 6 items landed with zero blocking findings from the parallel pre-merge
+review. Non-blocking notes, none scheduled:
+
+- **W401:** "ambiguous" fits the two genuinely-nested lists more precisely
+  than `MergedResultsView`'s own top-level list; wording nuance only, list
+  count (3) and named components are accurate as written.
+- **W402:** the new closed-state test also asserts `aria-expanded="false"`,
+  slightly beyond the literal ask but harmless and consistent with the
+  existing open-state test's style.
+- **W403:** `SearchQueryBar.test.tsx`/`ProviderChipsBar.test.tsx` each
+  re-declare a near-identical `DispatchProbe` component — now a third copy
+  alongside `CollectionPicker.test.tsx`'s (the pre-existing v0.40 follow-up
+  candidate for extracting this into a shared test helper, deferred out of
+  v0.41 scope §4, now has one more site to consolidate).
+- **W404:** `probe.rs`'s new `probe_video_refresh` signature line runs 107
+  chars (repo convention ~100, not lint-enforced); the four no-op probe
+  callback stubs mirror `play::native::callbacks`' shape and would be a good
+  shared-extraction candidate if a third no-op-callback consumer appears.
+- **W405:** `vite/aura-aliases.ts`'s `resolveVendored()` has no dedicated
+  unit test (coverage is implicit via existing alias-resolution tests,
+  consistent with `vite.config.ts` itself being untested elsewhere in the
+  repo); the doc update also newly documents the previously-undocumented
+  `@aura/runtime` alias as a bonus accuracy fix.
+- **W406:** the new test file duplicates act/root/container setup-teardown
+  boilerplate already present in `ErrorBoundary.test.tsx`/`TvRail.test.tsx`
+  (no shared test-harness helper exists yet — consistent with the existing
+  per-file pattern).
+
+**Quality gate (post-merge, full suite on version/0.41):** 768 vitest / 1020
+cargo (10 ignored, live-GL-gated) / `pnpm typecheck` clean / `cargo check`
+clean / `pnpm lint` clean / `cargo clippy -D warnings` clean.
