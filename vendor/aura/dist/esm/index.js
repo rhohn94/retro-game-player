@@ -62,3 +62,4 @@ import "./field.js";
 import "./nav-header.js";
 import "./footer.js";
 import "./sidebar.js";
+import "./fmb-column.js";

@@ -47,6 +47,17 @@
   --aura-text-subtle: oklch(0.57 0.025 248);
   /* #697 light-mode switch thumb: white so it reads on the blue "on" track. */
   --aura-switch-thumb-bg: var(--aura-surface-solid);
+  /* #1079: --aura-text-on-glass (tokens.css) is declared once at :root as
+     var(--aura-text) — that reference resolves against :root's OWN cascade,
+     not this theme's, so every glass surface (aura-card, aura-panel, the
+     switch control that inherits its colour from the card) kept the DEFAULT
+     dark-mode near-white text even though this theme's own --aura-text
+     (above) is a dark blue-gray. Concretely: the switch's "Enabled" label
+     rides --aura-text-on-glass and stayed white-on-light-glass, while the
+     "Email" field label reads --aura-text directly (a live reference) and
+     correctly went dark. Re-derive here so every text-on-glass consumer
+     tracks this theme's ink (mirrors retro-pc's existing re-derivation). */
+  --aura-text-on-glass: var(--aura-text);
 
   /* ---- WCAG AA status colors for light surfaces (#442 / #552 treatment) -- */
   --aura-success: #065f46;    /* dark teal-green — AA on white              */

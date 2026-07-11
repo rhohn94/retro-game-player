@@ -22,8 +22,8 @@
 
 /* ---- Root footer --------------------------------------------------------- */
 /* The element is the contentinfo landmark; <aura-footer> is not a known
-   landmark tag, so js/footer.js names role="contentinfo". Sized to its
-   content height — minimal symmetric block padding, no decorative band.
+   landmark tag, so js/footer.js names role="contentinfo". Sized to its content
+   height — minimal symmetric block padding, no decorative band.
 
    Static footer (no data-aura-footer="reveal"): INTENTIONAL for use cases where
    the footer must always be visible in the content flow — e.g. a config page with
@@ -109,16 +109,23 @@ aura-footer[data-aura-footer-layout="split"] > *,
 }
 
 /* Opaque fallback for engines without backdrop-filter (progressive — the same
-   contract as .aura-surface and the nav header). */
+   contract as .aura-surface and the nav header). The independent floating
+   panel (v3.550 #1047) paints its own backdrop-filter (see its base rule
+   below) so it needs this same fallback in its own right, not just the
+   circle. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   aura-footer,
-  .aura-footer { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
+  .aura-footer,
+  .aura-footer__panel { background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid); }
 }
 
 /* Reduced effects: drop the blur and go opaque on constrained hardware
-   ([data-aura-effects="lite"] — the page-wide escape hatch, elevation.css). */
+   ([data-aura-effects="lite"] — the page-wide escape hatch, elevation.css).
+   Covers both the circle and the independent floating panel (#1047) — each
+   paints its own backdrop-filter, so each needs its own de-frost here. */
 [data-aura-effects="lite"] aura-footer,
-[data-aura-effects="lite"] .aura-footer {
+[data-aura-effects="lite"] .aura-footer,
+[data-aura-effects="lite"] .aura-footer__panel {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
@@ -133,7 +140,8 @@ aura-footer[data-aura-footer-layout="split"] > *,
    an override) can still win in the cascade. */
 @media (pointer: coarse) {
   aura-footer,
-  .aura-footer {
+  .aura-footer,
+  .aura-footer__panel {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--aura-glass-tint-layer), var(--aura-footer-surface-solid);
@@ -169,101 +177,128 @@ aura-footer[data-aura-footer-layout="split"] > *,
   text-decoration: none;
 }
 
-/* ---- Reveal behaviour + Floating Menu Button (FMB) — v3.4 / v3.87 -------- */
-/* data-aura-footer="reveal" makes the footer summoned chrome. v3.87 replaces
-   the "translate fully off-screen" resting state with a Floating Menu Button
-   (FMB): a compact circle anchored at the shell's bottom-right corner that is
-   ALWAYS visible as a navigation affordance. Hovering, focusing, or JS cursor-
-   proximity temporarily expands it to the full footer bar; the IntersectionObserver
-   sentinel permanently reveals it when the user reaches the end of the content.
+/* ---- Floating Menu Button (FMB) — v3.550 button/panel decoupling (#1047) --
+   FMB CONTRACT: docs/design/fmb-design.md §The three states / §Hard
+   requirement — the button-stability invariant. Full design writeup:
+   docs/design/footer-design.md §Floating Menu Button.
 
-   This mirrors the nav-header FMB (data-stashed) at the top chrome, giving the
-   page symmetrical floating access points at the top-left and bottom-right.
+   v3.87 introduced the footer's FMB behaviour by animating the HOST element's
+   OWN box (margin-inline / padding-inline / border-radius / block-size)
+   between a compact circle and the full-width bar — the button and the open
+   state were the same element transforming, which violates the button-
+   stability invariant (the button's bounding rect must never change across
+   Stashed / Opened / Pinned). v3.550 rewrites this onto the same stable-
+   circle + floating-panel model already shipped by the user-profile FMB
+   (css/nav-header.css's [data-aura-user-fmb] block): the HOST (<aura-footer>)
+   is now the fixed-size circle itself, at a fixed on-screen position, in
+   EVERY state; js/footer.js's _enhance() moves every non-mark child into a
+   dedicated `.aura-footer__panel` wrapper (created once, idempotent) that
+   floats independently, anchored to the circle's own corner, and is shown/
+   hidden by opacity + visibility only — it never changes the circle's box.
 
-   FMB collapse mechanism (all animated by the channels in the base transition):
-     margin-inline-start: calc(100% - fmb-size - pad-inline)
-                                — right-anchors the footer; effective inline-size
-                                  resolves to exactly --aura-footer-fmb-size because
-                                  margin-end (pad-inline) + margin-start + fmb-size = 100%
-     margin-inline-end: pad-inline  — edge gap between FMB and shell right wall
-     margin-block-end:  pad-inline  — floating gap above the shell bottom edge
-     padding-inline: 0; padding-block: 0
-                                — removes internal padding so content area = fmb-size²
-     block-size: fmb-size       — forces square geometry for border-radius: 50% circle
-     border-radius: 50%         — circle shape (animates via border-radius channel)
-     gap: 0                     — zeroes any flex gap so the mark fills the circle
+   ANCHOR CORNER (resolving the pre-v3.550 contradiction): earlier revisions
+   of this file's comments claimed "bottom-right" while the actual CSS
+   (margin-inline-start for the edge gap, i.e. an INLINE-START anchor) and
+   js/fmb-column.js's own migration-default registry
+   ("footer → column=start, anchor=end (bottom-left)") both implement
+   bottom-LEFT. v3.550 makes bottom-left (inline-start column, block-end
+   anchor) the single authoritative anchor, stated once here and in
+   docs/design/footer-design.md — no more drift between prose and code.
 
-   Non-mark direct children (data-footer-zone ≠ "mark") are zeroed in flex layout
-   (max-inline-size: 0; overflow: hidden) and faded (opacity: 0; pointer-events: none).
-   The [data-footer-zone="mark"] child fills the FMB (flex: 1; justify-content: center).
+   Both the circle and the panel read the SAME shared token seams
+   (--aura-footer-reveal-duration/-easing, --aura-footer-fmb-size,
+   --aura-footer-pad-inline) so a theme retunes both halves together. */
 
-   Hover / :focus-within / data-footer-expanded (JS proximity) reverses every change,
-   expanding the FMB back to the full footer bar via the same animated channels.
-   data-aura-revealed (permanent reveal from IO) bypasses the FMB entirely.
-
-   #735 BIDIRECTIONAL TRANSITION: the transition is on the BASE state so it applies
-   in both directions (FMB → expanded and expanded → FMB).
-   #766 #804: :focus-within forces the expanded state (full footer) so keyboard
-   users are never trapped inside an invisible control. */
+/* ---- FMB circle: fixed size, fixed position, every state ------------------
+   The host's box NEVER changes across Stashed / Opened / Pinned / Revealed —
+   only its ghost opacity/filter (via the shared expand-state selector list)
+   and, once permanently revealed, its own content (the mark stays, the panel
+   becomes the primary surface — see the [data-aura-revealed] rule below). */
 aura-footer[data-aura-footer="reveal"],
 .aura-footer[data-aura-footer="reveal"] {
-  /* Bidirectional FMB ↔ full-footer transition channels. */
-  transition:
-    margin-inline     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    margin-block-end  var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    padding-inline    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    padding-block     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    border-radius     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    translate         var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    /* v3.87: ghostly FMB fade/desaturate channels. */
-    opacity           var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    filter            var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
-}
+  /* Fixed viewport anchor at every breakpoint — this replaces BOTH the old
+     shell-contained position:absolute (css/layout.css) and the old standalone
+     position:fixed rule; a stable button cannot depend on shell containment,
+     so both cases now share one rule.
 
-/* ---- FMB stash state (resting): compact circle at bottom-left ------------ */
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) {
-  translate: 0 0;
-  /* Flex layout so zone children can be hidden/shown identically to nav-header. */
+     !important on position/inset/size/radius (verified against a real
+     collision, not defensive guesswork): a LATER cascade layer legitimately
+     beats an earlier one regardless of specificity (css/aura.css's @layer
+     order — `footer` sits well before `app-shell`/`utilities`), so a
+     consumer-facing utility class in a later layer — e.g. `.aura-text-protect`
+     (templates/app-shell.css, a demo readability-scrim helper that sets
+     `position: relative` for its own ::before pseudo-element) — silently wins
+     over this rule's plain `position: fixed` even though this selector is
+     more specific. That is a real, reproduced bug (not a hypothetical): the
+     circle rendered position:relative at 64×48px on demo/app.html, which
+     defeats the button-stability invariant this whole block exists to
+     satisfy. The button-stability invariant is a HARD requirement
+     (fmb-design.md §Hard requirement) — it must hold regardless of what
+     other utility classes a consumer or demo template also applies to the
+     host, so the geometry-defining channels win unconditionally, mirroring
+     the existing `.aura-sr-only` precedent for "must win regardless of
+     layer order" (css/form.css). Non-geometry channels (opacity/filter/
+     colors/etc., below) are NOT marked important — only the properties this
+     invariant actually depends on.
+
+     padding-inline/-block are ALSO !important for the identical reason,
+     verified against a second real collision: demo/demo-scaffold.css's
+     unlayered `.app-footer { padding: var(--aura-space-6) … }` rule (a
+     bespoke page-chrome class, deliberately authored outside any @layer so
+     it can restyle Aura's default footer padding on that one demo page)
+     otherwise adds real inline padding back — and because padding cannot
+     shrink a border-box element below the padding's own footprint, an
+     un-important `padding-inline: 0` here would let a 64px-wide box
+     re-emerge (2 × --aura-space-6 alone exceeds --aura-footer-fmb-size)
+     even with inline-size pinned !important. The circle must render at
+     EXACTLY fmb-size regardless of a consumer's own footer padding
+     preference — that preference is legitimate for the (Opened/Pinned)
+     panel below, which is a normal box and keeps ordinary padding, but
+     never for the Stashed button's own geometry. */
+  position: fixed !important;
+  inset-inline-start: var(--aura-footer-pad-inline) !important;
+  inset-inline-end: auto !important;
+  inset-block-start: auto !important;
+  inset-block-end: calc(var(--aura-footer-pad-inline) + var(--aura-safe-bottom, 0px)) !important;
+  inline-size: var(--aura-footer-fmb-size) !important;
+  block-size: var(--aura-footer-fmb-size) !important;
+  min-inline-size: var(--aura-footer-fmb-size) !important;
+  min-block-size: var(--aura-footer-fmb-size) !important;
+  border-radius: 50% !important;
+  overflow: hidden;
+  /* No internal padding — content area is exactly fmb-size²; the circle only
+     ever shows the mark zone (below). Real content lives in the panel. */
+  padding-inline: 0 !important;
+  padding-block: 0 !important;
   display: flex;
   align-items: center;
-  /* Left-anchor: start margin gives the edge gap; end margin fills the remaining
-     viewport so effective inline-size = fmb-size. Mirrors the nav-header anchor. */
-  margin-inline-start: var(--aura-footer-pad-inline);
-  margin-inline-end: calc(100% - var(--aura-footer-fmb-size) - var(--aura-footer-pad-inline));
-  /* Float above the very bottom of the shell. */
-  margin-block-end: var(--aura-footer-pad-inline);
-  /* No internal padding — content area is exactly fmb-size². */
-  padding-inline: 0;
-  padding-block: 0;
-  /* Circle geometry: force square dimensions and clip to 50% radius. */
-  block-size: var(--aura-footer-fmb-size);
-  border-radius: 50%;
-  overflow: hidden;
+  justify-content: center;
   gap: 0;
-  /* Ghostly FMB: monochrome + semi-transparent at rest; restores on expand. */
+  /* Ghostly FMB: monochrome + semi-transparent at rest; restores on expand.
+     Only opacity/filter animate now — no geometry channel is ever
+     transitioned, because no geometry channel ever changes. */
   opacity: 0.35;
   filter: grayscale(1);
+  transition:
+    opacity var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    filter  var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
 }
 
-/* Glow-vs-ghost conflict (v3.532 #A): the host's own opacity:0.35 +
-   filter:grayscale(1) composite through the .aura-glow rim too (CSS
-   filter/opacity apply to the whole rendered subtree, pseudo-elements
-   included) — so as the cursor approaches within the 130px glow radius but
-   before it crosses the FMB's own tight ~14px expand-px ring, the vivid
-   --aura-edge-color rim would render fully desaturated and at ~0.27
-   effective opacity: a barely-visible smudge rather than the intended
-   "you're getting close" cue. Same conflict as sidebar.css (see its comment
-   for the verification note); identical fix here — suppress the rim while
-   still collapsed, it un-suppresses the instant the FMB itself expands (the
-   block below already sets opacity:1/filter:none at that point). The host
-   stays a fully-fledged .aura-glow member throughout — magnetic lean and
-   :focus-visible intensity pinning are unaffected — only the rim
-   pseudo-element's visibility window is scoped to skip the ghost state.
-   The chain follows sidebar.css's reference shape (one :not() term per
-   expand state) plus one extra term — :not([data-aura-revealed]) — because
-   the footer's ghost state only exists in reveal mode before the permanent
-   reveal, and it is doubled for the element/class host twins. Contract:
+/* Glow-vs-ghost conflict (v3.532 #A, preserved verbatim from the pre-v3.550
+   model): the host's own opacity:0.35 + filter:grayscale(1) composite through
+   the .aura-glow rim too (CSS filter/opacity apply to the whole rendered
+   subtree, pseudo-elements included) — so as the cursor approaches within the
+   130px glow radius but before it crosses the FMB's own tight ~14px
+   expand-px ring, the vivid --aura-edge-color rim would render fully
+   desaturated and at ~0.27 effective opacity: a barely-visible smudge rather
+   than the intended "you're getting close" cue. Same conflict as
+   sidebar.css/nav-header.css (see their comments for the verification note);
+   identical fix here — suppress the rim while still ghosted, it un-suppresses
+   the instant the FMB itself expands (the block below already sets
+   opacity:1/filter:none at that point). The host stays a fully-fledged
+   .aura-glow member throughout — magnetic lean and :focus-visible intensity
+   pinning are unaffected — only the rim pseudo-element's visibility window is
+   scoped to skip the ghost state. Contract:
    docs/design/proximity-glow-design.md §Ghosted FMB rim suppression
    (v3.541, #1021). */
 aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):not(:hover):not(:focus-within):not([data-footer-expanded]):not([data-fmb-pinned])::after,
@@ -271,30 +306,12 @@ aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):not(:hover):not
   opacity: 0;
 }
 
-/* Non-mark children: zero-width + invisible in FMB state. */
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]) {
-  max-inline-size: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
-}
-
-/* Mark zone: fill the FMB circle and centre the affordance mark. Use full-brightness
-   text so the icon reads at the ghostly 0.35 opacity (footer inherits text-muted which
-   is too dim at that opacity against the dark background).
-   flex: 0 0 100% instead of flex: 1 — the demo-theme-panel has margin-inline-start:auto
-   (unlayered CSS, higher cascade priority) which absorbs all flex free space before
-   flex-grow can act. Claiming 100% flex-basis directly fills the FMB circle width
-   regardless of sibling free-space consumption. */
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > [data-footer-zone="mark"],
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > [data-footer-zone="mark"] {
+/* Mark zone: fills the circle and centres the affordance mark. Always the
+   circle's own visible content, in every state — the mark is part of the
+   STABLE button, not the panel, so it never needs to hide/show/resize. */
+aura-footer[data-aura-footer="reveal"] > [data-footer-zone="mark"],
+.aura-footer[data-aura-footer="reveal"] > [data-footer-zone="mark"] {
   flex: 0 0 100%;
-  /* align-self: stretch should fill the FMB circle height, but browsers do not
-     always honour it when the flex item is also a flex container — add an explicit
-     min-block-size:100% so the zone always fills the circle vertically and the SVG
-     is centred by align-items:center rather than sitting at the top edge. */
   align-self: stretch;
   min-block-size: 100%;
   display: flex;
@@ -304,7 +321,15 @@ aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) > [data-footer-
   color: var(--aura-text);
 }
 
-/* ---- FMB → full footer: hover / focus / JS proximity / click-pin ---------- */
+/* ---- Expand states: hover / focus / JS proximity / click-pin --------------
+   Un-ghosts the CIRCLE (opacity/filter only — see above) and, together with
+   the matching rule below, reveals the PANEL. Neither rule ever touches the
+   circle's inline-size/block-size/border-radius/position — the button-
+   stability invariant holds structurally, not just in intent, because there
+   is no shared geometry channel left for these selectors to animate.
+   #735/#766/#804 carried over: the transition is on the base state (both
+   directions animate identically) and :focus-within is part of the trigger
+   list so keyboard users are never trapped behind an invisible control. */
 aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover,
 aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
 aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
@@ -313,101 +338,268 @@ aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]
 .aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
 .aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
 .aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) {
-  margin-inline-start: 0;
-  margin-inline-end: 0;
-  margin-block-end: 0;
-  padding-inline: var(--aura-footer-pad-inline);
-  padding-block: var(--aura-footer-pad-block);
-  block-size: auto;
-  border-radius: 0;
   opacity: 1;
   filter: none;
 }
 
-/* Restore non-mark zones on FMB expand. */
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > :not([data-footer-zone="mark"]),
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > :not([data-footer-zone="mark"]),
-aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
-aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > :not([data-footer-zone="mark"]),
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > :not([data-footer-zone="mark"]),
-.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]),
-.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > :not([data-footer-zone="mark"]) {
+/* ---- FMB column z-index bump (v3.549 ITEM-2, preserved) -------------------
+   The footer's stashed circle registers into the column's start/end stack
+   (js/fmb-column.js's migration default: bottom-left, matching the anchor
+   corner resolved above). Raise the circle above the column's own glass stack
+   only while ITS OWN Opened/Pinned signal is set, mirroring the equivalent
+   per-member rules in css/nav-header.css and css/sidebar.css. */
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover,
+aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
+aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
+aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]),
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover,
+.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within,
+.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]),
+.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) {
+  /* Shared token (v3.549 review-fix, tokens.json "FMB active z-index
+     bump") — deduplicates this literal from css/nav-header.css (x2) and
+     css/sidebar.css; all four sites consume one source of truth. */
+  z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+}
+
+/* ---- Mobile convergence: reachable through <aura-fmb-column>'s reveal
+   control below --aura-bp-mobile (v3.552, #1051) -----------------------------
+   FMB CONTRACT: docs/design/fmb-design.md §Mobile. Full design writeup:
+   docs/design/footer-design.md §Mobile convergence.
+
+   js/fmb-column.js has registered the footer into the start/end stack since
+   v3.549 ITEM-2 (LEGACY_MEMBERS, isStashed()/isEligible() dispatch on
+   "footer") — the JS-side bookkeeping already exists. What was missing is
+   purely on this side: the circle's own base rule (above) is
+   `position: fixed !important` UNCONDITIONALLY, at every viewport width, so
+   below the 640px mobile line the circle kept rendering in its own
+   always-fixed corner regardless of whether <aura-fmb-column>'s merged
+   column was revealed — i.e. it was never actually gated by the reveal
+   control the other merged members (nav/sidebar/user) already defer to.
+
+   639px literal matches --aura-bp-mobile (640px/40rem) — same
+   @media-cannot-read-var() convention used throughout css/fmb-column.css and
+   css/nav-header.css.
+
+   Gating condition mirrors css/fmb-column.css's own hidden/revealed pair
+   (`aura-fmb-column:not([data-fmb-column-revealed]) [data-fmb-column]...` /
+   `aura-fmb-column[data-fmb-column-revealed] [data-fmb-column]...`) — the
+   circle now participates in the SAME visibility contract as the column's
+   own decorative stack tiles, via a :has() lookup from :root since the
+   circle is not a DOM descendant of <aura-fmb-column> (mirrors
+   css/sidebar.css's existing `:root:has(aura-fmb-column ...)` pattern for
+   the identical reason: two independent chrome elements, no DOM ancestry
+   between them). :has() is unguarded elsewhere in this codebase for the same
+   selector shape (css/sidebar.css, css/fmb-column.css's user-FMB size
+   coordination) — no @supports fallback needed beyond what those already
+   establish as the baseline.
+
+   EXCLUDES [data-aura-revealed]: once the footer's own scroll-triggered
+   permanent reveal fires, js/fmb-column.js's isStashed() for "footer"
+   already stops counting it as Stashed at all
+   (`data-aura-footer === "reveal" && !data-aura-revealed`) — it is no longer
+   column-managed chrome once permanently revealed, so it must stay visible
+   regardless of the merged column's own reveal state. Excluding it here
+   keeps that one rule the single source of truth for "is the footer still a
+   Stashed column member" rather than duplicating the condition and risking
+   drift.
+
+   NO DOUBLE-RENDER: the circle is the only thing that ever paints real
+   content for the footer FMB — the column's own [data-fmb-slot="footer"]
+   cell (js/fmb-column.js's _layoutStack()) is, like the other three legacy
+   members' cells, a decorative, content-less, pointer-events:none
+   positioning/backdrop placeholder (docs/design/fmb-column-design.md) that
+   never mirrors or duplicates the circle's own mark/icon — so gating the
+   circle's visibility on the SAME revealed state the cell's own backdrop
+   already keys off can never produce two visible copies of the footer
+   affordance at once. */
+@media (max-width: 639px) {
+  aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+  .aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) {
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+      filter     var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+      visibility 0s linear var(--aura-footer-reveal-duration);
+  }
+  :root:has(aura-fmb-column[data-fmb-column-revealed]) aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+  :root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) {
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+                filter   var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
+  }
+}
+
+/* Reduced motion: the mobile hide/reveal transition above collapses to
+   instant, matching the rest of this file's reduced-motion contract (kept as
+   a standalone block, same pattern css/fmb-column.css uses for its own
+   mobile visibility rules, so it applies independent of this file's single
+   main @media (prefers-reduced-motion: reduce) block below). */
+@media (max-width: 639px) and (prefers-reduced-motion: reduce) {
+  aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+  .aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+  :root:has(aura-fmb-column[data-fmb-column-revealed]) aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]),
+  :root:has(aura-fmb-column[data-fmb-column-revealed]) .aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]) {
+    transition: none;
+  }
+}
+
+/* ---- Floating panel: the independent Opened/Pinned/Revealed surface ------
+   `.aura-footer__panel` is created once by js/footer.js's _enhance() (mirrors
+   ensureUserFmb() creating a sibling proxy) and holds every non-mark child —
+   the real footer content (links, theme controls, etc).
+
+   BODY-LEVEL, not a DOM child of <aura-footer>: the host carries `.aura-glow`,
+   whose base rule sets `translate` unconditionally, which per the CSS
+   Transforms spec makes ANY element with a non-`none` computed
+   translate/transform/rotate/scale the containing block for its
+   `position: fixed` descendants. A panel nested inside the host would
+   therefore resolve its own `position: fixed` against the host's 48×48px
+   circle instead of the viewport — verified live (a real, reproduced
+   collapse-to-circle-size bug, not a hypothetical) — so `ensureFooterPanel()`
+   appends the panel to `document.body` instead, exactly mirroring
+   `fmb-user-design.md`'s `ensureUserFmb()` sibling-proxy precedent.
+
+   Anchored to the SAME bottom-left corner as the circle (same insets), but
+   spans the full inline axis and grows to natural content height — this is
+   the "independent floating panel... anchored to the circle's position" the
+   design doc requires. At rest (Stashed) it is invisible and inert
+   (opacity:0, visibility:hidden, pointer-events:none) — zero interaction
+   surface, exactly like a closed menu panel, never a zero-size box the
+   circle has to expand out of. */
+.aura-footer__panel {
+  position: fixed;
+  /* Both inline insets pinned (not auto) DELIBERATELY defines the box's
+     width as "span the gap between them" — the panel fills from
+     pad-inline to pad-inline, it does not shrink-to-fit-and-center (that
+     would require leaving one inset auto, which conflicts with anchoring
+     both edges). Content measure on wide screens is capped on the PANEL'S
+     OWN CHILDREN instead (below), mirroring the base footer's
+     `aura-footer > *` pattern — NOT on the panel itself, since combining
+     two fixed insets with margin-inline:auto over-constrains the box and
+     was verified live to collapse the panel to a near-zero-width,
+     negative-margined sliver (a real reproduced bug, not a hypothetical).
+     The panel IS itself a direct child of <aura-footer> (aura-footer > *,
+     .aura-footer > * above sets max-inline-size + margin-inline:auto on
+     EVERY direct child, including the panel) — override both explicitly
+     here so that generic child rule cannot reintroduce the same collapse;
+     verified live this override is required, not redundant. */
   max-inline-size: none;
+  margin-inline: 0;
+  inset-inline: var(--aura-footer-pad-inline);
+  inset-block-end: calc(var(--aura-footer-pad-inline) + var(--aura-safe-bottom, 0px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-flow: row wrap;
+  gap: var(--aura-footer-layout-gap);
+  padding-inline: var(--aura-footer-pad-inline);
+  padding-block: var(--aura-footer-pad-block);
+  color: var(--aura-footer-color, var(--aura-text-subtle));
+  font-size: var(--aura-text-sm);
+  text-align: center;
+  background: var(--aura-glass-tint-layer), var(--aura-footer-bg);
+  border-block-start: 1px solid var(--aura-footer-border-color);
+  border-radius: var(--aura-radius-lg, 1rem);
+  box-shadow: var(--aura-footer-shadow), inset 0 1px 0 var(--aura-edge-light);
+  -webkit-backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
+  backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: var(--aura-footer-z-index);
+  transition:
+    opacity    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    visibility 0s linear var(--aura-footer-reveal-duration);
+}
+/* Multi-column layout API (#812) carried over onto the panel — the panel is
+   now the element that actually lays out real content. */
+.aura-footer__panel[data-aura-footer-layout="split"] {
+  justify-content: space-between;
+  text-align: start;
+}
+/* Content-measure cap on WIDE screens (#822 parity): the panel itself spans
+   the full inset-to-inset gap (see above), but its children are capped to
+   --aura-footer-max-width and centered within the panel, exactly mirroring
+   the base (static/in-flow) footer's `aura-footer > *` rule. flex-wrap on
+   the panel plus this per-child cap reproduces the pre-v3.550 "centered,
+   legible measure" look without over-constraining the panel's own box. */
+.aura-footer__panel > * {
+  max-inline-size: var(--aura-footer-max-width);
+  margin-inline: auto;
+}
+.aura-footer__panel[data-aura-footer-layout="split"] > * {
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
+/* Panel open: shown whenever the circle is un-ghosted (hover/focus/JS
+   proximity/pin) OR the footer is permanently revealed (IO sentinel).
+
+   The panel is body-level (js/footer.js's ensureFooterPanel() — the host's
+   own `.aura-glow` rule sets `translate` unconditionally, which per the CSS
+   Transforms spec makes the host a containing block for `position: fixed`
+   descendants; nesting the panel inside the host would resolve its fixed
+   positioning against the 48px circle instead of the viewport, a real
+   collision verified live, not hypothetical). Because the panel is not a
+   DOM child of the host, CSS cannot reach it via a `>` combinator keyed off
+   the host's own :hover/:focus-within/attribute state — js/footer.js's
+   armPanelStateMirror() computes the equivalent "Opened" condition
+   (hover, focus-within, JS-proximity-expanded, pinned, or permanently
+   revealed) and reflects it as data-footer-panel-open on the PANEL itself,
+   so this selector keys off the panel's own attribute instead. visibility
+   uses a 0s transition-delay so it flips the instant opacity starts
+   animating IN, but only flips to hidden after the fade-OUT finishes (see
+   the base rule's transition-delay on the closing direction — matches the
+   standard "fade out, then hide" idiom used by tooltip/menu panels
+   elsewhere in Aura). */
+.aura-footer__panel[data-footer-panel-open] {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
+  transition:
+    opacity    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    visibility 0s linear 0s;
 }
 
-/* Restore mark zone to natural flex sizing on expand. */
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > [data-footer-zone="mark"],
-aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > [data-footer-zone="mark"],
-aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > [data-footer-zone="mark"],
-aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > [data-footer-zone="mark"],
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):hover > [data-footer-zone="mark"],
-.aura-footer[data-aura-footer="reveal"]:not([data-aura-revealed]):focus-within > [data-footer-zone="mark"],
-.aura-footer[data-aura-footer="reveal"][data-footer-expanded]:not([data-aura-revealed]) > [data-footer-zone="mark"],
-.aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]) > [data-footer-zone="mark"] {
-  flex: 0 0 auto;
-  align-self: auto;
-  justify-content: initial;
-  align-items: initial;
-  overflow: visible;
-}
-
-/* ---- Permanently revealed (IntersectionObserver sentinel intersects) ------ */
+/* ---- Permanently revealed (IntersectionObserver sentinel intersects) ------
+   The circle stays mounted at its fixed corner (button-stability invariant —
+   a permanent reveal is still "Opened", not a different button); the panel
+   above already becomes the visible surface via the [data-aura-revealed]
+   term in its own selector. --aura-footer-height-current publishes the
+   PANEL's live height (js/footer.js sets the real px value on reveal) so
+   consumers can reference it in CSS without JS, mirroring the pre-v3.550
+   contract. */
 aura-footer[data-aura-footer="reveal"][data-aura-revealed],
 .aura-footer[data-aura-footer="reveal"][data-aura-revealed] {
-  /* Full-width footer at the shell bottom; all margin/padding channels reset. */
-  translate: 0 0;
-  /* #787: publish the current footer height as a CSS custom property so consumers
-     can reference it in CSS without JS. JS sets the real px value on reveal. */
   --aura-footer-height-current: auto;
 }
 
-/* ---- Shell-contained reveal footer: position re-assertion --------------- *
-   css/layout.css (layer: layout) sets position:absolute on a reveal footer
-   that is a direct child of the shell, taking it out of the grid so it holds
-   no row. The glow layer is ordered AFTER layout in the cascade, so its rule
-   .aura-sheen { position: relative } overrides layout's absolute when the
-   footer carries the aura-sheen class. The footer layer is ordered after glow,
-   so re-asserting position:absolute here wins the cascade and restores the
-   correct out-of-flow shell placement. */
-aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"],
-.aura-shell > :is(aura-footer, footer)[data-aura-footer="reveal"] {
-  position: absolute;
-}
-
-/* ---- Standalone reveal footer: take out of flow (#770) ------------------ *
-   In standalone mode (no shell) the reveal footer is not a child of an absolutely-
-   positioned shell, so it participates in normal document flow. js/footer.js marks
-   standalone footers with .aura-footer--standalone during _enhance(); CSS applies
-   position:fixed so the footer is out-of-flow. In FMB state, margin-inline math
-   uses 100% = viewport width, correctly anchoring the circle to the viewport's
-   bottom-right corner. The IntersectionObserver sentinel still provides the trigger
-   for permanent full-footer reveal. */
-aura-footer[data-aura-footer="reveal"].aura-footer--standalone,
-.aura-footer[data-aura-footer="reveal"].aura-footer--standalone {
-  position: fixed;
-  inset-inline: 0;
-  inset-block-end: 0;
-}
-
 /* ---- Reduced motion ------------------------------------------------------ */
-/* The reveal still CHANGES state — it just snaps, with no animated slide
+/* The reveal still CHANGES state — it just snaps, with no animated fade
    (space-economy + animation contract). */
 @media (prefers-reduced-motion: reduce) {
   aura-footer[data-aura-footer="reveal"],
-  .aura-footer[data-aura-footer="reveal"] {
+  .aura-footer[data-aura-footer="reveal"],
+  .aura-footer__panel {
     transition: none;
   }
 }
 
 /* ---- Initial-load snap (#755) -------------------------------------------- */
-/* When the page loads with the user already scrolled to the bottom, the footer
-   must reveal INSTANTLY (no slide-in animation) rather than animate in.
-   js/footer.js adds .aura-footer--no-transition on the first IO callback when
-   it fires with isIntersecting:true; a rAF removes it so subsequent reveals
-   animate normally.  The !important defeats the base reveal-state transition. */
+/* When the page loads with the user already scrolled to the bottom, the panel
+   must reveal INSTANTLY (no fade-in) rather than animate in. js/footer.js
+   adds .aura-footer--no-transition on the first IO callback when it fires
+   with isIntersecting:true; a rAF removes it so subsequent reveals animate
+   normally. The !important defeats the base reveal-state transition.
+   js/footer.js's syncPanelStateMirror() mirrors this class onto the
+   body-level panel directly (it is not a DOM descendant of the host, so a
+   `>` combinator cannot reach it — the same reason PANEL_OPEN_ATTR exists
+   above) — target the panel's OWN class here, not a combinator. */
+.aura-footer__panel.aura-footer--no-transition,
 aura-footer.aura-footer--no-transition,
 .aura-footer.aura-footer--no-transition {
   transition: none !important;
@@ -419,7 +611,7 @@ aura-footer.aura-footer--no-transition,
    be permanently revealed.  js/footer.js detects this and calls
    setAttribute(REVEALED_ATTR) immediately; it also adds .aura-footer--short-content
    as a marker so consumers can target this state in CSS if needed.
-   The reveal here must be instant (no slide-in), which is handled by js/footer.js
+   The reveal here must be instant (no fade-in), which is handled by js/footer.js
    setting the attribute before rAF so the browser applies both reveal + no-transition
    in the same paint.  No additional CSS rule is needed: the existing
    [data-aura-revealed] rule provides the correct final state. */
@@ -428,13 +620,15 @@ aura-footer.aura-footer--no-transition,
 /* ---- Modal-dialog compositing pause (#815) ------------------------------- */
 /* When an aura-dialog with aria-modal="true" is open it fully overlays the
    viewport, obscuring the reveal footer completely. Drop its backdrop-filter
-   so the GPU compositor does not need to maintain a blur surface for hidden
-   chrome. js/footer.js also disconnects the IO while the dialog is open.
-   :has() is supported in all modern browsers; browsers without support ignore
-   this rule (the JS side always handles the IO pause anyway). */
+   (both circle and panel) so the GPU compositor does not need to maintain a
+   blur surface for hidden chrome. js/footer.js also disconnects the IO while
+   the dialog is open. :has() is supported in all modern browsers; browsers
+   without support ignore this rule (the JS side always handles the IO pause
+   anyway). */
 @supports selector(:has(a)) {
   body:has(aura-dialog[open][aria-modal="true"]) aura-footer[data-aura-footer="reveal"],
-  body:has(aura-dialog[open][aria-modal="true"]) .aura-footer[data-aura-footer="reveal"] {
+  body:has(aura-dialog[open][aria-modal="true"]) .aura-footer[data-aura-footer="reveal"],
+  body:has(aura-dialog[open][aria-modal="true"]) .aura-footer__panel {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -445,10 +639,17 @@ aura-footer.aura-footer--no-transition,
    --aura-footer-pad-inline (1.5rem) leaves very little horizontal content
    space. Use a narrower token seam --aura-footer-pad-inline-narrow that falls
    back to --aura-space-3 (0.75rem) so a theme can retune it independently.
-   Literal 22.5rem matches --aura-bp-narrow (#561 conformance). */
+   Literal 22.5rem matches --aura-bp-narrow (#561 conformance). Applies to the
+   static footer's own padding AND the floating panel's edge insets/padding —
+   the circle's own pad-inline-driven corner offset is intentionally left on
+   the base --aura-footer-pad-inline token (the circle is small; the narrow
+   token is about content breathing room, not button placement). */
 @media (max-width: 22.5rem) {  /* --aura-bp-narrow */
   aura-footer,
   .aura-footer {
+    padding-inline: var(--aura-footer-pad-inline-narrow, var(--aura-space-3));
+  }
+  .aura-footer__panel {
     padding-inline: var(--aura-footer-pad-inline-narrow, var(--aura-space-3));
   }
 }
@@ -475,7 +676,8 @@ aura-footer img,
    The glass blur leaves transparent areas if not explicitly removed. Explicitly
    set system color keywords so the footer reads cleanly against the page.
    This block is listed in css/preferences.css (forced-colors section) for
-   cross-reference to the unified surface inventory. */
+   cross-reference to the unified surface inventory. Applies to both the
+   circle (base rule) and the floating panel. */
 @media (forced-colors: active) {
   aura-footer,
   .aura-footer {
@@ -485,5 +687,14 @@ aura-footer img,
     border-block-start: 1px solid ButtonText;
     color: CanvasText;
     box-shadow: none;
+  }
+  .aura-footer__panel {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: Canvas;
+    border-block-start: 1px solid ButtonText;
+    color: CanvasText;
+    box-shadow: none;
+    outline: 1px solid ButtonBorder;
   }
 }

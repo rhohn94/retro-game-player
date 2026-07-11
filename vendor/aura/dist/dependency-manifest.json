@@ -65,7 +65,8 @@
     "js/aura-field.js",
     "js/nav-header.js",
     "js/footer.js",
-    "js/sidebar.js"
+    "js/sidebar.js",
+    "js/fmb-column.js"
   ],
   "modules": [
     {
@@ -536,9 +537,16 @@
     {
       "file": "js/sidebar.js",
       "deps": [
-        "js/element-base.js"
+        "js/element-base.js",
+        "js/popup-overlay.js",
+        "js/dialog.js"
       ],
       "cssLayer": "sidebar"
+    },
+    {
+      "file": "js/fmb-column.js",
+      "deps": [],
+      "cssLayer": "fmb-column"
     }
   ],
   "extras": [

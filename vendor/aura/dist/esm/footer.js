@@ -52,8 +52,31 @@ import "./element-base.js";
        (#767). The window listener is kept as a fallback.
 
    Standalone reveal footers are marked .aura-footer--standalone during _enhance()
-   so css/footer.css can apply position:fixed to take them out of document flow
-   (they use a sentinel for the trigger, so in-flow space is not needed, #770).
+   (css no longer keys position:fixed off this class specifically — v3.550 made
+   position:fixed unconditional for every reveal footer, see below — but the class
+   is kept for back-compat consumer targeting and the #770 no-layout-space intent
+   still holds either way).
+
+   Button/panel decoupling (v3.550, #1047, docs/design/fmb-design.md §Hard
+   requirement — the button-stability invariant): pre-v3.550, the HOST element's
+   own box animated between a compact circle and the full-width bar — button and
+   open-state were the same element transforming. _enhance() now creates a single
+   `.aura-footer__panel` wrapper (idempotent, `this._panel` guard), appended to
+   document.body (NOT nested inside the host — the host's `.aura-glow` class sets
+   `translate` unconditionally, which makes it a containing block for
+   position:fixed descendants, so a nested panel would resolve against the 48px
+   circle instead of the viewport; mirrors js/nav-header.js's ensureUserFmb()
+   sibling-proxy precedent), and moves every non-mark child into it. css/footer.css
+   keeps the HOST a fixed-size, fixed-position circle in every state and renders
+   the panel as an independent floating surface anchored to the circle's own
+   corner. A childList MutationObserver re-homes any child an author (or HTMX
+   swap) adds directly to the host afterward, so authoring
+   `<aura-footer>...</aura-footer>` normally still works with no author-visible
+   change; a second MutationObserver + real pointer/focus listeners
+   (armPanelStateMirror) reflect the host's Opened/Pinned/Revealed state onto the
+   panel's own `data-footer-panel-open` attribute, since the panel is no longer a
+   CSS-combinator-reachable descendant. See docs/design/footer-design.md
+   §Floating Menu Button.
 
    Performance (#739 #758 #777 #780 #783 #759 #815): the resize path is throttled
    with a 100ms trailing debounce so rapid window-resize sequences only fire one
@@ -65,6 +88,19 @@ import "./element-base.js";
    (disconnected) and the resize handler is suppressed — the modal obscures the
    footer, so animation and compositing work is wasted (#815). The IO re-arms on
    the matching dialog-close event (or 'aura:dialog-close').
+
+   Mobile convergence (v3.552, #1051, docs/design/fmb-design.md §Mobile):
+   below --aura-bp-mobile the circle joins the shared merged column's reveal
+   control instead of always rendering standalone — css/footer.css gates the
+   circle's visibility on <aura-fmb-column>'s [data-fmb-column-revealed]
+   state (js/fmb-column.js already registers the footer as a column member
+   since v3.549 ITEM-2; no registration change was needed here). The one JS
+   change this required: syncOneFmb()'s proximity check now skips entirely
+   while the circle is not visible (getComputedStyle().visibility ===
+   'hidden'), since getBoundingClientRect() keeps returning real geometry for
+   a hidden box and the circle's fixed corner coincides with where the
+   reveal control itself sits — see docs/design/footer-design.md §Mobile
+   convergence.
 
    Load order: core.js → element-base.js → … → footer.js (self-registers).
    See docs/design/space-economy-design.md.
@@ -96,6 +132,10 @@ import "./element-base.js";
      hosts expose one stash spelling (matches nav-header's data-stashed polarity).
      Purely additive — CSS and internal logic keep reading data-aura-revealed. */
   var STASHED_MIRROR_ATTR = "data-aura-stashed";
+  /* Button/panel decoupling (v3.550, #1047): the class name of the floating
+     panel wrapper _enhance() creates to hold every non-mark child. Mirrors
+     css/footer.css's `.aura-footer__panel` selector — keep the two in sync. */
+  var PANEL_CLASS = "aura-footer__panel";
 
   /* ---- FMB proximity detection (module-level, shared across all instances) */
   var fmbPointerX = -1;
@@ -117,15 +157,6 @@ import "./element-base.js";
     return px;
   }
 
-  /* Read --aura-footer-pad-inline in px for FMB position computation. */
-  function fmbPadPx(el) {
-    var probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--aura-footer-pad-inline,1.5rem)';
-    el.appendChild(probe);
-    var px = parseFloat(getComputedStyle(probe).width) || 24;
-    el.removeChild(probe);
-    return px;
-  }
 
   /* Read --aura-footer-fmb-expand-px (unitless scalar → numeric via width probe). */
   function fmbExpandPx(el) {
@@ -135,9 +166,217 @@ import "./element-base.js";
 
   /* Guard: is there an open panel (e.g. the theme-select dropdown) inside the
      footer? Mirrors nav-header's hasOpenMenu — prevents the FMB from collapsing
-     while the user has a panel open. */
+     while the user has a panel open. Searches the whole subtree, so it still
+     finds a descendant dropdown regardless of whether it lives directly under
+     the host or (post button/panel decoupling) inside .aura-footer__panel. */
   function hasOpenPanel(el) {
-    return !!el.querySelector('button[aria-expanded="true"]');
+    /* v3.550: real content (any descendant dropdown trigger, e.g. the demo's
+       theme-select) now lives in the body-level `.aura-footer__panel`, not
+       inside the host itself (see ensureFooterPanel()'s containing-block
+       doc comment) — check both locations. */
+    if (el.querySelector('button[aria-expanded="true"]')) return true;
+    return !!(el._panel && el._panel.querySelector('button[aria-expanded="true"]'));
+  }
+
+  /* Host attributes that (in addition to :hover/:focus-within, tracked via
+     real listeners below) determine whether the panel should be open.
+     data-aura-footer-layout is mirrored too, unconditionally, so the split
+     layout API still reaches the panel's own layout rule. */
+  var PANEL_OPEN_ATTRS = [REVEALED_ATTR, EXPANDED_ATTR, PINNED_ATTR];
+  var PANEL_LAYOUT_ATTR = 'data-aura-footer-layout';
+  /* The single computed attribute CSS keys the panel's visibility off —
+     set on the panel itself (not the host) since the panel is body-level,
+     not a DOM descendant the host's own :hover/:focus-within/attribute
+     selectors can reach via a combinator. Mirrors the same "Opened" concept
+     fmb-design.md's contract describes, computed here instead of expressed
+     as a compound CSS selector. */
+  var PANEL_OPEN_ATTR = 'data-footer-panel-open';
+  /* #755 initial-load snap marker class, mirrored onto the panel for the
+     same DOM-descendant reason as PANEL_OPEN_ATTR above. */
+  var NO_TRANSITION_CLASS = 'aura-footer--no-transition';
+
+  /* ---- Button/panel decoupling (v3.550, #1047) --------------------------
+     ensureFooterPanel(): creates the single floating-panel wrapper (idempotent
+     — self._panel guard) and moves every current non-mark child into it. This
+     is the CSS-visible split that lets css/footer.css keep the HOST a fixed
+     circle in every state while the panel floats independently, mirroring
+     js/nav-header.js's ensureUserFmb() creating a sibling proxy for the same
+     button-stability reason (fmb-design.md §Hard requirement).
+
+     BODY-LEVEL, not a DOM child of the host (verified live, real bug found —
+     not defensive guesswork): the host carries `.aura-glow`, whose base rule
+     sets `translate: var(--aura-magnet-dx, 0) var(--aura-magnet-dy, 0)`
+     unconditionally. Per the CSS Transforms spec, ANY element with a
+     non-`none` computed `translate`/`transform`/`rotate`/`scale` becomes the
+     containing block for its `position: fixed` descendants — so a panel
+     nested INSIDE the host would resolve `position: fixed` relative to the
+     host's own 48×48px circle box, not the viewport, collapsing the "spans
+     the viewport" panel down to the circle's own size. This is the exact
+     containing-block trap `docs/design/fmb-user-design.md`'s
+     `ensureUserFmb()` already documents and works around by inserting its
+     proxy as a body-level sibling — this function follows the same
+     precedent. Because the panel is no longer a DOM descendant of the host,
+     CSS can't reach it via a `>` child combinator keyed off the host's own
+     attribute state; armPanelStateMirror() (below) mirrors the handful of
+     state attributes the panel's CSS needs directly onto the panel element
+     instead, so the panel's own visibility rules key off ITS OWN
+     attributes. */
+  function ensureFooterPanel(self) {
+    if (self._panel) return self._panel;
+    var panel = document.createElement('div');
+    panel.className = PANEL_CLASS;
+    /* Move every current child that is NOT the mark zone into the panel,
+       preserving DOM order. Snapshot into an array first — childNodes is live
+       and mutates as we move nodes. */
+    var toMove = [];
+    for (var i = 0; i < self.children.length; i++) {
+      var child = self.children[i];
+      if (child.getAttribute('data-footer-zone') !== 'mark') toMove.push(child);
+    }
+    for (var j = 0; j < toMove.length; j++) panel.appendChild(toMove[j]);
+    document.body.appendChild(panel);
+    self._panel = panel;
+    syncPanelStateMirror(self);
+    return panel;
+  }
+
+  /* Recomputes PANEL_OPEN_ATTR on the body-level panel from the host's
+     current state: any of the attribute-driven signals (data-aura-revealed,
+     data-footer-expanded, data-fmb-pinned) OR the live :hover/:focus-within
+     pseudo-state (tracked via self._footerHovered/self._footerFocused,
+     updated by real pointerenter/pointerleave/focusin/focusout listeners —
+     :hover/:focus-within are not attributes, so they cannot be picked up by
+     a MutationObserver). Also mirrors data-aura-footer-layout and the
+     .aura-footer--no-transition class (#755 initial-load snap) unconditionally
+     so the panel's own split-layout and no-transition rules stay in sync —
+     both are DOM state on the host that the panel, no longer a DOM
+     descendant, cannot reach via a CSS combinator. Idempotent — only touches
+     an attribute/class when its value actually differs. */
+  function syncPanelStateMirror(self) {
+    if (!self._panel) return;
+    var open = !!self._footerHovered || !!self._footerFocused;
+    if (!open) {
+      for (var i = 0; i < PANEL_OPEN_ATTRS.length; i++) {
+        if (self.hasAttribute(PANEL_OPEN_ATTRS[i])) { open = true; break; }
+      }
+    }
+    if (open !== self._panel.hasAttribute(PANEL_OPEN_ATTR)) {
+      self._panel.toggleAttribute(PANEL_OPEN_ATTR, open);
+    }
+    if (self.hasAttribute(PANEL_LAYOUT_ATTR)) {
+      if (self._panel.getAttribute(PANEL_LAYOUT_ATTR) !== self.getAttribute(PANEL_LAYOUT_ATTR)) {
+        self._panel.setAttribute(PANEL_LAYOUT_ATTR, self.getAttribute(PANEL_LAYOUT_ATTR));
+      }
+    } else if (self._panel.hasAttribute(PANEL_LAYOUT_ATTR)) {
+      self._panel.removeAttribute(PANEL_LAYOUT_ATTR);
+    }
+    var noTransition = self.classList.contains(NO_TRANSITION_CLASS);
+    if (noTransition !== self._panel.classList.contains(NO_TRANSITION_CLASS)) {
+      self._panel.classList.toggle(NO_TRANSITION_CLASS, noTransition);
+    }
+  }
+
+  /* True when node is contained by either the host's OWN subtree or the
+     body-level panel's subtree. The panel is a document.body sibling, not a
+     DOM descendant of the host (ensureFooterPanel()'s containing-block doc
+     comment above) — so a plain self.contains(node) silently misses anything
+     that happens inside the panel. Shared by both the hover/focus mirror
+     below and the pre-existing focus-reveal mechanism, which has the
+     identical dual-location requirement. */
+  function containsAcrossHostAndPanel(self, node) {
+    if (!node) return false;
+    if (self.contains(node)) return true;
+    return !!(self._panel && self._panel.contains(node));
+  }
+
+  /* Arms the MutationObserver (attribute + class-driven signals) AND the
+     real pointer/focus listeners (:hover/:focus-within-equivalent signals)
+     that keep the panel's computed PANEL_OPEN_ATTR in sync with the host for
+     the lifetime of the enhancement. Returns the disposer the caller stores
+     and invokes from _teardown().
+
+     Dual-location listeners (v3.550 reviewer fix, root cause: the panel is a
+     document.body sibling, not a DOM descendant of the host — see
+     ensureFooterPanel()'s doc comment): pointerenter/pointerleave do NOT
+     bubble, so they must be attached directly to BOTH self and self._panel,
+     not just delegated from one. Without this, a mouse gliding from the
+     circle onto the panel's own surface fires pointerleave on the host with
+     no compensating pointerenter on the panel, closing the panel while the
+     cursor is still over it. focusin/focusout DO bubble, but only from
+     descendants of the node they are attached to — a real focusable control
+     living inside the panel never bubbles focusin up through the host at
+     all, so keyboard focus moving into the panel could never register as
+     "open" via a host-only listener. Wiring the same listeners onto both
+     nodes, and computing containment via containsAcrossHostAndPanel() (which
+     mirrors hasOpenPanel()'s existing "check both locations" pattern above),
+     closes both gaps. */
+  function armPanelStateMirror(self) {
+    var disposers = [];
+    if (typeof MutationObserver !== "undefined") {
+      var mo = new MutationObserver(function () { syncPanelStateMirror(self); });
+      mo.observe(self, { attributes: true, attributeFilter: PANEL_OPEN_ATTRS.concat([PANEL_LAYOUT_ATTR, 'class']) });
+      disposers.push(function () { mo.disconnect(); });
+    }
+    var onEnter = function () { self._footerHovered = true; syncPanelStateMirror(self); };
+    var onLeave = function () { self._footerHovered = false; syncPanelStateMirror(self); };
+    var onFocusIn = function () { self._footerFocused = true; syncPanelStateMirror(self); };
+    var onFocusOut = function (ev) {
+      /* Only clear the "focused" mirror signal if focus is moving OUTSIDE
+         both the host AND the panel — moving focus from a host control to a
+         panel control (or vice versa) must not flicker the mirror closed. */
+      if (!containsAcrossHostAndPanel(self, ev.relatedTarget)) {
+        self._footerFocused = false;
+        syncPanelStateMirror(self);
+      }
+    };
+    self.addEventListener('pointerenter', onEnter);
+    self.addEventListener('pointerleave', onLeave);
+    self.addEventListener('focusin', onFocusIn);
+    self.addEventListener('focusout', onFocusOut);
+    /* Same four listeners on the panel itself — pointerenter/pointerleave
+       never bubble, so the panel needs its OWN pair; focusin/focusout are
+       wired identically for symmetry and so either surface's listener
+       independently re-arms the "open" mirror regardless of which one the
+       user is currently interacting with. */
+    if (self._panel) {
+      self._panel.addEventListener('pointerenter', onEnter);
+      self._panel.addEventListener('pointerleave', onLeave);
+      self._panel.addEventListener('focusin', onFocusIn);
+      self._panel.addEventListener('focusout', onFocusOut);
+    }
+    disposers.push(function () {
+      self.removeEventListener('pointerenter', onEnter);
+      self.removeEventListener('pointerleave', onLeave);
+      self.removeEventListener('focusin', onFocusIn);
+      self.removeEventListener('focusout', onFocusOut);
+      if (self._panel) {
+        self._panel.removeEventListener('pointerenter', onEnter);
+        self._panel.removeEventListener('pointerleave', onLeave);
+        self._panel.removeEventListener('focusin', onFocusIn);
+        self._panel.removeEventListener('focusout', onFocusOut);
+      }
+      self._footerHovered = false;
+      self._footerFocused = false;
+    });
+    return function () { for (var i = 0; i < disposers.length; i++) disposers[i](); };
+  }
+
+  /* rehomeLooseChildren(): re-parents any child appended to the host directly
+     (author markup evaluated after enhance, an HTMX swap injecting new footer
+     content, etc.) into the existing panel, so `<aura-footer>` keeps behaving
+     like a single container from the author's point of view even though the
+     real content now lives one level deeper (and, since v3.550, one level
+     ELSEWHERE — body-level, not nested). The mark zone is left alone — it
+     stays a direct child of the host, the STABLE part of the button. */
+  function rehomeLooseChildren(self) {
+    if (!self._panel) return;
+    var loose = [];
+    for (var i = 0; i < self.children.length; i++) {
+      var child = self.children[i];
+      if (child.getAttribute('data-footer-zone') === 'mark') continue;
+      loose.push(child);
+    }
+    for (var j = 0; j < loose.length; j++) self._panel.appendChild(loose[j]);
   }
 
   /* rAF-throttled proximity sync: fires for every active FMB footer instance. */
@@ -158,18 +397,43 @@ import "./element-base.js";
     if (self.hasAttribute(PINNED_ATTR)) return;
     if (fmbPointerX < 0) return;
 
-    /* Compute the FMB circle center from CSS tokens + shell bounding rect
-       so the proximity check is accurate even when the footer is currently
-       expanded via CSS :hover (getBoundingClientRect would return the
-       expanded dimensions, not the stashed FMB circle). */
+    /* Mobile convergence (v3.552, #1051): below --aura-bp-mobile the circle
+       is hidden (visibility:hidden; pointer-events:none) by
+       css/footer.css's mobile-convergence block whenever the merged
+       <aura-fmb-column> reveal control has not been triggered — see
+       docs/design/footer-design.md §Mobile convergence. getBoundingClientRect()
+       still returns real geometry for a visibility:hidden box (the box still
+       exists, just isn't painted/hit-testable), so without this guard a real
+       pointer position that happens to land near the circle's own fixed
+       corner — which, not coincidentally, is the SAME corner the reveal
+       control itself occupies — could still satisfy the proximity radius
+       check below and set EXPANDED_ATTR, opening the body-level panel with
+       no visible trigger on screen. Skip proximity entirely while the host
+       is not actually visible; the mobile hidden/revealed state is a CSS-only
+       concept (no companion JS attribute), so read it back via
+       getComputedStyle rather than duplicating the :has()/breakpoint
+       condition here. */
+    if (getComputedStyle(self).visibility === 'hidden') return;
+
+    /* Compute the FMB circle center from the HOST's own bounding rect
+       (v3.550 button/panel decoupling, #1047 — mirrors the identical fix
+       already shipped in js/sidebar.js's syncOne() and js/nav-header.js's
+       syncOneUserFmb()): pre-v3.550, the host's box itself resized between
+       Stashed and Opened, so the proximity math derived the circle's
+       position from the (stable) shell rect + CSS-token pad/radius instead
+       of the host's own (unstable) rect. Post-decoupling, css/footer.css
+       makes the host `position: fixed !important` with a fixed inset/size
+       in EVERY state (Stashed/Opened/Pinned/Revealed — only opacity/filter
+       ever animate, never geometry), so the host's OWN
+       getBoundingClientRect() is now stable and viewport-relative in every
+       state, and reading it directly is both simpler and more correct than
+       re-deriving the same fixed position from a shell ancestor that may
+       not even exist (a standalone, no-shell page) or may not be
+       positioned the way this math assumed. */
     var r   = self._fmbRadius;
-    var pad = self._fmbPad;
-    var shell = self.parentElement;
-    var shellRect = shell
-      ? shell.getBoundingClientRect()
-      : { left: 0, bottom: window.innerHeight };
-    var cx = shellRect.left + pad + r;
-    var cy = shellRect.bottom - pad - r;
+    var rect = self.getBoundingClientRect();
+    var cx = rect.left + r;
+    var cy = rect.top + r;
     var expand = self._fmbExpand;
 
     var dx = fmbPointerX - cx;
@@ -268,12 +532,30 @@ import "./element-base.js";
     _enhance() {
       if (!this._isReveal()) return;             // static footer — nothing to do
       if (this._sentinel) return;                // already enhanced (idempotent)
+      /* Button/panel decoupling (v3.550, #1047): split the host's real content
+         (everything but the mark zone) into an independent floating panel
+         BEFORE any geometry/proximity setup below, so the host's own box from
+         this point on only ever contains the stable mark zone + the panel
+         wrapper — never the raw link/theme-panel content directly. */
+      ensureFooterPanel(this);
+      if (typeof MutationObserver !== "undefined") {
+        var selfForRehome = this;
+        this._panelRehomeMo = new MutationObserver(function () {
+          rehomeLooseChildren(selfForRehome);
+        });
+        this._panelRehomeMo.observe(this, { childList: true });
+      }
+      /* Keep the body-level panel's computed PANEL_OPEN_ATTR + mirrored
+         layout attribute in sync with the host for as long as this instance
+         is enhanced — see armPanelStateMirror()'s doc comment above.
+         Returns a disposer function (not a MutationObserver — it also owns
+         the pointer/focus listener teardown), invoked from _teardown(). */
+      this._disposePanelStateMirror = armPanelStateMirror(this);
       /* Register this instance for FMB proximity detection and install the
          shared pointermove listener (idempotent — only installs once). */
       if (fmbInstances.indexOf(this) < 0) fmbInstances.push(this);
       installFmbMove();
       this._fmbRadius = fmbSizePx(this) / 2;
-      this._fmbPad  = fmbPadPx(this);
       this._fmbExpand = fmbExpandPx(this);
       /* Coverage principle (proximity-glow-design.md §Coverage principle): the
          whole FMB host is a real click target (pin-click below), so it gets the
@@ -392,13 +674,21 @@ import "./element-base.js";
          #787 — also publish --aura-footer-height-current as a CSS custom property
          so consumers can reference the live footer height in CSS without JS.
          Set to the real px value on reveal; removed (reverting to the CSS-set
-         "auto" default in the data-aura-revealed rule) on conceal. */
+         "auto" default in the data-aura-revealed rule) on conceal.
+         Button/panel decoupling (v3.550, #1047): the HOST's own offsetHeight is
+         now always the small fixed circle's height — the surface that actually
+         overlays content on reveal is the independent .aura-footer__panel, so
+         both the scroll-padding reserve and the published height token must
+         read the PANEL's rendered height, falling back to the host's own height
+         if the panel is somehow absent (defensive — should not happen once
+         _enhance() has run). */
       var updateScrollPadding = function (self, revealed) {
         var root = self._scrollRoot || document.scrollingElement || document.documentElement;
-        root.style.scrollPaddingBlockEnd = revealed ? self.offsetHeight + 'px' : '';
+        var measured = (self._panel || self).offsetHeight;
+        root.style.scrollPaddingBlockEnd = revealed ? measured + 'px' : '';
         /* #787: publish/remove the live height token. */
         if (revealed) {
-          self.style.setProperty('--aura-footer-height-current', self.offsetHeight + 'px');
+          self.style.setProperty('--aura-footer-height-current', measured + 'px');
         } else {
           self.style.removeProperty('--aura-footer-height-current');
         }
@@ -410,15 +700,28 @@ import "./element-base.js";
          focusin (bubbles from any descendant); on focusout only remove the revealed
          state if focus actually left the footer AND the sentinel is not intersecting.
          The FOCUSED_ATTR is a JS-only internal marker; CSS relies only on
-         data-aura-revealed (set below). */
+         data-aura-revealed (set below).
+
+         Dual-location (v3.550 reviewer fix, same root cause as
+         armPanelStateMirror above): focusin bubbles, but ONLY from
+         descendants of the node the listener is attached to. Since the real
+         focusable content (links, controls) now lives in the body-level
+         .aura-footer__panel — a document.body sibling of the host, not a
+         DOM descendant (ensureFooterPanel()'s doc comment) — a listener
+         wired only on `self` never sees a focusin that originates inside the
+         panel at all, not even a suppressed/late one. Attach the identical
+         pair to self._panel too, and resolve "did focus leave both surfaces"
+         via containsAcrossHostAndPanel() (shared with armPanelStateMirror)
+         instead of a plain self.contains() check. */
       this._onFocusIn = function () {
         self.setAttribute(REVEALED_ATTR, '');
         updateScrollPadding(self, true);
         if (self._liveRegion) self._liveRegion.textContent = 'Footer content available';
       };
       this._onFocusOut = function (ev) {
-        /* Only conceal if focus is moving OUT of the footer entirely. */
-        if (!self.contains(ev.relatedTarget)) {
+        /* Only conceal if focus is moving OUT of the footer entirely — i.e.
+           out of BOTH the host circle and the body-level panel. */
+        if (!containsAcrossHostAndPanel(self, ev.relatedTarget)) {
           /* Only remove the revealed state if the sentinel is NOT currently
              intersecting (i.e. we haven't naturally scrolled to the end). */
           if (!self._sentinelIntersecting) {
@@ -430,6 +733,10 @@ import "./element-base.js";
       };
       this.addEventListener('focusin', this._onFocusIn);
       this.addEventListener('focusout', this._onFocusOut);
+      if (this._panel) {
+        this._panel.addEventListener('focusin', this._onFocusIn);
+        this._panel.addEventListener('focusout', this._onFocusOut);
+      }
       /* Track intersecting state so focusout can decide whether to re-hide. */
       this._sentinelIntersecting = false;
 
@@ -539,8 +846,11 @@ import "./element-base.js";
               detail: { revealed: true }
             }));
           } else if (!e.isIntersecting && isNowRevealed) {
-            /* Do not conceal if focus is currently inside the footer (#766). */
-            if (!self.contains(document.activeElement)) {
+            /* Do not conceal if focus is currently inside the footer (#766).
+               Dual-location (v3.550 reviewer fix): real focusable content now
+               lives in the body-level panel, not under the host — check both
+               subtrees, mirroring _onFocusOut's identical fix above. */
+            if (!containsAcrossHostAndPanel(self, document.activeElement)) {
               self.removeAttribute(REVEALED_ATTR);
               updateScrollPadding(self, false);
               if (self._liveRegion) self._liveRegion.textContent = '';
@@ -664,6 +974,34 @@ import "./element-base.js";
     }
 
     _teardown() {
+      /* Button/panel decoupling (v3.550, #1047): disconnect the re-home
+         observer and unwrap the panel FIRST — before any other teardown step
+         — so a reveal→static attribute switch (attributeChangedCallback calls
+         _teardown() then _enhance(), which no-ops for a static footer) leaves
+         the author's real content back as direct, in-flow children of the
+         host instead of orphaned inside a wrapper that no CSS rule reaches
+         once data-aura-footer stops being "reveal". Also runs on a genuine
+         disconnectedCallback teardown, where unwrapping is harmless (the
+         whole subtree is being discarded either way). */
+      if (this._panelRehomeMo) { this._panelRehomeMo.disconnect(); this._panelRehomeMo = null; }
+      if (this._disposePanelStateMirror) { this._disposePanelStateMirror(); this._disposePanelStateMirror = null; }
+      if (this._panel) {
+        /* Remove the panel-level focusin/focusout pair (#766 #804 dual-
+           location fix) HERE, while this._panel is still a live reference —
+           this._panel is nulled out at the end of this block, and the
+           general focusin/focusout cleanup further down only knows about
+           the HOST listener, so it cannot reach the panel once this runs. */
+        if (this._onFocusIn) { this._panel.removeEventListener('focusin', this._onFocusIn); }
+        if (this._onFocusOut) { this._panel.removeEventListener('focusout', this._onFocusOut); }
+        /* The panel is body-level (v3.550 containing-block fix, see
+           ensureFooterPanel()'s doc comment) — appendChild here re-parents
+           its content back onto the host regardless of where the panel
+           itself currently lives in the DOM. */
+        var panelChildren = Array.prototype.slice.call(this._panel.childNodes);
+        for (var pc = 0; pc < panelChildren.length; pc++) this.appendChild(panelChildren[pc]);
+        if (this._panel.parentNode) this._panel.parentNode.removeChild(this._panel);
+        this._panel = null;
+      }
       /* Disconnect the stash mirror FIRST (#1019) — disconnect() discards any
          queued records, so the attribute removals below cannot re-trigger a
          late mirror sync after teardown. */
@@ -700,7 +1038,7 @@ import "./element-base.js";
       /* Remove FMB pin-click handler. */
       if (this._onFmbPinClick) { this.removeEventListener("click", this._onFmbPinClick); this._onFmbPinClick = null; }
       this.removeAttribute(PINNED_ATTR);
-      this._fmbRadius = this._fmbPad = this._fmbExpand = 0;
+      this._fmbRadius = this._fmbExpand = 0;
       /* Mirror the _enhance() glow add — unconditional, like the other FMB
          state above, so a still-reveal footer that is merely disconnected/
          reconnected (e.g. an HTMX swap) re-enhances cleanly via _enhance()

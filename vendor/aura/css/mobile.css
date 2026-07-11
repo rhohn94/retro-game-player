@@ -183,7 +183,26 @@ aura-dialog .aura-dialog__surface {
 /* ---- 3c. App-shell collapsing sidebar (drawer) ------------------------- *
    js/shell-nav.js marks the shell [data-aura-shell-collapsed] below the
    breakpoint; CSS drives the off-canvas drawer + scrim. Above the breakpoint
-   the sidebar is in normal flow and the toggle is hidden.                    */
+   the sidebar is in normal flow and the toggle is hidden.
+
+   Scoping (v3.552, #1052 follow-up to the sidebar-fmb-design.md "Known
+   hazard" section): [data-aura-sidebar] is shared by TWO unrelated surfaces —
+   a genuine app-shell drawer sidebar (bare attribute, e.g. the app-frame
+   demo's `.demo-sidebar[data-aura-sidebar]`) and the sidebar FMB, whose outer
+   host also carries the bare attribute even though (since v3.550, #1047) that
+   host is an invisible zero-size positioning root — the pill/panel that
+   actually paint live on a different `[data-sidebar-zone]` selector this
+   block never touches. `data-aura-sidebar="reveal"` is the established
+   FMB-mode marker (js/sidebar.js's pin-engine gate and js/fmb-column.js's
+   registration eligibility already key off this exact value — see
+   js/sidebar.js and js/fmb-column.js's LEGACY_MEMBERS), so `:not([data-aura-
+   sidebar="reveal"])` below excludes FMB-mode hosts from the drawer
+   conversion while a bare or any-other-value [data-aura-sidebar] (genuine
+   drawer sidebars) still convert exactly as before. This is a selector
+   narrowing only — the `<40rem` `!important` defeat block in css/sidebar.css
+   (documented in docs/design/sidebar-fmb-design.md §Known hazard) was removed
+   in v3.553 ITEM-1 (#1052 part 2), so this selector alone now prevents the
+   collision. */
 [data-aura-shell-toggle] { display: none; }
 
 @container (max-width: 40rem) {
@@ -195,7 +214,7 @@ aura-dialog .aura-dialog__surface {
     min-block-size: var(--aura-tap-min);
     min-inline-size: var(--aura-tap-min);
   }
-  [data-aura-sidebar] {
+  [data-aura-sidebar]:not([data-aura-sidebar="reveal"]) {
     position: fixed;
     inset-block: 0;
     inset-inline-start: 0;
@@ -211,20 +230,20 @@ aura-dialog .aura-dialog__surface {
     transition: transform var(--aura-dur-base, 200ms) var(--aura-ease-out);
     overflow: auto;
   }
-  [data-aura-shell-open] [data-aura-sidebar] {
+  [data-aura-shell-open] [data-aura-sidebar]:not([data-aura-sidebar="reveal"]) {
     transform: translateX(0);
   }
   /* RTL: inset-inline-start:0 anchors the drawer to the RIGHT edge, so the
      hidden state must sit off-screen to the right (+100%), not the left.
-     CRITICAL: this hidden rule has the same (0,2,0) specificity as the OPEN rule
+     CRITICAL: this hidden rule has the same (0,3,0) specificity as the OPEN rule
      above and comes later, so it would otherwise also override the open state and
      push an OPEN drawer off-screen. The open-state override below (specificity
-     0,3,0) re-asserts translateX(0) for the open drawer under RTL — mirroring how
+     0,4,0) re-asserts translateX(0) for the open drawer under RTL — mirroring how
      dialog.css guards its RTL drawer transforms by state, not blanket. */
-  [dir="rtl"] [data-aura-sidebar] {
+  [dir="rtl"] [data-aura-sidebar]:not([data-aura-sidebar="reveal"]) {
     transform: translateX(100%);
   }
-  [dir="rtl"] [data-aura-shell-open] [data-aura-sidebar] {
+  [dir="rtl"] [data-aura-shell-open] [data-aura-sidebar]:not([data-aura-sidebar="reveal"]) {
     transform: translateX(0);
   }
   [data-aura-shell-open]::after {
@@ -237,7 +256,7 @@ aura-dialog .aura-dialog__surface {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-aura-sidebar] { transition: none; }
+  [data-aura-sidebar]:not([data-aura-sidebar="reveal"]) { transition: none; }
 }
 
 /* ---- 3d. Context menu / select as a sheet ------------------------------ *

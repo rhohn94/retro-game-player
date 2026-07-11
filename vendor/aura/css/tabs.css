@@ -7,6 +7,9 @@
    Configurable aesthetics — all visual dials surface as component-scoped
    --aura-tabs-* vars that default to global tokens. Re-skin by overriding
    these vars (or the global tokens they reference) with zero component edits.
+   A standalone aura-tablist (no aura-tabs wrapper) declares its own dial
+   defaults via a zero-specificity guard; override the vars on the tablist
+   itself in that composition.
 
    New dials introduced here (see docs/design/tabs-design.md §Aesthetic dials):
      --aura-tabs-tab-gap          gap between tab buttons
@@ -46,6 +49,29 @@ aura-tabs {
 /* position:relative makes aura-tabs the offset parent for absolutely-
    positioned leaving panels during the cross-fade transition.             */
 aura-tabs { display: block; position: relative; }
+
+/* Standalone tablist (no aura-tabs wrapper — a supported composition, e.g.
+   the scrolling-overflow demo): declare the same dial defaults directly so it
+   gets correct padding, gap, and hit area (#1072). Scoped with a
+   zero-specificity :where() guard to a tablist NOT inside aura-tabs — a
+   direct custom-property declaration on the tablist would otherwise shadow
+   consumer overrides set on the aura-tabs wrapper (the cascade defeat
+   documented in #1060), so a wrapped tablist keeps pure inheritance. */
+aura-tablist:where(:not(aura-tabs aura-tablist)) {
+  --aura-tabs-tab-gap:         var(--aura-space-1);
+  --aura-tabs-tab-px:          var(--aura-space-4);
+  --aura-tabs-tab-py:          var(--aura-space-2);
+  --aura-tabs-font-size:       var(--aura-text-sm);
+  --aura-tabs-font-weight:     var(--aura-weight-medium);
+  --aura-tabs-radius:          var(--aura-radius-sm);
+  --aura-tabs-border-color:    var(--aura-surface-stroke);
+  --aura-tabs-indicator-color: var(--aura-primary);
+  --aura-tabs-indicator-size:  2px;
+  --aura-tabs-panel-pt:        var(--aura-space-5);
+  --aura-tabs-dur:             var(--aura-dur-base);
+  --aura-tabs-ease:            var(--aura-ease-out);
+  --aura-tabs-slide:           4px;
+}
 
 /* ---- aura-tablist: the tab bar ---------------------------------------- */
 aura-tablist {
