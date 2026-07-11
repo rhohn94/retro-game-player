@@ -37,10 +37,11 @@ export function SteamGridDbSection(props: SteamGridDbSectionProps) {
         extra art source.
       </p>
       <div style={{ display: "flex", gap: 8 }}>
-        <AuraField tabIndex={0} style={{ flex: 1 }}>
+        <AuraField label="SteamGridDB API key" tabIndex={0} style={{ flex: 1 }}>
           <input
             type="password"
             placeholder="SteamGridDB API key"
+            autoComplete="new-password"
             tabIndex={0}
             value={keyInput}
             onChange={(e) => onKeyInputChange(e.currentTarget.value)}
