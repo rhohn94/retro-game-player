@@ -47,9 +47,14 @@
       "implemented": false
     },
     "package": {
-      "description": "W300 'Passport': assembles the versioned release DMG, then Developer-ID signs + hardened-runtime + Apple-notarizes + staples + Gatekeeper-verifies it (`spctl -a -t open --context context:primary-signature`) when RGP_SIGNING_IDENTITY / RGP_NOTARY_PROFILE are set in the environment. With no credentials configured, produces the same unsigned DMG `pnpm tauri build` always has, logging each skipped step. See docs/design/notarization-distribution-design.md.",
+      "description": "W300 'Passport': assembles the versioned release DMG, then Developer-ID signs + hardened-runtime + Apple-notarizes + staples + Gatekeeper-verifies it (`spctl -a -t open --context context:primary-signature`) when RGP_SIGNING_IDENTITY / RGP_NOTARY_PROFILE are set in the environment. With no credentials configured, fails loudly (exit 1) instead of silently shipping an unsigned DMG Gatekeeper would reject — pass `--allow-unsigned` for an intentional local-dev unsigned build. See docs/design/notarization-distribution-design.md.",
       "command": "python3 scripts/release_sign_notarize.py",
       "implemented": true
+    },
+    "release": {
+      "description": "Stub added by the `release-preset-universal` (v3.90) sync adoption — the native-stack preset's placeholder release-ceremony target. Not yet wired to a real ceremony; routes to `just release` once implemented (flip `implemented` to true after wiring).",
+      "command": "just release",
+      "implemented": false
     }
   }
 }

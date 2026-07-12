@@ -11,6 +11,38 @@ Loaded on demand by `SKILL.md`.
 Do **not** use it to push *from* a project into the scaffolding — that's
 `grm-sync-from-source`. Do not run it inside the scaffolding repo itself.
 
+### Pre-v3.42 projects: use bare skill names until the sync completes (#200)
+
+Every skill name in this document and in `feature-manifest.md` is written with
+its current `grm-` prefix (added by the `skill-namespacing` feature, v3.42).
+**If the project being upgraded has `framework-version` below `"v3.42"` (or no
+`framework-version` field at all), its `.claude/skills/` directory still holds
+the OLD bare names** — `grm-sync-from-upstream`, `grm-config-validate`,
+`grm-install-doctor`, `grm-structure-migrate`, `grm-architecture-audit`, etc. The `grm-`
+prefix does not exist on disk until a sync lands the rename, so invoking a
+`grm-`-prefixed name at that point fails: the directory simply isn't there yet.
+
+Resolve the chicken-and-egg this way:
+
+- **This skill itself, and Steps 0–4 below** (locating/invoking the sync, the
+  dry-run, `--apply`, conflict resolution) — invoke it as
+  **`grm-sync-from-upstream`** (path `.claude/skills/grm-sync-from-upstream/
+  sync-from-upstream.sh`), not `grm-sync-from-upstream`. It is the one skill
+  that must always be reachable by its actual on-disk name — prefixed or not —
+  because it is the thing that performs the rename.
+- **Step 4.5 onward** (feature-manifest adoption loop) — any skill the
+  manifest's `adopt`/`detect` prose names (`grm-config-validate`,
+  `grm-install-doctor`, `grm-structure-migrate`, `grm-architecture-audit`, …) is invoked by
+  its **bare** name too, for the same reason, until the `skill-namespacing`
+  entry's own `adopt` step (`grm_namespacing.py --apply`) has actually run.
+  Once that step completes, `.claude/skills/` holds only `grm-`-prefixed dirs,
+  and every subsequent invocation (the rest of this sync, and all future ones)
+  uses the `grm-*` name exactly as written everywhere else in this document.
+- A quick on-disk check settles which regime a project is in:
+  `ls .claude/skills/ | grep -vE '^(grm-|README|_)' || echo "(none — already namespaced)"`.
+  Any bare survivor listed ⇒ use bare names for not-yet-adopted steps; empty
+  output ⇒ use `grm-*` names throughout, as written.
+
 ---
 
 ## Anti-patterns
@@ -203,7 +235,12 @@ single integration line and off a divergent tree. `--apply` enforces:
   `main` holding work the integration line would lose — is always refused.
 - **Rule 3c — separate commits.** Commit the framework-sync output as its OWN
   commit before running `grm-design-language-adapt` (Aura vendoring); never
-  bundle both, so the collision surface stays small.
+  bundle both, so the collision surface stays small. **Mechanically enforced**
+  (v3.67, #126 criterion 3) by `.claude/hooks/bundled-sync-guard.sh` — a
+  PreToolUse(Bash) hook on `git commit` that denies a commit whose staged
+  changes span both this skill's touch-set and `grm-design-language-adapt`'s
+  touch-set at once. This reminder is the operator-facing half; the hook is
+  the mechanical backstop that fires even if the reminder is ignored.
 
 **The `--allow-ahead` escape hatch (consumer-sync catch-22, #144/#146/#162/#173).**
 After any sync, the integration line carries the prior sync's own
@@ -227,6 +264,21 @@ Use it for back-to-back syncs and constrained environments:
 When a HALT *does* fire under `--allow-ahead`, `main` has genuinely diverged:
 reconcile by merging `main` **into** the integration line (merge-forward); never
 `reset --hard` across the fork (it discards the losing line's commits).
+
+**The sync-continuation token (v3.90) — flag-free follow-up runs.**
+The catch-22 above used to bite *within a single sync flow*: the `--apply`
+commit itself put the line ahead, so the same flow's follow-up runs (a re-sync
+after resolving CONFLICT files, the adoption-phase re-run) demanded
+`--allow-ahead` — a bypass flag autonomous harness classifiers correctly refuse
+to pass. Now a clean-boundary `--apply` records `main`'s SHA in
+`.scaffold-sync-state.json` (untracked local state; never synced, never
+committed). A later `--apply` finding the line ahead auto-permits with a NOTICE
+**iff** `main` still sits at the recorded SHA **and** the fork predicate shows
+`main` carries no unreachable work. Either condition failing restores the
+classic refusal; the fork guard is never relaxed. `--allow-ahead` remains for
+ahead states no token covers (e.g. a prior flow's un-promoted sync commit with
+no recorded boundary). A fully autonomous sync therefore completes end-to-end
+— apply, resolve, re-sync, adopt — with zero bypass flags.
 ## Step 4.55 — Complete the grm- skill namespacing (remove bare-named survivors)
 
 The file-walk **adds** the upstream `grm-*` skills but never deletes the old
@@ -261,3 +313,13 @@ step) so the pristine source reflects the cleaned tree.
 **Under Stealth Mode:** suppress the offer (skill writes must not reach source
 control); leave survivors untouched.
 
+
+## Feature manifest — v3.53 additions
+
+`manifest-version: 62` at the time. v3.53 shipped one new adoption feature:
+
+- **`standard-justfile-recipes`** — Justfile contract: `build`, `run`, and
+  `deploy` recipes with standard argument signatures. Projects with a `justfile`
+  that still carry a `grimoire:placeholder` marker on those recipes are offered
+  the adoption step, which instructs implementing them per
+  `docs/design/justfile-standard-design.md` and verifying with `grm-install-doctor`.

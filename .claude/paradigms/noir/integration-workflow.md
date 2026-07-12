@@ -57,10 +57,9 @@ The integration master is the **only** role that merges into
 For **long-horizon, multi-release** operation under Noir, run releases as
 repeated **iterations** while keeping the orchestrating session's context flat.
 Each iteration is delegated to a fresh subagent so the orchestrator accumulates
-only a tiny summary per cycle. Full design:
-`docs/design/noir-iterative-loop-design.md`; role:
-`docs/grimoire/design/agent-roles-design.md` §B.12 (`release-master`); helper:
-`.claude/skills/grm-noir-loop/`.
+only a tiny summary per cycle. The full design and the `release-master` role
+(§B.12) are framework-internal — see the upstream Grimoire repository for that
+rationale. Helper: `.claude/skills/grm-noir-loop/`.
 
 **The loop, per `/loop` firing.** Claude Code's `/loop` keeps the same
 orchestrator session alive across firings (fixed-interval or self-paced
@@ -68,7 +67,9 @@ orchestrator session alive across firings (fixed-interval or self-paced
 three things:
 
 1. **Spawn ONE `release-master` subagent** (via the `Agent` tool — chip-free, no
-   `spawn_task`) with a self-contained prompt (the §C spawn contract). The prompt
+   `spawn_task`) at the active profile's **`orchestrate` band** — the
+   `{model, effort}` pair from the `grm-repo-reference` resolver, Sonnet in
+   every starter profile — with a self-contained prompt (the §C spawn contract). The prompt
    names the state file path; it does
    **not** inline release history. Inside its own fresh context the
    release-master *is* an integration master for that one iteration — it runs the
@@ -143,6 +144,18 @@ BMI-4 (`protected-branch-guard.sh`) enforces this at commit time; BMI-3 enforces
 it for sync skills. When a fork has already happened, see §Recovering from an
 integration-branch fork (merge-forward) below — that is the only safe path.
 
+**Criterion 2 reconciliation (#126, v3.67).** #126 literally asked for a
+`git merge-base --is-ancestor main <integration>` check before promotion. The
+divergence guard (`DivergenceGuard` in
+`.claude/skills/grm-release-agent-tracker/release_plan.py`, BMI-2) instead uses
+**tree-content reachability** — this is the accepted implementation of that
+criterion, not a gap: it is strictly stricter (catches every real fork a literal
+`is-ancestor` would) and avoids a false-positive `is-ancestor` trips on this
+repo's own healthy `dev`/`main` (nine benign promotion-merge commits make
+`main` a non-ancestor of `dev` with zero real divergence). Full justification
+(§2) lives in the upstream Grimoire repository (framework-internal — not
+shipped).
+
 ---
 
 ## Subagent delegation
@@ -150,6 +163,73 @@ integration-branch fork (merge-forward) below — that is the only safe path.
 Spawn `Agent` subagents for mechanical / read-only work autonomously.
 Reserve `opus`/high for review and integration judgement per the
 `grm-repo-reference` table.
+
+## Filing issues with the Reporter (v1.12)
+
+The **Reporter** is a third named agent role — alongside the task agent and the
+integration master — available in all paradigms. Its sole job is to receive
+feedback and file it via the `grm-feedback-to-issue` skill. It is an **optional
+additional channel**: the integration master may file one item via
+`grm-feedback-to-issue` directly; spawn the Reporter when filing multiple items
+or when you want to keep the integration session focused on git operations.
+Guide: `.claude/skills/grm-agent-reporter/SKILL.md`.
+
+When a work-item session or the integration session discovers something
+out-of-scope (scope creep, a follow-up bug, a deferred item worth tracking), do
+not append bullets directly to `docs/roadmap.md ## Backlog`. Instead route the
+flag through the issue-tracker abstraction:
+
+- The integration master runs `grm-feedback-to-issue` directly for a single item.
+- The integration master spawns the Reporter for multiple items or to keep
+  filing separated from the current session context.
+
+This keeps issue filing decoupled from the roadmap narrative and ensures items
+land in the configured tracker — which may be GitHub Issues rather than the
+roadmap when `grm-issue-tracker` is configured in `.claude/grimoire-config.json`.
+
+### Agent-type taxonomy
+
+| Role | Context type | Git writes | Issue writes | Invoked by |
+|---|---|---|---|---|
+| Task agent | Work-item session | Yes (own branch) | No | Integration master |
+| Integration master | Orchestration session | Merge only | Via Reporter or direct | Human |
+| **Reporter** | Focused filing session | No | Yes | Integration master / human / any |
+
+The Reporter is **not** a paradigm role and has no associated worktree or
+branch. It is a one-shot invocation: file all items, return issue number(s) and
+URL(s), exit.
+
+### Invocation
+
+Under Noir, spawn the Reporter **chip-free** as an `Agent` (isolated context,
+no `spawn_task` chip) — no per-spawn confirmation. Use this prompt template
+verbatim:
+
+```
+Reporter: file the following feedback via grm-feedback-to-issue.
+Audience: <internal|external>.
+Feedback:
+<paste feedback text here>
+```
+
+For multiple items:
+
+```
+Reporter: file the following feedback items via grm-feedback-to-issue, one issue per item.
+Audience: <internal|external> (applies to all unless overridden per item).
+Items:
+1. <first feedback item>
+2. <second feedback item>
+```
+
+The Reporter targets the **configured issue tracker** only — it makes no git
+commits, never reads or writes any `version/*` branch, and is therefore safe to
+run during an in-flight integration session or phase merge. If the configured
+tracker is `roadmap`, the Reporter appends to `docs/roadmap.md ## Backlog` on
+`dev` only — it stops and reports a conflict rather than appending on a
+`version/*` or `main` branch. The Reporter never pushes to origin — that
+remains human-gated even under Noir. Full role definition, spawn mechanics, and
+anti-patterns: `grm-agent-reporter` §1–§7.
 
 ## Workflow-based orchestration
 
@@ -181,7 +261,8 @@ When the master **finishes** — the milestone is reached, or the user says stop
 and no work is outstanding — it runs teardown as its **final ordered step**,
 after §Post-release cleanup. (A master that is *pausing* with work still
 queued checkpoints and schedules a resume instead — it does **not** tear down.)
-Full design: `docs/design/agent-teardown-design.md`. Ordered:
+Design rationale lives in the upstream Grimoire repository (framework-internal
+— not shipped). Ordered:
 
 1. **Confirm durability.** All intended commits made, §5 ledger ticked, release
    tagged + pushed (or pause-state checkpointed); nothing keep-worthy left
@@ -217,7 +298,8 @@ master's worktree (no `worktreePath:`/`worktreeBranch:` footer); its
 `git switch -c <branch>` relocated the master's HEAD onto that work-item branch.
 Subsequent merges/commits piled onto the stray branch, so `version/{X.Y}` (or
 `dev`/`main`) never advanced and a release shipped empty or partial. This is the
-v1.15 incident; the fix work is `docs/design/dispatch-hardening-design.md`.
+v1.15 incident; design rationale for the fix work lives in the upstream
+Grimoire repository (framework-internal — not shipped).
 
 **Detection.** The HEAD-verification gate (`grm-release-phase-merge` §Before every
 merge run) and the `protected-branch-guard.sh` HEAD-drift block both fire when
@@ -334,14 +416,15 @@ under a PM, also lane `version/{X.Y}/<lane>` -> `version/{X.Y}`):
    On `degraded` (no `gh` / remote), fall back to the local merge and log it.
 3. **Dispatch a Reviewer in PR mode** (if `review.auto-dispatch`): it reads the
    PR diff, runs `code-review`, and posts findings per `review.post-comments`
-   (`off` / `comment` / `request-changes`). See the `grm-reviewer` skill §2.5.
+   (`off` / `comment` / `request-changes`). See the `grm-agent-reviewer` skill §2.5.
 4. **Merge via the PR**: `github_pr.py merge --pr N --method <merge-method>` —
    **skip the local `--no-ff` merge at this boundary**. Do not merge while
    `reviewDecision == CHANGES_REQUESTED`. Boundaries not in `boundary` merge
    locally as today.
 
 `grm-github-pr` does **not** imply autonomous push — open/merge stay governed by the
-existing push gate. Full design: `docs/design/github-pr-integration-design.md`.
+existing push gate. The full design is a framework-internal design — see the
+upstream Grimoire repository for that rationale.
 
 ## Pushing to origin
 
@@ -358,8 +441,8 @@ without waiting — the `push-guard.sh` mechanical rails still apply
 (blessed-worktree marker required; only allowlisted refs — `dev`, `main`, and
 the version tag; destructive flags always denied). With the flag absent or
 `false`, behaviour is unchanged: propose and wait. See
-`.claude/skills/grm-integration-master/SKILL.md` (§top) and
-`docs/grimoire/design/autonomy-scheduling-design.md` §2.
+`.claude/skills/grm-integration-master/SKILL.md` (§top). Design rationale (§2)
+lives in the upstream Grimoire repository (framework-internal — not shipped).
 
 Destructive flags (`--force`, `--all`, etc.) are always denied.
 
@@ -373,13 +456,14 @@ Release from the version tag, carrying the `version-history` notes and the
 Release is the **authoritative artifact** downstream `grm-sync-from-upstream` consumes
 (`UPSTREAM_TRANSPORT=release` downloads the flavor's zip). No longer optional — it
 degrades only when `gh` is unavailable, and then **loudly**. Full procedure:
-`grm-project-release` §GitHub Release. Design:
-`docs/design/release-distribution-design.md`.
+`grm-project-release` §GitHub Release. Design rationale lives in the upstream
+Grimoire repository (framework-internal — not shipped).
 
 ## Lane model & multiple marked lane worktrees (v3.1)
 
-When a **Project Manager** owns a multi-feature release (see
-`docs/design/project-manager-role-design.md` and
+When a **Project Manager** owns a multi-feature release (the PM role is a
+framework-internal design — see the upstream Grimoire repository for that
+rationale — and
 `.claude/skills/grm-project-manager/SKILL.md`), the single `version/{X.Y}` staging
 line is split into **parallel lanes**, each implemented by its own integration
 master:
@@ -423,10 +507,29 @@ back to serial, in-place lane execution.
 ## Enforcement (guard hooks)
 
 Same hooks as Supervised: `protected-branch-guard.sh`, `push-guard.sh`,
-`release-plan-guard.sh`, `worktree-guard.sh`. Noir autonomy operates within
-— not around — these mechanical guards. Write-capable Workflow agents are
-subject to the same hooks as isolated-worktree subagent work-item agents: no
-marker means fail-closed on protected branches.
+`release-plan-guard.sh`, `worktree-guard.sh`, `bundled-sync-guard.sh`. Noir
+autonomy operates within — not around — these mechanical guards. Write-capable
+Workflow agents are subject to the same hooks as isolated-worktree subagent
+work-item agents: no marker means fail-closed on protected branches.
+
+**Bundled-sync-commit guard (v3.67, #126 criterion 3).** `bundled-sync-guard.sh`
+is a PreToolUse(Bash) hook matching `git commit`: it denies (`exit 2`) a single
+commit whose STAGED changes span both `grm-sync-from-upstream`'s typical
+touch-set (`.claude/`, `CLAUDE.md`, `AGENTS.md`, `docs/grimoire/`, the
+`.github/` Copilot mirror) and `grm-design-language-adapt`'s typical touch-set
+(`docs/design/ux/`, `vendor/aura/`, `static/aura/`, `templates/base.html`) at
+once. This is the mechanical enforcement of BMI-3 Rule 3c — until v3.67 both
+skills only *reminded* the operator, in prose, to keep framework-sync and Aura
+vendoring in separate commits (never bundled, per design rationale (§3) that
+lives in the upstream Grimoire repository, framework-internal); nothing
+stopped a commit from ignoring the reminder. This closes the exact `24c73dd`
+anti-pattern (a 660-file "Grimoire upstream + Aura v3.21" commit) at the
+mechanical level, complementing — not replacing — each skill's own Rule
+3a/3b branch- and release-boundary refusal (which the skills implement
+themselves, since only they know their own touch-set and boundary context at
+invocation time). Applies to every actor (no marker exemption): bundling the
+two concerns is never legitimate, unlike the marked/unmarked distinctions the
+other guards draw. Self-tested via `--self-test`.
 
 **Cross-worktree branch hijack rule (v1.7).** A spawned/work-item agent (and a
 write-capable Workflow agent) must git-operate **only on its own worktree**. An
@@ -439,6 +542,35 @@ worktree (or crossing boundaries for §Dead-worktree cleanup) is unaffected.
 Agents branch in place from the staging ref
 (`git switch -c <branch> version/{X.Y}`). Autonomy does not exempt an agent
 from this rule — it is enforced mechanically.
+
+**Clean release-boundary guard for marked commits on `main`.**
+The (actor, branch-class) model's `marked + protected -> allow` cell is now
+**conditional** when the protected branch is `main`: a marked integration
+master's `commit`/`merge` on `main` is allowed only at a genuine
+release-promotion boundary, closing the residual where a marked master could
+previously commit to `main` at any time (the #126 failure mode — a manual
+release and a scaffolding sync committed straight to `main` outside any
+promotion flow). `dev` and `version/*` are unaffected — the conditional check
+applies to `main` only. A boundary is clean when any of:
+
+1. `dev` and `main` have identical trees (the BMI-2 tree-content predicate,
+   §Recovering from an integration-branch fork above) — `dev` is already
+   fully promoted.
+2. The invocation IS the promotion merge itself (`git merge <dev-ref>` while
+   HEAD is `main`).
+3. The `.claude/release-in-progress.local` marker is present.
+
+**`.claude/release-in-progress.local` marker convention.** Mirrors
+`.claude/integration-allow.local`: a deliberate, local-only, git-ignored
+marker file, never committed. `grm-project-release`'s promote step creates it
+immediately before `git switch main && git merge dev` and removes it
+immediately after tagging — bracketing the part of the promotion window that
+conditions 1–2 above don't already cover on their own (most commonly a
+version-bump commit landing on `main` directly, after the merge, when trees
+have diverged again). If a release run fails or is aborted mid-promotion, the
+marker must be removed before retrying — a stale marker would leave `main`
+permanently boundary-exempt. Denied cases print a remediation message
+pointing at `grm-project-release`.
 
 ## Git-protocol governance (branch-and-merge default; #84)
 
@@ -490,4 +622,5 @@ branch list from the Workflow's structured output and merges via
 **push to origin remains human-gated even in Noir** (applies to all agents
 and the master). Guard hooks enforce all of these mechanically.
 
-Full design: `docs/grimoire/design/write-capable-workflow-design.md`.
+The full design is a framework-internal design — see the upstream Grimoire
+repository for that rationale.

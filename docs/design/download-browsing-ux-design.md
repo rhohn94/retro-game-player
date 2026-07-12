@@ -1,5 +1,8 @@
 # Download-browsing UX design
 
+> **Up:** [↑ Design docs](README.md)
+
+
 Master contract: `architecture-design.md` §2.5; builds on `download-search-design.md`
 (v0.16 "Trove" preview model) and `file-search-design.md` (the search invariants).
 

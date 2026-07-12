@@ -68,6 +68,18 @@ BMI-4 (`protected-branch-guard.sh`) enforces this at commit time; BMI-3 enforces
 it for sync skills. When a fork has already happened, see §Recovering from an
 integration-branch fork (merge-forward) below — that is the only safe path.
 
+**Criterion 2 reconciliation (#126, v3.67).** #126 literally asked for a
+`git merge-base --is-ancestor main <integration>` check before promotion. The
+divergence guard (`DivergenceGuard` in
+`.claude/skills/grm-release-agent-tracker/release_plan.py`, BMI-2) instead uses
+**tree-content reachability** — this is the accepted implementation of that
+criterion, not a gap: it is strictly stricter (catches every real fork a literal
+`is-ancestor` would) and avoids a false-positive `is-ancestor` trips on this
+repo's own healthy `dev`/`main` (nine benign promotion-merge commits make
+`main` a non-ancestor of `dev` with zero real divergence). Full justification
+(§2) lives in the upstream Grimoire repository (framework-internal — not
+shipped).
+
 ## Researcher/assistant posture
 
 Claude's role in Weiss is to inform and execute — not to lead.
@@ -88,6 +100,72 @@ Spawn `Agent` subagents for mechanical / read-only work when it helps you
 gather information faster for the user. Present the subagent's findings; do
 not act on them without user direction.
 
+## Filing issues with the Reporter (v1.12)
+
+The **Reporter** is a third named agent role — alongside the task agent and the
+integration master — available in all paradigms. Its sole job is to receive
+feedback and file it via the `grm-feedback-to-issue` skill. It is an **optional
+additional channel**: the integration master may file one item via
+`grm-feedback-to-issue` directly; spawn the Reporter when filing multiple items
+or when you want to keep the integration session focused on git operations.
+Guide: `.claude/skills/grm-agent-reporter/SKILL.md`.
+
+When a work-item session or the integration session discovers something
+out-of-scope (scope creep, a follow-up bug, a deferred item worth tracking), do
+not append bullets directly to `docs/roadmap.md ## Backlog`. Instead route the
+flag through the issue-tracker abstraction:
+
+- The integration master runs `grm-feedback-to-issue` directly for a single item.
+- The integration master spawns the Reporter for multiple items or to keep
+  filing separated from the current session context.
+
+This keeps issue filing decoupled from the roadmap narrative and ensures items
+land in the configured tracker — which may be GitHub Issues rather than the
+roadmap when `grm-issue-tracker` is configured in `.claude/grimoire-config.json`.
+
+### Agent-type taxonomy
+
+| Role | Context type | Git writes | Issue writes | Invoked by |
+|---|---|---|---|---|
+| Task agent | Work-item session | Yes (own branch) | No | Integration master |
+| Integration master | Orchestration session | Merge only | Via Reporter or direct | Human |
+| **Reporter** | Focused filing session | No | Yes | Integration master / human / any |
+
+The Reporter is **not** a paradigm role and has no associated worktree or
+branch. It is a one-shot invocation: file all items, return issue number(s) and
+URL(s), exit.
+
+### Invocation
+
+Under Weiss, the integration master **offers** to spawn a Reporter via
+`spawn_task` and waits for user confirmation — it does not auto-spawn. Once
+confirmed, use this prompt template verbatim:
+
+```
+Reporter: file the following feedback via grm-feedback-to-issue.
+Audience: <internal|external>.
+Feedback:
+<paste feedback text here>
+```
+
+For multiple items:
+
+```
+Reporter: file the following feedback items via grm-feedback-to-issue, one issue per item.
+Audience: <internal|external> (applies to all unless overridden per item).
+Items:
+1. <first feedback item>
+2. <second feedback item>
+```
+
+The Reporter targets the **configured issue tracker** only — it makes no git
+commits, never reads or writes any `version/*` branch, and is therefore safe to
+run during an in-flight integration session or phase merge. If the configured
+tracker is `roadmap`, the Reporter appends to `docs/roadmap.md ## Backlog` on
+`dev` only — it stops and reports a conflict rather than appending on a
+`version/*` or `main` branch. Full role definition, spawn mechanics, and
+anti-patterns: `grm-agent-reporter` §1–§7.
+
 ## Workflow-based orchestration
 
 Use `Workflow` only when the user explicitly requests multi-agent
@@ -97,8 +175,9 @@ file-writing or branch-creating next step.
 
 **Write-capable workflows are Noir-only.** In Weiss the read-only convention
 is enforced; write-capable workflows (`meta.tier = 'write-capable'`) require
-the Noir paradigm and will fail closed if invoked here. See
-`docs/grimoire/design/write-capable-workflow-design.md`.
+the Noir paradigm and will fail closed if invoked here. The full design is a
+framework-internal design — see the upstream Grimoire repository for that
+rationale.
 
 ## Dead-worktree cleanup
 
@@ -134,14 +213,15 @@ under a PM, also lane `version/{X.Y}/<lane>` -> `version/{X.Y}`):
    On `degraded` (no `gh` / remote), fall back to the local merge and log it.
 3. **Dispatch a Reviewer in PR mode** (if `review.auto-dispatch`): it reads the
    PR diff, runs `code-review`, and posts findings per `review.post-comments`
-   (`off` / `comment` / `request-changes`). See the `grm-reviewer` skill §2.5.
+   (`off` / `comment` / `request-changes`). See the `grm-agent-reviewer` skill §2.5.
 4. **Merge via the PR**: `github_pr.py merge --pr N --method <merge-method>` —
    **skip the local `--no-ff` merge at this boundary**. Do not merge while
    `reviewDecision == CHANGES_REQUESTED`. Boundaries not in `boundary` merge
    locally as today.
 
 `grm-github-pr` does **not** imply autonomous push — open/merge stay governed by the
-existing push gate. Full design: `docs/design/github-pr-integration-design.md`.
+existing push gate. The full design is a framework-internal design — see the
+upstream Grimoire repository for that rationale.
 
 ## Pushing to origin
 
@@ -157,8 +237,9 @@ human run them if genuinely needed.
 
 ## Lane model & multiple marked lane worktrees (v3.1)
 
-When a **Project Manager** owns a multi-feature release (see
-`docs/design/project-manager-role-design.md` and
+When a **Project Manager** owns a multi-feature release (the PM role is a
+framework-internal design — see the upstream Grimoire repository for that
+rationale — and
 `.claude/skills/grm-project-manager/SKILL.md`), the single `version/{X.Y}` staging
 line is split into **parallel lanes**, each implemented by its own integration
 master:
@@ -202,9 +283,19 @@ back to serial, in-place lane execution.
 ## Enforcement (guard hooks)
 
 Same hooks as Supervised: `protected-branch-guard.sh`, `push-guard.sh`,
-`release-plan-guard.sh`, `worktree-guard.sh`. The Weiss posture adds
-user-confirmation requirements on top of the mechanical guards; it does not
-relax any hook.
+`release-plan-guard.sh`, `worktree-guard.sh`, `bundled-sync-guard.sh`. The
+Weiss posture adds user-confirmation requirements on top of the mechanical
+guards; it does not relax any hook.
+
+**Bundled-sync-commit guard (v3.67, #126 criterion 3).** `bundled-sync-guard.sh`
+denies (`exit 2`) a `git commit` whose staged changes span BOTH
+`grm-sync-from-upstream`'s typical touch-set (`.claude/`, `CLAUDE.md`,
+`AGENTS.md`, `docs/grimoire/`, the `.github/` Copilot mirror) and
+`grm-design-language-adapt`'s typical touch-set (`docs/design/ux/`,
+`vendor/aura/`, `static/aura/`, `templates/base.html`) at once — the mechanical
+enforcement of BMI-3 Rule 3c (previously a reference.md reminder only),
+closing the exact `24c73dd` "660-file framework + Aura in one commit"
+anti-pattern from #126. Applies to every actor; no marker exemption.
 
 **Cross-worktree branch hijack rule (v1.7).** A spawned/work-item agent must
 git-operate **only on its own worktree**. An **unmarked** actor that redirects

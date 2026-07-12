@@ -296,6 +296,90 @@ main_only_cherry_lines() {
 }
 
 # --------------------------------------------------------------------------
+# BMI-3 sync-continuation token (v3.90) — kills the --allow-ahead catch-22.
+# A sync's own commit puts the integration line ahead of main, so the SAME
+# flow's follow-up runs (conflict-resolution re-sync, adoption re-run) used to
+# demand --allow-ahead — a guard-bypass flag autonomous harnesses rightly
+# refuse. Instead, a clean-boundary --apply records main's SHA in
+# .scaffold-sync-state.json; a later --apply auto-permits an ahead line iff
+# main still sits at that exact SHA AND the fork predicate shows main carries
+# no unreachable work. The fork guard is never relaxed; a moved main
+# invalidates the token and the classic refusal applies.
+# --------------------------------------------------------------------------
+continuation_read_sha() {
+  # Arg: state-file path. Echo the recorded boundary main SHA ("" if absent).
+  [ -f "$1" ] || { echo ""; return 0; }
+  sed -n 's/.*"boundary-main-sha"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' "$1" | head -n1
+}
+
+continuation_permits() {
+  # Args: <recorded_sha> <current_main_sha> <cherry_lines>. Pure predicate:
+  # continuation holds iff a SHA was recorded, main has not moved since the
+  # recorded clean boundary, and main carries no unreachable work.
+  local rec="$1" cur="$2" cherry="$3"
+  [ -n "$rec" ] || return 1
+  [ -n "$cur" ] || return 1
+  [ "$rec" = "$cur" ] || return 1
+  if cherry_lines_show_unreachable_work "$cherry"; then return 1; fi
+  return 0
+}
+
+continuation_record() {
+  # Args: <state-file path> <main_sha> <integration-branch>. Overwrites.
+  printf '{\n  "boundary-main-sha": "%s",\n  "integration-branch": "%s",\n  "recorded-by": "sync-from-upstream"\n}\n' \
+    "$2" "$3" > "$1"
+}
+
+# --------------------------------------------------------------------------
+# Hook atomic-replace class (v3.90) — guard hooks are upstream-authoritative.
+# 3-way-merge conflicts inside live guard-hook code cannot be auto-resolved by
+# autonomous agents (harness classifiers block hand-edits to guard logic —
+# correctly), and a stale hook can silently lack a capability its config claims
+# (the warden push-guard incident). Project-specific behavior belongs in
+# .claude/grimoire-config.json, which hooks read at runtime — so any file
+# upstream ships under .claude/hooks/ is REPLACED wholesale on --apply (backed
+# up, loudly reported), never 3-way merged into CONFLICT/REVIEW.
+# --------------------------------------------------------------------------
+is_hook_artifact() {
+  case "$1" in .claude/hooks/*) return 0 ;; esac
+  return 1
+}
+
+# --------------------------------------------------------------------------
+# Stale skill-dir namespacing detection (v3.90) — the file-walk ADDS upstream
+# grm-* skills but never deletes a pre-v3.42 bare-named twin (the sync is
+# non-destructive), so `iterate/` and `grm-iterate/` coexist indefinitely.
+# Echo one "bare/ -> grm-bare/" line per coexisting pair; empty when clean.
+# The migrate itself stays explicitly-confirmed (grm_namespacing.py --apply,
+# reference.md Step 4.55) — this only makes the sync flow SURFACE it.
+# --------------------------------------------------------------------------
+stale_namespacing_pairs() {
+  # Arg: skills dir (e.g. <root>/.claude/skills). Pure over the filesystem.
+  # Alias-aware (#308): the agent-role skills were renamed grm-<role> ->
+  # grm-agent-<role>, so a bare `scout/` pairs with `grm-agent-scout/`, and a
+  # stale grm-era ghost (`grm-scout/`) pairs with its canonical twin too.
+  local sd="$1" d base twin
+  [ -d "$sd" ] || return 0
+  for d in "$sd"/*/; do
+    [ -d "$d" ] || continue
+    base="$(basename "$d")"
+    case "$base" in
+      scout|grm-scout)                 twin="grm-agent-scout" ;;
+      reporter|grm-reporter)           twin="grm-agent-reporter" ;;
+      reviewer|grm-reviewer)           twin="grm-agent-reviewer" ;;
+      verifier|grm-verifier)           twin="grm-agent-verifier" ;;
+      triager|grm-triager)             twin="grm-agent-triager" ;;
+      qa-agent|grm-qa-agent)           twin="grm-agent-qa" ;;
+      grm-*|README*|_*)                continue ;;
+      *)                               twin="grm-$base" ;;
+    esac
+    [ "$base" = "$twin" ] && continue
+    [ -d "$sd/$twin" ] && printf '%s\n' "$base/ -> $twin/"
+  done
+  return 0
+}
+
+# --------------------------------------------------------------------------
 # Files that map to local but must NOT be auto-synced (project-owned/templates)
 # Paths are relative to the flavor dir (== relative to the project root).
 # Defined here (before --self-test) so the self-test can call the real function.
@@ -308,6 +392,7 @@ is_excluded() {
     .grimoire-flavor) return 0 ;;                # upstream flavor marker, not project content (v3.23)
     .claude/settings.local.json|.claude/integration-allow.local) return 0 ;;
     .scaffold-base/*|.scaffold-sync-backup/*|.scaffold-upstream.conf) return 0 ;;
+    .scaffold-sync-state.json) return 0 ;;      # BMI-3 continuation token (v3.90) — local state, never synced
     .claude/grimoire-config.json) return 0 ;;   # adoption phase owns this file (SR1 F2)
     CLAUDE.md) return 0 ;;                       # project-specific; re-specialize manually (SR1 F2)
     # ── Framework-internal docs (v3.39 "Bulkhead" / documentation-separation
@@ -323,10 +408,10 @@ is_excluded() {
     docs/grimoire/sync-flow-audit.md) return 0 ;;
     docs/grimoire/docs-organization-design.md) return 0 ;;    # now internal (DS-1 §6)
     docs/grimoire/maintaining-grimoire.md) return 0 ;;        # root-only internal home
+    docs/grimoire/authoring-grimoire-docs.md) return 0 ;;     # root-only internal doc-authoring guide (v3.46)
     # ── v3.41 "Clean-Room" CR-2 (clean-room-design.md §4): relocated operational
     #    docs + carve-outs. Mirror of build_distributables.py EXCLUDED_PATH_PREFIXES.
     docs/grimoire/integration-workflow.md) return 0 ;;        # framework-process doc
-    docs/grimoire/version-design.md) return 0 ;;              # framework versioning scheme
     docs/grimoire/qa-ledger.md) return 0 ;;                   # framework retrospective-QA ledger
     docs/grimoire/execution-profile-spike-s1.md) return 0 ;;  # framework-dev spike artifact
     docs/grimoire/token-efficiency-*) return 0 ;;             # token-efficiency-* study artifacts
@@ -417,6 +502,121 @@ content_has_conflict_markers() {
   grep -qE '^(<<<<<<< |=======$|>>>>>>> )' 2>/dev/null
 }
 
+# --------------------------------------------------------------------------
+# Additive-only diff3 conflict resolution (#198).
+#
+# Failure mode: `git merge-file` (diff3) conflicts whenever LOCAL's hunk and
+# UPSTREAM's hunk touch overlapping lines relative to BASE — even when the two
+# hunks are semantically compatible. The recurring, safe-to-automate case:
+# LOCAL predates a section that BASE already carries (LOCAL never had it — a
+# pure deletion relative to base, not a deliberate edit), and UPSTREAM still
+# carries that section (whether or not upstream has ALSO changed further
+# nearby). diff3 renders this as a hunk whose LOCAL side is EMPTY and whose
+# UPSTREAM side is non-empty:
+#     <<<<<<< local
+#     =======
+#     <upstream content>
+#     >>>>>>> upstream
+# An empty LOCAL side means local made no conflicting edit of its own in this
+# region — there is nothing of local's to preserve, so "take upstream" is
+# always safe. A hunk with ANY local content is left untouched (a genuine
+# collision — both sides made a real, potentially conflicting edit) so this
+# never silently discards a real customization.
+#
+# Pure over stdin so the self-test can drive it with canned merge-file output.
+# Only ever COLLAPSES empty-local hunks; every other line (including any
+# non-empty-local conflict hunk, markers and all) passes through unchanged.
+#
+# STATE-CONDITIONED PARSING (data-loss fix, reviewer-caught, post-#198):
+# The original implementation matched the three marker patterns against EVERY
+# line unconditionally, regardless of parser state. That is wrong: a hunk's
+# genuine LOCAL or UPSTREAM content can itself contain a line that is BYTE-
+# IDENTICAL to one of the marker patterns — not hypothetical, this very
+# script's own self-test fixtures below contain literal `<<<<<<< local` /
+# `=======` / `>>>>>>> upstream` lines, so any future upstream sync touching
+# this file is a live occurrence. Matching those unconditionally caused the
+# parser to misinterpret real hunk CONTENT as a structural boundary,
+# discarding whatever was already buffered (including genuine non-empty local
+# edits) with zero trace, and could silently misclassify a hunk with real
+# local content as "empty" — collapsing it to MERGED with no conflict markers
+# left to warn the operator. A second failure mode: a hunk missing its closing
+# `>>>>>>> upstream` (malformed/truncated input) caused the parser to buffer
+# forever with no flush, silently dropping all trailing content.
+#
+# The fix: an explicit three-state machine (OUTSIDE / LOCAL / UPSTREAM) where
+# each marker pattern is only a valid transition in the ONE state that expects
+# it; in every other state the "marker-shaped" line is ordinary content to be
+# passed through or buffered verbatim. An unterminated hunk (LOCAL or UPSTREAM
+# still open at end-of-input) is a hard failure for that file: flush the
+# buffered markers/content back out (so the caller's content_has_conflict_markers
+# check still sees markers and keeps the file classified CONFLICT, never
+# MERGED) and log a clear error to stderr. Nothing is ever silently swallowed.
+# --------------------------------------------------------------------------
+resolve_additive_only_conflicts() {
+  # MERGE-FILE OUTPUT (with conflict markers) on stdin; resolved content on
+  # stdout. Idempotent: content with no conflict markers passes through as-is.
+  awk '
+    BEGIN { state = "OUTSIDE"; local_buf = ""; upstream_buf = ""; local_has_content = 0 }
+
+    # OUTSIDE: only a genuine "<<<<<<< local" line opens a hunk. A line that
+    # merely looks like "=======" or ">>>>>>> upstream" is not a valid
+    # transition here (those only mean anything inside an open hunk) — it is
+    # ordinary already-resolved content.
+    state == "OUTSIDE" && /^<<<<<<< local$/ {
+      state = "LOCAL"; local_buf = ""; upstream_buf = ""; local_has_content = 0; next
+    }
+    state == "OUTSIDE" { print; next }
+
+    # LOCAL: only "=======" closes the local side. Any other line — including
+    # one that happens to look like "<<<<<<< local" or ">>>>>>> upstream" — is
+    # buffered as literal local-side content; the only valid next transition
+    # from LOCAL is the separator.
+    state == "LOCAL" && /^=======$/ { state = "UPSTREAM"; next }
+    state == "LOCAL" {
+      local_buf = local_buf $0 "\n"
+      if (length($0) > 0) local_has_content = 1
+      next
+    }
+
+    # UPSTREAM: only ">>>>>>> upstream" closes the hunk. Any other line —
+    # including a marker-shaped one — is buffered as literal upstream-side
+    # content, not a transition.
+    state == "UPSTREAM" && /^>>>>>>> upstream$/ {
+      state = "OUTSIDE"
+      if (local_has_content) {
+        # Genuine collision — reproduce the original hunk verbatim.
+        printf "%s", "<<<<<<< local\n"
+        printf "%s", local_buf
+        printf "%s", "=======\n"
+        printf "%s", upstream_buf
+        printf "%s", ">>>>>>> upstream\n"
+      } else {
+        # Empty-local hunk — additive-only; take upstream, drop the markers.
+        printf "%s", upstream_buf
+      }
+      next
+    }
+    state == "UPSTREAM" { upstream_buf = upstream_buf $0 "\n"; next }
+
+    END {
+      # Unterminated hunk at end-of-input: malformed/unexpected input. Do NOT
+      # silently swallow it — flush the markers/content buffered so far (this
+      # guarantees content_has_conflict_markers still finds a marker line, so
+      # the caller keeps the file classified CONFLICT, never MERGED) and log a
+      # clear, loud error so the operator knows this file needs a human look.
+      if (state == "LOCAL" || state == "UPSTREAM") {
+        print "resolve_additive_only_conflicts: ERROR — unterminated diff3 hunk (missing closing marker); forcing CONFLICT, no content dropped" > "/dev/stderr"
+        printf "%s", "<<<<<<< local\n"
+        printf "%s", local_buf
+        if (state == "UPSTREAM") {
+          printf "%s", "=======\n"
+          printf "%s", upstream_buf
+        }
+      }
+    }
+  '
+}
+
 # --self-test: exercise transport resolution with no network/git, then exit.
 if printf '%s\n' "$@" | grep -qx -- '--self-test'; then
   fails=0
@@ -474,7 +674,7 @@ if printf '%s\n' "$@" | grep -qx -- '--self-test'; then
   assert_eq "grimoire README NOT excl"    "$(excl_rc docs/grimoire/README.md)"            1
   # v3.41 CR-2 relocated operational docs + carve-outs.
   assert_eq "cr2 integration-workflow excl" "$(excl_rc docs/grimoire/integration-workflow.md)"    0
-  assert_eq "cr2 version-design excl"       "$(excl_rc docs/grimoire/version-design.md)"          0
+  assert_eq "version-design NOT excl"       "$(excl_rc docs/grimoire/version-design.md)"          1
   assert_eq "cr2 qa-ledger excl"            "$(excl_rc docs/grimoire/qa-ledger.md)"               0
   assert_eq "cr2 token-efficiency excl"     "$(excl_rc docs/grimoire/token-efficiency-audit.md)"  0
   assert_eq "cr2 relocated rel-plan excl"   "$(excl_rc docs/grimoire/release-planning-v1.0.md)"   0
@@ -505,6 +705,47 @@ if printf '%s\n' "$@" | grep -qx -- '--self-test'; then
   assert_eq "mixed: one + among - => fork"   "$(unreach_rc "- 341e674
 + 46901b7")"                                                                                  0
   assert_eq "git-error sentinel => HALT"     "$(unreach_rc "+ error")"                        0
+
+  # BMI-3 sync-continuation token (v3.90) — the --allow-ahead catch-22 fix.
+  cont_rc() { continuation_permits "$1" "$2" "$3" && echo 0 || echo $?; }
+  assert_eq "no recorded sha => refuse"        "$(cont_rc "" abc123 "")"                     1
+  assert_eq "empty current sha => refuse"      "$(cont_rc abc123 "" "")"                     1
+  assert_eq "main moved => refuse"             "$(cont_rc abc123 def456 "")"                 1
+  assert_eq "match + clean cherry => permit"   "$(cont_rc abc123 abc123 "")"                 0
+  assert_eq "match + promotion-only => permit" "$(cont_rc abc123 abc123 "- 341e674")"        0
+  assert_eq "match but real fork => refuse"    "$(cont_rc abc123 abc123 "+ 46901b7")"        1
+  assert_eq "match but git error => refuse"    "$(cont_rc abc123 abc123 "+ error")"          1
+  _cs="$(mktemp -d)"
+  continuation_record "$_cs/state.json" 0123abcd dev
+  assert_eq "record/read round-trip" "$(continuation_read_sha "$_cs/state.json")" 0123abcd
+  assert_eq "absent state file => empty sha" "$(continuation_read_sha "$_cs/nope.json")" ""
+  rm -rf "$_cs"
+  assert_eq "continuation state file excluded from walk" "$(excl_rc .scaffold-sync-state.json)" 0
+
+  # Hook atomic-replace classification (v3.90) — upstream-authoritative hooks.
+  hook_rc() { is_hook_artifact "$1" && echo 0 || echo $?; }
+  assert_eq "push-guard is a hook artifact"     "$(hook_rc .claude/hooks/push-guard.sh)"        0
+  assert_eq "hook helper module is too"         "$(hook_rc .claude/hooks/_hook_common.py)"      0
+  assert_eq "skill script is NOT a hook"        "$(hook_rc .claude/skills/grm-iterate/SKILL.md)" 1
+  assert_eq "similarly-named non-hook path"     "$(hook_rc docs/hooks/notes.md)"                 1
+
+  # Stale-namespacing pair detection (v3.90) — bare dir coexisting with grm-*.
+  _nsd="$(mktemp -d)"
+  mkdir -p "$_nsd/skills/grm-iterate" "$_nsd/skills/iterate" "$_nsd/skills/grm-clean-only"
+  _pairs="$(stale_namespacing_pairs "$_nsd/skills")"
+  assert_eq "coexisting pair detected" "$_pairs" "iterate/ -> grm-iterate/"
+  rm -rf "$_nsd/skills/iterate"
+  assert_eq "clean tree => no pairs" "$(stale_namespacing_pairs "$_nsd/skills")" ""
+  # #308 alias pairs: bare role dir and grm-era ghost both pair with the
+  # canonical grm-agent-* twin.
+  mkdir -p "$_nsd/skills/grm-agent-scout" "$_nsd/skills/scout"
+  assert_eq "role alias pair detected" "$(stale_namespacing_pairs "$_nsd/skills")" "scout/ -> grm-agent-scout/"
+  rm -rf "$_nsd/skills/scout"; mkdir -p "$_nsd/skills/grm-scout"
+  assert_eq "grm-era ghost pair detected" "$(stale_namespacing_pairs "$_nsd/skills")" "grm-scout/ -> grm-agent-scout/"
+  rm -rf "$_nsd/skills/grm-scout"
+  assert_eq "canonical twin alone => no pairs" "$(stale_namespacing_pairs "$_nsd/skills")" ""
+  assert_eq "missing skills dir => no pairs" "$(stale_namespacing_pairs "$_nsd/absent")" ""
+  rm -rf "$_nsd"
 
   # Missing-symbol heuristic (#180) — definition extraction across shapes.
   _defs="$(printf '%s\n' \
@@ -539,6 +780,106 @@ if printf '%s\n' "$@" | grep -qx -- '--self-test'; then
 x")" 0
   assert_eq "has ======= marker => 0" "$(marker_rc "=======")" 0
   assert_eq "clean text => 1"     "$(marker_rc "just resolved content")" 1
+
+  # Additive-only diff3 conflict resolution (#198) — empty-local hunks collapse
+  # to upstream; any hunk with real local content is left as a genuine conflict.
+  _add_only="$(printf 'line1\n<<<<<<< local\n=======\n# additive upstream section\ncheck_boundary() {\n  echo hi\n}\n>>>>>>> upstream\nline2\n' | resolve_additive_only_conflicts)"
+  assert_eq "additive-only hunk collapses to upstream" "$_add_only" "line1
+# additive upstream section
+check_boundary() {
+  echo hi
+}
+line2"
+  if printf '%s' "$_add_only" | content_has_conflict_markers; then
+    echo "FAIL: additive-only resolution left conflict markers" >&2; fails=$((fails+1))
+  fi
+
+  _genuine_conflict="$(printf 'line1\n<<<<<<< local\nlocal edit\n=======\nupstream edit\n>>>>>>> upstream\nline2\n' | resolve_additive_only_conflicts)"
+  assert_eq "genuine conflict (non-empty local) left untouched" "$_genuine_conflict" "line1
+<<<<<<< local
+local edit
+=======
+upstream edit
+>>>>>>> upstream
+line2"
+
+  _mixed="$(printf 'line1\n<<<<<<< local\n=======\nadditive\n>>>>>>> upstream\nline2\n<<<<<<< local\nreal edit\n=======\nother edit\n>>>>>>> upstream\nline3\n' | resolve_additive_only_conflicts)"
+  assert_eq "mixed file: additive hunk resolved, genuine hunk kept" "$_mixed" "line1
+additive
+line2
+<<<<<<< local
+real edit
+=======
+other edit
+>>>>>>> upstream
+line3"
+
+  _no_markers="$(printf 'plain content\nno markers here\n' | resolve_additive_only_conflicts)"
+  assert_eq "no conflict markers passes through unchanged" "$_no_markers" "plain content
+no markers here"
+
+  # Reviewer-caught data-loss regressions (post-#198): marker-shaped lines
+  # embedded in genuine hunk CONTENT must never be misread as structural
+  # transitions — they are only valid in the ONE state that expects them.
+  #
+  # (a) A hunk with a genuine non-empty LOCAL edit whose UPSTREAM content
+  # contains a line that is itself byte-identical to "<<<<<<< local" (e.g.
+  # this very script's own self-test fixtures further up this file). The old
+  # unconditional-match parser treated that embedded line as a NEW hunk
+  # boundary, discarding the enclosing hunk's real local edit with zero trace.
+  # Because local_has_content is genuinely true, this is NOT additive-only —
+  # the fixed parser must keep it a genuine conflict, markers and all, with
+  # the real local edit intact.
+  _embedded_marker_conflict="$(printf 'line1\n<<<<<<< local\nreal local customization\n=======\nupstream context before\n<<<<<<< local\nupstream context after (fake, just upstream content)\n>>>>>>> upstream\nline2\n' | resolve_additive_only_conflicts)"
+  assert_eq "embedded marker-shaped upstream content does not discard real local edit" "$_embedded_marker_conflict" "line1
+<<<<<<< local
+real local customization
+=======
+upstream context before
+<<<<<<< local
+upstream context after (fake, just upstream content)
+>>>>>>> upstream
+line2"
+  if ! printf '%s' "$_embedded_marker_conflict" | content_has_conflict_markers; then
+    echo "FAIL: embedded-marker hunk with real local content must still report as CONFLICT" >&2; fails=$((fails+1))
+  fi
+
+  # (a2) Same embedded-marker hazard, but the outer hunk's LOCAL side is
+  # genuinely empty — this must still correctly collapse (additive-only),
+  # taking the upstream content (embedded marker-shaped lines and all)
+  # verbatim, proving the fix does not over-correct into treating every
+  # marker-shaped content line as a forced conflict.
+  _embedded_marker_additive="$(printf 'line1\n<<<<<<< local\n=======\nfixture example:\n<<<<<<< local\n=======\n>>>>>>> upstream\nmore upstream code\n>>>>>>> upstream\nline2\n' | resolve_additive_only_conflicts)"
+  assert_eq "embedded marker-shaped upstream content still collapses when local truly empty" "$_embedded_marker_additive" "line1
+fixture example:
+<<<<<<< local
+=======
+more upstream code
+>>>>>>> upstream
+line2"
+
+  # (b) Unterminated hunk (missing closing ">>>>>>> upstream", e.g. malformed
+  # or truncated diff3 output). The old parser buffered forever with no
+  # flush, silently dropping all trailing content (including the real local
+  # edit and everything after it). The fix must flush every buffered line
+  # back out (nothing vanishes) and leave conflict markers in the output so
+  # the caller's content_has_conflict_markers check forces this file to
+  # remain classified CONFLICT rather than silently becoming MERGED.
+  _unterminated="$(printf 'line1\n<<<<<<< local\nreal local edit\n=======\nupstream content that never closes\nline2 that must not vanish\n' | resolve_additive_only_conflicts 2>/dev/null)"
+  assert_eq "unterminated hunk flushes all content, drops nothing" "$_unterminated" "line1
+<<<<<<< local
+real local edit
+=======
+upstream content that never closes
+line2 that must not vanish"
+  if ! printf '%s' "$_unterminated" | content_has_conflict_markers; then
+    echo "FAIL: unterminated hunk must leave conflict markers so caller forces CONFLICT" >&2; fails=$((fails+1))
+  fi
+  _unterminated_stderr="$(printf 'line1\n<<<<<<< local\nreal local edit\n=======\nupstream content that never closes\nline2 that must not vanish\n' | resolve_additive_only_conflicts 2>&1 >/dev/null)"
+  case "$_unterminated_stderr" in
+    *"unterminated diff3 hunk"*) : ;;
+    *) echo "FAIL: unterminated hunk must log a clear error to stderr" >&2; fails=$((fails+1)) ;;
+  esac
 
   if [ "$fails" -eq 0 ]; then echo "sync-from-upstream self-test: all checks passed."; exit 0; fi
   echo "$fails self-test failure(s)." >&2; exit 1
@@ -700,35 +1041,49 @@ if [ "$APPLY" -eq 1 ] && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree 
     exit 3
   fi
   # Rule 3b: refuse when the integration line and main differ — unless the only
-  # difference is the integration line being AHEAD and --allow-ahead is set.
+  # difference is the integration line being AHEAD and either --allow-ahead is
+  # set or a valid sync-continuation token covers the aheadness (v3.90).
+  _STATE_FILE="$PROJECT_ROOT/.scaffold-sync-state.json"
+  _CUR_MAIN_SHA="$(git -C "$PROJECT_ROOT" rev-parse main 2>/dev/null || echo "")"
   if ! git -C "$PROJECT_ROOT" diff --quiet "$_INT" main 2>/dev/null; then
+    # The fork predicate gates EVERY ahead-permitting path — flag or token.
+    _CHERRY="$(main_only_cherry_lines "$PROJECT_ROOT" "$_INT" main)"
+    if cherry_lines_show_unreachable_work "$_CHERRY"; then
+      echo "ERROR (BMI-3): sync-from-upstream --apply refused — main has DIVERGED." >&2
+      echo "  main carries commit(s) of work not on the integration line ('$_INT'):" >&2
+      git -C "$PROJECT_ROOT" log --oneline --no-decorate "$_INT"..main 2>/dev/null | sed 's/^/    /' >&2
+      echo "  This is a real fork, not the integration line merely being ahead." >&2
+      echo "  Neither --allow-ahead nor a sync-continuation token bypasses this." >&2
+      echo "  Reconcile by merging main INTO '$_INT' (merge-forward); never reset" >&2
+      echo "  across the fork (data loss)." >&2
+      exit 3
+    fi
     if [ "$ALLOW_AHEAD" -eq 1 ]; then
-      # Escape hatch: permit only when main carries NO unreachable work (the
-      # same divergence predicate the BMI-2 promotion guard uses). A real fork
-      # still HALTs — the guard is relaxed for "ahead", never for "diverged".
-      _CHERRY="$(main_only_cherry_lines "$PROJECT_ROOT" "$_INT" main)"
-      if cherry_lines_show_unreachable_work "$_CHERRY"; then
-        echo "ERROR (BMI-3): sync-from-upstream --apply refused — main has DIVERGED." >&2
-        echo "  main carries commit(s) of work not on the integration line ('$_INT'):" >&2
-        git -C "$PROJECT_ROOT" log --oneline --no-decorate "$_INT"..main 2>/dev/null | sed 's/^/    /' >&2
-        echo "  This is a real fork, not the integration line merely being ahead." >&2
-        echo "  --allow-ahead does NOT bypass this. Reconcile by merging main INTO" >&2
-        echo "  '$_INT' (merge-forward); never reset across the fork (data loss)." >&2
-        exit 3
-      fi
       echo "NOTICE (BMI-3): integration line ('$_INT') is ahead of main; main carries" >&2
       echo "  no unreachable work, so --allow-ahead permits this sync. Promote the" >&2
       echo "  accumulated integration-line commits to main when convenient." >&2
+    elif continuation_permits "$(continuation_read_sha "$_STATE_FILE")" "$_CUR_MAIN_SHA" "$_CHERRY"; then
+      echo "NOTICE (BMI-3): sync continuation — this flow's earlier --apply ran at a" >&2
+      echo "  clean release boundary (main @ $(printf '%.7s' "$_CUR_MAIN_SHA")) and main has not moved since," >&2
+      echo "  so the integration line being ahead is this sync's own commits. Proceeding" >&2
+      echo "  without --allow-ahead. Promote to main when the flow completes." >&2
     else
       echo "ERROR (BMI-3): sync-from-upstream --apply refused — not at a clean release boundary." >&2
       echo "  The integration line ('$_INT') and main differ (e.g. mid-release work, or" >&2
       echo "  a prior sync's framework-version bump not yet promoted to main)." >&2
       echo "  By default a sync runs only when the two lines are tree-identical." >&2
+      echo "  (A sync that STARTS at a clean boundary records a continuation token in" >&2
+      echo "  .scaffold-sync-state.json, so its own follow-up runs proceed automatically;" >&2
+      echo "  none covers this state — main moved since, or no boundary was recorded.)" >&2
       echo "  If the integration line is simply AHEAD of main (no real fork), re-run with" >&2
       echo "  --allow-ahead to sync without promoting first (the consumer-sync escape hatch)." >&2
       echo "  Otherwise promote the current release, then re-run the sync." >&2
       exit 3
     fi
+  else
+    # Clean boundary: record the continuation token so this flow's follow-up
+    # runs (conflict-resolution re-sync, adoption re-run) proceed flag-free.
+    continuation_record "$_STATE_FILE" "$_CUR_MAIN_SHA" "$_INT"
   fi
 fi
 
@@ -845,8 +1200,8 @@ elif [ "$APPLY" -eq 1 ];      then echo "  mode:     APPLY (writing changes; bac
 else                               echo "  mode:     dry-run (no changes; --apply to write)"; fi
 echo
 
-n_new=0; n_update=0; n_merged=0; n_conflict=0; n_review=0; n_local=0; n_insync=0
-conflicts=""; reviews=""; news=""
+n_new=0; n_update=0; n_merged=0; n_conflict=0; n_review=0; n_local=0; n_insync=0; n_replaced=0
+conflicts=""; reviews=""; news=""; replaced=""
 
 while IFS= read -r rel; do
   rel="${rel#./}"
@@ -867,7 +1222,17 @@ while IFS= read -r rel; do
     printf "  %-10s %s\n" "in-sync" "$rel"; n_insync=$((n_insync+1)); set_base "$U" "$B"; continue
   fi
 
-  # L and U differ
+  # L and U differ — hooks are replaced wholesale (v3.90), never 3-way merged:
+  # guard logic is upstream-authoritative; project behavior lives in
+  # grimoire-config.json. Local copy is backed up and the replacement reported.
+  if is_hook_artifact "$rel"; then
+    printf "  %-10s %s  (hook — upstream-authoritative; local behavior belongs in grimoire-config.json)\n" "REPLACED" "$rel"
+    replaced="${replaced}\n    $rel"; n_replaced=$((n_replaced+1))
+    [ "$SHOW_DIFF" -eq 1 ] && diff -u "$L" "$U" 2>/dev/null | sed 's/^/      /' || true
+    if [ "$APPLY" -eq 1 ]; then backup "$L" "$rel"; cp "$U" "$L"; set_base "$U" "$B"; fi
+    continue
+  fi
+
   if [ ! -f "$B" ]; then
     printf "  %-10s %s  (no base — keeping local; --adopt-base to set provenance)\n" "REVIEW" "$rel"
     reviews="${reviews}\n    $rel"; n_review=$((n_review+1))
@@ -893,6 +1258,23 @@ while IFS= read -r rel; do
     warn_dropped_definitions "$U" "$merged" "$rel"
     if [ "$APPLY" -eq 1 ]; then backup "$L" "$rel"; cp "$merged" "$L"; set_base "$U" "$B"; fi
   else
+    # #198: diff3 can conflict on a hunk that is actually additive-only — LOCAL
+    # predates a section BASE+UPSTREAM both carry, so LOCAL's side of the hunk
+    # is empty. Collapse only those empty-local hunks (take upstream); any hunk
+    # where LOCAL has real content is left as a genuine conflict, untouched.
+    resolved="$(mktemp)"
+    resolve_additive_only_conflicts < "$merged" > "$resolved"
+    if ! content_has_conflict_markers < "$resolved"; then
+      mv "$resolved" "$merged"
+      printf "  %-10s %s  (diff3 additive-only conflict auto-resolved to upstream, #198)\n" "MERGED" "$rel"
+      n_merged=$((n_merged+1))
+      warn_dropped_definitions "$U" "$merged" "$rel"
+      if [ "$APPLY" -eq 1 ]; then backup "$L" "$rel"; cp "$merged" "$L"; set_base "$U" "$B"; fi
+      [ "$SHOW_DIFF" -eq 1 ] && diff -u "$L" "$merged" 2>/dev/null | sed 's/^/      /' || true
+      rm -f "$resolved"
+      continue
+    fi
+    rm -f "$resolved"
     # #181: if LOCAL has no conflict markers, the prior round's conflict was
     # already resolved by hand but its base was never advanced — so we are about
     # to overwrite that manual resolution with fresh markers. Warn loudly and
@@ -923,10 +1305,27 @@ echo
 echo "----------------------------------------------------------------"
 if [ "$ADOPT_BASE" -eq 1 ]; then
   echo "Base recorded in .scaffold-base/ from upstream. Local files untouched."
+  # #199: --adopt-base's own output (the untracked .scaffold-base/ it just wrote)
+  # must never look like a reason --apply would refuse. Tell the operator the
+  # correct next step explicitly instead of letting them discover --force by
+  # trial and error. The dirty-tree guard already ignores untracked-only state
+  # (porcelain_has_tracked_changes, #143) — --force is only load-bearing when
+  # tracked files are ALSO dirty, so the hint reflects the tree's real state.
+  if git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _ADOPT_PORCELAIN="$(git -C "$PROJECT_ROOT" status --porcelain)"
+    if porcelain_has_tracked_changes "$_ADOPT_PORCELAIN"; then
+      echo "Next step: tracked files are also uncommitted — re-run with"
+      echo "  --apply --force (or commit/stash the tracked changes first)."
+    else
+      echo "Next step: re-run with --apply now — the only uncommitted state is"
+      echo "  the untracked .scaffold-base/ just recorded, which never blocks --apply."
+    fi
+  fi
   exit 0
 fi
-echo "Summary: NEW=$n_new UPDATE=$n_update MERGED=$n_merged CONFLICT=$n_conflict REVIEW=$n_review local-only-edits=$n_local in-sync=$n_insync"
+echo "Summary: NEW=$n_new UPDATE=$n_update MERGED=$n_merged REPLACED=$n_replaced CONFLICT=$n_conflict REVIEW=$n_review local-only-edits=$n_local in-sync=$n_insync"
 [ -n "$news" ]      && { echo "New files (generic — re-specialize placeholders after apply):"; printf "%b\n" "$news"; }
+[ -n "$replaced" ]  && { echo "REPLACED hooks (upstream-authoritative; local copies backed up — if a"; echo "  replaced hook carried project-specific behavior, move it into"; echo "  .claude/grimoire-config.json, never back into hook code):"; printf "%b\n" "$replaced"; }
 [ -n "$conflicts" ] && { echo "CONFLICTS to resolve (git markers written on --apply):"; printf "%b\n" "$conflicts"; }
 [ -n "$reviews" ]   && { echo "REVIEW (differ, no base — kept local; merge by hand or --adopt-base):"; printf "%b\n" "$reviews"; }
 [ "$n_symbol_warn" -gt 0 ] && { echo "MISSING-SYMBOL WARNINGS (#180 — call-site without definition; verify these merges):"; printf "%b\n" "$symbol_warnings"; }
@@ -976,6 +1375,24 @@ if [ "$n_conflict" -gt 0 ]; then
   echo "  Resolve them (re-run the sync to advance their base),"
   echo "  then sync again to run the adoption phase."
   exit 0
+fi
+
+# Stale namespacing surfaced mechanically (v3.90) — before the manifest check,
+# so a stale pre-rename manifest path can never hide the survivors.
+_NS_PAIRS="$(stale_namespacing_pairs "$PROJECT_ROOT/.claude/skills")"
+if [ -n "$_NS_PAIRS" ]; then
+  echo
+  echo "----------------------------------------------------------------"
+  echo "Stale skill namespacing detected — bare-named dirs coexist with grm-*:"
+  printf '%s\n' "$_NS_PAIRS" | sed 's/^/    /'
+  echo "  The synced grm-* copies are authoritative; the bare-named twins are"
+  echo "  pre-v3.42 survivors that keep surfacing stale skills. Complete the"
+  echo "  cutover with the namespacing migrate (archives to .grimoire-archive/,"
+  echo "  then removes; rewrites references):"
+  echo "    python3 .claude/skills/grm-sync-from-upstream/grm_namespacing.py --root . --apply"
+  echo "  MIGRATION RULE: it moves user-referenceable dirs — OFFER it with one"
+  echo "  explicit confirmation (all paradigms, Noir included); NEVER auto-run."
+  echo "  Preview first with --dry-run. Full procedure: reference.md Step 4.55."
 fi
 
 MANIFEST="$PROJECT_ROOT/.claude/skills/grm-sync-from-upstream/feature-manifest.md"

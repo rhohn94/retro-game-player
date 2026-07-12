@@ -17,7 +17,8 @@ explicit, never-inferred project setting; default **false**), the master MAY
 push at the release moment without waiting — the `push-guard.sh` mechanical
 rails still apply (blessed-worktree marker required; only allowlisted refs;
 destructive flags always denied). With the flag absent or `false`, behaviour is
-unchanged: propose and wait. See `docs/grimoire/design/autonomy-scheduling-design.md` §2.
+unchanged: propose and wait. (Design rationale, §2, in the upstream Grimoire
+repository, framework-internal.)
 
 **Execute the plan by dispatching, never solo.** Once a release plan reaches
 `status: agreed` and a `version/{X.Y}` staging branch exists, "execute the
@@ -25,6 +26,37 @@ plan" is defined as *run the distributed release-phase pipeline* — decompose
 into phases and dispatch each work item as a separate isolated-worktree agent —
 **never** "write the code yourself in this session." See
 §Default execution path.
+
+---
+
+## Model & escalation (orchestrate band)
+
+The integration master itself resolves through the **`orchestrate` band** of the
+active model/effort profile (`.claude/model-effort-profiles.json`) — **Sonnet in
+every starter profile**. Whoever dispatches a master as a subagent (the Noir
+loop's release-master spawn, a Project Manager lane dispatch) resolves
+`orchestrate` and passes the resulting `{model, effort}` pair on the `Agent`
+call; a master running as the user's own session keeps the session model.
+
+The lean orchestrator is safe because judgment-heavy moments are **escalated,
+never absorbed**. On any of these exceptional conditions —
+
+- a merge conflict whose resolution is not mechanically obvious,
+- a post-merge test failure with unclear root cause,
+- a design or planning question (architecture choice, scope interpretation),
+- acceptance-criteria ambiguity about whether an item is genuinely done —
+
+the master spawns a one-shot **adjudicator** (or **designer**, for design and
+planning questions) at the active profile's **`review` band** — Opus-class in
+most profiles — handing it the concrete artifacts (diff, conflict hunks, failing
+test output, plan excerpt, acceptance criteria) and a mandate to return a
+verdict with an explicit confidence.
+
+Escalation runs *before* the stop conditions: a clear, confident adjudicator
+verdict is acted on autonomously; an ambiguous or low-confidence one falls
+through to the normal stop-and-surface path.
+
+**Resume note:** model pins don't survive `SendMessage`-resume; re-dispatch.
 
 ---
 
@@ -111,7 +143,8 @@ Worktree isolation **occasionally degrades silently**: a dispatched `Agent`
 fresh one. Its `git switch -c <branch>` then relocates the **master's own HEAD**
 onto the work-item branch, and every later merge/commit piles onto that stray
 branch while `version/{X.Y}` never advances — shipping an empty release (the
-v1.15 incident; see `docs/grimoire/design/dispatch-hardening-design.md`).
+v1.15 incident; design rationale in the upstream Grimoire repository,
+framework-internal).
 
 The master MUST defend against this on **every** dispatch batch:
 
@@ -134,8 +167,8 @@ The master MUST defend against this on **every** dispatch batch:
    (b) If a second dispatch is also footerless, invoke the **serial-in-place
    fallback**: the master pre-creates the feature branch, dispatches one agent
    with an explicit "never `git switch/checkout/branch/merge/push`" constraint,
-   then verifies HEAD and branch-content before merging. Full contract:
-   `docs/grimoire/design/dispatch-hardening-design.md` §7.3.
+   then verifies HEAD and branch-content before merging. (Full contract, §7.3,
+   in the upstream Grimoire repository, framework-internal.)
    Scriptable check: `python3 .claude/skills/grm-integration-master/verify_isolation.py
    --result-file <path> --staging-branch version/{X.Y}`.
 

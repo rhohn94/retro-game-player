@@ -1,5 +1,8 @@
 # Provider Discovery — Design
 
+> **Up:** [↑ Design docs](README.md)
+
+
 Master contract: `architecture-design.md` §2.5. Builds on
 `download-search-design.md` (the search/no-download contract) and
 `download-browsing-ux-design.md` (browsing). Introduced in v0.20 "Atlas".

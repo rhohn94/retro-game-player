@@ -1,5 +1,8 @@
 # Presentation shell — controller nav, fullscreen, console specs (v0.14 "Lounge")
 
+> **Up:** [↑ Design docs](README.md)
+
+
 > Status: implemented (v0.14). Groups three UI-layer features that make Harmony
 > pleasant in a couch / big-picture setting: controller navigation of the shell,
 > an OS-fullscreen toggle, and a hardware-specs table on each console.

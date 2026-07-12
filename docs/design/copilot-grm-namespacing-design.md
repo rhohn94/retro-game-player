@@ -1,5 +1,8 @@
 # Copilot grm- Namespacing Migrate Engine
 
+> **Up:** [↑ Design docs](README.md)
+
+
 > **Status:** Accepted — v3.54
 > **Issue:** [#136](https://github.com/rhohn94/grimoire-framework/issues/136)
 > **Related:** `docs/grimoire/design/grm-namespacing-design.md`, `grm-sync-from-upstream`, the copilot `/namespacing-migrate` prompt

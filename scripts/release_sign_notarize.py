@@ -34,13 +34,21 @@ Environment variables (all optional; see design doc §1/§5):
                         notarization + stapling are skipped, independent of
                         whether signing ran.
 
+Exit status when unsigned: an absent RGP_SIGNING_IDENTITY now fails the
+script loudly (exit 1) by default — a DMG that Gatekeeper will reject must
+never look like a successful release. Pass --allow-unsigned to explicitly
+opt into the old behavior (clean unsigned build, exit 0) for local dev.
+
 Modes:
-  (default)     Build (+ sign/notarize/staple/verify as configured).
-  --self-test   Deterministic, stdlib-only regression run of the command-
-                construction + skip-logic (no network, no real codesign/
-                notarytool invocation). Mirrors the sync_deps.py convention.
-  --skip-build  Reuse the existing bundle output instead of rebuilding
-                (useful for iterating on this script itself).
+  (default)        Build (+ sign/notarize/staple/verify as configured).
+  --allow-unsigned Exit 0 for an unsigned build instead of failing loudly
+                    when no signing identity is configured. Local-dev only —
+                    never pass this for a real release.
+  --self-test      Deterministic, stdlib-only regression run of the command-
+                    construction + skip-logic (no network, no real codesign/
+                    notarytool invocation). Mirrors the sync_deps.py convention.
+  --skip-build     Reuse the existing bundle output instead of rebuilding
+                    (useful for iterating on this script itself).
 
 stdlib-only — no third-party dependencies, matching the project's other
 `scripts/*.py` tooling.
@@ -397,9 +405,48 @@ class ReleaseOrchestrator:
     verify as one release pipeline. Each step owns its own skip/fail logic;
     this class only sequences them and decides the overall exit status."""
 
-    def __init__(self, config: SigningConfig, *, dry_run: bool = False) -> None:
+    def __init__(
+        self, config: SigningConfig, *, dry_run: bool = False, allow_unsigned: bool = False
+    ) -> None:
         self.config = config
+        self.allow_unsigned = allow_unsigned
         self.runner = CommandRunner(dry_run=dry_run)
+
+    def decide_exit_status(self, accepted: bool) -> int:
+        """Turns the Gatekeeper-verification result into the script's final
+        exit status. Split out from run() so --self-test can exercise every
+        signed/unsigned x accepted/rejected combination without a real
+        build. An absent signing identity fails loudly (exit 1) unless
+        --allow-unsigned was passed — the fix for the silent-unsigned-
+        release footgun, where this used to always return 0."""
+        if self.config.can_sign and not accepted:
+            print(
+                "[release] ERROR: signing identity was configured but the "
+                "built DMG did not pass Gatekeeper verification.",
+                file=sys.stderr,
+            )
+            return 1
+        if not self.config.can_sign:
+            if not self.allow_unsigned:
+                print(
+                    "[release] ERROR: RGP_SIGNING_IDENTITY is not set — "
+                    "refusing to produce an unsigned release DMG silently "
+                    "(it would fail Gatekeeper on a user's machine while "
+                    "this script exits 0). Set RGP_SIGNING_IDENTITY (+ "
+                    "RGP_NOTARY_PROFILE) to sign+notarize for real, or pass "
+                    "--allow-unsigned to explicitly build an unsigned dev "
+                    "artifact.",
+                    file=sys.stderr,
+                )
+                return 1
+            print(
+                "[release] Unsigned build (--allow-unsigned): spctl rejection "
+                "above is expected (no Developer-ID identity configured in "
+                "this environment). See "
+                "docs/design/notarization-distribution-design.md §7.",
+                file=sys.stderr,
+            )
+        return 0
 
     def run(self, *, skip_build: bool = False) -> int:
         try:
@@ -422,21 +469,7 @@ class ReleaseOrchestrator:
             return 1
 
         accepted = GatekeeperVerifyStep(self.runner).run(dmg_path)
-        if self.config.can_sign and not accepted:
-            print(
-                "[release] ERROR: signing identity was configured but the "
-                "built DMG did not pass Gatekeeper verification.",
-                file=sys.stderr,
-            )
-            return 1
-        if not self.config.can_sign:
-            print(
-                "[release] Unsigned build: spctl rejection above is expected "
-                "(no Developer-ID identity configured in this environment). "
-                "See docs/design/notarization-distribution-design.md §7.",
-                file=sys.stderr,
-            )
-        return 0
+        return self.decide_exit_status(accepted)
 
 
 def _self_test() -> int:
@@ -524,6 +557,30 @@ def _self_test() -> int:
         "spctl invocation uses context:primary-signature",
         runner5.invocations
         and SPCTL_CONTEXT in runner5.invocations[0],
+    )
+
+    # --- Silent-unsigned-release footgun fix --------------------------------
+    # No signing identity + no --allow-unsigned must fail loudly (exit 1),
+    # never silently succeed with a DMG Gatekeeper will reject.
+    check(
+        "unsigned build without --allow-unsigned fails loudly",
+        ReleaseOrchestrator(empty).decide_exit_status(accepted=False) == 1,
+    )
+    # No signing identity + --allow-unsigned preserves the old zero-exit
+    # unsigned-dev-build escape hatch.
+    check(
+        "unsigned build with --allow-unsigned still exits 0",
+        ReleaseOrchestrator(empty, allow_unsigned=True).decide_exit_status(accepted=False) == 0,
+    )
+    # --allow-unsigned only concerns the *unsigned* path — it must never mask
+    # a real signing/notarization failure on a configured build.
+    check(
+        "signed build that fails Gatekeeper still fails even with --allow-unsigned",
+        ReleaseOrchestrator(full, allow_unsigned=True).decide_exit_status(accepted=False) == 1,
+    )
+    check(
+        "signed build that passes Gatekeeper succeeds",
+        ReleaseOrchestrator(full).decide_exit_status(accepted=True) == 0,
     )
 
     # --- W335: BundleMacosGuard + DmgStagingBuilder -------------------------
@@ -649,13 +706,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Reuse the existing bundle output instead of rebuilding.",
     )
+    parser.add_argument(
+        "--allow-unsigned",
+        action="store_true",
+        help=(
+            "Exit 0 for an unsigned build instead of failing loudly when no "
+            "RGP_SIGNING_IDENTITY is configured. Local-dev only — never pass "
+            "this for a real release."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
         return _self_test()
 
     config = SigningConfig.from_env()
-    orchestrator = ReleaseOrchestrator(config)
+    orchestrator = ReleaseOrchestrator(config, allow_unsigned=args.allow_unsigned)
     return orchestrator.run(skip_build=args.skip_build)
 
 

@@ -51,8 +51,10 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _hook_common import _scalar, current_branch, read_config  # noqa: E402
 
 PUSH_SUBCMDS = {"push", "send-pack"}
 
@@ -93,23 +95,6 @@ TAG_PATTERN = re.compile(r"^v?\d+(\.\d+){0,3}(-[A-Za-z0-9._-]+)?$")
 # PR. This widens the ref allowlist only; the marker requirement, destructive-flag
 # denial, and the human-gate (propose-and-wait / autonomous-push) are unchanged.
 PR_HEAD_PATTERN = re.compile(r"^version/.+$")
-
-
-def read_config(proj: str) -> dict:
-    """Parse .claude/grimoire-config.json, or {} if absent/unreadable."""
-    if not proj:
-        return {}
-    try:
-        with open(os.path.join(proj, ".claude", "grimoire-config.json")) as f:
-            cfg = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return cfg if isinstance(cfg, dict) else {}
-
-
-def _scalar(v):
-    """Unwrap a config value that may be a bare scalar or a {"value": ...} block."""
-    return v.get("value") if isinstance(v, dict) else v
 
 
 def github_pr_enabled(proj: str) -> bool:
@@ -289,19 +274,6 @@ def load_allowlist(proj: str) -> set[str]:
     except OSError:
         pass
     return al
-
-
-def current_branch(repo: str) -> str | None:
-    try:
-        out = subprocess.run(
-            ["git", "-C", repo, "symbolic-ref", "--quiet", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
-    return out.stdout.strip() or None
 
 
 def normalize_ref(name: str) -> str:

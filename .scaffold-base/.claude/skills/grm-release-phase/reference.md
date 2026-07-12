@@ -144,9 +144,11 @@ blocked — backlog items must not be dispatched in a release phase for vX.Y.
 
 ## §Anti-patterns (full detail)
 
-- **Spawning without user confirmation** (Supervised gate — always ask first).
-- **Handing the user raw copy-paste prompts** instead of calling `spawn_task` —
-  the integration master spawns the sessions directly.
+- **Under Supervised/Weiss, spawning without user confirmation** — the
+  Supervised gate always asks first.
+- **Under Supervised/Weiss, handing the user raw copy-paste prompts** instead
+  of calling `spawn_task` — the integration master spawns the sessions
+  directly.
 - **Including merge instructions in a spawned prompt** — work-item agents never
   merge; only the integration master merges via `grm-release-phase-merge`.
 - **Batching items that share files** — check §3's conflict map carefully before

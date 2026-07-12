@@ -15,9 +15,8 @@ guard-vetted, non-destructive commands the release pipeline runs constantly —
 so an autonomous release (grm-orchestrate-release / grm-integration-master)
 proceeds without permission prompts. This generalizes the pattern push-guard.sh
 established for `git push`: a static settings.json allowlist entry cannot tell
-the paradigms apart, but a hook can. See
-docs/grimoire/design/autonomous-push-prompt-suppression-design.md and
-docs/grimoire/design/orchestrate-release-design.md §Permission posture.
+the paradigms apart, but a hook can. These are framework-internal design
+specs — see the upstream Grimoire repository for that rationale.
 
 Safety model — this hook NEVER weakens enforcement:
   - It fires only when work-paradigm.value == "Noir" (Supervised / Weiss keep
@@ -43,6 +42,9 @@ import json
 import os
 import shlex
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _hook_common import _scalar, read_config  # noqa: E402
 
 # Non-destructive git subcommands the pipeline runs routinely. Mutating ones
 # in this set (commit / merge / switch / branch / worktree / pull / tag) are
@@ -75,20 +77,6 @@ GH_PUSH_CLASS = {
 }
 STATEMENT_SEPS = {"&&", "||", ";", "&"}
 REDIRECTS = {">", ">>", "<", "<<", ">|"}
-
-
-def _scalar(v):
-    """Unwrap a config value that may be a bare scalar or a {"value": ...} block."""
-    return v.get("value") if isinstance(v, dict) else v
-
-
-def read_config(proj: str) -> dict:
-    try:
-        with open(os.path.join(proj, ".claude", "grimoire-config.json")) as f:
-            cfg = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return cfg if isinstance(cfg, dict) else {}
 
 
 def suppression_active(cfg: dict) -> bool:

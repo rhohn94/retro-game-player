@@ -161,11 +161,21 @@ loud about why it's skipped:
    non-fatal for an unsigned/un-notarized dev build, but is the acceptance
    gate for a real Developer-ID release.
 
-The script never fails the overall build because signing/notarization
-credentials are absent — that would break the existing unsigned-DMG path
-that CI-less local development and this sandboxed environment both rely on.
-It fails loud only on a **real** error in a step it did attempt (e.g. a
-signing identity was supplied but signing itself failed).
+**Overall exit status (fixed post-launch — the silent-unsigned-release
+footgun).** Originally the script never failed the overall build when
+signing/notarization credentials were absent, so a CI-less local run and a
+real release run were indistinguishable by exit code alone: both looked like
+"success" even though the unsigned DMG a bare credential-less run produces
+would be rejected outright by Gatekeeper on any machine that isn't this one.
+An actual release run hit exactly this — exit 0, unsigned DMG, silent
+footgun. The script now defaults to **failing loudly (exit 1)** when
+`RGP_SIGNING_IDENTITY` is absent, with an explicit `--allow-unsigned` flag to
+opt back into the old zero-exit unsigned-dev-build behavior for local
+iteration. It still fails loud, as before, on a **real** error in a step it
+did attempt (e.g. a signing identity was supplied but signing itself
+failed) — `--allow-unsigned` only ever relaxes the *no-credentials* path,
+never a genuine signing/notarization/Gatekeeper failure on a configured
+build.
 
 ### 5. Notarization credentials
 
@@ -282,7 +292,7 @@ part of `recipe.py package`, not a separate manual step.
 |---|---|
 | `tauri.conf.json` bundle config accepts `macOS.entitlements` / `hardenedRuntime` / `signingIdentity` | Verified — Tauri v2 bundler schema; `cargo check`, `cargo build --release`, and the app-bundling step all succeed with these keys present and `signingIdentity: null` (ad-hoc). |
 | Entitlements plist is well-formed and merged into the signed binary | Verified structurally (valid plist, `plutil -lint` clean); **cannot** verify the merged binary's actual entitlements without a real signing identity to sign with. |
-| Wrapper script's conditional skip logic (no identity/profile → clean unsigned build) | Verified via `--self-test` (stdlib-only, no network) — see `scripts/release_sign_notarize.py`. |
+| Wrapper script's conditional skip logic (no identity/profile → per-step skip, overall exit 1 unless `--allow-unsigned`) | Verified via `--self-test` (stdlib-only, no network) — see `scripts/release_sign_notarize.py`. |
 | Wrapper script's sign / notarize / staple code paths | **Not exercised end-to-end** — no real Developer-ID identity or Apple ID credentials exist in this environment. Code paths are written against the documented `codesign`/`notarytool`/`stapler` CLI contracts and unit-tested for command construction (`--self-test`), but never run against Apple's live notarization service. |
 | `BundleMacosGuard` / `DmgStagingBuilder` (W335 DMG assembly, §6) — stale-artifact cleanup, single-`.app` assertion, staging-dir construction, `hdiutil` argv | Verified via `--self-test` against real `tempfile` directories; the `hdiutil` invocation itself is asserted for shape (never a directory that could self-swallow) but not executed for real — the subprocess seam stays `dry_run=True`. Per this work item's done-criteria, **no real DMG build was run in this branch**; a real end-to-end `recipe.py package` run is the integration master's release-time responsibility. |
 | `pnpm tauri build --bundles app` / `recipe.py package` produces a `.dmg` file at all, in this sandbox | **Not run in this branch** (see row above; explicitly out of scope for this work item). Historically (pre-W335), the old `bundle_dmg.sh` path additionally failed here with `execution error: Not authorized to send Apple events to Finder. (-1743)` (this sandbox denies AppleScript/Apple-events automation) **on top of** the "No space left on device" self-swallow bug (#45) — both are moot now that DMG assembly no longer goes through `bundle_dmg.sh` at all (§6), but neither has been re-verified against a real `hdiutil` run in this sandbox. |

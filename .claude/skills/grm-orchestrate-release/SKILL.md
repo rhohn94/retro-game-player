@@ -29,8 +29,8 @@ python3 .claude/skills/grm-orchestrate-release/orchestrate_preflight.py .
   integration marker, missing/unwired hooks, no `dev` branch). Do not
   improvise around a FAIL.
 - **WARN** lines → proceed, but announce the gates that will remain (e.g.
-  `autonomous-push.enabled` false ⇒ the pipeline pauses at the push gate and
-  waits for the user's go).
+  `autonomous-push.enabled` false ⇒ the pipeline will actively prompt at the
+  push gate via `AskUserQuestion` — see stage 6 — rather than push silently).
 - All **PASS** → announce the milestone ("orchestrating v{X.Y} end to end;
   will report at push/cleanup or on a stop condition") and proceed without
   further confirmation requests.
@@ -44,7 +44,7 @@ python3 .claude/skills/grm-orchestrate-release/orchestrate_preflight.py .
 | 3. Dispatch | `grm-release-phase` | Per open phase: batch by the §3 conflict map, dispatch isolated-worktree subagents, chip-free. |
 | 4. Merge | `grm-release-phase-merge` | Merge returned branches in conflict-map order; tests after each merge; tick §5; final `version/{X.Y}` → `dev`. |
 | 5. Release | `grm-project-release` | Preflight docs (version-history, feature-manifest), promote `dev` → `main`, bump, test, tag, build artifacts. |
-| 6. Push | `grm-project-release` §push | Autonomous iff Noir + `autonomous-push.enabled` (push-guard suppresses the prompt itself); otherwise propose and wait. |
+| 6. Push | `grm-project-release` §push | **Ungated** (Noir + `autonomous-push.enabled: true`): push runs immediately, no question asked — push-guard suppresses the permission prompt itself. **Gated** (`autonomous-push.enabled` false): actively prompt via `AskUserQuestion` (`Push now` / `Hold`) with the exact push plan (refs, tag, remote) in the body; a stage-6 pause is expected here, not a failure — resume with `Push now` when the user answers. |
 | 7. Cleanup | `grm-workspace-clean` + dead-worktree cleanup | Remove merged agent worktrees/branches per `docs/grimoire/integration-workflow.md` §Dead-worktree cleanup; confirm `dev`/`main` match origin. |
 | 8. Report | — | One summary: version shipped, items landed/deferred, test state, follow-ups filed. |
 
@@ -68,6 +68,9 @@ Pause and surface — never push through:
 - **Doc/config gate failure** at release preflight (doc-assurance `--strict`,
   config-validate).
 - **User stop** at any time.
+- **Gated push prompt** (stage 6, `autonomous-push.enabled` false): the
+  `AskUserQuestion` pause here is expected, not a failure — it is the single
+  designed interruption of an otherwise autonomous run.
 
 On a stop, report state precisely (what landed, what's pending, which §5 rows
 are ticked) so the session can resume with `grm-release-phase-merge` or
@@ -90,7 +93,7 @@ are ticked) so the session can resume with `grm-release-phase-merge` or
   shared brief (`grm-release-phase` step 5); never inline design docs into
   dispatch prompts.
 - Keep orchestrator context lean: read ledgers and reports, not diffs; use
-  `grm-reviewer` / `grm-qa-agent` in their own sessions when review depth is
+  `grm-agent-reviewer` / `grm-agent-qa` in their own sessions when review depth is
   needed.
 - Prefer the deterministic helpers (preflight script, `release_plan.py`,
   `recipe.py`) over re-deriving state in prose.
