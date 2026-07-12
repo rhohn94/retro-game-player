@@ -1,5 +1,8 @@
 # Library Filtering + Built-in Providers Design (v0.6 "Lens")
 
+> **Up:** [↑ Design docs](README.md)
+
+
 > Built-in, links-only search providers, and a multi-facet filtering experience
 > over the library (console — including a synthetic "Desktop" tab for
 > non-retro rows, year, developer, publisher, a user collection, title, popular

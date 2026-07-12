@@ -176,7 +176,7 @@ holds.
 Upstream closed [#858](https://github.com/rhohn94/design-language/issues/858):
 the **v3.541.0** stable release asset bundle (`aura-v3.541.0.tar.gz`) ships
 `bindings/react` (verified). The §5 path was executed as part of the fleet-wide
-Aura adoption wave (design-language#1033), with one deviation: `vendor-migrate`
+Aura adoption wave (design-language#1033), with one deviation: `grm-vendor-migrate`
 content-matches the *present* bytes (the v3.20-era source tree), which no
 release asset equals, so the active `[deps.aura]` block was authored directly
 and reconciled through the real `grm-sync-deps` engine instead.

@@ -1,7 +1,6 @@
 # Versioning — Design Document
 
-> **Up:** [↑ Docs](README.md)
-
+> **Up:** [↑ Grimoire tier index](README.md)
 
 > Defines how this project names, increments, surfaces, and records its
 > versions. Customise §§2–4 for your project's specific version file and
@@ -71,10 +70,12 @@ anywhere else it appears. Document that location here once you've decided:
 
 1. **Pick the next version.** MINOR for ordinary releases, MAJOR for breaking
    changes, PATCH for hotfixes.
-2. **Write the changelog entry in `docs/version-history.md`.** One heading per
-   release plus 3–8 bullets covering the biggest visible changes — written for
-   end users, not developers. Commit on `dev`. The release script should
-   refuse to run without this entry.
+2. **Write two entries, not one** (see §6): a complete record in
+   `docs/version-history.md` (internal — may reference tickets and technical
+   detail), and a clean, front-facing entry in `docs/changelog.md` (3–8
+   bullets, user voice, no process leakage — this is what ships in release
+   notes). Commit both on `dev`. The release script should refuse to run
+   without either entry.
 3. **Merge `dev` → `main`** and check out `main`.
 
 ### Running the recipe
@@ -89,7 +90,8 @@ Replace with your actual command (e.g. `npm version minor && npm publish`,
 A good release script:
 - Verifies you are on `main` with a clean working tree.
 - Verifies the version tag does not already exist.
-- Verifies a matching `version-history.md` entry exists.
+- Verifies a matching `version-history.md` entry **and** a matching
+  `changelog.md` entry both exist.
 - Bumps the version in the version file (and any lockfiles).
 - Runs the test suite.
 - Builds release artifacts.
@@ -115,7 +117,17 @@ Confirm with the user before pushing.
 
 ---
 
-## 6. Changelog format (`docs/version-history.md`)
+## 6. Two release records, two audiences
+
+Every release writes **both** files — they serve different readers and
+different rules apply:
+
+| | `docs/version-history.md` | `docs/changelog.md` |
+|---|---|---|
+| Audience | Engineers / maintainers | End users |
+| May reference tickets, internal task names, technical detail | Yes | **No** — see `docs/coding-standards.md` §Content & UI copy |
+| Shown to consumers | Never | Yes (release notes, GitHub Release body) |
+| Extracted by `grm-project-release` for the GitHub Release | No | Yes |
 
 ```markdown
 ## v1.4 — {release date}
@@ -125,5 +137,7 @@ Confirm with the user before pushing.
 - …
 ```
 
-One section per release, newest first. Entries are for end users, not
-developers; save technical detail for commit messages.
+Same heading format (`## vX.Y — title`, one section per release, newest
+first) in both files. `version-history.md` entries may be as detailed and
+ticket-heavy as useful for engineering traceability; `changelog.md` entries
+are 3–8 bullets in plain user-facing language, with zero process leakage.

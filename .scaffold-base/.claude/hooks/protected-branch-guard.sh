@@ -46,14 +46,46 @@ straight to `main` without an integration-master marker). The framing in
 #126 — "the guard handles pushes" — is incomplete: the guard also handles
 COMMITS.
 
-Known residual (documented, deferred — NOT closed in v3.38): a MARKED
-integration master may commit to `main` at any time, including mid-release
-out of a clean boundary. This is by design — the master must promote to
-`main` — so the `marked + protected → allow` cell covers it. Tightening
-this (e.g. asserting a clean release boundary before a marked commit on
-`main`) is a recorded follow-up and is NOT in v3.38 scope. The divergence
+Known residual (documented, deferred in v3.38 — CLOSED in v3.64, #214): a
+MARKED integration master could previously commit to `main` at any time,
+including mid-release out of a clean promotion boundary. The divergence
 guard (BMI-2, in the release-planning engine's divergence-check) and process
-discipline are the boundary enforcement at that layer.
+discipline remain the boundary enforcement at the release-planning layer;
+this hook now ALSO enforces it mechanically at commit time — see "Clean
+release-boundary guard" below.
+
+Clean release-boundary guard (v3.64, #214)
+===========================================
+The `marked + protected -> allow` cell is TOTAL for every protected branch
+except `main`, where it is now conditional: a MARKED actor's `commit` /
+`merge` while HEAD is `main` is allowed ONLY when a clean release boundary
+holds, closing the residual above (related to issue #126 — a manual release
+and a scaffolding sync committed straight to `main` outside any promotion
+flow). A boundary is clean when ANY of:
+
+  1. **Tree-content identity** — `git diff --quiet dev main` exits 0 (the
+     same BMI-2 predicate from `integration-branch-integrity-design.md` §2):
+     `dev` is already fully promoted into `main`, so this commit is landing
+     immediately after (or as a no-op continuation of) a clean promotion.
+  2. **This IS the promotion merge** — the invocation is `git merge <dev-ref>`
+     (or `git merge --no-ff dev`, `origin/dev`, etc.) while HEAD is `main`:
+     the tree-identity check in (1) cannot yet be true (that is the whole
+     point of running the merge), so the merge command itself is recognized
+     as the legitimate promotion step.
+  3. **Explicit release-in-progress marker** — the file
+     `$CLAUDE_PROJECT_DIR/.claude/release-in-progress.local` exists, mirroring
+     the `.claude/integration-allow.local` convention: a deliberate, local-only
+     marker the `grm-project-release` skill's promote step creates at the
+     start of the promotion window (right before `git switch main; git merge
+     dev`) and removes at the end (right after tagging). This covers every
+     other legitimate commit inside that window — e.g. a version-bump commit
+     landing on `main` itself — without the guard needing to model every
+     possible promotion-tooling shape.
+
+Failing all three denies the commit/merge with a remediation message pointing
+at `grm-project-release` — this is exactly the #126 failure mode (an ad-hoc
+direct edit-and-commit to `main` outside any release flow). Design rationale
+lives in the upstream Grimoire repository (framework-internal — not shipped).
 
 Write-capable workflow agent safety contract (v1.6+)
 =====================================================
@@ -79,8 +111,8 @@ automatically, with no additional configuration:
   This binary model (marker = allowed, no marker = denied on protected
   branches) was proven correct by the v1.5 vet (wf_84d9bd9b-704) and is
   the foundation for the v1.6 isolated-worktree parallel execution model.
-  See docs/grimoire/design/write-capable-workflow-design.md §3 (Safety rails) and
-  §5.3 (Guard model implications).
+  Safety-rails and guard-model rationale (§3, §5.3) are framework-internal
+  design specs — see the upstream Grimoire repository for that rationale.
 
 Cross-worktree branch hijack guard (v1.7, item A3)
 ==================================================
@@ -131,7 +163,8 @@ The two rules together make the (actor, branch-class) model TOTAL:
   - unmarked + unprotected -> allow  (agent's own work branch)
   - marked   + protected   -> allow  (the integration master at work)
   - marked   + unprotected -> deny   (NEW: master HEAD-drift)
-See docs/grimoire/design/dispatch-hardening-design.md §3.1.
+Design rationale (§3.1) lives in the upstream Grimoire repository
+(framework-internal — not shipped).
 
 History-rewrite deny rule (v3.15, item #84)
 ===========================================
@@ -156,13 +189,16 @@ history. Force-push and remote-ref deletion are the push-side complement and
 remain owned by `push-guard.sh` (DENIED_FLAGS); the two guards together cover
 the full #84 prohibited set. This rule only ADDS denials on protected branches
 — it never widens what is allowed, so the blast radius is unchanged.
-See docs/grimoire/design/git-protocol-governance-design.md §3a.
+Design rationale (§3a) is a framework-internal design spec — see the upstream
+Grimoire repository for that rationale.
 
 Test/check note: to verify the contract holds for concurrent agent
 worktrees, confirm that:
   1. A new worktree created without the marker cannot `git commit` or
      `git merge` on dev / main / version/* (this hook exits 2).
-  2. A worktree with the marker can commit and merge on those branches.
+  2. A worktree with the marker can commit and merge on dev / version/*
+     unconditionally, and on `main` when a clean release boundary holds
+     (v3.64 #214 — see "Clean release-boundary guard" below).
   3. An UNMARKED worktree can commit freely on its own unprotected branch
      (no-op when HEAD is not protected).
   4. A MARKED worktree (the master) CANNOT commit/merge on an unprotected
@@ -196,7 +232,8 @@ refs, repairs branch pointers, and manages worktrees). Read-only forms
 `git switch --detach`) stay allowed. `pull` also joins MUTATING above: it
 commits a merge (or fast-forwards a ref), so an unmarked `git pull` on a
 protected branch is the same failure mode as an unmarked `git merge`.
-See docs/grimoire/design/orchestrate-release-design.md §Guard hardening.
+Design rationale (§Guard hardening) lives in the upstream Grimoire repository
+(framework-internal — not shipped).
 
 Multiple marked lane worktrees (v3.1, Project Manager)
 ======================================================
@@ -213,7 +250,8 @@ hijack guard refuses any op a lane master aims at a SIBLING lane's worktree. The
      cross-worktree hijack guard exits 2).
   6. A MARKED lane worktree whose HEAD drifts off its lane branch onto an
      unprotected work-item branch CANNOT mutate history (HEAD-drift guard, #4).
-See docs/grimoire/design/project-manager-role-design.md §7.
+Design rationale (§7) is a framework-internal design spec — see the upstream
+Grimoire repository for that rationale.
 """
 import json
 import os
@@ -221,6 +259,9 @@ import re
 import shlex
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _hook_common import current_branch  # noqa: E402
 
 MUTATING = {"commit", "merge", "rebase", "cherry-pick", "revert", "pull"}
 # History-REWRITING subcommands prohibited by default on protected branches
@@ -255,6 +296,31 @@ BRANCH_READONLY_FLAGS = {
     "--show-current", "--contains", "--merged", "--no-merged", "--points-at",
 }
 STATEMENT_SEPS = {"&&", "||", ";", "|", "&"}
+# Clean release-boundary guard (v3.64, #214) constants. INTEGRATION_LINE is
+# the branch promoted into `main` (the BMI-2 divergence predicate's `$INT`,
+# default-model value); RELEASE_MARKER_NAME mirrors the
+# `.claude/integration-allow.local` convention for a deliberate, local-only,
+# release-pipeline-owned marker. DEV_MERGE_REFS are the ref spellings a
+# promotion merge legitimately names for `dev` (bare name, explicit
+# refs/heads path, and the origin-tracking form).
+INTEGRATION_LINE = "dev"
+RELEASE_MARKER_NAME = "release-in-progress.local"
+DEV_MERGE_REFS = {"dev", "refs/heads/dev", "origin/dev"}
+# `git merge`'s OWN value-consuming flags (v3.64, #216 reviewer finding).
+# Distinct from OPTS_WITH_VALUE (global options that precede the subcommand,
+# e.g. `-C <path>`): these appear AFTER the `merge` token and, unlike a bare
+# `--no-ff`-style flag, each consumes the NEXT token as its value rather than
+# leaving it as the ref. Left unhandled, that value — e.g. a `-m` commit
+# message — is misread as the merge source ref. Covers `-m`/`--message` (the
+# reported bug: `git merge --no-ff -m "merge(release): ... into main" dev`)
+# and `-X`/`--strategy-option`, both of which per `git merge -h` always take a
+# value, space-separated or `=`-joined. `-S`/`--gpg-sign` is deliberately NOT
+# here: per `git merge -h` it takes only an OPTIONAL GLUED value
+# (`-S[<key-id>]` / `--gpg-sign[=<key-id>]`) and never consumes a following
+# space-separated token — `git merge -S dev` really does mean "sign, and dev
+# is the ref". The glued form (`-Sabc123`, `--gpg-sign=abc123`) is still
+# handled below so it is never misread as the ref.
+MERGE_OPTS_WITH_VALUE = {"-m", "--message", "-X", "--strategy-option"}
 
 
 def find_mutating_subcommand(cmd: str) -> str | None:
@@ -530,17 +596,120 @@ def worktree_of(path: str) -> str | None:
     return head + WORKTREES_SEGMENT + first
 
 
-def current_branch(repo: str) -> str | None:
+def find_merge_source(cmd: str) -> str | None:
+    """Return the ref argument of the FIRST `git merge` invocation, or None.
+
+    Mirrors find_mutating_subcommand's token-walk (global options / option
+    values skipped) so the ref is never confused with an option. Used only to
+    recognize "this command IS the dev-to-main promotion merge" (clean
+    release-boundary guard, v3.64 #214) — it does not change what counts as a
+    MUTATING subcommand.
+
+    Once inside `merge`'s own argument list, flags in MERGE_OPTS_WITH_VALUE
+    (`-m`/`--message`, `-X`/`--strategy-option`) always consume the NEXT token
+    as their value — space-separated (`-m "msg"`) or `=`-joined
+    (`--message="msg"`, `-X=ours`) — so that value is never mistaken for the
+    ref (v3.64, #216 reviewer finding: an unhandled `-m` message was misread
+    as the merge source). `-S`/`--gpg-sign` takes only an OPTIONAL GLUED value
+    (`-Sabc123`, `--gpg-sign=abc123`) per `git merge -h` — it never consumes a
+    following space-separated token (`git merge -S dev` really means "sign,
+    and dev is the ref") — so only its glued forms are skipped.
+    """
+    try:
+        tokens = shlex.split(cmd, comments=False, posix=True)
+    except ValueError:
+        return None
+
+    i, n = 0, len(tokens)
+    while i < n:
+        if tokens[i] == "git" or tokens[i].endswith("/git"):
+            j = i + 1
+            while j < n:
+                t = tokens[j]
+                if t in OPTS_WITH_VALUE:
+                    j += 2
+                    continue
+                if t.startswith("-"):
+                    j += 1
+                    continue
+                if t == "merge":
+                    k = j + 1
+                    while k < n and tokens[k] not in STATEMENT_SEPS:
+                        tk = tokens[k]
+                        if tk in MERGE_OPTS_WITH_VALUE:
+                            k += 2  # space-separated: flag then its value
+                            continue
+                        if "=" in tk and tk.split("=", 1)[0] in MERGE_OPTS_WITH_VALUE:
+                            k += 1  # `--message=msg` / `-X=ours` joined form
+                            continue
+                        if tk.startswith("--gpg-sign=") or (
+                            len(tk) > 2 and tk[:2] in ("-S", "-X")
+                        ):
+                            k += 1  # glued value: `-Sabc123`/`-Xours`/`--gpg-sign=id`
+                            continue
+                        if not tk.startswith("-"):
+                            return tk
+                        k += 1
+                    return None
+                break
+            i = j
+        i += 1
+    return None
+
+
+def _trees_identical(repo: str, ref_a: str, ref_b: str) -> bool:
+    """True iff `ref_a` and `ref_b` resolve to the same tree content in `repo`.
+
+    Thin wrapper over the BMI-2 tree-content predicate (`git diff --quiet`,
+    see integration-branch-integrity-design.md §2): exit 0 = identical trees.
+    Any git/subprocess failure (e.g. a ref that doesn't resolve) is treated as
+    "not identical" — fail closed, never mistake an error for a clean
+    boundary.
+    """
     try:
         out = subprocess.run(
-            ["git", "-C", repo, "symbolic-ref", "--quiet", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            ["git", "-C", repo, "diff", "--quiet", ref_a, ref_b],
+            capture_output=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None  # detached HEAD / not a repo — no-op
-    return out.stdout.strip() or None
+        return False
+    return out.returncode == 0
+
+
+def clean_release_boundary(proj: str, cmd: str) -> bool:
+    """True iff a MARKED actor's commit/merge on `main` sits at a clean
+    release boundary (v3.64, #214 — closes the BMI-4 residual: a marked
+    master could previously commit to `main` at ANY time, including mid-
+    release out of a clean promotion boundary).
+
+    ANY of the following makes the boundary clean:
+      1. Tree-content identity — `dev` and `main` already have identical
+         trees (the same BMI-2 predicate used by the divergence guard):
+         `dev` is fully promoted, so this commit lands immediately after
+         (or as a no-op continuation of) a clean promotion.
+      2. This invocation IS the promotion merge — `git merge <dev-ref>`
+         while HEAD is `main`. Tree-identity (1) cannot yet hold at this
+         point (that is the point of running the merge), so the merge
+         command bringing `dev` in is itself recognized as legitimate.
+      3. The explicit `.claude/release-in-progress.local` marker exists —
+         set by `grm-project-release`'s promote step for the rest of the
+         promotion window (e.g. a version-bump commit landing on `main`).
+
+    Fails closed: any git-command error is treated as "not clean" (never
+    silently allow on an inconclusive check).
+    """
+    marker_path = os.path.join(proj, ".claude", RELEASE_MARKER_NAME)
+    if os.path.isfile(marker_path):
+        return True
+
+    if _trees_identical(proj, INTEGRATION_LINE, "main"):
+        return True
+
+    merge_src = find_merge_source(cmd)
+    if merge_src and merge_src in DEV_MERGE_REFS:
+        return True
+
+    return False
 
 
 def main() -> None:
@@ -667,7 +836,8 @@ def main() -> None:
     # checked-out branch); work-item branches are left alone, per #84. Escape
     # hatches (--abort/--quit/--skip) and soft/mixed resets are exempt inside
     # find_rewrite_op(). Force-push is the push-side complement, owned by
-    # push-guard.sh. See docs/grimoire/design/git-protocol-governance-design.md §3a.
+    # push-guard.sh. Design rationale (§3a) lives in the upstream Grimoire
+    # repository (framework-internal — not shipped).
     rewrite = find_rewrite_op(cmd)
     if rewrite:
         rcur = current_branch(proj)
@@ -719,9 +889,9 @@ def main() -> None:
                 f"  current HEAD: '{cur}' (not dev / main / version/*)\n"
                 "The marker-blessed master may mutate history ONLY on a "
                 "staging branch.\nHEAD on a work-item branch is the silent "
-                "worktree-isolation failure\n(see "
-                "docs/grimoire/design/dispatch-hardening-design.md): a dispatched "
-                "Agent likely ran\nin-place instead of in its own worktree. "
+                "worktree-isolation failure (design rationale is "
+                "framework-internal;\nsee the upstream Grimoire repository): "
+                "a dispatched Agent likely ran\nin-place instead of in its own worktree. "
                 "DO NOT merge — repair first:\n"
                 "  1. Identify the intended staging branch (version/<X.Y>).\n"
                 "  2. If this branch holds stranded work, re-point staging "
@@ -737,6 +907,37 @@ def main() -> None:
 
     # HEAD is on a protected staging branch (dev / main / version/*):
     if actor_marked:
+        # ---- Clean release-boundary guard (v3.64, #214) -----------------
+        # The marked+protected allow is now CONDITIONAL when cur == "main":
+        # closes the BMI-4 residual where a marked master could commit to
+        # `main` at any time, including mid-release out of a clean boundary
+        # (the #126 failure mode: an ad-hoc commit straight to `main` outside
+        # any promotion flow). dev/version/* stay unconditionally allowed for
+        # the marked master — only `main` gets the boundary check.
+        if cur == "main" and not clean_release_boundary(proj, cmd):
+            sys.stderr.write(
+                f"protected-branch-guard: blocked `git {sub}` on 'main' — no "
+                "clean release boundary.\n"
+                f"  worktree: {actor_wt}\n"
+                "A MARKED integration master may commit/merge on 'main' ONLY "
+                "at a genuine\nrelease-promotion boundary. None of the "
+                "following held:\n"
+                "  1. 'dev' and 'main' have identical trees (dev is fully "
+                "promoted)\n"
+                "  2. this command IS the dev-to-main promotion merge\n"
+                "  3. .claude/release-in-progress.local marker is present\n"
+                "This looks like an ad-hoc direct commit to 'main' outside "
+                "any release\nflow (the issue #126 failure mode). Run the "
+                "promotion through\ngrm-project-release instead — its "
+                "promote step brackets the window with\nthe marker so every "
+                "real step of the flow (the dev->main merge, the\n"
+                "version-bump commit, tagging) is recognized as clean.\n"
+                "If this truly is a deliberate out-of-band change, a human "
+                "must place\n.claude/release-in-progress.local "
+                "deliberately before proceeding.\n"
+            )
+            sys.exit(2)
+        # ------------------------------------------------------------------
         sys.exit(0)  # blessed worktree — allowed
 
     sys.stderr.write(
@@ -805,23 +1006,29 @@ def _self_test_commit_on_main() -> int:
 
     Simulates the guard logic in main() at the point after find_mutating_subcommand
     and current_branch are resolved, using injected values so no live git or
-    marker file is needed. Verifies:
+    marker file is needed. The `marked + main` cell is now CONDITIONAL on a
+    clean release boundary (v3.64, #214) — this suite injects `boundary` to
+    exercise both sides without touching real git state; Suite 4
+    (`_self_test_clean_release_boundary`) proves `clean_release_boundary()`
+    itself against a real scratch repo. Verifies:
 
       - UNMARKED actor + `git commit` on `main`  => denied  (exit 2 path)
       - UNMARKED actor + `git merge` on `main`   => denied  (exit 2 path)
-      - MARKED actor   + `git commit` on `main`  => allowed (exit 0 path)
-      - MARKED actor   + `git merge` on `main`   => allowed (exit 0 path)
+      - MARKED actor   + `git commit` on `main`, clean boundary  => allowed
+      - MARKED actor   + `git merge` on `main`, clean boundary   => allowed
+      - MARKED actor   + `git commit` on `main`, NO boundary     => denied (#214)
       - UNMARKED actor + `git commit` on a work branch => allowed (exit 0 path)
 
     The (actor, branch-class) decision table (from the docstring above):
-      unmarked + protected   -> deny
-      unmarked + unprotected -> allow
-      marked   + protected   -> allow
-      marked   + unprotected -> deny  [HEAD-drift; separate guard path]
+      unmarked + protected        -> deny
+      unmarked + unprotected      -> allow
+      marked   + protected (main) -> allow IFF clean release boundary (v3.64)
+      marked   + protected (else) -> allow
+      marked   + unprotected      -> deny  [HEAD-drift; separate guard path]
 
     Returns failure count.
     """
-    def _decision(cmd: str, branch: str, marked: bool) -> str:
+    def _decision(cmd: str, branch: str, marked: bool, boundary: bool = True) -> str:
         """Return 'deny' or 'allow' mirroring main()'s (actor, branch-class) logic."""
         sub = find_mutating_subcommand(cmd)
         if not sub:
@@ -833,30 +1040,36 @@ def _self_test_commit_on_main() -> int:
             return "allow"  # unmarked on own work branch => allow
         # HEAD is on a protected branch
         if marked:
+            if branch == "main" and not boundary:
+                return "deny"  # v3.64 #214: no clean release boundary
             return "allow"  # blessed worktree
         return "deny"  # unmarked + protected => deny (the #126 coverage)
 
     cases = [
-        # (cmd, branch, marked, expected_decision, label)
-        ("git commit -m 'release v8.40'", "main", False, "deny",
+        # (cmd, branch, marked, boundary, expected_decision, label)
+        ("git commit -m 'release v8.40'", "main", False, True, "deny",
          "UNMARKED actor git commit on main => deny (#126 direct-commit coverage)"),
-        ("git merge --no-ff dev", "main", False, "deny",
+        ("git merge --no-ff dev", "main", False, True, "deny",
          "UNMARKED actor git merge on main => deny (#126 direct-commit coverage)"),
-        ("git commit -m 'promote dev to main'", "main", True, "allow",
-         "MARKED master git commit on main => allow (master promoting)"),
-        ("git merge --no-ff dev", "main", True, "allow",
-         "MARKED master git merge on main => allow (master promoting)"),
-        ("git commit -m 'add feature'", "bmi-commit-guard-hook", False, "allow",
+        ("git commit -m 'promote dev to main'", "main", True, True, "allow",
+         "MARKED master git commit on main, clean boundary => allow"),
+        ("git merge --no-ff dev", "main", True, True, "allow",
+         "MARKED master git merge on main, clean boundary => allow"),
+        ("git commit -m 'ad-hoc edit'", "main", True, False, "deny",
+         "MARKED master git commit on main, NO clean boundary => deny (v3.64 #214)"),
+        ("git commit -m 'promote dev to main'", "version/3.64", True, False, "allow",
+         "MARKED master git commit on version/X.Y (not main) => allow regardless of boundary"),
+        ("git commit -m 'add feature'", "bmi-commit-guard-hook", False, True, "allow",
          "UNMARKED actor git commit on work branch => allow (normal work)"),
     ]
     failures = 0
-    for cmd, branch, marked, expected, label in cases:
-        got = _decision(cmd, branch, marked)
+    for cmd, branch, marked, boundary, expected, label in cases:
+        got = _decision(cmd, branch, marked, boundary)
         ok = got == expected
         failures += not ok
         print(("ok  " if ok else "FAIL") + f"  [{label}]")
         if not ok:
-            print(f"       cmd={cmd!r}  branch={branch!r}  marked={marked}")
+            print(f"       cmd={cmd!r}  branch={branch!r}  marked={marked}  boundary={boundary}")
             print(f"       got={got!r}  want={expected!r}")
     return failures
 
@@ -925,6 +1138,207 @@ def _self_test_branch_hygiene() -> int:
     return failures
 
 
+def _self_test_find_merge_source() -> int:
+    """Parser-level self-test for find_merge_source() (v3.64, #214, #216).
+
+    No git needed — exercises the ref-extraction walk against a table of
+    `git merge` invocations (and non-merge look-alikes)."""
+    cases = [
+        ("git merge --no-ff dev", "dev"),
+        ("git merge dev", "dev"),
+        ("git merge origin/dev", "origin/dev"),
+        ("git merge refs/heads/dev", "refs/heads/dev"),
+        ("git merge --no-ff --strategy=recursive dev", "dev"),
+        ("git -C /repo merge dev", "dev"),
+        ("git merge feature/x", "feature/x"),
+        ("git commit -m 'merge dev manually'", None),  # 'merge' only in message text
+        ("git status", None),
+        ("git merge --abort", None),  # escape hatch: no positional ref
+        # #216 reviewer finding: -m/--message consumes the NEXT token as its
+        # value — an unhandled `-m` message was misread as the merge source.
+        # Space-separated form (the reported bug, this repo's own historical
+        # promotion-commit style):
+        (
+            'git merge --no-ff -m "merge(release): v3.64 into main" dev',
+            "dev",
+        ),
+        # `=`-joined form:
+        (
+            'git merge --message="merge(release): v3.64 into main" dev',
+            "dev",
+        ),
+        # Non-blocking reviewer note: -X/--strategy-option and -S/--gpg-sign
+        # can also precede the ref and must resolve to it, not their value.
+        ("git merge -X ours dev", "dev"),          # -X space-separated value
+        ("git merge -Xours dev", "dev"),            # -X glued value
+        ("git merge --strategy-option=ours dev", "dev"),  # -X long =-joined
+        ("git merge -Sabc123 dev", "dev"),          # -S glued key-id (optional value)
+        ("git merge --gpg-sign=abc123 dev", "dev"),  # --gpg-sign =-joined key-id
+        # -S/--gpg-sign take only an OPTIONAL glued value (never a following
+        # space-separated token per `git merge -h`), so a bare -S / --gpg-sign
+        # does NOT consume the next token — it correctly resolves to the ref.
+        ("git merge -S dev", "dev"),
+        ("git merge --gpg-sign dev", "dev"),
+    ]
+    failures = 0
+    for cmd, expected in cases:
+        got = find_merge_source(cmd)
+        ok = got == expected
+        failures += not ok
+        print(("ok  " if ok else "FAIL") + f"  {cmd!r} -> {got!r} (want {expected!r})")
+    return failures
+
+
+def _self_test_clean_release_boundary() -> int:
+    """Real-scratch-git-repo self-test for clean_release_boundary() (v3.64,
+    #214) — proves the guard against actual git state, not just parsed
+    strings, mirroring the promotion sequence `grm-project-release` performs:
+    a version-bump commit on `dev`, then `git switch main && git merge dev`.
+
+    Cases proven against a real repo:
+      1. Fresh repo, dev == main (freshly branched)      => clean  (tree-identical)
+      2. dev advances with new work, main untouched       => NOT clean (ad-hoc
+         commit on main here would be the #126 failure mode)
+      3. The literal promotion merge command itself
+         (`git merge --no-ff dev` while on main)           => clean (case 2 of
+         the predicate: this command IS the promotion)
+      4. After actually running that merge (trees now
+         identical)                                        => clean (case 1)
+      5. release-in-progress.local marker present, trees
+         still diverged, command is an unrelated commit     => clean (case 3:
+         explicit marker covers e.g. the version-bump commit on main)
+      6. No marker, diverged trees, unrelated command        => NOT clean (deny)
+
+    Returns failure count. Skips (prints SKIP, returns 0) if git or a temp
+    directory is unavailable — self-test must not fail the harness on an
+    exotic environment, but the check itself always runs in real usage.
+    """
+    import shutil
+    import tempfile
+
+    if shutil.which("git") is None:
+        print("SKIP  clean_release_boundary real-repo suite (git not on PATH)")
+        return 0
+
+    failures = 0
+
+    def _run(repo: str, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", repo, *args],
+            capture_output=True, text=True, timeout=10,
+        )
+
+    def _check(label: str, got: bool, want: bool) -> None:
+        nonlocal failures
+        ok = got == want
+        failures += not ok
+        print(("ok  " if ok else "FAIL") + f"  [{label}] got={got} want={want}")
+
+    with tempfile.TemporaryDirectory(prefix="pbg-selftest-") as repo:
+        _run(repo, "init", "-q", "-b", "main")
+        _run(repo, "config", "user.email", "selftest@example.invalid")
+        _run(repo, "config", "user.name", "Guard Selftest")
+        readme = os.path.join(repo, "README.md")
+        with open(readme, "w") as f:
+            f.write("seed\n")
+        _run(repo, "add", "README.md")
+        _run(repo, "commit", "-q", "-m", "seed")
+        _run(repo, "branch", "dev", "main")
+
+        # Case 1: dev == main, freshly branched — trees identical.
+        _check(
+            "fresh repo, dev == main => clean",
+            clean_release_boundary(repo, "git commit -m 'noop'"),
+            True,
+        )
+
+        # Advance dev with real work (simulates the version-bump commit
+        # grm-project-release makes on dev before promoting).
+        _run(repo, "switch", "-q", "dev")
+        feature = os.path.join(repo, "feature.txt")
+        with open(feature, "w") as f:
+            f.write("new work\n")
+        _run(repo, "add", "feature.txt")
+        _run(repo, "commit", "-q", "-m", "feat: add feature")
+
+        # Case 2: main untouched, dev ahead — an ad-hoc commit on main now
+        # would be the #126 failure mode. No marker, ordinary commit.
+        _run(repo, "switch", "-q", "main")
+        _check(
+            "dev ahead of main, no marker, ordinary commit => NOT clean (deny)",
+            clean_release_boundary(repo, "git commit -m 'direct edit on main'"),
+            False,
+        )
+
+        # Case 3: the literal promotion merge command itself, while still
+        # diverged (trees haven't reconciled yet — that's the point of
+        # running it). Recognized via find_merge_source, not tree-identity.
+        # Uses a realistic custom `-m` message matching this repo's ACTUAL
+        # historical promotion-commit style (see `git log --merges`, e.g.
+        # "merge(release): v3.63 ... into main") rather than the bare
+        # `git merge --no-ff dev` the #216 reviewer noted was an
+        # oversimplified stand-in — this is exactly the invocation form the
+        # #216 bug misparsed (the `-m` message was returned as the merge
+        # source instead of `dev`).
+        _check(
+            "diverged, command IS `git merge --no-ff -m '<release message>' dev` "
+            "on main => clean",
+            clean_release_boundary(
+                repo,
+                'git merge --no-ff -m "merge(release): v3.64 clean-release-boundary '
+                'assertion for marked commits into main" dev',
+            ),
+            True,
+        )
+
+        # Case 4: actually perform the promotion merge; trees now identical.
+        _run(
+            repo, "merge", "--no-ff", "-q", "-m",
+            "merge(release): v3.64 clean-release-boundary assertion for marked "
+            "commits into main",
+            "dev",
+        )
+        _check(
+            "post-promotion-merge, trees identical => clean",
+            clean_release_boundary(repo, "git commit -m 'unrelated later commit'"),
+            True,
+        )
+
+        # Re-diverge (simulate `dev` moving on afterward) so the marker case
+        # is tested against a genuinely NOT-tree-identical state.
+        _run(repo, "switch", "-q", "dev")
+        feature2 = os.path.join(repo, "feature2.txt")
+        with open(feature2, "w") as f:
+            f.write("more work\n")
+        _run(repo, "add", "feature2.txt")
+        _run(repo, "commit", "-q", "-m", "feat: more work")
+        _run(repo, "switch", "-q", "main")
+
+        # Case 5: explicit marker present covers the diverged state (e.g. the
+        # version-bump commit landing on main mid-promotion-window).
+        os.makedirs(os.path.join(repo, ".claude"), exist_ok=True)
+        marker_path = os.path.join(repo, ".claude", RELEASE_MARKER_NAME)
+        with open(marker_path, "w") as f:
+            f.write("")
+        _check(
+            "diverged, release-in-progress.local marker present => clean",
+            clean_release_boundary(repo, "git commit -m 'version bump to v1.1'"),
+            True,
+        )
+
+        # Case 6: remove the marker — same diverged state, ordinary commit,
+        # not the promotion merge => must deny again (no regression to
+        # "marked + main always allowed").
+        os.remove(marker_path)
+        _check(
+            "marker removed, still diverged, ordinary commit => NOT clean (deny)",
+            clean_release_boundary(repo, "git commit -m 'another ad-hoc edit'"),
+            False,
+        )
+
+    return failures
+
+
 def _self_test() -> int:
     """Combined self-test: history-rewrite detector + direct-commit-on-main model.
 
@@ -936,15 +1350,24 @@ def _self_test() -> int:
 
     Suite 2 — (actor, branch-class) direct-commit-to-main model (BMI-4, v3.38):
       Injected branch + marker values; proves an UNMARKED actor's git commit/merge
-      on 'main' is denied and a MARKED actor is allowed. Locks #126-relevant
+      on 'main' is denied and a MARKED actor is allowed (now conditional on a
+      clean release boundary for 'main' — v3.64 #214). Locks #126-relevant
       behaviour against regression.
+
+    Suite 4 — clean release-boundary guard (v3.64, #214):
+      find_merge_source() parser-level cases, plus clean_release_boundary()
+      proven against a REAL scratch git repo simulating an actual
+      grm-project-release-style promotion sequence (not just injected values).
     """
     print("=== Suite 1: history-rewrite detector (v3.15 #84) ===")
     failures = _self_test_rewrite_detector()
-    print(f"\n=== Suite 2: direct-commit-on-main model (BMI-4 v3.38 #126) ===")
+    print(f"\n=== Suite 2: direct-commit-on-main model (BMI-4 v3.38 #126, v3.64 #214) ===")
     failures += _self_test_commit_on_main()
     print(f"\n=== Suite 3: branch-hygiene detector (v3.63) ===")
     failures += _self_test_branch_hygiene()
+    print(f"\n=== Suite 4: clean release-boundary guard (v3.64 #214) ===")
+    failures += _self_test_find_merge_source()
+    failures += _self_test_clean_release_boundary()
     print(f"\n{'PASS' if not failures else str(failures)+' FAILED'}")
     return 1 if failures else 0
 

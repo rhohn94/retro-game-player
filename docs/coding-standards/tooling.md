@@ -1,5 +1,8 @@
 # Deterministic tooling tier
 
+> **Up:** [↑ Coding standards](README.md)
+
+
 > Authority for the linter/formatter + pre-commit layer a managed project ships
 > with (v1.27). Complements the agent-driven `grm-coding-practices-audit` with fast,
 > deterministic, CI-runnable tools. Design: the managed-project tooling spec,

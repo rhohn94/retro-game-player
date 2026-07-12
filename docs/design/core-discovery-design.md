@@ -1,5 +1,8 @@
 # Core Discovery, Browse & Search Design (v0.7 "Forge")
 
+> **Up:** [↑ Design docs](README.md)
+
+
 > Discovery (browse), search, and download for emulator cores — built on the
 > existing, real download/verify/install path. Ticket
 > [#5](https://github.com/rhohn94/retro-game-player/issues/5).

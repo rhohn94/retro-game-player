@@ -218,7 +218,7 @@ title, **skip it — do not file again**.
 For each entry not already filed — and, for an entry with an **`applies-when:`**
 predicate, only when it holds against the live config (catalog *Conditional
 applicability*; **absence is false**, else skip and count not-applicable for §7)
-— spawn a **Reporter** agent (`grm-reporter` skill) to file one
+— spawn a **Reporter** agent (`grm-agent-reporter` skill) to file one
 `Grimoire-Requirement`-tagged ticket via `grm-feedback-to-issue`:
 
 - **Title:** as specified in the catalog entry (includes `[key: <key>]`).
@@ -245,7 +245,7 @@ web-app-apply complete.
   Protocol:  pointer recorded / already present
   Recipe:    deploy stub added / already present
              package stub added / already present
-  Catalog:   N entries filed / already filed; M not-applicable (catalog-version: 3)
+  Catalog:   N entries filed / already filed; M not-applicable (catalog-version: 5)
 ```
 
 ---

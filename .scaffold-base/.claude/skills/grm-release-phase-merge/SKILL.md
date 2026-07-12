@@ -23,27 +23,24 @@ Handles **two branch sources**:
 
 When `release-phase-model == Auto` (Noir only — see
 `docs/design/release-phase-model-design.md`), `grm-release-phase` dispatches the
-phase via a write-capable Workflow, so the returned branches arrive through the
-**second** source above; merge them in `mergeAfter` order per §Write-capable
-workflow agent branches. `Auto` adds no new merge machinery — it routes to that
-already-documented path. The push gate is unchanged under both dial values
-(see §Push to origin — not here).
+phase via a write-capable Workflow, so branches arrive through the **second**
+source above; merge in `mergeAfter` order per §Write-capable workflow agent
+branches. `Auto` adds no new merge machinery. Push gate is unchanged under
+both dial values (see §Push to origin — not here).
 
 ---
 
 ## Before every merge run
 
 > **Preferred interface — `merge_preflight` (grimoire-release MCP, v3.27).** When
-> `mcp.enabled` and the server is registered (root `.mcp.json`), run
-> **`merge_preflight`** with the staging ref (and optionally the candidate
-> branches; it defaults to the `merge_queue` order) for a structured verdict
+> `mcp.enabled` and registered (root `.mcp.json`), run **`merge_preflight`**
+> with the staging ref for a structured verdict
 > `{head_ok, branches:[{branch,exists,ahead,ok}], blocked:[…]}` — the
-> HEAD==staging check plus per-branch exists + commits-ahead assertions, computed
-> deterministically. It is **read-only — it never merges**; act on the verdict.
-> A `head_ok:false` is the HEAD-drift signal (do not merge — investigate per the
-> stranded-branch recovery below). **CLI fallback** (no MCP / disabled): `python3
+> HEAD==staging check plus per-branch exists/ahead assertions, deterministic
+> and **read-only**; act on the verdict (`head_ok:false` = HEAD-drift, see
+> stranded-branch recovery below). **CLI fallback:** `python3
 > .claude/skills/grm-release-agent-tracker/release_plan.py merge-preflight --staging
-> version/{X.Y}`. The numbered steps below are the fallback procedure. Design:
+> version/{X.Y}`. Numbered steps below are the fallback procedure. Design:
 > `docs/design/grimoire-release-server-design.md`.
 
 1. **HEAD-verification gate (MANDATORY — #35).** Assert HEAD is exactly the
@@ -79,15 +76,14 @@ already-documented path. The push gate is unchanged under both dial values
    agent branches in `reference.md`).
 
 > **Before-promotion divergence gate (BMI-2).** `merge_preflight` runs a
-> model-aware divergence check before promotion and folds a real fork into
-> `head_ok:false` (report under `divergence`); CLI fallback `python3
-> .claude/skills/grm-release-agent-tracker/release_plan.py divergence-check` (exit 2
-> on divergence; integration line from `branch-model.integration-branch`, default
-> `dev`). It HALTs iff `main` carries tree content unreachable from the
-> integration line and does **not** false-positive on promotion-merge-only
-> `main`. On a HALT: do **not** merge — merge `main` INTO the integration line
-> (merge-forward), never `reset --hard` across the fork. Design:
-> `integration-branch-integrity-design.md` §2/§5.
+> model-aware divergence check and folds a real fork into `head_ok:false`
+> (report under `divergence`); CLI fallback `python3
+> .claude/skills/grm-release-agent-tracker/release_plan.py divergence-check`
+> (exit 2 on divergence; integration line from `branch-model.integration-branch`,
+> default `dev`). HALTs iff `main` carries tree content unreachable from the
+> integration line (never false-positives on promotion-merge-only `main`). On a
+> HALT: merge `main` INTO the integration line (merge-forward) — never
+> `reset --hard` across the fork. Design: `integration-branch-integrity-design.md` §2/§5.
 
 ---
 
@@ -151,20 +147,12 @@ Run in order; first failing **blocking** check stops the merge:
 1. **Type-check / build** (`typecheck: build` → type errors are build failures).
 2. **Coverage** (`coverage-threshold: null` → skip by default).
 3. **Audit gate** (`audit-gate: warn` → file via `grm-feedback-to-issue`, proceed).
-   - **3a. Dependency-channel conformance** (sub-step; **warn-only this
-     release**). When the branch's diff touches `vendor.toml` / `vendor.lock` /
-     `vendor/`, run `python3
-     .claude/skills/grm-dependency-audit/dependency_channel_conformance.py --root .
-     --json` (the `vendor-check` verb's implementation). Reads the **same live
-     `audit-gate` dial**. Each finding is the normalized shape
-     `{check,dep,channel,severity,detail,locked_sha,observed_sha}`. Under
-     `warn`: file each via `grm-feedback-to-issue` (audience `internal`, labels
-     `security` + `dependency-channel`, dedupe key `{channel}:{dep}:{check}`)
-     and **proceed** — it never blocks a merge/release this release. The
-     network "unpublished-release" check degrades gracefully (reported, never a
-     hard fail). A future release flips it to **block** via the same dial with
-     no schema change. Design: `dependency-channel-design.md` §5.
-4. **Auto-Reviewer** (`auto-reviewer: noir` → spawn `grm-reviewer`; blocking
+   Sub-step **3a. Dependency-channel conformance** runs when the branch's diff
+   touches `vendor.toml` / `vendor.lock` / `vendor/` — warn-only this release
+   (never blocks). Same trigger runs **3a′. Vendor provenance integrity**
+   (`sync_deps.py --verify`, #315) — offline, also warn-only. Full invocation +
+   finding shape for both in `reference.md` §Quality gate detail.
+4. **Auto-Reviewer** (`auto-reviewer: noir` → spawn `grm-agent-reviewer`; blocking
    findings stop, non-blocking become §5 follow-ups).
 
 **On any blocking stop:** `git reset --hard ORIG_HEAD` — undo the merge, leave
@@ -238,7 +226,13 @@ Update `docs/roadmap.md`: change `v{X.Y}` from `(planning in flight)` to
 **Telemetry (best-effort, v3.14 #82).** After `version/{X.Y}` → `dev`
 completes, emit the per-run metadata artifact via
 `python3 .claude/skills/grm-token-measure/run_metadata.py --emit ...`; full
-invocation in `reference.md` §Telemetry artifact. Never gates the release.
+invocation in `reference.md` §Telemetry artifact. Never gates the release. If
+the merge loop aborts instead (test failure, unresolved conflict) before
+reaching this step, emit `outcome=fail` via the sibling
+`telemetry_entry.py --emit --outcome fail` CLI mode (same file, §Telemetry
+artifact) — this is the `telemetry-errors` boundary rule
+(`docs/coding-standards.md` §Telemetry) applied to this release boundary.
+Still never gates the release; a failed emit is swallowed.
 
 **Branch + worktree cleanup is a post-release step, not this skill's job.** See
 `grm-project-release` §Post-release cleanup and `docs/grimoire/integration-workflow.md`
@@ -260,12 +254,12 @@ here.
 ## Write-capable workflow agent branches
 
 When a write-capable Workflow completes, its structured `branches` output
-(each with `mergeAfter` list) replaces the §Before every merge run step 2
-(release-agent-tracker). Merge in `mergeAfter` topological order.
-
-**Full procedure** (pre-merge triage, topological sort algorithm, per-branch
-steps, conflict-map gating, post-merge, and safety invariants table) is in
-`reference.md` §Write-capable workflow agent branches.
+(each with a `mergeAfter` list and `status`) replaces the §Before every merge
+run step 2 (release-agent-tracker) as the authoritative branch list. Surface
+any `failed` entries before starting the merge run, then merge the
+`completed` entries in `mergeAfter` topological order using the same
+per-branch procedure above. Full detail (output schema, triage, safety
+invariants table) in `reference.md` §Write-capable workflow agent branches.
 
 ---
 

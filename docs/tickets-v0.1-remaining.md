@@ -1,5 +1,8 @@
 # Harmony v0.1 — Remaining Work Tickets
 
+> **Up:** [↑ Docs](README.md)
+
+
 Filed 2026-06-24. These cover everything deferred from the v0.1 build session.
 File as GitHub issues once the repo exists (W21-ship is a prerequisite for the issue tracker).
 

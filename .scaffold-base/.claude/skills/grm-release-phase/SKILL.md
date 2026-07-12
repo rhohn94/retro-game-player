@@ -180,6 +180,11 @@ Run the `grm-worktree-preflight` skill first, then:
 Verify (must print ROOT-OK):
     [ "$(git merge-base HEAD version/{X.Y})" = "$(git rev-parse version/{X.Y})" ] && echo ROOT-OK || echo ROOT-BAD
 
+`grm-worktree-preflight`'s Step 0.5 (parent sync) runs right after ROOT-OK — if
+your branch is behind `version/{X.Y}`, sync-merge it in now, before touching
+code. Re-run the whole preflight, Step 0.5 included, if this session is
+**resumed** later rather than freshly spawned.
+
 ### Shared context (pre-digested)
 {The ≤800-token batch digest: standards excerpt, conflict-map slice for this batch, acceptance-criteria summary, grm-repo-reference doc-location pointers. Identical across the batch. Replaces cold doc-reading. You still read your own §2.{N} scope below.}
 
@@ -229,21 +234,17 @@ and tell the user:
 
 ## Anti-patterns (summary — full detail in `reference.md` §Anti-patterns)
 
-- Spawning without user confirmation (Supervised gate — always ask first).
-- Handing the user raw copy-paste prompts instead of calling `spawn_task`.
-- Including merge instructions in a spawned prompt — work-item agents never merge.
-- Batching items that share files (check §3's conflict map carefully).
-- Forgetting the leading `[{model}/{effort}]` tier tag on the chip title —
-  `spawn_task` can't set the model; the tag is what makes the resolved tier
-  reviewable and lets the user set it.
-- Skipping or oversizing the shared context brief — must be ≤800 tokens and
-  must contain standards / conflict-map / criteria / doc-pointers (see Step 5).
-- Missing the "set this model/effort in your session" line in the prompt body.
+- Spawning without user confirmation; handing the user raw copy-paste prompts
+  instead of calling `spawn_task`.
+- Including merge instructions in a spawned prompt (agents never merge);
+  batching items that share files (check §3's conflict map).
+- Forgetting the leading `[{model}/{effort}]` tier tag, or oversizing/skipping
+  the ≤800-token shared context brief, or missing the "set this model/effort"
+  line in the prompt body.
 - Spawning Batch 2 before Batch 1 is merged.
-- Under Noir, dispatching non-review, non-`opus-required` work to Opus —
-  Step 3a ceiling applies (see `reference.md` §Step 3a).
-- Treating `opus-required` as a promotion — it only exempts from the Noir clamp.
-- Treating **Cheap-Slow as literal solo** — see `reference.md` §Step 2.5.
-- Letting execution-strategy change the tier or vice versa — independent reads.
-- **Implementing in-session subagents** for Cheap-Slow's small-heavy corner —
-  N1 is deferred; use the small-batch `spawn_task` fallback.
+- Under Noir, dispatching non-review, non-`opus-required` work to Opus (Step 3a
+  ceiling — see `reference.md`), or treating `opus-required` as a promotion.
+- Treating Cheap-Slow as literal solo, or letting execution-strategy change the
+  tier or vice versa — see `reference.md` §Step 2.5.
+- Implementing in-session subagents for Cheap-Slow's small-heavy corner — N1 is
+  deferred; use the small-batch `spawn_task` fallback.

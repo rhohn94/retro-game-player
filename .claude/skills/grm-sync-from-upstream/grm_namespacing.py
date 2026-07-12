@@ -17,7 +17,7 @@ rewrite tiers (see the design doc, grm-namespacing-design.md):
       forms — they all share the `skills/<name>/` substring.
 
   Tier 2 — bare-name prose (conservative, to avoid corrupting common-word
-      skill names like `grm-iterate`, `grm-scout`, `grm-reviewer`):
+      skill names like `grm-iterate`, `grm-agent-scout`, `grm-agent-reviewer`):
       (a) a backticked token EXACTLY equal to a known name: `<name>` -> `grm-<name>`
       (b) `<name> skill` / `skill <name>` / `the <name> skill` patterns.
 
@@ -58,6 +58,27 @@ PREFIX = "grm-"
 
 # Directories never touched (anywhere in the tree), matched by name alone.
 EXCLUDED_DIR_NAMES = {".git", ".grimoire-archive", ".grimoire-golden", "dist", "node_modules", "__pycache__"}
+
+# Canonical renames beyond the plain grm- prefix (#308, agent-role convention):
+# the role skills were later renamed grm-<role> -> grm-agent-<role>. A
+# pre-namespacing project still holds the ORIGINAL bare role dirs, so the
+# migrate must land them on TODAY'S canonical names — a plain prefix would
+# mint a ghost (grm-scout/) beside the real synced skill (grm-agent-scout/).
+# A stale grm-era ghost dir (grm-scout/ itself, synced between v3.42 and #308)
+# is healed the same way.
+CANONICAL_RENAMES = {
+    "scout": "agent-scout",
+    "reporter": "agent-reporter",
+    "reviewer": "agent-reviewer",
+    "verifier": "agent-verifier",
+    "triager": "agent-triager",
+    "qa-agent": "agent-qa",
+}
+
+
+def canonical_base(name: str) -> str:
+    """Today's canonical base for a bare (or stale grm-era) skill name."""
+    return CANONICAL_RENAMES.get(name, name)
 
 # Relative path segment that marks the vendored third-party tree.  Any directory
 # whose path contains this segment is treated as a boundary the same way a git
@@ -281,10 +302,17 @@ class GrmNamespacer:
                 if child.name in EXCLUDED_DIR_NAMES:
                     continue
                 if child.name.startswith(PREFIX):
-                    continue  # idempotent: already namespaced
-                if child.name not in self.names:
+                    # Idempotent: already namespaced — unless it is a stale
+                    # grm-era ghost of a #308-renamed role skill (grm-scout/),
+                    # which heals to today's canonical name the same way a
+                    # bare dir does.
+                    if child.name[len(PREFIX):] not in CANONICAL_RENAMES:
+                        continue
+                elif child.name not in self.names:
                     continue
-                dst = parent / (PREFIX + child.name)
+                dst = parent / (PREFIX + canonical_base(child.name[len(PREFIX):]
+                                                        if child.name.startswith(PREFIX)
+                                                        else child.name))
                 src_rel = str(child.relative_to(self.root))
                 dst_rel = str(dst.relative_to(self.root))
                 if dst.exists():
@@ -370,13 +398,15 @@ class GrmNamespacer:
                 continue
             new = text
             count = 0
-            new, n = path_re.subn(lambda m: f"{m.group(1)}{PREFIX}{m.group(2)}{m.group(3)}", new)
+            # Every substitution lands on TODAY'S canonical base (#308 role
+            # renames), not just the prefixed original.
+            new, n = path_re.subn(lambda m: f"{m.group(1)}{PREFIX}{canonical_base(m.group(2))}{m.group(3)}", new)
             count += n
-            new, n = backtick_re.subn(lambda m: f"`{PREFIX}{m.group(1)}`", new)
+            new, n = backtick_re.subn(lambda m: f"`{PREFIX}{canonical_base(m.group(1))}`", new)
             count += n
-            new, n = name_skill_re.subn(lambda m: f"{PREFIX}{m.group(1)}{m.group(2)}", new)
+            new, n = name_skill_re.subn(lambda m: f"{PREFIX}{canonical_base(m.group(1))}{m.group(2)}", new)
             count += n
-            new, n = skill_name_re.subn(lambda m: f"{m.group(1)}{PREFIX}{m.group(2)}", new)
+            new, n = skill_name_re.subn(lambda m: f"{m.group(1)}{PREFIX}{canonical_base(m.group(2))}", new)
             count += n
             if count and new != text:
                 rel = str(p.relative_to(self.root))
@@ -445,16 +475,16 @@ def _test_submodule_boundary() -> list[str]:
         report = ns.run()
 
         # 1. The normal project skill was renamed.
-        if not (root / ".claude" / "skills" / "grm-scout").is_dir():
-            failures.append("SUBMODULE: project-level scout/ was NOT renamed to grm-scout/ (expected rename)")
+        if not (root / ".claude" / "skills" / "grm-agent-scout").is_dir():
+            failures.append("SUBMODULE: project-level scout/ was NOT renamed to grm-agent-scout/ (expected rename)")
         if (root / ".claude" / "skills" / "scout").exists():
             failures.append("SUBMODULE: project-level scout/ still present after rename")
 
         # 2. The submodule's skills tree was NOT touched.
         if not (root / "vendor-sub" / ".claude" / "skills" / "scout").exists():
             failures.append("SUBMODULE: scout/ inside the submodule was renamed (must NOT be touched)")
-        if (root / "vendor-sub" / ".claude" / "skills" / "grm-scout").exists():
-            failures.append("SUBMODULE: grm-scout/ was created inside the submodule tree")
+        if (root / "vendor-sub" / ".claude" / "skills" / "grm-agent-scout").exists():
+            failures.append("SUBMODULE: grm-agent-scout/ was created inside the submodule tree")
         sub_content = (root / "vendor-sub" / ".claude" / "skills" / "scout" / "SKILL.md").read_text()
         if "SUBMODULE-CONTENT" not in sub_content:
             failures.append("SUBMODULE: submodule SKILL.md content was modified")
@@ -462,8 +492,8 @@ def _test_submodule_boundary() -> list[str]:
         # 3. The lib/third-party/ tree was NOT touched.
         if not (vendored_skills / "scout").exists():
             failures.append("VENDORED: scout/ inside lib/third-party/ was renamed (must NOT be touched)")
-        if (vendored_skills / "grm-scout").exists():
-            failures.append("VENDORED: grm-scout/ was created inside lib/third-party/")
+        if (vendored_skills / "grm-agent-scout").exists():
+            failures.append("VENDORED: grm-agent-scout/ was created inside lib/third-party/")
         vend_content = (vendored_skills / "scout" / "SKILL.md").read_text()
         if "VENDORED-CONTENT" not in vend_content:
             failures.append("VENDORED: lib/third-party/ SKILL.md content was modified")
@@ -486,7 +516,7 @@ def _self_test() -> int:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        # Fake skill `grm-scout` (a common-word name) + a normal skill `grm-doc-assurance`.
+        # Fake skill `grm-agent-scout` (a common-word name) + a normal skill `grm-doc-assurance`.
         (root / ".claude" / "skills" / "scout").mkdir(parents=True)
         (root / ".claude" / "skills" / "doc-assurance").mkdir(parents=True)
         (root / ".claude" / "skills" / "scout" / "SKILL.md").write_text(
@@ -510,8 +540,8 @@ def _self_test() -> int:
         ref = root / "docs" / "guide.md"
         ref.parent.mkdir(parents=True)
         ref.write_text(
-            "Run `python3 .claude/skills/grm-scout/scout.py`.\n"
-            "Use the `grm-scout` skill and the grm-doc-assurance skill.\n"
+            "Run `python3 .claude/skills/grm-agent-scout/scout.py`.\n"
+            "Use the `grm-agent-scout` skill and the grm-doc-assurance skill.\n"
             "We scout the area before we iterate on the plan.\n"
             "See skills/grm-doc-assurance/SKILL.md too.\n",
             encoding="utf-8",
@@ -521,25 +551,25 @@ def _self_test() -> int:
         report = ns.run()
 
         # 1. dir renamed
-        if not (root / ".claude" / "skills" / "grm-scout").is_dir():
-            failures.append("grm-scout dir not created")
+        if not (root / ".claude" / "skills" / "grm-agent-scout").is_dir():
+            failures.append("grm-agent-scout dir not created")
         if (root / ".claude" / "skills" / "scout").exists():
             failures.append("old scout dir still present")
 
         # 2. frontmatter updated
-        fm = (root / ".claude" / "skills" / "grm-scout" / "SKILL.md").read_text()
-        if "name: grm-scout" not in fm:
+        fm = (root / ".claude" / "skills" / "grm-agent-scout" / "SKILL.md").read_text()
+        if "name: grm-agent-scout" not in fm:
             failures.append("frontmatter name not updated")
 
         # 3. path rewrite (Tier 1)
         out = ref.read_text()
-        if "skills/grm-scout/scout.py" not in out:
-            failures.append("Tier-1 path rewrite failed (.claude/skills/grm-scout/)")
+        if "skills/grm-agent-scout/scout.py" not in out:
+            failures.append("Tier-1 path rewrite failed (.claude/skills/grm-agent-scout/)")
         if "skills/grm-doc-assurance/SKILL.md" not in out:
             failures.append("Tier-1 relative path rewrite failed")
 
         # 4. backticked exact token (Tier 2a)
-        if "`grm-scout` skill" not in out:
+        if "`grm-agent-scout` skill" not in out:
             failures.append("Tier-2a backtick rewrite failed")
 
         # 5. prose pattern (Tier 2b) — "the grm-doc-assurance skill"
@@ -562,7 +592,7 @@ def _self_test() -> int:
         gi = (skills / "grm-iterate" / "SKILL.md").read_text()
         if "NEW-synced-content" not in gi:
             failures.append("COLLISION: synced grm-iterate/ content was clobbered")
-        archived = list(root.glob(".grimoire-archive/*/.claude/skills/iterate/SKILL.md"))
+        archived = list(root.glob(".grimoire-archive/*/.claude/skills/grm-iterate/SKILL.md"))
         if not archived:
             failures.append("COLLISION: stale iterate/ was not archived")
         elif "OLD-stale-content" not in archived[0].read_text():
@@ -584,6 +614,34 @@ def _self_test() -> int:
     # 9. Submodule-boundary regression (#178): renames must not cross into
     #    git submodule trees or lib/third-party/ vendored deps.
     failures.extend(_test_submodule_boundary())
+
+    # 10. Canonical role renames (#308): a stale grm-era ghost (grm-scout/)
+    #     heals to grm-agent-scout/ — archived+removed when the canonical twin
+    #     exists, renamed onto the canonical name when alone.
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / ".claude" / "skills" / "grm-scout").mkdir(parents=True)
+        (root / ".claude" / "skills" / "grm-scout" / "SKILL.md").write_text(
+            "---\nname: grm-scout\n---\nGHOST\n", encoding="utf-8")
+        (root / ".claude" / "skills" / "grm-agent-scout").mkdir(parents=True)
+        (root / ".claude" / "skills" / "grm-agent-scout" / "SKILL.md").write_text(
+            "---\nname: grm-agent-scout\n---\nREAL\n", encoding="utf-8")
+        GrmNamespacer(root, apply=True).run()
+        if (root / ".claude" / "skills" / "grm-scout").exists():
+            failures.append("GHOST: stale grm-scout/ survived beside grm-agent-scout/")
+        real = (root / ".claude" / "skills" / "grm-agent-scout" / "SKILL.md").read_text()
+        if "REAL" not in real:
+            failures.append("GHOST: canonical grm-agent-scout/ content was clobbered")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / ".claude" / "skills" / "grm-scout").mkdir(parents=True)
+        (root / ".claude" / "skills" / "grm-scout" / "SKILL.md").write_text(
+            "---\nname: grm-scout\n---\nLONE\n", encoding="utf-8")
+        GrmNamespacer(root, apply=True).run()
+        if not (root / ".claude" / "skills" / "grm-agent-scout").is_dir():
+            failures.append("GHOST: lone grm-scout/ was not renamed to grm-agent-scout/")
+        if (root / ".claude" / "skills" / "grm-scout").exists():
+            failures.append("GHOST: lone grm-scout/ still present after canonical rename")
 
     if failures:
         print("SELF-TEST FAILED:")
