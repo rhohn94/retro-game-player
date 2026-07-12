@@ -7,6 +7,20 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.44 — Paper Trail (2026-07-12)
+
+A follow-up housekeeping release verifying and correcting v0.43's own release
+hygiene — no app changes.
+
+- **DMG installer filename now carries its version number** (matching the
+  naming already used for the app-bundle download), instead of a generic
+  name that looked identical from release to release.
+- **Corrected past release pages.** v0.41 and v0.42's GitHub releases now
+  disclose that their app-bundle downloads were built without Developer-ID
+  signing (previously undocumented); v0.40, which never got a downloadable
+  build, now has a release page explaining that gap.
+- Reconciled `dev` and `main`, which had drifted apart after v0.43 shipped.
+
 ## v0.43 — Provenance (2026-07-11)
 
 A release-tooling and maintenance release — no user-facing features, but real

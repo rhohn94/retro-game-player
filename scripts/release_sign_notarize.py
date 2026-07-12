@@ -57,7 +57,9 @@ stdlib-only — no third-party dependencies, matching the project's other
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -69,8 +71,39 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_TAURI_DIR = REPO_ROOT / "src-tauri"
 BUNDLE_MACOS_DIR = SRC_TAURI_DIR / "target" / "release" / "bundle" / "macos"
 DMG_OUT_DIR = SRC_TAURI_DIR / "target" / "release" / "bundle" / "dmg"
+TAURI_CONF_PATH = SRC_TAURI_DIR / "tauri.conf.json"
 
 PRODUCT_NAME = "Retro Game Player"
+
+# Maps `platform.machine()` to the arch tokens Tauri itself uses when it
+# names the `.app.zip` updater artifact (e.g.
+# `Retro.Game.Player_0.42.0_aarch64.app.zip`) — the DMG filename matches
+# that same `{product}_{version}_{arch}` convention (see
+# docs/design/notarization-distribution-design.md §Asset naming).
+_MACHINE_TO_TAURI_ARCH = {"arm64": "aarch64", "x86_64": "x86_64"}
+
+
+def read_app_version(tauri_conf_path: Path = TAURI_CONF_PATH) -> str:
+    """Reads the release version out of tauri.conf.json — the single source
+    of truth also used for the `.app.zip` artifact name, so the DMG and zip
+    never drift out of sync with each other or with `Cargo.toml`."""
+    with tauri_conf_path.open() as f:
+        conf = json.load(f)
+    return conf["version"]
+
+
+def target_arch(machine: str | None = None) -> str:
+    machine = platform.machine() if machine is None else machine
+    return _MACHINE_TO_TAURI_ARCH.get(machine, machine)
+
+
+def dmg_filename(version: str, *, product_name: str = PRODUCT_NAME, arch: str | None = None) -> str:
+    """`{product_name}_{version}_{arch}.dmg` — matches every other release
+    asset's `{product}_{version}_{arch}` naming instead of the old bare
+    `Retro Game Player.dmg` (no version, indistinguishable release to
+    release)."""
+    arch = target_arch() if arch is None else arch
+    return f"{product_name}_{version}_{arch}.dmg"
 
 # Gatekeeper's own acceptance check — the exact invocation macOS runs when a
 # user opens a downloaded DMG. See design doc §7.
@@ -456,7 +489,7 @@ class ReleaseOrchestrator:
             app_path_str = BundleMacosGuard().run()
             app_path = str(app_path_str)
 
-            out_dmg = DMG_OUT_DIR / f"{PRODUCT_NAME}.dmg"
+            out_dmg = DMG_OUT_DIR / dmg_filename(read_app_version())
             dmg_path = str(
                 DmgStagingBuilder(self.runner).build(Path(app_path), out_dmg)
             )
@@ -684,6 +717,31 @@ def _self_test() -> int:
     finally:
         globals_ref.TauriBuildStep = real_tauri_build_step  # type: ignore[assignment]
     check("build failure returns exit code 1, not an uncaught exception", build_failure_rc == 1)
+
+    # --- Versioned DMG filename ---------------------------------------------
+    # The asset name must carry the version (and arch) instead of the old
+    # bare "Retro Game Player.dmg", so consecutive releases don't collide /
+    # look indistinguishable in a downloads folder or release-asset list.
+    check(
+        "target_arch maps arm64 -> aarch64 (Tauri's own convention)",
+        target_arch(machine="arm64") == "aarch64",
+    )
+    check(
+        "target_arch passes through unmapped machine strings unchanged",
+        target_arch(machine="x86_64") == "x86_64",
+    )
+    check(
+        "dmg_filename embeds product name, version, and arch",
+        dmg_filename("0.43.0", arch="aarch64") == "Retro Game Player_0.43.0_aarch64.dmg",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="rgp-selftest-conf-") as tmp:
+        fake_conf = Path(tmp) / "tauri.conf.json"
+        fake_conf.write_text('{"productName": "Retro Game Player", "version": "1.2.3"}')
+        check(
+            "read_app_version reads the version field out of tauri.conf.json",
+            read_app_version(fake_conf) == "1.2.3",
+        )
 
     if failures:
         print("[self-test] FAILED:", file=sys.stderr)
