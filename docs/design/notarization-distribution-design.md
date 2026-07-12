@@ -253,9 +253,16 @@ DMG at all:
    -format UDZO <out.dmg>`. Because `-srcfolder` now points at a directory
    that contains only the `.app` + the symlink — and `hdiutil`'s own output
    file lives in a completely different directory
-   (`bundle/dmg/Retro Game Player.dmg`) — there is no directory that is both
-   the copy source and the temp-image destination, so the self-swallow bug
-   is structurally impossible with this layout.
+   (`bundle/dmg/Retro Game Player_{version}_{arch}.dmg`) — there is no
+   directory that is both the copy source and the temp-image destination, so
+   the self-swallow bug is structurally impossible with this layout.
+
+**Asset naming.** The DMG filename is `{productName}_{version}_{arch}.dmg`
+(`dmg_filename()`, version read from `tauri.conf.json` via
+`read_app_version()`) — matching the `{product}_{version}_{arch}` convention
+Tauri itself already uses for the `.app.zip` updater artifact, instead of the
+bare unversioned `Retro Game Player.dmg` every release shipped through
+v0.43.
 
 Every signing/notarization/staple/Gatekeeper-verify step downstream (§1–§6
 above) is untouched: `CodesignVerifyStep`, `NotarizeStep`, `StapleStep`, and
