@@ -13,3 +13,11 @@
 > extracts release notes from this file, not `version-history.md`.
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
+
+## v0.43 — Provenance (2026-07-11)
+
+A small maintenance release focused on how the app itself gets built and
+shipped — nothing to see in the app.
+
+- Hardened the release process so a build can no longer be silently
+  distributed without proper Developer-ID signing and notarization.

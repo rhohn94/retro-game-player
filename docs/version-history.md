@@ -7,6 +7,21 @@
 
 <!-- Add a new "## vX.Y — <title>" section per release, newest first. -->
 
+## v0.43 — Provenance (2026-07-11)
+
+A release-tooling and maintenance release — no user-facing features, but real
+reliability fixes to how releases themselves get built.
+
+- **Release builds now fail safely instead of shipping broken.** The release
+  pipeline used to exit successfully even when it couldn't produce a signed,
+  notarized build — silently handing out a DMG that Gatekeeper would reject
+  on any machine but the one that built it. It now refuses loudly unless a
+  build is either genuinely signed and notarized or explicitly marked as an
+  unsigned local-dev build.
+- **Project tooling refresh.** Brought the project's internal Grimoire
+  workflow tooling current (framework v3.63 → v3.90) and cleaned up several
+  stale internal skill references left over from past renames.
+
 ## v0.42 — Conformance (2026-07-11)
 
 A code-quality release, clearing a batch of the standing code-conformance
