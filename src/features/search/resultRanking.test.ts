@@ -1,8 +1,5 @@
 /**
- * Tests for resultRanking (W182 / v0.18 "Focus").
- *
- * The ranker is pure and framework-free, so it is exercised directly in node:
- * scoring, match-strength classification, and stable relevance ordering.
+ * Tests for resultRanking + resultChrome (W182 + search-result-quality P0).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -10,10 +7,22 @@ import {
   matchStrength,
   rankItems,
   SEARCH_REGIONS,
+  isSiteChrome,
+  isFileLike,
+  contentTerms,
 } from "./resultRanking";
 import type { RankQuery } from "./resultRanking";
 
-const item = (title: string, url = "https://x.example.com/" + title) => ({ title, url });
+const item = (title: string, url = "https://x.example.com/" + encodeURIComponent(title)) => ({
+  title,
+  url,
+});
+
+describe("contentTerms / stopwords", () => {
+  it("drops the/a/of from the query", () => {
+    expect(contentTerms("Sonic the Hedgehog")).toEqual(["sonic", "hedgehog"]);
+  });
+});
 
 describe("scoreItem", () => {
   it("scores a full-coverage match above a partial one", () => {
@@ -30,29 +39,43 @@ describe("scoreItem", () => {
     expect(scoreItem(item("Anything"), { name: "   " })).toBe(0);
   });
 
-  it("adds a console bonus when a console token appears", () => {
+  it("adds a console bonus when a console token appears in the title", () => {
     const base: RankQuery = { name: "zelda" };
     const withConsole: RankQuery = { name: "zelda", console: "Nintendo 64 N64 n64" };
     const it1 = item("Legend of Zelda (N64)");
     expect(scoreItem(it1, withConsole)).toBeGreaterThan(scoreItem(it1, base));
   });
 
-  it("adds a region bonus when the region appears", () => {
+  it("adds a region bonus when the region appears in the title", () => {
     const base: RankQuery = { name: "contra" };
     const withRegion: RankQuery = { name: "contra", region: "USA" };
     const it1 = item("Contra (USA)");
     expect(scoreItem(it1, withRegion)).toBeGreaterThan(scoreItem(it1, base));
   });
 
-  it("matches a term as a substring (supermario contains mario)", () => {
+  it("matches a term as a substring in the title (supermario contains mario)", () => {
     expect(scoreItem(item("supermario.zip"), { name: "mario" })).toBeGreaterThan(0);
+  });
+
+  it("does not treat URL query string as title evidence for chrome rows", () => {
+    const q: RankQuery = { name: "Sonic the Hedgehog" };
+    const chrome = item("Home", "https://roms.example/search?q=Sonic+the+Hedgehog");
+    expect(matchStrength(chrome, q)).toBe("none");
+    expect(scoreItem(chrome, q)).toBeLessThan(0);
+  });
+
+  it("boosts file-like titles", () => {
+    const q: RankQuery = { name: "sonic" };
+    const file = scoreItem(item("Sonic (USA).zip"), q);
+    const page = scoreItem(item("Sonic (USA)"), q);
+    expect(file).toBeGreaterThan(page);
   });
 });
 
 describe("matchStrength", () => {
   const q: RankQuery = { name: "super mario" };
 
-  it("is strong when all name terms are present", () => {
+  it("is strong when all content terms are present in the title", () => {
     expect(matchStrength(item("Super Mario Bros. 3 (USA)"), q)).toBe("strong");
   });
 
@@ -71,6 +94,41 @@ describe("matchStrength", () => {
   it("does not gate on console/region (title without console is still strong)", () => {
     const withConsole: RankQuery = { name: "mario", console: "SNES snes" };
     expect(matchStrength(item("Mario Bros. (USA)"), withConsole)).toBe("strong");
+  });
+
+  it("ignores stopword 'the' so Sonic the Hedgehog matches Sonic Hedgehog titles", () => {
+    const sonic: RankQuery = { name: "Sonic the Hedgehog" };
+    expect(matchStrength(item("Sonic Hedgehog (USA)"), sonic)).toBe("strong");
+    expect(matchStrength(item("Sonic the Hedgehog"), sonic)).toBe("strong");
+  });
+
+  it("marks nav labels as none even when the URL carries the query", () => {
+    const sonic: RankQuery = { name: "Sonic the Hedgehog" };
+    expect(
+      matchStrength(item("ROMs", "https://x.com/?s=Sonic+the+Hedgehog"), sonic)
+    ).toBe("none");
+    expect(
+      matchStrength(item("En", "https://wowroms.com/en/roms/list?search=Sonic"), sonic)
+    ).toBe("none");
+  });
+});
+
+describe("isSiteChrome / isFileLike", () => {
+  it("flags common nav titles", () => {
+    expect(isSiteChrome(item("ROMs"), "sonic")).toBe(true);
+    expect(isSiteChrome(item("Emulators"), "sonic")).toBe(true);
+    expect(isSiteChrome(item("Nintendo DS"), "sonic")).toBe(true);
+    expect(isSiteChrome(item("Super Nintendo"), "sonic")).toBe(true);
+  });
+
+  it("keeps titles that include a content query term", () => {
+    expect(isSiteChrome(item("Sonic ROMs pack"), "Sonic the Hedgehog")).toBe(false);
+  });
+
+  it("detects file-like extensions", () => {
+    expect(isFileLike(item("game.zip"))).toBe(true);
+    expect(isFileLike(item("Sonic.md"))).toBe(true);
+    expect(isFileLike(item("Home"))).toBe(false);
   });
 });
 
@@ -100,6 +158,17 @@ describe("rankItems", () => {
     const copy = [...items];
     rankItems(items, { name: "a" });
     expect(items).toEqual(copy);
+  });
+
+  it("sinks chrome below real hits for Sonic-like scrapes", () => {
+    const items = [
+      item("ROMs"),
+      item("Emulators"),
+      item("Sonic the Hedgehog (USA)"),
+      item("Tags"),
+    ];
+    const ranked = rankItems(items, { name: "Sonic the Hedgehog" });
+    expect(ranked[0].title).toBe("Sonic the Hedgehog (USA)");
   });
 });
 

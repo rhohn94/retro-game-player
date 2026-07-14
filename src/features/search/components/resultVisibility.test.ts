@@ -69,9 +69,21 @@ describe("computeVisible", () => {
     ]);
   });
 
-  it("keeps every item when hideWeak is false, even non-matches", () => {
-    const visible = computeVisible(items, "", "relevance", q, false);
-    expect(visible).toHaveLength(3);
+  it("keeps non-matches when hideWeak is false, but still drops site chrome", () => {
+    const withChrome = [...items, item("ROMs"), item("Emulators")];
+    const visible = computeVisible(withChrome, "", "relevance", q, false);
+    expect(visible.map((i) => i.title)).toEqual([
+      "Super Mario Bros. (USA)",
+      "Mario Paint (Japan)",
+      "Donkey Kong Country (USA)",
+    ]);
+    expect(visible.some((i) => i.title === "ROMs")).toBe(false);
+  });
+
+  it("drops chrome even when hideWeak is true", () => {
+    const withChrome = [item("ROMs"), item("Super Mario Bros. (USA)"), item("Home")];
+    const visible = computeVisible(withChrome, "", "relevance", q, true);
+    expect(visible.map((i) => i.title)).toEqual(["Super Mario Bros. (USA)"]);
   });
 
   it("applies filter, order and hide-weak together", () => {
@@ -93,7 +105,7 @@ describe("mergedRankable", () => {
     expect(mergedRankable(merged)).toEqual({ title: "Contra (USA)", url: "https://a/contra" });
   });
 
-  it("joins every source url (space-separated) so a url filter still hits", () => {
+  it("uses the first source url only (match strength is title-based)", () => {
     const merged: MergedResult = {
       key: "smb3",
       title: "Super Mario Bros. 3 (USA)",
@@ -102,9 +114,11 @@ describe("mergedRankable", () => {
         { providerId: 2, providerName: "B", item: item("SMB3 (Europe)", "https://b/smb3") },
       ],
     };
-    expect(mergedRankable(merged).url).toBe("https://a/smb3 https://b/smb3");
+    // Ranking/match use title; url is first source for isFileLike path checks.
+    expect(mergedRankable(merged).url).toBe("https://a/smb3");
   });
 });
+
 
 describe("computeMerged", () => {
   const results: ProviderResults[] = [

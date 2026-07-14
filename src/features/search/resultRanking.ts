@@ -1,13 +1,21 @@
 /**
- * Relevance ranking for previewed search results (W182 / v0.18 "Focus").
+ * Relevance ranking for previewed search results (W182 / v0.18 "Focus",
+ * quality P0 — title-only match, stopwords, chrome demotion, file-like boost).
  *
  * Pure, framework-free scoring of a scraped result against the structured query
- * (game name + optional console/region tokens). Drives the new default
- * "Relevance" sort and the Match badge, and lets the UI demote/hide weak matches
- * — so the searched-for game leads and is visibly indicated, while page chrome
- * that survived the scrape filter sinks to the bottom. No network, no metadata
- * beyond the `title` + `url` we already have.
+ * (game name + optional console/region tokens). Drives the default "Relevance"
+ * sort and the Match badge, and lets the UI demote/hide weak matches.
  */
+
+import {
+  contentTerms,
+  isFileLike,
+  isSiteChrome,
+  pathOnly,
+  tokens,
+} from "./resultChrome";
+
+export { contentTerms, isFileLike, isSiteChrome, tokens } from "./resultChrome";
 
 /** How strongly an item matches the game-name query. */
 export type MatchStrength = "strong" | "partial" | "none";
@@ -39,70 +47,88 @@ export const SEARCH_REGIONS: readonly string[] = [
 ];
 
 // Score weights — kept small and explicit so ordering is predictable/testable.
-const W_TERM = 10; // per matched name term
-const W_FULL = 50; // all name terms present (dominates partial matches)
-const W_PREFIX = 5; // title begins with the first name term
-const W_CONSOLE = 8; // a console token appears in the result
-const W_REGION = 4; // the region token appears in the result
+const W_TERM = 10; // per matched name term (title)
+const W_FULL = 50; // all name content terms present (dominates partial matches)
+const W_PREFIX = 5; // title begins with the first content term
+const W_CONSOLE = 8; // a console token appears in the title
+const W_REGION = 4; // the region token appears in the title
+const W_FILE = 12; // title/path looks like a ROM or archive file
+const W_CHROME = -1000; // site navigation — sink below real hits
 
-/** Lowercase alphanumeric tokens of `s`. */
-function tokens(s: string): string[] {
-  return s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-}
-
-/** How many of `terms` appear in `haystack` (as a whole token or a substring,
- *  so "mario" still matches "supermario"). */
-function matchedCount(terms: string[], hayTokens: Set<string>, haystack: string): number {
+/** How many of `terms` appear in the title (token or substring). */
+function matchedCountInTitle(terms: string[], title: string): number {
+  const lower = title.toLowerCase();
+  const titleTokens = new Set(tokens(title));
   let n = 0;
   for (const t of terms) {
-    if (hayTokens.has(t) || haystack.includes(t)) n++;
+    if (titleTokens.has(t) || lower.includes(t)) n++;
   }
   return n;
 }
 
-/** Build the lowercase haystack (title + url) for an item. */
-function haystackOf(item: Rankable): string {
-  return `${item.title} ${item.url}`.toLowerCase();
-}
-
-/** Score `item` against `query`. Higher = more relevant. Pure. */
+/** Score `item` against `query`. Higher = more relevant. Pure.
+ *  Name matching uses the **title only** (never the URL query string). */
 export function scoreItem(item: Rankable, query: RankQuery): number {
-  const nameTerms = tokens(query.name);
-  if (nameTerms.length === 0) return 0;
+  const nameTerms = contentTerms(query.name);
+  if (nameTerms.length === 0) {
+    // No content terms — only chrome demotion / file boost apply.
+    let score = 0;
+    if (isSiteChrome(item, query.name)) score += W_CHROME;
+    if (isFileLike(item)) score += W_FILE;
+    return score;
+  }
 
-  const haystack = haystackOf(item);
-  const hayTokens = new Set(tokens(haystack));
-  const matched = matchedCount(nameTerms, hayTokens, haystack);
+  if (isSiteChrome(item, query.name)) {
+    return W_CHROME;
+  }
 
+  const matched = matchedCountInTitle(nameTerms, item.title);
   let score = matched * W_TERM;
   if (matched === nameTerms.length) score += W_FULL;
-  if (item.title.toLowerCase().startsWith(nameTerms[0])) score += W_PREFIX;
+  const first = nameTerms[0];
+  if (first && item.title.toLowerCase().startsWith(first)) score += W_PREFIX;
 
   if (query.console) {
     const consoleTokens = tokens(query.console);
-    if (consoleTokens.some((t) => hayTokens.has(t) || haystack.includes(t))) {
+    const titleLower = item.title.toLowerCase();
+    const titleTok = new Set(tokens(item.title));
+    if (consoleTokens.some((t) => titleTok.has(t) || titleLower.includes(t))) {
       score += W_CONSOLE;
     }
   }
   if (query.region) {
     const region = query.region.toLowerCase();
-    if (region && haystack.includes(region)) score += W_REGION;
+    if (region && item.title.toLowerCase().includes(region)) score += W_REGION;
   }
+
+  if (isFileLike(item)) score += W_FILE;
+
+  // Tiny path bonus (no query string): path segment echoes a content term.
+  const path = pathOnly(item.url).toLowerCase();
+  if (nameTerms.some((t) => path.includes(t))) score += 2;
+
   return score;
 }
 
-/** Classify how strongly `item` matches the game name. Independent of
- *  console/region, so a legit result whose title omits the console is never
- *  demoted to `none`. */
+/** Classify how strongly `item` matches the game name — **title only**,
+ *  stopwords ignored. Independent of console/region. */
 export function matchStrength(item: Rankable, query: RankQuery): MatchStrength {
-  const nameTerms = tokens(query.name);
+  const nameTerms = contentTerms(query.name);
   if (nameTerms.length === 0) return "none";
-  const haystack = haystackOf(item);
-  const hayTokens = new Set(tokens(haystack));
-  const matched = matchedCount(nameTerms, hayTokens, haystack);
+  if (isSiteChrome(item, query.name)) return "none";
+  const matched = matchedCountInTitle(nameTerms, item.title);
   if (matched === 0) return "none";
   if (matched === nameTerms.length) return "strong";
   return "partial";
+}
+
+/** True when the row is worth showing under default “hide unlikely” — not
+ *  chrome and not a total miss on the query. */
+export function isLikelyHit(item: Rankable, query: RankQuery): boolean {
+  if (isSiteChrome(item, query.name)) return false;
+  const terms = contentTerms(query.name);
+  if (terms.length === 0) return true;
+  return matchStrength(item, query) !== "none";
 }
 
 /** Stably order `items` by descending relevance to `query`; ties keep their

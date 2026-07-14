@@ -2,16 +2,26 @@
 import { filterItems } from "../resultFilter";
 import { sortItems } from "../resultSort";
 import type { SortKey } from "../resultSort";
-import { rankItems, matchStrength, scoreItem } from "../resultRanking";
+import {
+  rankItems,
+  matchStrength,
+  scoreItem,
+  isSiteChrome,
+  isLikelyHit,
+} from "../resultRanking";
 import type { RankQuery, Rankable } from "../resultRanking";
 import { dedupeAcrossProviders } from "../resultDedup";
 import type { MergedResult } from "../resultDedup";
 import type { SearchResultItem, ProviderResults, LinkState } from "../../../ipc/search";
 
+/** Drop site-chrome rows before ranking / hide-weak. Always applied. */
+function dropChrome(items: SearchResultItem[], rankQuery: RankQuery): SearchResultItem[] {
+  return items.filter((i) => !isSiteChrome(i, rankQuery.name));
+}
+
 /** The single source of truth for which rows of a group are shown, in order:
- *  live filter → order (relevance ranking or title/scrape sort) → optional
- *  hide-weak. Used both to render a group and to tally the toolbar totals, so
- *  they never diverge. Pure. */
+ *  drop chrome → live filter → order → optional hide-weak. Used both to render
+ *  a group and to tally the toolbar totals, so they never diverge. Pure. */
 export function computeVisible(
   items: SearchResultItem[],
   filter: string,
@@ -19,25 +29,25 @@ export function computeVisible(
   rankQuery: RankQuery,
   hideWeak: boolean
 ): SearchResultItem[] {
-  const filtered = filterItems(items, filter);
+  const cleaned = dropChrome(items, rankQuery);
+  const filtered = filterItems(cleaned, filter);
   const ordered =
     sortKey === "relevance"
       ? rankItems(filtered, rankQuery)
       : sortItems(filtered, sortKey);
   return hideWeak
-    ? ordered.filter((i) => matchStrength(i, rankQuery) !== "none")
+    ? ordered.filter((i) => isLikelyHit(i, rankQuery))
     : ordered;
 }
 
-/** Adapt a merged row to the {title, url} shape the ranker/filter/match expect,
- *  folding every source URL into the haystack so a URL filter still hits. */
+/** Adapt a merged row to the {title, url} shape the ranker/filter/match expect.
+ *  Match/score use the representative title (not source URLs) so query strings
+ *  on provider links cannot invent a Match badge. */
 export function mergedRankable(m: MergedResult): Rankable {
-  return { title: m.title, url: m.sources.map((s) => s.item.url).join(" ") };
+  return { title: m.title, url: m.sources[0]?.item.url ?? "" };
 }
 
-/** The game-first analogue of {@link computeVisible}: dedupe across providers,
- *  then filter → order (relevance ranking or title/scrape sort) → optional
- *  hide-weak. Pure. */
+/** The game-first analogue of {@link computeVisible}. Pure. */
 export function computeMerged(
   results: ProviderResults[],
   filter: string,
@@ -45,12 +55,18 @@ export function computeMerged(
   rankQuery: RankQuery,
   hideWeak: boolean
 ): MergedResult[] {
-  const merged = dedupeAcrossProviders(results);
+  // Strip chrome per source before dedupe so nav labels never form a "game".
+  const cleaned: ProviderResults[] = results.map((g) => ({
+    ...g,
+    items: dropChrome(g.items, rankQuery),
+  }));
+  const merged = dedupeAcrossProviders(cleaned);
   const q = filter.trim().toLowerCase();
   const filtered = q
     ? merged.filter((m) => {
         const r = mergedRankable(m);
-        return `${r.title} ${r.url}`.toLowerCase().includes(q);
+        const sourceUrls = m.sources.map((s) => s.item.url).join(" ");
+        return `${r.title} ${sourceUrls}`.toLowerCase().includes(q);
       })
     : merged;
   let ordered: MergedResult[];
@@ -63,8 +79,16 @@ export function computeMerged(
     ordered = sortItems(filtered, sortKey);
   }
   return hideWeak
-    ? ordered.filter((m) => matchStrength(mergedRankable(m), rankQuery) !== "none")
+    ? ordered.filter((m) => isLikelyHit(mergedRankable(m), rankQuery))
     : ordered;
+}
+
+/** True when a provider group has at least one likely hit (for collapse seeding). */
+export function groupHasLikelyHits(
+  group: ProviderResults,
+  rankQuery: RankQuery
+): boolean {
+  return group.items.some((i) => isLikelyHit(i, rankQuery));
 }
 
 /** The verdict to show on a merged row that folds several source links: alive if
@@ -82,3 +106,6 @@ export function aggregateState(
   if (states.every((s) => s === "dead")) return "dead";
   return "unknown";
 }
+
+// Re-export for callers that only need the badge classifier.
+export { matchStrength };

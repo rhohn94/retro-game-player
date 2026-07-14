@@ -68,8 +68,9 @@ export function SearchPage() {
   // Result-browsing controls (v0.17): live filter, sort (persisted).
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>(loadSortPref);
-  // Structured search + relevance controls (v0.18): the hide-weak toggle.
-  const [hideWeak, setHideWeak] = useState(false);
+  // Structured search + relevance controls (v0.18): hide-weak default ON
+  // (search-result-quality P0) so nav chrome does not fill the panel.
+  const [hideWeak, setHideWeak] = useState(true);
   // Grouping (v0.19): provider-first (default) vs game-first merged view.
   const [groupBy, setGroupBy] = useState<GroupBy>("provider");
 

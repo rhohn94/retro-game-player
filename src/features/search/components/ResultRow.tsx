@@ -6,6 +6,7 @@ import { openUrl } from "../../../ipc/opener";
 import { listItem } from "../../../lib/motion";
 import { parseBadges } from "../resultBadges";
 import type { MatchStrength } from "../resultRanking";
+import { isFileLike } from "../resultChrome";
 import type { SearchResultItem, LinkState } from "../../../ipc/search";
 import { FocusRing, useFocusable } from "../../controller";
 import { MatchBadge, BadgeChip, LivenessDot } from "./ResultBadges";
@@ -109,6 +110,25 @@ export function ResultRow({
           {result.title}
         </span>
         <MatchBadge strength={strength} />
+        {isFileLike(result) && (
+          <span
+            title="Looks like a downloadable file (ROM or archive)"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: 1,
+              padding: "2px 5px",
+              borderRadius: 4,
+              border: "1px solid var(--aura-success)",
+              color: "var(--aura-success)",
+              flexShrink: 0,
+              letterSpacing: "0.02em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            File
+          </span>
+        )}
         {badges.map((b) => (
           <BadgeChip key={`${b.kind}:${b.label}`} badge={b} />
         ))}

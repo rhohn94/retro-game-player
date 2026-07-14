@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runSearch } from "../../../ipc/search";
 import type { ProviderResults, SearchProvider } from "../../../ipc/search";
+import { groupHasLikelyHits } from "../components/resultVisibility";
 import { isAppError } from "../../../ipc/commands";
 import type { RankQuery } from "../resultRanking";
 import type { ConsoleInfo } from "../../../ipc/console";
@@ -96,8 +97,13 @@ export function useSearchExecution(
         return a.providerId - b.providerId;
       });
       setResults(sorted);
-      // Collapse empty/error groups and low-priority (reference) groups so
-      // ROM/download hits stay open and visible.
+      // Collapse: empty/error, reference (priority>30), and groups with no
+      // likely title hits after chrome/stopword filtering (quality P0).
+      const rankQ = {
+        name: q,
+        console: consoleRankTokens || undefined,
+        region: reg || undefined,
+      };
       setCollapsed(
         new Set(
           sorted
@@ -105,7 +111,8 @@ export function useSearchExecution(
               (g) =>
                 g.items.length === 0 ||
                 !!g.error ||
-                (g.priority ?? 100) > 30
+                (g.priority ?? 100) > 30 ||
+                !groupHasLikelyHits(g, rankQ)
             )
             .map((g) => g.providerId)
         )
