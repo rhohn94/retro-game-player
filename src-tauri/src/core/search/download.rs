@@ -19,6 +19,7 @@
 //! including its hash dedupe.
 
 use crate::core::library::{import_file, mapper::map_extension, ImportOutcome};
+use crate::core::search::fetch::unwrap_redirect_wrapper;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use scraper::{Html, Selector};
@@ -236,7 +237,7 @@ pub fn extract_file_download_candidates(html: &str, page_url: &str) -> Vec<FileC
         if !matches!(resolved.scheme(), "http" | "https") {
             continue;
         }
-        let url = resolved.to_string();
+        let url = unwrap_redirect_wrapper(resolved.to_string());
         let Some(ext) = url_path_extension(&url) else {
             continue;
         };

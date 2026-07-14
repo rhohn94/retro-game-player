@@ -113,6 +113,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/017_rom_provider_priority_and_seeds.sql"),
         requires_fk_off: false,
     },
+    Migration {
+        version: 18,
+        sql: include_str!("migrations/018_seed_web_search_meta_providers.sql"),
+        requires_fk_off: false,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -336,6 +341,24 @@ mod tests {
             )
             .unwrap();
         assert_eq!(bad, 0, "download providers must be https {{query}} links");
+    }
+
+    #[test]
+    fn duckduckgo_meta_search_is_seeded_high_priority() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        let (tmpl, prio, dd, compose): (String, i64, i64, i64) = conn
+            .query_row(
+                "SELECT url_template, priority, direct_download, compose_filters \
+                 FROM search_providers WHERE name = 'DuckDuckGo'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .expect("DuckDuckGo seed");
+        assert!(tmpl.contains("duckduckgo.com") && tmpl.contains("{query}"));
+        assert_eq!(prio, 5, "meta-search should surface above ROM archives (10)");
+        assert_eq!(dd, 0, "SERP links are pages — DD off; auto-import resolves files");
+        assert_eq!(compose, 1, "console/region should append into the web query");
     }
 
     #[test]

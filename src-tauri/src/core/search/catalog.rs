@@ -57,6 +57,17 @@ const fn entry(
 
 /// The curated catalog. Every entry is an https `{query}` template (asserted by tests).
 const CATALOG: &[CatalogProvider] = &[
+    // --- Meta web search (best discovery titles; scrape-friendly endpoints only) ---
+    entry(
+        "DuckDuckGo",
+        "https://html.duckduckgo.com/html/?q={query}",
+        "download",
+        "Web search",
+        "Meta search over the web — organic titles (Archive.org, vaults, stores). Prefer this for discovery; not a direct file host.",
+        false,
+        5,
+        false,
+    ),
     // --- ROM archives (research / testability; often pre-seeded by migration 017) ---
     entry("RomsGames", "https://www.romsgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
     entry("Romspedia", "https://romspedia.com/search?term={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),

@@ -204,7 +204,46 @@ fn resolve_http_url(href: &str, base: Option<&reqwest::Url>) -> Option<String> {
     if !matches!(resolved.scheme(), "http" | "https") {
         return None;
     }
-    Some(resolved.to_string())
+    // Unwrap meta-search redirect wrappers so the UI/open/download see the real target.
+    Some(unwrap_redirect_wrapper(resolved.to_string()))
+}
+
+/// Peel known SERP redirect wrappers (DuckDuckGo `uddg=`, etc.) to the destination URL.
+/// Leaves the input unchanged when no wrapper is recognized.
+pub fn unwrap_redirect_wrapper(url: String) -> String {
+    let Ok(u) = reqwest::Url::parse(&url) else {
+        return url;
+    };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    // DuckDuckGo HTML/lite: /l/?uddg=https%3A%2F%2Fexample.com%2F...
+    if host.contains("duckduckgo.com") {
+        for (k, v) in u.query_pairs() {
+            if k == "uddg" {
+                let dest = v.to_string();
+                if dest.starts_with("http://") || dest.starts_with("https://") {
+                    return dest;
+                }
+            }
+        }
+    }
+    // Yandex sometimes uses /clck/jsredir?…&u=… (best-effort; captcha usually blocks first).
+    if host.contains("yandex.") {
+        for (k, v) in u.query_pairs() {
+            if k == "u" || k == "url" {
+                let dest = v.to_string();
+                if dest.starts_with("http://") || dest.starts_with("https://") {
+                    return dest;
+                }
+                // percent-encoded nested URL
+                if let Ok(decoded) = percent_encoding::percent_decode_str(&dest).decode_utf8() {
+                    if decoded.starts_with("http://") || decoded.starts_with("https://") {
+                        return decoded.into_owned();
+                    }
+                }
+            }
+        }
+    }
+    url
 }
 
 /// Minimum visible-title length to keep an anchor (drops single-character chrome
@@ -306,6 +345,29 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].title, "Super Mario (USA)");
         assert_eq!(out[0].url, "https://files.example.com/a.zip");
+    }
+
+    #[test]
+    fn unwraps_duckduckgo_uddg_redirect_to_destination() {
+        let wrapped = "https://duckduckgo.com/l/?uddg=https%3A%2F%2Farchive.org%2Fdetails%2Fsonic1&rut=abc";
+        assert_eq!(
+            unwrap_redirect_wrapper(wrapped.to_string()),
+            "https://archive.org/details/sonic1"
+        );
+        // Non-wrapper unchanged
+        assert_eq!(
+            unwrap_redirect_wrapper("https://archive.org/details/x".into()),
+            "https://archive.org/details/x"
+        );
+    }
+
+    #[test]
+    fn extract_links_unwraps_ddg_redirects_in_hrefs() {
+        let html = r#"<a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fvimm.net%2Fvault%2FGenesis">Vimm's Lair Genesis</a>"#;
+        let out = extract_links(html, "https://html.duckduckgo.com/html/?q=sonic");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url, "https://vimm.net/vault/Genesis");
+        assert!(out[0].title.contains("Vimm"));
     }
 
     #[test]
