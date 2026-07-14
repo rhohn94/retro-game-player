@@ -17,7 +17,7 @@ type DownloadState =
   | { kind: "idle" }
   | { kind: "downloading"; id: number; pct: number | null }
   | { kind: "done"; gameId: number; alreadyPresent: boolean; filePath?: string }
-  | { kind: "unrecognized"; stagedPath: string }
+  | { kind: "unrecognized"; stagedPath: string; reason?: string }
   | { kind: "error"; message: string };
 
 const label = { fontSize: 11, flexShrink: 0 } as const;
@@ -51,7 +51,12 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
             alreadyPresent: e.alreadyPresent ?? false,
             filePath: e.filePath,
           });
-        } else if (e.stagedPath) setState({ kind: "unrecognized", stagedPath: e.stagedPath });
+        } else if (e.stagedPath)
+          setState({
+            kind: "unrecognized",
+            stagedPath: e.stagedPath,
+            reason: e.reason,
+          });
         else setState({ kind: "error", message: "download ended without a result" });
       },
     }).then((u) => {
@@ -126,9 +131,22 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
     );
   }
   if (state.kind === "unrecognized") {
+    const msg = state.reason?.trim() || "not a recognized ROM";
+    const short = msg.length > 72 ? `${msg.slice(0, 72)}…` : msg;
     return (
-      <span style={{ ...label, color: "var(--aura-on-surface-muted)", display: "inline-flex", gap: 6 }}>
-        not a recognized ROM
+      <span
+        style={{
+          ...label,
+          color: "var(--aura-on-surface-muted)",
+          display: "inline-flex",
+          gap: 6,
+          alignItems: "center",
+          flexWrap: "wrap",
+          maxWidth: 420,
+        }}
+        title={msg}
+      >
+        <span style={{ lineHeight: 1.25 }}>{short}</span>
         <button
           type="button"
           onClick={() => void revealItemInDir(state.stagedPath)}

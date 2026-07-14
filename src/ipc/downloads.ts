@@ -19,6 +19,8 @@ export interface DownloadDone {
   /** Library path of the imported file (Reveal-in-Finder). */
   filePath?: string;
   stagedPath?: string;
+  /** Why a staged file was not imported (HTML page, empty zip, …). */
+  reason?: string;
   error?: string;
 }
 

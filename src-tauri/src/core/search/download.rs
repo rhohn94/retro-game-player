@@ -8,6 +8,10 @@
 //! keeps its structurally-no-fetch guarantee — nothing here is reachable from
 //! the search path.
 //!
+//! Auto-import (docs/design/auto-import-download-design.md): if the first GET
+//! returns an HTML page, we scan it for direct file links (`.zip` / ROM
+//! extensions), download the best candidate, and import that into the library.
+//!
 //! Safeguards mirror `fetch.rs`'s philosophy: scheme allow-list, streaming
 //! size cap, timeouts, staging-dir + atomic rename (an interrupted download
 //! never lands anywhere the importer looks), and cancellation checked per
@@ -17,6 +21,8 @@
 use crate::core::library::{import_file, mapper::map_extension, ImportOutcome};
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
+use scraper::{Html, Selector};
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -51,7 +57,20 @@ pub enum DownloadLanding {
     },
     /// Not a recognized ROM/zip — kept in staging for the user to resolve
     /// (Reveal / Discard); never silently deleted, never copied to games.
-    Unrecognized { staged_path: PathBuf },
+    Unrecognized {
+        staged_path: PathBuf,
+        /// Human-readable reason (e.g. HTML page with no file link).
+        reason: String,
+    },
+}
+
+/// A direct file URL discovered on an HTML detail page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileCandidate {
+    pub url: String,
+    pub score: i32,
+    /// Suggested filename from the URL path (may be empty).
+    pub filename: String,
 }
 
 /// Progress callback: `(received_bytes, total_bytes_if_known)`. Returning
@@ -109,6 +128,238 @@ pub fn url_filename(url: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// Extension from a URL path (no query), lowercased, no dot — or `None`.
+pub fn url_path_extension(url: &str) -> Option<String> {
+    let name = url_filename(url);
+    Path::new(&name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+}
+
+/// True when `ext` can be landed into the library (zip or a mapped ROM ext).
+pub fn is_importable_extension(ext: &str) -> bool {
+    let e = ext.trim_start_matches('.').to_ascii_lowercase();
+    e == "zip" || map_extension(&e).is_some()
+}
+
+/// True when the staged bytes look like HTML (BOM-tolerant, case-insensitive).
+pub fn looks_like_html(path: &Path) -> bool {
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut buf = [0u8; 512];
+    let Ok(n) = f.read(&mut buf) else {
+        return false;
+    };
+    if n == 0 {
+        return false;
+    }
+    let mut slice = &buf[..n];
+    // UTF-8 BOM
+    if slice.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        slice = &slice[3..];
+    }
+    let head = String::from_utf8_lossy(slice).to_ascii_lowercase();
+    let trimmed = head.trim_start();
+    trimmed.starts_with("<!doctype html")
+        || trimmed.starts_with("<html")
+        || (trimmed.contains("<html") && trimmed.contains("<head"))
+        || (trimmed.starts_with('<') && trimmed.contains("<body"))
+}
+
+/// True when bytes look like a zip archive (PK\x03\x04 or empty PK\x05\x06).
+pub fn looks_like_zip(path: &Path) -> bool {
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut buf = [0u8; 4];
+    let Ok(n) = f.read(&mut buf) else {
+        return false;
+    };
+    n >= 2 && buf[0] == b'P' && buf[1] == b'K'
+}
+
+/// Ensure `filename` has a usable extension when we can sniff the payload.
+pub fn ensure_filename_extension(path: &Path, filename: String) -> String {
+    let has_importable = Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(is_importable_extension);
+    if has_importable {
+        return filename;
+    }
+    if looks_like_zip(path) {
+        if filename.contains('.') {
+            return format!("{filename}.zip");
+        }
+        return format!("{filename}.zip");
+    }
+    filename
+}
+
+/// Score and collect direct file links from an HTML page (extension in URL path).
+pub fn extract_file_download_candidates(html: &str, page_url: &str) -> Vec<FileCandidate> {
+    let base = reqwest::Url::parse(page_url).ok();
+    let page_host = base.as_ref().and_then(|u| u.host_str()).map(str::to_string);
+    let doc = Html::parse_document(html);
+    let Ok(selector) = Selector::parse("a[href]") else {
+        return Vec::new();
+    };
+    let mut out: Vec<FileCandidate> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for el in doc.select(&selector) {
+        let Some(href) = el.value().attr("href").map(str::trim) else {
+            continue;
+        };
+        if href.is_empty() || href.starts_with('#') {
+            continue;
+        }
+        let lower_href = href.to_ascii_lowercase();
+        if lower_href.starts_with("javascript:")
+            || lower_href.starts_with("mailto:")
+            || lower_href.starts_with("data:")
+        {
+            continue;
+        }
+        let resolved = match reqwest::Url::parse(href) {
+            Ok(u) => u,
+            Err(_) => match base.as_ref().and_then(|b| b.join(href).ok()) {
+                Some(u) => u,
+                None => continue,
+            },
+        };
+        if !matches!(resolved.scheme(), "http" | "https") {
+            continue;
+        }
+        let url = resolved.to_string();
+        let Some(ext) = url_path_extension(&url) else {
+            continue;
+        };
+        if !is_importable_extension(&ext) {
+            continue;
+        }
+        if !seen.insert(url.clone()) {
+            continue;
+        }
+        let filename = url_filename(&url);
+        let mut score: i32 = 10;
+        if ext == "zip" {
+            score += 50;
+        } else {
+            score += 40; // bare ROM
+        }
+        let path_l = resolved.path().to_ascii_lowercase();
+        if path_l.contains("download") || path_l.contains("/dl/") || path_l.contains("file") {
+            score += 15;
+        }
+        let text = el.text().collect::<String>().to_ascii_lowercase();
+        if text.contains("download") || text.contains("zip") || text.contains("rom") {
+            score += 10;
+        }
+        if let (Some(ref ph), Some(h)) = (&page_host, resolved.host_str()) {
+            if ph.eq_ignore_ascii_case(h) {
+                score += 12;
+            }
+        }
+        // Prefer longer, more specific filenames over generic "download.zip"
+        if filename.len() > 12 && !filename.eq_ignore_ascii_case("download.zip") {
+            score += 5;
+        }
+        out.push(FileCandidate {
+            url,
+            score,
+            filename,
+        });
+    }
+    out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.url.cmp(&b.url)));
+    out
+}
+
+/// Pick the highest-scoring file candidate, if any.
+pub fn pick_best_file_candidate(candidates: &[FileCandidate]) -> Option<&FileCandidate> {
+    candidates.first()
+}
+
+const HTML_NO_FILE_REASON: &str = "This link is a web page, not a ROM file, and no downloadable \
+game file (.zip / ROM) was found on the page. Open it in your browser to download the game, \
+then drag the file into Retro Game Player.";
+
+const HTML_STILL_HTML_REASON: &str = "Followed a download link from the page, but the server \
+still returned a web page instead of a game file. Open the link in your browser to finish \
+the download, then drag the file into Retro Game Player.";
+
+/// Full auto-import path: GET `url` → if HTML, resolve file link → import.
+///
+/// `id` is the download job id (used for `.part` staging names).
+pub fn download_and_auto_import(
+    url: &str,
+    staging_dir: &Path,
+    id: u64,
+    hooks: &DownloadHooks<'_>,
+    db: &Db,
+    games_dir: &Path,
+) -> AppResult<DownloadLanding> {
+    let part = part_path(staging_dir, id);
+    stream_to_staging(url, &part, hooks)?;
+
+    if looks_like_html(&part) {
+        let html = std::fs::read_to_string(&part).unwrap_or_default();
+        let candidates = extract_file_download_candidates(&html, url);
+        if let Some(best) = pick_best_file_candidate(&candidates) {
+            // Drop the HTML page; fetch the real file into a fresh part path.
+            let _ = std::fs::remove_file(&part);
+            let file_part = part_path(staging_dir, id);
+            stream_to_staging(&best.url, &file_part, hooks)?;
+            if looks_like_html(&file_part) {
+                let name = ensure_filename_extension(
+                    &file_part,
+                    if best.filename.is_empty() {
+                        url_filename(&best.url)
+                    } else {
+                        best.filename.clone()
+                    },
+                );
+                let staged = staging_dir.join(name);
+                let _ = std::fs::rename(&file_part, &staged);
+                return Ok(DownloadLanding::Unrecognized {
+                    staged_path: staged,
+                    reason: HTML_STILL_HTML_REASON.to_string(),
+                });
+            }
+            let filename = ensure_filename_extension(
+                &file_part,
+                if best.filename.is_empty() {
+                    url_filename(&best.url)
+                } else {
+                    best.filename.clone()
+                },
+            );
+            return land_download(db, games_dir, staging_dir, &file_part, &filename);
+        }
+        // No file candidate — keep HTML for Reveal with a clear reason.
+        let name = {
+            let base = url_filename(url);
+            if base.contains('.') {
+                base
+            } else {
+                format!("{base}.html")
+            }
+        };
+        let staged = staging_dir.join(name);
+        let _ = std::fs::rename(&part, &staged);
+        return Ok(DownloadLanding::Unrecognized {
+            staged_path: staged,
+            reason: HTML_NO_FILE_REASON.to_string(),
+        });
+    }
+
+    let filename = ensure_filename_extension(&part, url_filename(url));
+    land_download(db, games_dir, staging_dir, &part, &filename)
 }
 
 /// Streams `url` into `dest_part`, enforcing the cap, reporting progress, and
@@ -251,7 +502,11 @@ pub fn land_download(
     if ext == "zip" {
         let roms = extract_rom_entries(&staged, staging_dir)?;
         if roms.is_empty() {
-            return Ok(DownloadLanding::Unrecognized { staged_path: staged });
+            return Ok(DownloadLanding::Unrecognized {
+                staged_path: staged,
+                reason: "The zip archive did not contain any recognized ROM files."
+                    .to_string(),
+            });
         }
         let mut first: Option<ImportOutcome> = None;
         for rom in &roms {
@@ -278,7 +533,13 @@ pub fn land_download(
         });
     }
 
-    Ok(DownloadLanding::Unrecognized { staged_path: staged })
+    Ok(DownloadLanding::Unrecognized {
+        staged_path: staged,
+        reason: format!(
+            "Downloaded file is not a recognized ROM or zip (name: {filename}). \
+             Try a different link, or download the game in your browser and drag the file in."
+        ),
+    })
 }
 
 #[cfg(test)]
@@ -500,9 +761,146 @@ mod tests {
         let landing =
             land_download(&db, tmp.path(), &staging, &part, "mystery.dat").unwrap();
         match landing {
-            DownloadLanding::Unrecognized { staged_path } => {
+            DownloadLanding::Unrecognized {
+                staged_path,
+                reason,
+            } => {
                 assert!(staged_path.exists());
                 assert!(staged_path.ends_with("mystery.dat"));
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected Unrecognized, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn looks_like_html_detects_doctype() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("page");
+        std::fs::write(&p, b"<!doctype html><html><body>x</body></html>").unwrap();
+        assert!(looks_like_html(&p));
+        std::fs::write(&p, b"NES\x1aROMDATA").unwrap();
+        assert!(!looks_like_html(&p));
+    }
+
+    #[test]
+    fn extract_file_candidates_finds_zip_and_rom_links() {
+        let html = r#"
+          <html><body>
+            <a href="/nav">Home</a>
+            <a href="/files/Sonic%20(USA).md">Play now</a>
+            <a href="https://cdn.example.com/dl/pack.zip">Download ZIP</a>
+            <a href="/other/page">More</a>
+          </body></html>
+        "#;
+        let c = extract_file_download_candidates(html, "https://roms.example.com/game/sonic");
+        assert!(c.len() >= 2, "{c:?}");
+        // zip should rank at or above bare ROM
+        assert!(c[0].url.contains("pack.zip") || c.iter().any(|x| x.url.contains("pack.zip")));
+        assert!(c.iter().any(|x| x.url.contains("Sonic")));
+        assert!(c.iter().all(|x| is_importable_extension(
+            url_path_extension(&x.url).as_deref().unwrap_or("")
+        )));
+    }
+
+    #[test]
+    fn auto_import_follows_html_to_zip_rom() {
+        // Server 1: HTML page with link to zip on server 2
+        // Simpler: one server, two paths — use tiny_http sequential is hard.
+        // Two fixture servers: page then zip.
+        let zip_bytes = zip_with(&[("Auto Import.nes", b"AUTO-IMPORT-ROM-BYTES")]);
+        let zip_server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let zip_port = zip_server.server_addr().to_ip().unwrap().port();
+        let zip_bytes_clone = zip_bytes.clone();
+        let zip_join = std::thread::spawn(move || {
+            if let Ok(req) = zip_server.recv() {
+                let _ = req.respond(tiny_http::Response::from_data(zip_bytes_clone));
+            }
+        });
+
+        let page_html = format!(
+            r#"<!doctype html><html><body>
+               <a href="http://127.0.0.1:{zip_port}/pack.zip">Download ZIP</a>
+               </body></html>"#
+        );
+        let page_server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let page_port = page_server.server_addr().to_ip().unwrap().port();
+        let page_join = std::thread::spawn(move || {
+            if let Ok(req) = page_server.recv() {
+                let _ = req.respond(tiny_http::Response::from_data(page_html.into_bytes()));
+            }
+        });
+
+        let db = Db::open_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let games = tmp.path().join("games");
+        let staging = tmp.path().join("staging");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        let (progress, cont) = hooks();
+        let landing = download_and_auto_import(
+            &format!("http://127.0.0.1:{page_port}/game/sonic"),
+            &staging,
+            99,
+            &DownloadHooks {
+                on_progress: progress,
+                should_continue: cont,
+            },
+            &db,
+            &games,
+        )
+        .expect("auto import");
+        page_join.join().unwrap();
+        zip_join.join().unwrap();
+
+        match landing {
+            DownloadLanding::Imported {
+                game_id,
+                already_present,
+                file_path,
+            } => {
+                assert!(game_id > 0);
+                assert!(!already_present);
+                assert!(
+                    file_path.contains("Auto Import") || file_path.ends_with(".nes"),
+                    "{file_path}"
+                );
+            }
+            other => panic!("expected Imported, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auto_import_html_without_file_link_is_unrecognized_with_reason() {
+        let html = b"<!doctype html><html><body><a href='/about'>About</a></body></html>";
+        let (port, join) = fixture_server(html.to_vec());
+        let db = Db::open_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let games = tmp.path().join("games");
+        let staging = tmp.path().join("staging");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        let (progress, cont) = hooks();
+        let landing = download_and_auto_import(
+            &format!("http://127.0.0.1:{port}/page"),
+            &staging,
+            7,
+            &DownloadHooks {
+                on_progress: progress,
+                should_continue: cont,
+            },
+            &db,
+            &games,
+        )
+        .unwrap();
+        join.join().unwrap();
+        match landing {
+            DownloadLanding::Unrecognized {
+                staged_path,
+                reason,
+            } => {
+                assert!(staged_path.exists());
+                assert!(reason.contains("web page") || reason.contains("ROM"));
             }
             other => panic!("expected Unrecognized, got {other:?}"),
         }

@@ -12,8 +12,7 @@
 use crate::commands::library::resolve_or_init_games_dir;
 use crate::config::paths::Paths;
 use crate::core::search::download::{
-    self, land_download, part_path, stream_to_staging, url_filename, DownloadHooks,
-    DownloadLanding,
+    self, download_and_auto_import, DownloadHooks, DownloadLanding,
 };
 use crate::db::repo::search_providers::SearchProvidersRepo;
 use crate::db::repo::Repository;
@@ -103,6 +102,9 @@ struct DoneEvent {
     file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     staged_path: Option<String>,
+    /// Why import failed for an unrecognized/staged file (shown in the UI).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -177,9 +179,9 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
         already_present: None,
         file_path: None,
         staged_path: None,
+        reason: None,
         error: Some(error),
     };
-    let part = part_path(&job.staging, job.id);
     let app = job.app.clone();
     let id = job.id;
     let cancel = Arc::clone(&job.cancel);
@@ -189,15 +191,18 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
         },
         should_continue: &move || !cancel.load(Ordering::Relaxed),
     };
-    if let Err(e) = stream_to_staging(&job.url, &part, &hooks) {
-        return fail(e.to_string());
-    }
     let db = match Db::open(&job.db_path) {
         Ok(db) => db,
         Err(e) => return fail(format!("library unavailable: {e}")),
     };
-    let filename = url_filename(&job.url);
-    match land_download(&db, &job.games_dir, &job.staging, &part, &filename) {
+    match download_and_auto_import(
+        &job.url,
+        &job.staging,
+        job.id,
+        &hooks,
+        &db,
+        &job.games_dir,
+    ) {
         Ok(DownloadLanding::Imported {
             game_id,
             already_present,
@@ -208,14 +213,19 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
             already_present: Some(already_present),
             file_path: Some(file_path),
             staged_path: None,
+            reason: None,
             error: None,
         },
-        Ok(DownloadLanding::Unrecognized { staged_path }) => DoneEvent {
+        Ok(DownloadLanding::Unrecognized {
+            staged_path,
+            reason,
+        }) => DoneEvent {
             id: job.id,
             game_id: None,
             already_present: None,
             file_path: None,
             staged_path: Some(staged_path.to_string_lossy().into_owned()),
+            reason: Some(reason),
             error: None,
         },
         Err(e) => fail(e.to_string()),
