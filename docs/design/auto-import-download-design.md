@@ -42,8 +42,21 @@ On ⬇ Download:
 - HTML with no file links → reason text, staged file revealable, no library row.
 - Second hop that is still HTML → same failure path, no infinite loop.
 
+## Phase 1 lander (implemented)
+
+- **`Content-Disposition` / `Content-Type`** captured on stream; disposition
+  filename preferred over the URL path for landing names.
+- **Magic-byte classify** (zip / NES / RAR / 7z / gzip / HTML) before hop and
+  before land; HTML hop only when not a binary magic.
+- **Query / title hint** from the result row ranks hop-2 candidates (filename,
+  link text, path).
+- **HEAD (or Range GET) preflight** on the top 5 scored candidates; prefer
+  confirmed files (`application/zip`, disposition with importable name, etc.).
+- **Download-ish URLs** without a file extension (`/download?id=`, `/dl/…`)
+  are candidates; HEAD decides if they are real files.
+
 ## Follow-ups
 
-- `Content-Disposition` filename.
-- HEAD preflight for `Content-Type`.
-- Site-specific parsers when extension-less `/download?id=` is required.
+- Multi-hop budget (2–3) when hop-2 is still HTML with more file links.
+- Site-specific result/file parsers for high-value hosts.
+- Structure-aware SERP scrape (prefer main/results containers).

@@ -22,7 +22,16 @@ type DownloadState =
 
 const label = { fontSize: 11, flexShrink: 0 } as const;
 
-export function DownloadAction({ providerId, url }: { providerId: number; url: string }) {
+export function DownloadAction({
+  providerId,
+  url,
+  title,
+}: {
+  providerId: number;
+  url: string;
+  /** Result title — helps hop-2 pick the matching file on HTML detail pages. */
+  title?: string;
+}) {
   const navigate = useNavigate();
   const [state, setState] = useState<DownloadState>({ kind: "idle" });
   const idRef = useRef<number | null>(null);
@@ -70,7 +79,7 @@ export function DownloadAction({ providerId, url }: { providerId: number; url: s
   }, [state.kind]);
 
   const begin = () => {
-    startDownload(providerId, url)
+    startDownload(providerId, url, title)
       .then((id) => {
         idRef.current = id;
         setState({ kind: "downloading", id, pct: null });

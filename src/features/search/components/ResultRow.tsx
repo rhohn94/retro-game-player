@@ -146,7 +146,11 @@ export function ResultRow({
       </FocusRing>
       {downloadProviderId !== undefined && (
         <span style={{ flexShrink: 0, paddingRight: 10 }}>
-          <DownloadAction providerId={downloadProviderId} url={result.url} />
+          <DownloadAction
+            providerId={downloadProviderId}
+            url={result.url}
+            title={result.title}
+          />
         </span>
       )}
     </motion.li>

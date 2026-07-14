@@ -113,10 +113,14 @@ struct DoneEvent {
 /// download id whose progress/done events the UI should follow. Rejects a
 /// provider without the `direct_download` opt-in **server-side** — the UI
 /// gate is not the contract.
+///
+/// Optional `hint` is the result title (or search query) used to rank file
+/// links on an HTML detail page during auto-import.
 #[tauri::command]
 pub fn start_download(
     provider_id: i64,
     url: String,
+    hint: Option<String>,
     db: State<'_, Db>,
     downloads: State<'_, Downloads>,
     app: AppHandle,
@@ -139,6 +143,7 @@ pub fn start_download(
         staging: downloads.downloads_dir.clone(),
         games_dir,
         url,
+        hint,
         id,
         cancel,
         app,
@@ -153,6 +158,7 @@ struct DownloadJob {
     staging: PathBuf,
     games_dir: PathBuf,
     url: String,
+    hint: Option<String>,
     id: u64,
     cancel: Arc<AtomicBool>,
     app: AppHandle,
@@ -202,6 +208,7 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
         &hooks,
         &db,
         &job.games_dir,
+        job.hint.as_deref(),
     ) {
         Ok(DownloadLanding::Imported {
             game_id,

@@ -24,9 +24,19 @@ export interface DownloadDone {
   error?: string;
 }
 
-/** Starts a download; resolves to the id progress/done events carry. */
-export function startDownload(providerId: number, url: string): Promise<number> {
-  return invoke<number>("start_download", { providerId, url });
+/** Starts a download; resolves to the id progress/done events carry.
+ *  Optional `hint` is the result title (used to pick the right file link on
+ *  an HTML detail page during auto-import). */
+export function startDownload(
+  providerId: number,
+  url: string,
+  hint?: string,
+): Promise<number> {
+  return invoke<number>("start_download", {
+    providerId,
+    url,
+    hint: hint?.trim() ? hint.trim() : null,
+  });
 }
 
 /** Cancels a running download (no-op for finished ids). */
