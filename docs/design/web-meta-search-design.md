@@ -60,7 +60,17 @@ type `Sonic genesis rom` manually.
 - Scraping a DDG result page unwraps destinations to archive.org / vaults / etc.
 - Yandex is **not** seeded; design documents why.
 
+## Phase 2 (scrape + query suffix)
+
+- **Structure-aware SERP scrape** (`fetch.rs`): DDG profile uses `a.result__a`;
+  Archive.org prefers `/details/…`; generic scrape ranks `main`/`article`/
+  results containers and drops `nav`/`header`/`footer`.
+- **`+rom` query suffix** (UI checkbox, default on, localStorage): appends
+  `rom` for DuckDuckGo and compose-enabled download providers so organic
+  results skew toward downloadable hits. Skips when the query already has
+  `rom`/`roms`.
+
 ## Follow-ups
 
-- Optional “Search the web” query preset suffix (`rom`, system name).
 - Provider health: collapse captcha/error SERPs automatically.
+- Host profiles beyond DDG / Archive.org.

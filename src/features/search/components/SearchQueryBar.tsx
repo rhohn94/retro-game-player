@@ -35,6 +35,8 @@ export function SearchQueryBar({
   consoles,
   region,
   onRegionChange,
+  appendRom,
+  onAppendRomChange,
   onSearch,
   searchDisabled,
   running,
@@ -48,6 +50,9 @@ export function SearchQueryBar({
   consoles: ConsoleInfo[];
   region: string;
   onRegionChange: (value: string) => void;
+  /** Append a `rom` token for meta-search / download providers (Phase 2). */
+  appendRom?: boolean;
+  onAppendRomChange?: (value: boolean) => void;
   onSearch: () => void;
   searchDisabled: boolean;
   running: boolean;
@@ -99,6 +104,28 @@ export function SearchQueryBar({
           </option>
         ))}
       </select>
+      {onAppendRomChange !== undefined && (
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "var(--aura-on-surface-muted)",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+          title="Appends “rom” to web/meta and download-provider queries so SERPs rank downloadable hits higher"
+        >
+          <input
+            type="checkbox"
+            name="search-append-rom"
+            checked={!!appendRom}
+            onChange={(e) => onAppendRomChange(e.target.checked)}
+          />
+          +rom
+        </label>
+      )}
       <FocusableAction
         focusId="search:run"
         onActivate={onSearch}

@@ -139,6 +139,8 @@ export function SearchPage() {
         consoles={consoles}
         region={execution.region}
         onRegionChange={execution.setRegion}
+        appendRom={execution.appendRom}
+        onAppendRomChange={execution.setAppendRom}
         onSearch={execution.handleSearch}
         searchDisabled={
           !execution.query.trim() || providersApi.activeCount === 0 || execution.running

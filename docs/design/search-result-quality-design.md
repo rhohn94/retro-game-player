@@ -71,6 +71,13 @@ items → drop site chrome → live filter → rank/sort → hide none (if hideW
   + File when extension is present.
 - Unchecking “Hide unlikely matches” restores non-matches (chrome still dropped).
 
+## Phase 2 scrape (implemented)
+
+- Structure-aware `extract_links`: drop nav/header/footer regions; boost
+  main/results; host profiles for DuckDuckGo and Archive.org.
+- Optional `+rom` query suffix for meta/download providers (see
+  [web-meta-search-design](web-meta-search-design.md)).
+
 ## Follow-ups
 
-P1 parsers, file-vs-page HEAD probe, provider health, console compose-by-default.
+P1 per-site parsers, provider health, console compose-by-default.

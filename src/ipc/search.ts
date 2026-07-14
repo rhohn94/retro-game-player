@@ -252,11 +252,14 @@ export function runSearch(args: {
   console?: string;
   region?: string;
   providerId?: number;
+  /** Append a `rom` token for meta-search / download providers (Phase 2). */
+  appendRom?: boolean;
 }): Promise<ProviderResults[]> {
   return invoke<ProviderResults[]>("run_search", {
     query: args.query,
     console: args.console ?? null,
     region: args.region ?? null,
     providerId: args.providerId ?? null,
+    appendRom: args.appendRom ?? null,
   });
 }

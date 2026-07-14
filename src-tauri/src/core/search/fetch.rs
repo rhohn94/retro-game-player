@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::time::Duration;
 
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 
 use crate::error::{AppError, AppResult};
 
@@ -127,52 +127,318 @@ fn read_capped(resp: reqwest::blocking::Response) -> AppResult<String> {
 /// Extract candidate result links from `html`, resolving relative hrefs against
 /// `base_url`. Pure (no I/O) so it is unit-testable without a network.
 ///
-/// The heuristic is deliberately source-agnostic (the provider is arbitrary):
-/// take every `<a href>`, resolve it to an absolute http(s) URL, require
-/// non-empty visible text, drop duplicates and the search page itself, and cap
-/// at `MAX_RESULTS`. This previews whatever a page links to — imperfectly, but
-/// without per-site parsers.
+/// Phase 2 (structure-aware scrape):
+/// 1. Host profiles (DuckDuckGo `a.result__a`, Archive.org `/details/`, …)
+/// 2. Generic structural ranking — prefer `main`/`article`/results containers,
+///    drop anchors inside `nav`/`header`/`footer`
+/// 3. Fallback: every remaining non-chrome `<a href>` (v0.16 behaviour)
 pub fn extract_links(html: &str, base_url: &str) -> Vec<ScrapedResult> {
+    let profiled = extract_profile_links(html, base_url);
+    if !profiled.is_empty() {
+        return profiled;
+    }
+    extract_links_structured(html, base_url)
+}
+
+/// Host of `url` lowercased, or empty.
+fn host_of(url: &str) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+        .unwrap_or_default()
+}
+
+/// Known SERP / catalog profiles with reliable result-link selectors.
+fn extract_profile_links(html: &str, base_url: &str) -> Vec<ScrapedResult> {
+    let host = host_of(base_url);
+    if host.is_empty() {
+        return Vec::new();
+    }
+
+    // DuckDuckGo HTML / lite SERP
+    if host.contains("duckduckgo.com") {
+        let ddg = collect_by_selectors(
+            html,
+            base_url,
+            &["a.result__a", "a.result-link", ".results_links a.result__a"],
+        );
+        if !ddg.is_empty() {
+            return ddg;
+        }
+    }
+
+    // Internet Archive search / collections — detail pages are the useful hits
+    if host.contains("archive.org") {
+        let ia = collect_by_selectors(html, base_url, &["a[href*='/details/']"]);
+        // Filter to actual details (not /details/ alone)
+        let ia: Vec<_> = ia
+            .into_iter()
+            .filter(|r| {
+                r.url.contains("/details/")
+                    && !r.url.ends_with("/details/")
+                    && !r.url.ends_with("/details")
+            })
+            .collect();
+        if !ia.is_empty() {
+            return ia;
+        }
+    }
+
+    Vec::new()
+}
+
+/// Collect links matching any of the CSS `selectors`, in document order,
+/// applying the same chrome / scheme / dedupe rules as the generic path.
+fn collect_by_selectors(html: &str, base_url: &str, selectors: &[&str]) -> Vec<ScrapedResult> {
     let base = reqwest::Url::parse(base_url).ok();
     let doc = Html::parse_document(html);
-    let selector = match Selector::parse("a[href]") {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-
     let mut out: Vec<ScrapedResult> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
-    for el in doc.select(&selector) {
-        let Some(href) = el.value().attr("href").map(str::trim) else {
+    for sel_str in selectors {
+        let Ok(selector) = Selector::parse(sel_str) else {
             continue;
         };
-        let Some(url) = resolve_http_url(href, base.as_ref()) else {
-            continue;
-        };
-        // Skip the search page itself (a self-link is not a result).
-        if url == base_url {
-            continue;
-        }
-        let title = normalize_title(&el.text().collect::<String>());
-        if title.is_empty() {
-            continue;
-        }
-        // v0.18: drop obvious page chrome (nav/pagination/legal/social) before it
-        // becomes a "result". Conservative — whole-string matches only, so a real
-        // title is never dropped.
-        if is_chrome_anchor(&title) {
-            continue;
-        }
-        if !seen.insert(url.clone()) {
-            continue;
-        }
-        out.push(ScrapedResult { title, url });
-        if out.len() >= MAX_RESULTS {
-            break;
+        for el in doc.select(&selector) {
+            if let Some(item) = scrape_anchor(&el, base.as_ref(), base_url) {
+                if seen.insert(item.url.clone()) {
+                    out.push(item);
+                    if out.len() >= MAX_RESULTS {
+                        return out;
+                    }
+                }
+            }
         }
     }
     out
+}
+
+/// Structure-aware generic scrape: score every non-chrome anchor by container
+/// context, prefer results regions, drop nav/header/footer, then cap.
+fn extract_links_structured(html: &str, base_url: &str) -> Vec<ScrapedResult> {
+    let base = reqwest::Url::parse(base_url).ok();
+    let doc = Html::parse_document(html);
+    let Ok(selector) = Selector::parse("a[href]") else {
+        return Vec::new();
+    };
+
+    struct Ranked {
+        score: i32,
+        order: usize,
+        item: ScrapedResult,
+    }
+
+    let mut ranked: Vec<Ranked> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut order = 0usize;
+
+    for el in doc.select(&selector) {
+        // Skip anchors inside page chrome containers.
+        if is_in_chrome_region(&el) {
+            continue;
+        }
+        let Some(item) = scrape_anchor(&el, base.as_ref(), base_url) else {
+            continue;
+        };
+        if !seen.insert(item.url.clone()) {
+            continue;
+        }
+        let mut score: i32 = 10;
+        if is_in_results_region(&el) {
+            score += 40;
+        }
+        // Prefer longer, more specific titles over single tokens.
+        let tlen = item.title.chars().count();
+        if tlen >= 12 {
+            score += 8;
+        } else if tlen >= 6 {
+            score += 3;
+        }
+        // Path looks like a content detail (not a bare index).
+        if path_looks_like_content(&item.url) {
+            score += 12;
+        }
+        // File-like URLs are high-signal for download providers.
+        if url_looks_file_like(&item.url) {
+            score += 20;
+        }
+        ranked.push(Ranked {
+            score,
+            order,
+            item,
+        });
+        order += 1;
+    }
+
+    ranked.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.order.cmp(&b.order))
+    });
+    ranked
+        .into_iter()
+        .take(MAX_RESULTS)
+        .map(|r| r.item)
+        .collect()
+}
+
+/// Turn one `<a>` into a scraped result, or `None` if it should be dropped.
+fn scrape_anchor(
+    el: &ElementRef<'_>,
+    base: Option<&reqwest::Url>,
+    base_url: &str,
+) -> Option<ScrapedResult> {
+    let href = el.value().attr("href").map(str::trim)?;
+    let url = resolve_http_url(href, base)?;
+    if url == base_url {
+        return None;
+    }
+    let title = normalize_title(&el.text().collect::<String>());
+    if title.is_empty() {
+        return None;
+    }
+    if is_chrome_anchor(&title) {
+        return None;
+    }
+    Some(ScrapedResult { title, url })
+}
+
+/// True when `el` sits under nav / header / footer / aside chrome.
+fn is_in_chrome_region(el: &ElementRef<'_>) -> bool {
+    let mut node = el.parent();
+    while let Some(n) = node {
+        if let Some(parent) = ElementRef::wrap(n) {
+            let name = parent.value().name().to_ascii_lowercase();
+            if matches!(
+                name.as_str(),
+                "nav" | "header" | "footer" | "aside"
+            ) {
+                return true;
+            }
+            let role = parent
+                .value()
+                .attr("role")
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(
+                role.as_str(),
+                "navigation" | "banner" | "contentinfo" | "complementary"
+            ) {
+                return true;
+            }
+            let class = parent
+                .value()
+                .attr("class")
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let id = parent.value().attr("id").unwrap_or("").to_ascii_lowercase();
+            for token in class.split_whitespace().chain(std::iter::once(id.as_str())) {
+                if matches!(
+                    token,
+                    "menu"
+                        | "navbar"
+                        | "nav-bar"
+                        | "site-nav"
+                        | "main-nav"
+                        | "topnav"
+                        | "sidebar"
+                        | "side-bar"
+                        | "footer"
+                        | "site-footer"
+                        | "header"
+                        | "site-header"
+                        | "breadcrumb"
+                        | "breadcrumbs"
+                        | "pagination"
+                        | "pager"
+                        | "social"
+                        | "social-links"
+                ) {
+                    return true;
+                }
+            }
+        }
+        node = n.parent();
+    }
+    false
+}
+
+/// True when `el` sits under a main / article / results-like container.
+fn is_in_results_region(el: &ElementRef<'_>) -> bool {
+    let mut node = el.parent();
+    while let Some(n) = node {
+        if let Some(parent) = ElementRef::wrap(n) {
+            let name = parent.value().name().to_ascii_lowercase();
+            if matches!(name.as_str(), "main" | "article") {
+                return true;
+            }
+            let role = parent
+                .value()
+                .attr("role")
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(role.as_str(), "main" | "list" | "feed" | "article") {
+                return true;
+            }
+            let class = parent
+                .value()
+                .attr("class")
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let id = parent.value().attr("id").unwrap_or("").to_ascii_lowercase();
+            let hay = format!("{id} {class}");
+            for key in [
+                "results",
+                "result-list",
+                "search-results",
+                "searchresults",
+                "search_results",
+                "game-list",
+                "gamelist",
+                "rom-list",
+                "romlist",
+                "entries",
+                "item-list",
+            ] {
+                if hay.split_whitespace().any(|t| t == key || t.contains(key)) {
+                    return true;
+                }
+            }
+        }
+        node = n.parent();
+    }
+    false
+}
+
+/// Path segments that look like content pages rather than bare indexes.
+fn path_looks_like_content(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    let path = u.path();
+    let segs: Vec<_> = path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if segs.len() >= 2 {
+        return true;
+    }
+    if let Some(last) = segs.last() {
+        // single slug with a hyphen or long name
+        if last.contains('-') || last.len() >= 8 {
+            return true;
+        }
+    }
+    false
+}
+
+fn url_looks_file_like(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    const EXTS: &[&str] = &[
+        ".zip", ".7z", ".rar", ".nes", ".sfc", ".smc", ".gb", ".gbc", ".gba", ".n64",
+        ".z64", ".md", ".gen", ".iso", ".chd", ".nds",
+    ];
+    EXTS.iter().any(|e| path.ends_with(e))
 }
 
 /// True when `url` parses as an absolute http(s) URL.
@@ -502,5 +768,69 @@ mod tests {
             fetch_results("file:///etc/passwd"),
             Err(AppError::Validation(_))
         ));
+    }
+
+    #[test]
+    fn structure_aware_prefers_main_over_nav() {
+        let html = r#"
+          <html><body>
+            <nav>
+              <a href="https://x.example.com/roms">ROMs</a>
+              <a href="https://x.example.com/emulators">Emulators</a>
+            </nav>
+            <main class="results">
+              <a href="https://x.example.com/game/sonic-usa">Sonic the Hedgehog (USA)</a>
+              <a href="https://x.example.com/game/sonic-eu">Sonic the Hedgehog (Europe)</a>
+            </main>
+            <footer><a href="https://x.example.com/privacy">Privacy</a></footer>
+          </body></html>
+        "#;
+        let out = extract_links(html, BASE);
+        let titles: Vec<_> = out.iter().map(|r| r.title.as_str()).collect();
+        assert!(
+            titles.iter().any(|t| t.contains("Sonic")),
+            "expected game titles, got {titles:?}"
+        );
+        assert!(
+            !titles.iter().any(|t| *t == "ROMs" || *t == "Emulators" || *t == "Privacy"),
+            "nav/footer leaked: {titles:?}"
+        );
+        // Main hits should rank first
+        assert!(out[0].title.contains("Sonic"), "{out:?}");
+    }
+
+    #[test]
+    fn ddg_profile_prefers_result_a_class() {
+        let html = r#"
+          <html><body>
+            <a href="https://duckduckgo.com/about">About DDG</a>
+            <div class="results">
+              <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Farchive.org%2Fdetails%2Fsonic">
+                Sonic on Archive.org
+              </a>
+              <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fvimm.net%2Fvault">
+                Vimm's Lair
+              </a>
+            </div>
+          </body></html>
+        "#;
+        let out = extract_links(html, "https://html.duckduckgo.com/html/?q=sonic");
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert!(out[0].url.contains("archive.org") || out[0].url.contains("vimm.net"));
+        assert!(!out.iter().any(|r| r.title.contains("About")));
+    }
+
+    #[test]
+    fn archive_org_profile_keeps_details_links() {
+        let html = r#"
+          <html><body>
+            <a href="/about">About</a>
+            <a href="/details/sonic_the_hedgehog_genesis">Sonic the Hedgehog</a>
+            <a href="/details/">All details</a>
+          </body></html>
+        "#;
+        let out = extract_links(html, "https://archive.org/search?query=sonic");
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].url.contains("/details/sonic"));
     }
 }

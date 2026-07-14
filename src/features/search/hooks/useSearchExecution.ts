@@ -13,6 +13,7 @@ import { groupHasLikelyHits } from "../components/resultVisibility";
 import { isAppError } from "../../../ipc/commands";
 import type { RankQuery } from "../resultRanking";
 import type { ConsoleInfo } from "../../../ipc/console";
+import { loadAppendRomPref, saveAppendRomPref } from "../searchPrefs";
 
 export interface UseSearchExecutionResult {
   query: string;
@@ -21,6 +22,9 @@ export interface UseSearchExecutionResult {
   setConsoleKey: (k: string) => void;
   region: string;
   setRegion: (r: string) => void;
+  /** Append a `rom` token for meta-search / download providers. */
+  appendRom: boolean;
+  setAppendRom: (v: boolean) => void;
   results: ProviderResults[] | null;
   rankQuery: RankQuery;
   running: boolean;
@@ -43,12 +47,18 @@ export function useSearchExecution(
   const [query, setQuery] = useState(initialQuery);
   const [consoleKey, setConsoleKey] = useState("");
   const [region, setRegion] = useState("");
+  const [appendRom, setAppendRomState] = useState(() => loadAppendRomPref());
   const [results, setResults] = useState<ProviderResults[] | null>(null);
   const [rankQuery, setRankQuery] = useState<RankQuery>({ name: "" });
   const [running, setRunning] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const didAutoRun = useRef(false);
+
+  const setAppendRom = useCallback((v: boolean) => {
+    setAppendRomState(v);
+    saveAppendRomPref(v);
+  }, []);
 
   const handleSearch = useCallback(async () => {
     const q = query.trim();
@@ -84,6 +94,7 @@ export function useSearchExecution(
         query: q,
         console: consoleComposeToken || undefined,
         region: reg || undefined,
+        appendRom,
       });
       // Pin non-empty high-priority groups first, then non-empty others, then empties.
       // Backend already orders by priority; this keeps filled ROM archives on top.
@@ -123,7 +134,7 @@ export function useSearchExecution(
     } finally {
       setRunning(false);
     }
-  }, [query, providers, consoles, consoleKey, region, resetBrowseState]);
+  }, [query, providers, consoles, consoleKey, region, appendRom, resetBrowseState]);
 
   // Auto-run a search that arrived pre-filled via navigation state ("Find
   // downloads for this title"), once providers have loaded so enabled ones
@@ -141,6 +152,8 @@ export function useSearchExecution(
     setConsoleKey,
     region,
     setRegion,
+    appendRom,
+    setAppendRom,
     results,
     rankQuery,
     running,

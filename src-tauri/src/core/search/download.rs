@@ -528,10 +528,93 @@ pub fn is_download_ish_url(url: &str) -> bool {
         || query.contains("download")
 }
 
+/// Parse `meta http-equiv=refresh` content for a target URL.
+/// Accepts forms like `0;url=https://…` and `5; URL='/file.zip'`.
+pub fn parse_meta_refresh_url(content: &str) -> Option<String> {
+    let lower = content.to_ascii_lowercase();
+    let idx = lower.find("url=")?;
+    let mut rest = content[idx + 4..].trim();
+    // Strip optional surrounding quotes
+    if (rest.starts_with('"') && rest.ends_with('"'))
+        || (rest.starts_with('\'') && rest.ends_with('\''))
+    {
+        rest = &rest[1..rest.len() - 1];
+    }
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+/// Best-effort `location = '…'` / `location.href = "…"` extraction from inline JS.
+pub fn extract_js_location_urls(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let lower = html.to_ascii_lowercase();
+    // Markers end before optional whitespace and `=` / `(` so `location = "…"` works.
+    for marker in [
+        "window.location.href",
+        "window.location",
+        "location.href",
+        "location.replace",
+        "location.assign",
+    ] {
+        let mut search_from = 0;
+        while let Some(rel) = lower[search_from..].find(marker) {
+            let after_marker = search_from + rel + marker.len();
+            let rest = html.get(after_marker..).unwrap_or("");
+            // Skip whitespace, then optional '=' or '(', then whitespace, then quote.
+            let mut chars = rest.char_indices().peekable();
+            // skip ws
+            while matches!(chars.peek(), Some((_, c)) if c.is_whitespace()) {
+                chars.next();
+            }
+            match chars.peek().map(|(_, c)| *c) {
+                Some('=') | Some('(') => {
+                    chars.next();
+                }
+                _ => {
+                    search_from = after_marker + 1;
+                    continue;
+                }
+            }
+            while matches!(chars.peek(), Some((_, c)) if c.is_whitespace()) {
+                chars.next();
+            }
+            let Some((_, q)) = chars.next() else {
+                search_from = after_marker + 1;
+                continue;
+            };
+            if q != '"' && q != '\'' {
+                search_from = after_marker + 1;
+                continue;
+            }
+            let start = chars.peek().map(|(i, _)| *i).unwrap_or(rest.len());
+            if let Some(end_rel) = rest[start..].find(q) {
+                let url = rest[start..start + end_rel].trim();
+                if url.starts_with("http://")
+                    || url.starts_with("https://")
+                    || url.starts_with('/')
+                {
+                    out.push(url.to_string());
+                }
+            }
+            search_from = after_marker + 1;
+            if search_from >= lower.len() {
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// Score and collect file / download-ish links from an HTML page.
 ///
 /// `hint` is the result title or search query — used to prefer links that
 /// match the game the user clicked.
+///
+/// Phase 2 also pulls **meta-refresh** targets and simple JS `location`
+/// assignments when they look like files or download endpoints.
 pub fn extract_file_download_candidates(
     html: &str,
     page_url: &str,
@@ -550,6 +633,50 @@ pub fn extract_file_download_candidates(
     let mut out: Vec<FileCandidate> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
+    // Meta-refresh and JS location hops (often used by "download" interstitial pages).
+    let mut soft_hrefs: Vec<(String, i32, &'static str)> = Vec::new();
+    // Case-insensitive http-equiv (HTML attribute names are case-insensitive).
+    if let Ok(meta_sel) = Selector::parse("meta") {
+        for el in doc.select(&meta_sel) {
+            let equiv = el
+                .value()
+                .attrs()
+                .find(|(k, _)| k.eq_ignore_ascii_case("http-equiv"))
+                .map(|(_, v)| v.to_ascii_lowercase())
+                .unwrap_or_default();
+            if equiv != "refresh" {
+                continue;
+            }
+            let content = el
+                .value()
+                .attrs()
+                .find(|(k, _)| k.eq_ignore_ascii_case("content"))
+                .map(|(_, v)| v);
+            if let Some(content) = content {
+                if let Some(u) = parse_meta_refresh_url(content) {
+                    soft_hrefs.push((u, 70, "meta-refresh"));
+                }
+            }
+        }
+    }
+    for u in extract_js_location_urls(html) {
+        soft_hrefs.push((u, 55, "js-location"));
+    }
+
+    for (href, base_score, _src) in soft_hrefs {
+        push_file_candidate(
+            &mut out,
+            &mut seen,
+            href.trim(),
+            base.as_ref(),
+            page_host.as_deref(),
+            &hint_terms,
+            base_score,
+            "",
+            false,
+        );
+    }
+
     for el in doc.select(&selector) {
         let Some(href) = el.value().attr("href").map(str::trim) else {
             continue;
@@ -557,102 +684,120 @@ pub fn extract_file_download_candidates(
         if href.is_empty() || href.starts_with('#') {
             continue;
         }
-        let lower_href = href.to_ascii_lowercase();
-        if lower_href.starts_with("javascript:")
-            || lower_href.starts_with("mailto:")
-            || lower_href.starts_with("data:")
-        {
-            continue;
-        }
-        let resolved = match reqwest::Url::parse(href) {
-            Ok(u) => u,
-            Err(_) => match base.as_ref().and_then(|b| b.join(href).ok()) {
-                Some(u) => u,
-                None => continue,
-            },
-        };
-        if !matches!(resolved.scheme(), "http" | "https") {
-            continue;
-        }
-        let url = unwrap_redirect_wrapper(resolved.to_string());
-        let ext = url_path_extension(&url);
-        let has_importable_ext = ext
-            .as_deref()
-            .is_some_and(is_importable_extension);
-        let download_ish = is_download_ish_url(&url);
-        if !has_importable_ext && !download_ish {
-            continue;
-        }
-        if !seen.insert(url.clone()) {
-            continue;
-        }
-        let filename = url_filename(&url);
-        let mut score: i32 = if has_importable_ext { 10 } else { 2 };
-        if has_importable_ext {
-            if ext.as_deref() == Some("zip") {
-                score += 50;
-            } else {
-                score += 40; // bare ROM
-            }
-        } else {
-            score += 8; // soft download-ish without extension
-        }
-        let path_l = resolved.path().to_ascii_lowercase();
-        if path_l.contains("download") || path_l.contains("/dl/") || path_l.contains("file") {
-            score += 15;
-        }
-        let text = el.text().collect::<String>().to_ascii_lowercase();
-        if text.contains("download") || text.contains("zip") || text.contains("rom") {
-            score += 10;
-        }
-        // Prefer anchors with the HTML download attribute
-        if el.value().attr("download").is_some() {
-            score += 20;
-        }
-        if let (Some(ref ph), Some(h)) = (&page_host, resolved.host_str()) {
-            if ph.eq_ignore_ascii_case(h) {
-                score += 12;
-            }
-        }
-        // Prefer longer, more specific filenames over generic "download.zip"
-        if filename.len() > 12 && !filename.eq_ignore_ascii_case("download.zip") {
-            score += 5;
-        }
-        if filename.eq_ignore_ascii_case("download.zip")
-            || filename.eq_ignore_ascii_case("file.zip")
-            || filename.eq_ignore_ascii_case("game.zip")
-            || filename.eq_ignore_ascii_case("download.bin")
-        {
-            score -= 15;
-        }
-        // Query / title terms in filename, link text, or path
-        if !hint_terms.is_empty() {
-            let hay = format!(
-                "{} {} {}",
-                filename.to_ascii_lowercase(),
-                text,
-                path_l
-            );
-            let mut matched = 0;
-            for t in &hint_terms {
-                if hay.contains(t) {
-                    matched += 1;
-                    score += 20;
-                }
-            }
-            if matched == hint_terms.len() && !hint_terms.is_empty() {
-                score += 25; // full title coverage
-            }
-        }
-        out.push(FileCandidate {
-            url,
-            score,
-            filename,
-            has_importable_ext,
-        });
+        let text = el.text().collect::<String>();
+        let has_download_attr = el.value().attr("download").is_some();
+        push_file_candidate(
+            &mut out,
+            &mut seen,
+            href,
+            base.as_ref(),
+            page_host.as_deref(),
+            &hint_terms,
+            if has_download_attr { 30 } else { 10 },
+            &text,
+            has_download_attr,
+        );
     }
     out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.url.cmp(&b.url)));
     out
+}
+
+/// Shared candidate construction for anchors, meta-refresh, and JS location.
+#[allow(clippy::too_many_arguments)]
+fn push_file_candidate(
+    out: &mut Vec<FileCandidate>,
+    seen: &mut HashSet<String>,
+    href: &str,
+    base: Option<&reqwest::Url>,
+    page_host: Option<&str>,
+    hint_terms: &[String],
+    base_score: i32,
+    link_text: &str,
+    has_download_attr: bool,
+) {
+    let lower_href = href.to_ascii_lowercase();
+    if lower_href.starts_with("javascript:")
+        || lower_href.starts_with("mailto:")
+        || lower_href.starts_with("data:")
+    {
+        return;
+    }
+    let resolved = match reqwest::Url::parse(href) {
+        Ok(u) => u,
+        Err(_) => match base.and_then(|b| b.join(href).ok()) {
+            Some(u) => u,
+            None => return,
+        },
+    };
+    if !matches!(resolved.scheme(), "http" | "https") {
+        return;
+    }
+    let url = unwrap_redirect_wrapper(resolved.to_string());
+    let ext = url_path_extension(&url);
+    let has_importable_ext = ext.as_deref().is_some_and(is_importable_extension);
+    let download_ish = is_download_ish_url(&url);
+    if !has_importable_ext && !download_ish {
+        return;
+    }
+    if !seen.insert(url.clone()) {
+        return;
+    }
+    let filename = url_filename(&url);
+    let mut score: i32 = base_score;
+    if has_importable_ext {
+        if ext.as_deref() == Some("zip") {
+            score += 50;
+        } else {
+            score += 40;
+        }
+    } else {
+        score += 8;
+    }
+    let path_l = resolved.path().to_ascii_lowercase();
+    if path_l.contains("download") || path_l.contains("/dl/") || path_l.contains("file") {
+        score += 15;
+    }
+    let text = link_text.to_ascii_lowercase();
+    if text.contains("download") || text.contains("zip") || text.contains("rom") {
+        score += 10;
+    }
+    if has_download_attr {
+        score += 20;
+    }
+    if let (Some(ph), Some(h)) = (page_host, resolved.host_str()) {
+        if ph.eq_ignore_ascii_case(h) {
+            score += 12;
+        }
+    }
+    if filename.len() > 12 && !filename.eq_ignore_ascii_case("download.zip") {
+        score += 5;
+    }
+    if filename.eq_ignore_ascii_case("download.zip")
+        || filename.eq_ignore_ascii_case("file.zip")
+        || filename.eq_ignore_ascii_case("game.zip")
+        || filename.eq_ignore_ascii_case("download.bin")
+    {
+        score -= 15;
+    }
+    if !hint_terms.is_empty() {
+        let hay = format!("{} {} {}", filename.to_ascii_lowercase(), text, path_l);
+        let mut matched = 0;
+        for t in hint_terms {
+            if hay.contains(t) {
+                matched += 1;
+                score += 20;
+            }
+        }
+        if matched == hint_terms.len() {
+            score += 25;
+        }
+    }
+    out.push(FileCandidate {
+        url,
+        score,
+        filename,
+        has_importable_ext,
+    });
 }
 
 /// Pick the highest-scoring file candidate, if any (no network).
@@ -1523,6 +1668,39 @@ mod tests {
         );
         // download-ish without ext should still appear
         assert!(c.iter().any(|x| x.url.contains("download?id=99")));
+    }
+
+    #[test]
+    fn parse_meta_refresh_extracts_url() {
+        assert_eq!(
+            parse_meta_refresh_url("0;url=https://cdn.example.com/pack.zip"),
+            Some("https://cdn.example.com/pack.zip".into())
+        );
+        assert_eq!(
+            parse_meta_refresh_url("5; URL='/download?id=1'"),
+            Some("/download?id=1".into())
+        );
+    }
+
+    #[test]
+    fn extract_includes_meta_refresh_file_target() {
+        let html = r#"
+          <html><head>
+            <meta http-equiv="refresh" content="0;url=https://cdn.example.com/files/Sonic.zip">
+          </head><body><p>Redirecting…</p></body></html>
+        "#;
+        let c = extract_file_download_candidates(html, "https://roms.example.com/dl", None);
+        assert!(
+            c.iter().any(|x| x.url.contains("Sonic.zip")),
+            "meta-refresh zip missing: {c:?}"
+        );
+    }
+
+    #[test]
+    fn extract_js_location_finds_assignment() {
+        let html = r#"<script>window.location = "https://cdn.example.com/get/game.nes";</script>"#;
+        let urls = extract_js_location_urls(html);
+        assert!(urls.iter().any(|u| u.contains("game.nes")), "{urls:?}");
     }
 
     #[test]

@@ -55,8 +55,13 @@ On ⬇ Download:
 - **Download-ish URLs** without a file extension (`/download?id=`, `/dl/…`)
   are candidates; HEAD decides if they are real files.
 
+## Phase 2 hop sources (implemented)
+
+- **Meta-refresh** targets (`0;url=…`) and simple JS `location` / `location.href`
+  assignments when they look like files or download endpoints.
+- Shared candidate builder for anchors + soft hops (scores meta-refresh high).
+
 ## Follow-ups
 
 - Multi-hop budget (2–3) when hop-2 is still HTML with more file links.
 - Site-specific result/file parsers for high-value hosts.
-- Structure-aware SERP scrape (prefer main/results containers).
