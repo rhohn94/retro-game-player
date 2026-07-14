@@ -155,8 +155,8 @@ export function ConsoleDetailPage() {
       <section className="rgp-console-detail__section">
         <h2 className="rgp-console-detail__h2">All {info.name} games</h2>
         <p className="rgp-muted" style={{ marginTop: 0 }}>
-          The full known catalog. Pick a title to find downloads — Retro Game
-          Player opens links in your browser and never downloads anything for you.
+          The full known catalog. Pick a title to search sources — ROM archives
+          surface first; with direct download on, you can land a file in your library.
         </p>
         <CatalogBrowser system={info.key} />
       </section>

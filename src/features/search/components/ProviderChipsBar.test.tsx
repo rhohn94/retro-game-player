@@ -29,6 +29,7 @@ const PROVIDER: SearchProvider = {
   kind: "reference",
   directDownload: false,
   composeFilters: false,
+  priority: 100,
 };
 
 describe("ProviderChipsBar", () => {

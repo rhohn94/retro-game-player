@@ -98,6 +98,9 @@ struct DoneEvent {
     game_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     already_present: Option<bool>,
+    /// Library path of the imported file (for Reveal-in-Finder verification).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     staged_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,6 +175,7 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
         id: job.id,
         game_id: None,
         already_present: None,
+        file_path: None,
         staged_path: None,
         error: Some(error),
     };
@@ -194,10 +198,15 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
     };
     let filename = url_filename(&job.url);
     match land_download(&db, &job.games_dir, &job.staging, &part, &filename) {
-        Ok(DownloadLanding::Imported { game_id, already_present }) => DoneEvent {
+        Ok(DownloadLanding::Imported {
+            game_id,
+            already_present,
+            file_path,
+        }) => DoneEvent {
             id: job.id,
             game_id: Some(game_id),
             already_present: Some(already_present),
+            file_path: Some(file_path),
             staged_path: None,
             error: None,
         },
@@ -205,6 +214,7 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
             id: job.id,
             game_id: None,
             already_present: None,
+            file_path: None,
             staged_path: Some(staged_path.to_string_lossy().into_owned()),
             error: None,
         },

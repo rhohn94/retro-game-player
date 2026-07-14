@@ -3,7 +3,7 @@
 // The catalog can hold thousands of titles per console, so this searches +
 // paginates server-side via `list_catalog_titles` (the backend filters and
 // windows the embedded list). Each row shows whether the user already owns the
-// title and jumps to the links-only download search for it on click.
+// title and jumps to Search for downloads / library import on click.
 
 import { AuraButton, AuraField } from "@aura/react";
 import { motion } from "framer-motion";

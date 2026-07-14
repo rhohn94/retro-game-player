@@ -1,15 +1,9 @@
 /**
- * ProviderCatalog — discover & add providers from a curated directory (v0.20).
+ * ProviderCatalog — discover & add providers (v0.20, refreshed v0.45).
  *
- * A searchable, filterable gallery of vetted legitimate providers (storefronts,
- * indie/homebrew and demoscene archives, preservation libraries, reference
- * databases). One click adds an entry as a normal search provider, which the
- * user can then edit/disable/remove. Entries whose search page is JavaScript-
- * rendered are flagged honestly (the static preview finds nothing on them yet).
- *
- * This is the discovery surface that keeps high-value sources one click away
- * without the user hand-crafting templates. It lists only legitimate sources;
- * anything else is added via the provider dialog.
+ * Simple, responsive gallery: All · Games · ROMs · Reference chips, plain
+ * language copy, ROM archives surfaced first, one-click add with DD/priority
+ * from the catalog entry when suggested.
  */
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
@@ -28,7 +22,19 @@ interface ProviderCatalogProps {
   onAdded: (provider: SearchProvider) => void;
 }
 
-/** A small media-type filter chip. */
+type SimpleFilter = "All" | "Games" | "ROMs" | "Reference";
+
+const SIMPLE_FILTERS: SimpleFilter[] = ["All", "Games", "ROMs", "Reference"];
+
+function matchesSimpleFilter(entry: CatalogProvider, filter: SimpleFilter): boolean {
+  if (filter === "All") return true;
+  if (filter === "ROMs") return entry.media === "ROM archives";
+  if (filter === "Reference") return entry.kind === "reference";
+  // Games: download sources that aren't pure reference
+  return entry.kind === "download" && entry.media !== "ROM archives";
+}
+
+/** A small filter chip. */
 function MediaChip({
   label,
   active,
@@ -40,11 +46,13 @@ function MediaChip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       style={{
-        padding: "3px 10px",
+        padding: "6px 12px",
+        minHeight: 32,
         borderRadius: 20,
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: active ? 600 : 400,
         border: `1.5px solid ${active ? "var(--aura-primary)" : "var(--aura-on-surface-muted)"}`,
         background: active ? "var(--rgp-provider-enabled-bg)" : "transparent",
@@ -72,14 +80,15 @@ function CatalogRow({
     <li
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "10px 4px",
+        flexWrap: "wrap",
+        alignItems: "flex-start",
+        gap: 10,
+        padding: "12px 4px",
         borderTop: "1px solid var(--aura-outline-subtle, transparent)",
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>
             {entry.kind === "download" ? "⬇ " : ""}
             {entry.name}
@@ -98,9 +107,24 @@ function CatalogRow({
           >
             {entry.media}
           </span>
+          {entry.suggestDirectDownload && (
+            <span
+              title="Direct download into your library is available"
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: "var(--aura-primary)",
+                border: "1px solid var(--aura-primary)",
+                borderRadius: 4,
+                padding: "1px 5px",
+              }}
+            >
+              download
+            </span>
+          )}
           {entry.jsRendered && (
             <span
-              title="This site is JavaScript-rendered — the preview can't read it yet (support coming soon)."
+              title="This site is JavaScript-rendered — the preview can't read it yet."
               style={{
                 fontSize: 10,
                 fontWeight: 600,
@@ -116,12 +140,10 @@ function CatalogRow({
         </div>
         <p
           style={{
-            margin: "2px 0 0",
+            margin: "4px 0 0",
             fontSize: 12,
             color: "var(--aura-on-surface-muted)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+            lineHeight: 1.35,
           }}
         >
           {entry.description}
@@ -134,9 +156,10 @@ function CatalogRow({
             color: "var(--aura-success)",
             fontWeight: 600,
             flexShrink: 0,
+            paddingTop: 4,
           }}
         >
-          ✓ Added
+          ✓ Included
         </span>
       ) : (
         <AuraButton variant="ghost" onClick={() => onAdd(entry)} disabled={adding}>
@@ -150,15 +173,10 @@ function CatalogRow({
 export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps) {
   const [entries, setEntries] = useState<CatalogProvider[]>([]);
   const [filter, setFilter] = useState("");
-  const [media, setMedia] = useState<string>("All");
+  const [simple, setSimple] = useState<SimpleFilter>("All");
   const [addingName, setAddingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Claim the "ui" exclusive slot for the dialog's whole open lifetime
-  // (CreateGamesFolderDialog/ProviderDialog precedent, issue #29 remainder
-  // W394): without this, Back/Escape fell through to the shell's
-  // `navigate(-1)` instead of closing this dialog — the one Search-route
-  // overlay that had no Escape handling at all.
   const { claimExclusive } = useController();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -169,11 +187,10 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
     }, "ui");
   }, [open, claimExclusive]);
 
-  // Load the catalog whenever the sheet opens (so `added` reflects current state).
   useEffect(() => {
     if (!open) return;
     setFilter("");
-    setMedia("All");
+    setSimple("All");
     setError(null);
     listProviderCatalog()
       .then(setEntries)
@@ -183,23 +200,19 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
       });
   }, [open]);
 
-  const mediaTypes = useMemo(
-    () => ["All", ...Array.from(new Set(entries.map((e) => e.media)))],
-    [entries]
-  );
-
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return entries.filter((e) => {
-      if (media !== "All" && e.media !== media) return false;
-      if (!q) return true;
-      return (
-        e.name.toLowerCase().includes(q) ||
-        e.description.toLowerCase().includes(q) ||
-        e.media.toLowerCase().includes(q)
-      );
-    });
-  }, [entries, filter, media]);
+    return entries
+      .filter((e) => matchesSimpleFilter(e, simple))
+      .filter((e) => {
+        if (!q) return true;
+        return (
+          e.name.toLowerCase().includes(q) ||
+          e.description.toLowerCase().includes(q) ||
+          e.media.toLowerCase().includes(q)
+        );
+      });
+  }, [entries, filter, simple]);
 
   async function handleAdd(entry: CatalogProvider) {
     setAddingName(entry.name);
@@ -209,8 +222,9 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
         name: entry.name,
         urlTemplate: entry.urlTemplate,
         kind: entry.kind,
+        directDownload: entry.suggestDirectDownload,
+        priority: entry.priority,
       });
-      // Mark added locally and bubble up so the page's provider list refreshes.
       setEntries((prev) =>
         prev.map((e) => (e.name === entry.name ? { ...e, added: true } : e))
       );
@@ -228,7 +242,11 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
     <AuraDialog
       class="rgp-provider-catalog"
       open
-      style={{ "--aura-dialog-width": "560px" } as React.CSSProperties}
+      style={
+        {
+          "--aura-dialog-width": "min(560px, 92vw)",
+        } as React.CSSProperties
+      }
     >
       <motion.div
         initial={dialogPop.initial}
@@ -236,11 +254,18 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
         onKeyDown={(e) => {
           if (e.key === "Escape") onClose();
         }}
-        style={{ display: "flex", flexDirection: "column", gap: 12, padding: 4 }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          padding: 4,
+          maxHeight: "min(80vh, 640px)",
+        }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 16, flex: 1 }}>Browse providers</h3>
+          <h3 style={{ margin: 0, fontSize: 16, flex: 1 }}>Game sources</h3>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
             style={{
@@ -249,16 +274,17 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
               cursor: "pointer",
               fontSize: 18,
               color: "var(--aura-on-surface-muted)",
+              minWidth: 36,
+              minHeight: 36,
             }}
           >
             ×
           </button>
         </div>
-        <p style={{ margin: 0, fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-          Curated legitimate sources — storefronts, homebrew and demoscene
-          archives, libraries, and reference sites. Add any in one click, then
-          edit or remove it like your own. Need a site that isn't here? Use{" "}
-          <strong>+ Add</strong> to enter any provider yourself.
+        <p style={{ margin: 0, fontSize: 13, color: "var(--aura-on-surface-muted)", lineHeight: 1.4 }}>
+          Sources Retro Game Player searches when you look for games.{" "}
+          <strong>ROMs</strong> are research archives (often already included).
+          Reference sites are for info only. Add anything missing in one click.
         </p>
 
         <AuraField>
@@ -267,18 +293,19 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
             className="rgp-input"
             type="search"
             value={filter}
-            placeholder="Search providers…"
+            placeholder="Search sources…"
             onChange={(e) => setFilter(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box" }}
           />
         </AuraField>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {mediaTypes.map((m) => (
+          {SIMPLE_FILTERS.map((m) => (
             <MediaChip
               key={m}
               label={m}
-              active={media === m}
-              onClick={() => setMedia(m)}
+              active={simple === m}
+              onClick={() => setSimple(m)}
             />
           ))}
         </div>
@@ -293,13 +320,16 @@ export function ProviderCatalog({ open, onClose, onAdded }: ProviderCatalogProps
             listStyle: "none",
             margin: 0,
             padding: 0,
-            maxHeight: 360,
+            flex: 1,
+            minHeight: 120,
+            maxHeight: "min(50vh, 360px)",
             overflowY: "auto",
+            overflowX: "hidden",
           }}
         >
           {visible.length === 0 ? (
-            <li style={{ padding: "16px 4px", fontSize: 12, color: "var(--aura-on-surface-muted)" }}>
-              No providers match.
+            <li style={{ padding: "16px 4px", fontSize: 13, color: "var(--aura-on-surface-muted)" }}>
+              No sources match.
             </li>
           ) : (
             visible.map((entry) => (

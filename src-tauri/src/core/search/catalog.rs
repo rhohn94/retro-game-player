@@ -1,21 +1,13 @@
-//! Static provider catalog (v0.20 "Atlas").
+//! Static provider catalog (v0.20 "Atlas", extended v0.45 research).
 //!
-//! A curated directory of **legitimate** search providers the user can discover
-//! and add in one click — storefronts, indie/homebrew and demoscene archives,
-//! preservation libraries, and reference databases. It is the data behind the
-//! "Browse providers" gallery; adding an entry just creates a normal
-//! `search_providers` row, so the user can then edit, disable, or remove it like
-//! any other.
+//! A curated directory of search providers the user can discover and add in
+//! one click. Includes legitimate storefronts/archives **and** a research
+//! "ROM archives" section for private testability (seeded by migration 017).
+//! Adding an entry creates a normal `search_providers` row.
 //!
-//! Scope (deliberate): this catalog lists only legitimate sources. It is **not**
-//! a directory of copyrighted-ROM sites, and Harmony does not web-search the open
-//! internet for download sites. Users who want any other source add it manually
-//! via the provider dialog — the catalog never gates that.
-//!
-//! `js_rendered` marks a provider whose search page is client-rendered, so the
-//! current static-HTML scrape finds no links on it (the upcoming JS-render fetch
-//! tier will unlock these). The gallery surfaces that honestly rather than
-//! offering a provider that silently returns nothing.
+//! `js_rendered` marks a provider whose search page is client-rendered.
+//! `priority` / `suggest_direct_download` guide list order and DD defaults
+//! when the user adds from the gallery.
 
 /// One catalog entry. `url_template` carries the `{query}` placeholder and is
 /// the exact template written into `search_providers` when the user adds it.
@@ -34,37 +26,75 @@ pub struct CatalogProvider {
     /// True when the search page is JavaScript-rendered (static scrape finds no
     /// links today; the JS-render tier will unlock it).
     pub js_rendered: bool,
+    /// Suggested list priority when added (lower = higher in search results).
+    pub priority: i64,
+    /// When true, one-click add enables direct_download for this entry.
+    pub suggest_direct_download: bool,
 }
 
-/// The curated catalog. Adding a provider is a one-line edit here. Every entry
-/// is a legitimate source and an https `{query}` template (asserted by tests).
+/// Helper to keep catalog rows readable.
+const fn entry(
+    name: &'static str,
+    url_template: &'static str,
+    kind: &'static str,
+    media: &'static str,
+    description: &'static str,
+    js_rendered: bool,
+    priority: i64,
+    suggest_direct_download: bool,
+) -> CatalogProvider {
+    CatalogProvider {
+        name,
+        url_template,
+        kind,
+        media,
+        description,
+        js_rendered,
+        priority,
+        suggest_direct_download,
+    }
+}
+
+/// The curated catalog. Every entry is an https `{query}` template (asserted by tests).
 const CATALOG: &[CatalogProvider] = &[
+    // --- ROM archives (research / testability; often pre-seeded by migration 017) ---
+    entry("RomsGames", "https://www.romsgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("Romspedia", "https://romspedia.com/search?term={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("RomsFun", "https://www.romsfun.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("WoWROMs", "https://wowroms.com/en/roms/list?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("CoolROM", "https://coolrom.com.au/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("EmulatorGames", "https://www.emulatorgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("ROMSPURE", "https://romspure.cc/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("Retrostic", "https://www.retrostic.com/search?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("Gamulator", "https://www.gamulator.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("ROMsMania", "https://romsmania.cc/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    entry("Romulation", "https://www.romulation.org/roms/search?query={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
     // --- Indie & homebrew storefronts ---
-    CatalogProvider { name: "itch.io", url_template: "https://itch.io/search?q={query}", kind: "download", media: "Indie & homebrew", description: "The largest independent game storefront — homebrew, freeware, and commercial indies.", js_rendered: true },
-    CatalogProvider { name: "GameJolt", url_template: "https://gamejolt.com/search?q={query}", kind: "download", media: "Indie & homebrew", description: "Indie game community and storefront with many free and homebrew titles.", js_rendered: true },
+    entry("itch.io", "https://itch.io/search?q={query}", "download", "Indie & homebrew", "The largest independent game storefront — homebrew, freeware, and commercial indies.", true, 30, false),
+    entry("GameJolt", "https://gamejolt.com/search?q={query}", "download", "Indie & homebrew", "Indie game community and storefront with many free and homebrew titles.", true, 30, false),
     // --- Public-domain & homebrew ROMs ---
-    CatalogProvider { name: "PDRoms", url_template: "https://www.pdroms.de/?s={query}", kind: "download", media: "Homebrew & public-domain", description: "Curated homebrew and public-domain games and ports for retro systems.", js_rendered: false },
-    CatalogProvider { name: "Lexaloffle BBS", url_template: "https://www.lexaloffle.com/bbs/?search={query}", kind: "download", media: "Homebrew & public-domain", description: "Community board for PICO-8 and Voxatron — thousands of author-released fantasy-console games (v0.25, live-verified).", js_rendered: false },
-    CatalogProvider { name: "OpenGameArt", url_template: "https://opengameart.org/art-search?keys={query}", kind: "download", media: "Homebrew & public-domain", description: "Free/CC-licensed and public-domain game art, sprites, and audio for creators (v0.25, live-verified).", js_rendered: false },
+    entry("PDRoms", "https://www.pdroms.de/?s={query}", "download", "Homebrew & public-domain", "Curated homebrew and public-domain games and ports for retro systems.", false, 30, false),
+    entry("Lexaloffle BBS", "https://www.lexaloffle.com/bbs/?search={query}", "download", "Homebrew & public-domain", "Community board for PICO-8 and Voxatron — thousands of author-released fantasy-console games (v0.25, live-verified).", false, 30, false),
+    entry("OpenGameArt", "https://opengameart.org/art-search?keys={query}", "download", "Homebrew & public-domain", "Free/CC-licensed and public-domain game art, sprites, and audio for creators (v0.25, live-verified).", false, 30, false),
     // --- Demoscene ---
-    CatalogProvider { name: "Demozoo", url_template: "https://demozoo.org/productions/?q={query}", kind: "download", media: "Demoscene", description: "Demoscene database — author-released demos, intros, and games.", js_rendered: false },
-    CatalogProvider { name: "Pouet", url_template: "https://www.pouet.net/prodlist.php?prod={query}", kind: "download", media: "Demoscene", description: "Long-running demoscene production database.", js_rendered: false },
+    entry("Demozoo", "https://demozoo.org/productions/?q={query}", "download", "Demoscene", "Demoscene database — author-released demos, intros, and games.", false, 30, false),
+    entry("Pouet", "https://www.pouet.net/prodlist.php?prod={query}", "download", "Demoscene", "Long-running demoscene production database.", false, 30, false),
     // --- Preservation libraries ---
-    CatalogProvider { name: "Internet Archive", url_template: "https://archive.org/search?query={query}", kind: "download", media: "Preservation library", description: "Nonprofit digital library hosting software, games, and historical media.", js_rendered: false },
+    entry("Internet Archive", "https://archive.org/search?query={query}", "download", "Preservation library", "Nonprofit digital library hosting software, games, and historical media.", false, 30, false),
     // --- ROM hacks, translations & music ---
-    CatalogProvider { name: "ROMhacking.net", url_template: "https://www.romhacking.net/hacks/?title={query}", kind: "download", media: "Hacks & translations", description: "Catalog of fan-made ROM hacks and translations distributed as patches.", js_rendered: false },
-    CatalogProvider { name: "Zophar's Domain", url_template: "https://www.zophar.net/music/search?search={query}", kind: "download", media: "Game music", description: "Preservation resource for game-music rips and homebrew.", js_rendered: false },
+    entry("ROMhacking.net", "https://www.romhacking.net/hacks/?title={query}", "download", "Hacks & translations", "Catalog of fan-made ROM hacks and translations distributed as patches.", false, 30, false),
+    entry("Zophar's Domain", "https://www.zophar.net/music/search?search={query}", "download", "Game music", "Preservation resource for game-music rips and homebrew.", false, 30, false),
     // --- Licensed storefronts ---
-    CatalogProvider { name: "Steam", url_template: "https://store.steampowered.com/search/?term={query}", kind: "download", media: "Storefront", description: "Valve's licensed commercial storefront, including many retro re-releases.", js_rendered: false },
-    CatalogProvider { name: "GOG", url_template: "https://www.gog.com/en/games?query={query}", kind: "download", media: "Storefront", description: "DRM-free storefront strong on classic and retro PC games.", js_rendered: true },
+    entry("Steam", "https://store.steampowered.com/search/?term={query}", "download", "Storefront", "Valve's licensed commercial storefront, including many retro re-releases.", false, 30, false),
+    entry("GOG", "https://www.gog.com/en/games?query={query}", "download", "Storefront", "DRM-free storefront strong on classic and retro PC games.", true, 30, false),
     // --- Reference / metadata ---
-    CatalogProvider { name: "MobyGames", url_template: "https://www.mobygames.com/search/?q={query}", kind: "reference", media: "Reference", description: "Comprehensive cross-platform game metadata database.", js_rendered: false },
-    CatalogProvider { name: "IGDB", url_template: "https://www.igdb.com/search?type=1&q={query}", kind: "reference", media: "Reference", description: "Internet Game Database — metadata, art, and release info.", js_rendered: false },
-    CatalogProvider { name: "Wikipedia", url_template: "https://en.wikipedia.org/w/index.php?search={query}", kind: "reference", media: "Reference", description: "Encyclopedia articles for games, systems, and developers.", js_rendered: false },
-    CatalogProvider { name: "GameFAQs", url_template: "https://gamefaqs.gamespot.com/search?game={query}", kind: "reference", media: "Guides & data", description: "Guides, FAQs, and release data across platforms.", js_rendered: false },
-    CatalogProvider { name: "Lemon Amiga", url_template: "https://www.lemonamiga.com/games/list.php?list_title={query}", kind: "reference", media: "Reference", description: "Reference database for Amiga games (metadata only; no files hosted).", js_rendered: false },
-    CatalogProvider { name: "TheGamesDB", url_template: "https://thegamesdb.net/search.php?name={query}", kind: "reference", media: "Reference", description: "Open, community-maintained game metadata and artwork database (v0.25, live-verified).", js_rendered: false },
-    CatalogProvider { name: "Hardcore Gaming 101", url_template: "https://hg101.kontek.net/?s={query}", kind: "reference", media: "Guides & data", description: "In-depth articles and histories on retro and obscure games (v0.25, live-verified).", js_rendered: false },
+    entry("MobyGames", "https://www.mobygames.com/search/?q={query}", "reference", "Reference", "Comprehensive cross-platform game metadata database.", false, 80, false),
+    entry("IGDB", "https://www.igdb.com/search?type=1&q={query}", "reference", "Reference", "Internet Game Database — metadata, art, and release info.", false, 80, false),
+    entry("Wikipedia", "https://en.wikipedia.org/w/index.php?search={query}", "reference", "Reference", "Encyclopedia articles for games, systems, and developers.", false, 80, false),
+    entry("GameFAQs", "https://gamefaqs.gamespot.com/search?game={query}", "reference", "Guides & data", "Guides, FAQs, and release data across platforms.", false, 80, false),
+    entry("Lemon Amiga", "https://www.lemonamiga.com/games/list.php?list_title={query}", "reference", "Reference", "Reference database for Amiga games (metadata only; no files hosted).", false, 80, false),
+    entry("TheGamesDB", "https://thegamesdb.net/search.php?name={query}", "reference", "Reference", "Open, community-maintained game metadata and artwork database (v0.25, live-verified).", false, 80, false),
+    entry("Hardcore Gaming 101", "https://hg101.kontek.net/?s={query}", "reference", "Guides & data", "In-depth articles and histories on retro and obscure games (v0.25, live-verified).", false, 80, false),
 ];
 
 /// The full catalog, in display order.

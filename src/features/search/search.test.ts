@@ -72,6 +72,7 @@ describe("ProviderResults shape", () => {
     providerName: "Internet Archive",
     searchUrl: "https://archive.org/search?query=mario",
     directDownload: false,
+    priority: 30,
     items: [
       { title: "Super Mario (USA)", url: "https://archive.org/details/mario-usa" },
       { title: "Mario Bros (World)", url: "https://archive.org/details/mario-world" },

@@ -21,6 +21,8 @@ export interface DedupGroup {
   providerId: number;
   providerName: string;
   items: DedupItem[];
+  /** Optional priority for source ordering (lower = prefer first). */
+  priority?: number;
 }
 
 /** One provider's contribution to a merged result. */
@@ -77,8 +79,14 @@ export function normalizeTitle(title: string): string {
 export function dedupeAcrossProviders(groups: DedupGroup[]): MergedResult[] {
   const byKey = new Map<string, MergedResult>();
   const seenUrls = new Map<string, Set<string>>(); // key → urls already counted
+  const sourcePriority = new Map<string, number>(); // `${key}\0${url}` → priority
 
-  for (const group of groups) {
+  // Process high-priority groups first so ROM sources land earliest in each row.
+  const orderedGroups = [...groups].sort(
+    (a, b) => (a.priority ?? 100) - (b.priority ?? 100)
+  );
+
+  for (const group of orderedGroups) {
     for (const item of group.items) {
       const norm = normalizeTitle(item.title);
       const key = norm || `url:${item.url}`;
@@ -97,7 +105,17 @@ export function dedupeAcrossProviders(groups: DedupGroup[]): MergedResult[] {
         providerName: group.providerName,
         item,
       });
+      sourcePriority.set(`${key}\0${item.url}`, group.priority ?? 100);
     }
+  }
+
+  // Within each merged row, keep sources ordered by provider priority.
+  for (const merged of byKey.values()) {
+    merged.sources.sort((a, b) => {
+      const pa = sourcePriority.get(`${merged.key}\0${a.item.url}`) ?? 100;
+      const pb = sourcePriority.get(`${merged.key}\0${b.item.url}`) ?? 100;
+      return pa - pb;
+    });
   }
 
   return [...byKey.values()];

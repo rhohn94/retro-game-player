@@ -20,14 +20,16 @@ pub struct SearchProvider {
     /// (links to legal homes for downloadable content). Free text; defaults to
     /// `"reference"` for user-added providers.
     pub kind: String,
-    /// Per-vendor opt-in for the future OPTIONAL direct-download feature (v0.16
-    /// scaffolding). `false` for every provider by default; v0.16 ships only the
-    /// flag and its UI, never an actual direct-download action.
+    /// Per-vendor opt-in for direct download (v0.16 seam, live since v0.24).
+    /// Research ROM seeds ship with this on; user-added providers default off.
     pub direct_download: bool,
     /// Per-vendor opt-in (v0.18): when `true`, the structured search filters
     /// (console, region) are appended to this provider's query before
     /// substitution. `false` by default — the bare game name is searched.
     pub compose_filters: bool,
+    /// Result-group sort key (v0.45): lower values surface first in search.
+    /// Research ROM archives use 10; other download 30; reference 80; default 100.
+    pub priority: i64,
 }
 
 /// New-provider input (no id; assigned by SQLite).
@@ -38,6 +40,7 @@ pub struct NewSearchProvider {
     pub kind: String,
     pub direct_download: bool,
     pub compose_filters: bool,
+    pub priority: i64,
 }
 
 /// Repository over the `search_providers` table.
@@ -63,6 +66,9 @@ fn map_provider(row: &Row) -> rusqlite::Result<SearchProvider> {
         kind: row.get("kind")?,
         direct_download: row.get::<_, i64>("direct_download")? != 0,
         compose_filters: row.get::<_, i64>("compose_filters")? != 0,
+        // Pre-017 DBs shouldn't reach here without migrate; default 100 if
+        // a test builds a partial row (column is NOT NULL after 017).
+        priority: row.get::<_, i64>("priority").unwrap_or(100),
     })
 }
 
@@ -72,15 +78,16 @@ impl SearchProvidersRepo<'_> {
         self.db.with_conn(|c| {
             c.execute(
                 "INSERT INTO search_providers \
-                 (name, url_template, enabled, kind, direct_download, compose_filters) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (name, url_template, enabled, kind, direct_download, compose_filters, priority) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     provider.name,
                     provider.url_template,
                     provider.enabled as i64,
                     provider.kind,
                     provider.direct_download as i64,
-                    provider.compose_filters as i64
+                    provider.compose_filters as i64,
+                    provider.priority
                 ],
             )
             .map_err(map_sqlite)?;
@@ -100,11 +107,12 @@ impl SearchProvidersRepo<'_> {
         })
     }
 
-    /// List all providers ordered by id.
+    /// List all providers ordered by priority (ascending), then id.
+    /// Research ROM archives (priority 10) surface before reference metadata.
     pub fn list(&self) -> AppResult<Vec<SearchProvider>> {
         self.db.with_conn(|c| {
             let mut stmt = c
-                .prepare("SELECT * FROM search_providers ORDER BY id")
+                .prepare("SELECT * FROM search_providers ORDER BY priority ASC, id ASC")
                 .map_err(map_sqlite)?;
             let rows = stmt
                 .query_map([], map_provider)
@@ -221,6 +229,7 @@ mod tests {
             kind: "reference".to_string(),
             direct_download: false,
             compose_filters: false,
+            priority: 100,
         }
     }
 
@@ -288,14 +297,47 @@ mod tests {
     }
 
     #[test]
-    fn seeded_download_providers_default_direct_download_off() {
-        // Migrations 004/007: seeded download providers ship with the future
-        // direct-download capability OFF until a maintainer opts a vendor in.
+    fn non_rom_download_providers_default_direct_download_off() {
+        // Legal/storefront download seeds still ship DD off; research ROM
+        // archives (priority 10) ship DD on for private testability.
         let db = Db::open_in_memory().unwrap();
         let repo = SearchProvidersRepo::new(&db);
         for p in repo.list().unwrap().into_iter().filter(|p| p.kind == "download") {
-            assert!(!p.direct_download, "{} should ship direct_download off", p.name);
+            if p.priority <= 10 {
+                assert!(
+                    p.direct_download,
+                    "ROM research provider {} should ship direct_download on",
+                    p.name
+                );
+            } else {
+                assert!(
+                    !p.direct_download,
+                    "{} should ship direct_download off",
+                    p.name
+                );
+            }
         }
+    }
+
+    #[test]
+    fn list_orders_by_priority_then_id() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = SearchProvidersRepo::new(&db);
+        let list = repo.list().unwrap();
+        assert!(!list.is_empty());
+        for window in list.windows(2) {
+            let (a, b) = (&window[0], &window[1]);
+            assert!(
+                a.priority < b.priority || (a.priority == b.priority && a.id <= b.id),
+                "list not ordered by priority,id: {}({}) before {}({})",
+                a.name,
+                a.priority,
+                b.name,
+                b.priority
+            );
+        }
+        // First provider should be a high-priority ROM research seed.
+        assert_eq!(list[0].priority, 10);
     }
 
     #[test]

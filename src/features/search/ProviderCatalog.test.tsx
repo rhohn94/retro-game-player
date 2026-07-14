@@ -48,6 +48,8 @@ const CATALOG: CatalogProvider[] = [
     media: "Indie & homebrew",
     description: "A preservation archive.",
     jsRendered: false,
+    priority: 30,
+    suggestDirectDownload: false,
     added: false,
   },
 ];
@@ -135,6 +137,7 @@ describe("ProviderCatalog", () => {
       kind: "download",
       directDownload: false,
       composeFilters: false,
+      priority: 100,
     };
     vi.mocked(searchIpc.addProvider).mockResolvedValue(created);
     await render();
@@ -149,6 +152,8 @@ describe("ProviderCatalog", () => {
       name: "Example Archive",
       urlTemplate: "https://example.org/search?q={query}",
       kind: "download",
+      directDownload: false,
+      priority: 30,
     });
     expect(onAdded).toHaveBeenCalledWith(created);
   });

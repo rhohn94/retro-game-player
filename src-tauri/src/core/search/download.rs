@@ -43,7 +43,12 @@ const CHUNK: usize = 64 * 1024;
 #[derive(Debug)]
 pub enum DownloadLanding {
     /// Imported into the library (one game; zips report the first).
-    Imported { game_id: i64, already_present: bool },
+    /// `file_path` is the on-disk library copy for Reveal-in-Finder verification.
+    Imported {
+        game_id: i64,
+        already_present: bool,
+        file_path: String,
+    },
     /// Not a recognized ROM/zip — kept in staging for the user to resolve
     /// (Reveal / Discard); never silently deleted, never copied to games.
     Unrecognized { staged_path: PathBuf },
@@ -259,6 +264,7 @@ pub fn land_download(
         return Ok(DownloadLanding::Imported {
             game_id: outcome.game_id,
             already_present: outcome.already_present,
+            file_path: outcome.stored_path,
         });
     }
 
@@ -268,6 +274,7 @@ pub fn land_download(
         return Ok(DownloadLanding::Imported {
             game_id: outcome.game_id,
             already_present: outcome.already_present,
+            file_path: outcome.stored_path,
         });
     }
 
@@ -444,16 +451,27 @@ mod tests {
         let part1 = part_path(&staging, 10);
         std::fs::write(&part1, &zip_bytes).unwrap();
         let first = land_download(&db, &games, &staging, &part1, "pack.zip").unwrap();
-        let DownloadLanding::Imported { game_id, already_present } = first else {
+        let DownloadLanding::Imported {
+            game_id,
+            already_present,
+            file_path,
+        } = first
+        else {
             panic!("expected Imported");
         };
         assert!(!already_present);
+        assert!(!file_path.is_empty(), "imported path should be set for reveal");
 
         // Same content again — hash dedupe resolves to the same game row.
         let part2 = part_path(&staging, 11);
         std::fs::write(&part2, &zip_bytes).unwrap();
         let second = land_download(&db, &games, &staging, &part2, "pack.zip").unwrap();
-        let DownloadLanding::Imported { game_id: id2, already_present: dup } = second else {
+        let DownloadLanding::Imported {
+            game_id: id2,
+            already_present: dup,
+            file_path: _,
+        } = second
+        else {
             panic!("expected Imported");
         };
         assert_eq!(id2, game_id);

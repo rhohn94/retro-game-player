@@ -43,14 +43,15 @@ pub struct SearchProvider {
     /// `"reference"` (metadata/info) or `"download"` (links to legal homes for
     /// downloadable content). The UI groups + labels providers by this.
     pub kind: String,
-    /// Per-vendor opt-in for the future direct-download feature (v0.16
-    /// scaffolding). `false` by default; no direct-download action exists yet.
+    /// Per-vendor opt-in for direct download (live since v0.24).
     #[serde(rename = "directDownload")]
     pub direct_download: bool,
     /// Per-vendor opt-in (v0.18): append the structured search filters
     /// (console, region) to this provider's query before substitution.
     #[serde(rename = "composeFilters")]
     pub compose_filters: bool,
+    /// Result-group sort key — lower surfaces first (ROM archives = 10).
+    pub priority: i64,
 }
 
 /// A single scraped preview link from a provider's results page (mirrors TS
@@ -77,6 +78,8 @@ pub struct ProviderResults {
     pub search_url: String,
     #[serde(rename = "directDownload")]
     pub direct_download: bool,
+    /// Provider priority (lower first) for group ordering + auto-expand.
+    pub priority: i64,
     pub items: Vec<SearchResultItem>,
     pub error: Option<String>,
 }
@@ -92,6 +95,7 @@ fn to_ipc(p: crate::db::repo::search_providers::SearchProvider) -> SearchProvide
         kind: p.kind,
         direct_download: p.direct_download,
         compose_filters: p.compose_filters,
+        priority: p.priority,
     }
 }
 
@@ -134,6 +138,7 @@ fn provider_results(
                 provider_name: p.name.clone(),
                 search_url: String::new(),
                 direct_download: p.direct_download,
+                priority: p.priority,
                 items: Vec::new(),
                 error: Some(e.to_string()),
             };
@@ -157,6 +162,7 @@ fn provider_results(
         provider_name: p.name.clone(),
         search_url,
         direct_download: p.direct_download,
+        priority: p.priority,
         items,
         error,
     }
@@ -164,11 +170,19 @@ fn provider_results(
 
 // ── commands ──────────────────────────────────────────────────────────────────
 
-/// List all search providers ordered by id.
+/// List all search providers ordered by priority (then id).
 #[tauri::command]
 pub fn list_providers(db: State<'_, Db>) -> AppResult<Vec<SearchProvider>> {
     let repo = SearchProvidersRepo::new(db.inner());
     repo.list().map(|ps| ps.into_iter().map(to_ipc).collect())
+}
+
+/// Default list priority for a kind when the caller does not pass one.
+fn default_priority_for_kind(kind: &str) -> i64 {
+    match kind {
+        "download" => 30,
+        _ => 80,
+    }
 }
 
 /// Add a new search provider. Returns the created provider.
@@ -180,21 +194,22 @@ pub fn add_provider(
     kind: Option<String>,
     direct_download: Option<bool>,
     compose_filters: Option<bool>,
+    priority: Option<i64>,
     db: State<'_, Db>,
 ) -> AppResult<SearchProvider> {
     provider_core::validate_template(&url_template)?;
     let repo = SearchProvidersRepo::new(db.inner());
+    let kind = normalize_kind(kind.as_deref());
     let id = repo.add(&NewSearchProvider {
         name,
         url_template,
         enabled: true,
-        // v0.20: the dialog/catalog can specify kind; default reference when the
-        // caller doesn't (a plain user-added provider).
-        kind: normalize_kind(kind.as_deref()),
         // Direct download is opt-in per vendor; off unless explicitly set.
         direct_download: direct_download.unwrap_or(false),
         // Filter composition is opt-in per vendor (v0.18); off by default.
         compose_filters: compose_filters.unwrap_or(false),
+        priority: priority.unwrap_or_else(|| default_priority_for_kind(&kind)),
+        kind,
     })?;
     repo.get(id).map(to_ipc)
 }
@@ -307,6 +322,7 @@ pub fn run_search(
                     provider_name: p.name.clone(),
                     search_url: String::new(),
                     direct_download: p.direct_download,
+                    priority: p.priority,
                     items: Vec::new(),
                     error: Some("search worker thread panicked".to_string()),
                 })
@@ -343,6 +359,11 @@ pub struct CatalogEntry {
     pub description: String,
     #[serde(rename = "jsRendered")]
     pub js_rendered: bool,
+    /// Suggested list priority when adding (ROM archives = 10).
+    pub priority: i64,
+    /// When true, one-click add should enable direct download.
+    #[serde(rename = "suggestDirectDownload")]
+    pub suggest_direct_download: bool,
     /// True when a provider with this name or template is already configured.
     pub added: bool,
 }
@@ -407,6 +428,8 @@ pub fn list_provider_catalog(db: State<'_, Db>) -> AppResult<Vec<CatalogEntry>> 
             media: c.media.to_string(),
             description: c.description.to_string(),
             js_rendered: c.js_rendered,
+            priority: c.priority,
+            suggest_direct_download: c.suggest_direct_download,
             added: existing
                 .iter()
                 .any(|p| p.name == c.name || p.url_template == c.url_template),
@@ -442,6 +465,7 @@ mod tests {
                 provider_name: "Test Provider".to_string(),
                 search_url: String::new(),
                 direct_download: false,
+                priority: 100,
                 items: Vec::new(),
                 error: Some("search worker thread panicked".to_string()),
             })

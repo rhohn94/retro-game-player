@@ -108,6 +108,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/016_achievement_unlocks.sql"),
         requires_fk_off: false,
     },
+    Migration {
+        version: 17,
+        sql: include_str!("migrations/017_rom_provider_priority_and_seeds.sql"),
+        requires_fk_off: false,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -309,7 +314,7 @@ mod tests {
     fn rom_site_download_providers_are_seeded() {
         let mut conn = Connection::open_in_memory().expect("open");
         run(&mut conn).expect("migrate");
-        // v0.12: a curated set of ROM-site download providers is seeded (links only).
+        // v0.12 + v0.45 research pack: ROM-site download providers are seeded.
         let downloads: i64 = conn
             .query_row(
                 "SELECT count(*) FROM search_providers WHERE kind = 'download'",
@@ -317,7 +322,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(downloads >= 6, "expected v0.11 + v0.12 download providers, got {downloads}");
+        assert!(
+            downloads >= 14,
+            "expected v0.11 + v0.12 + v0.17 ROM download providers, got {downloads}"
+        );
         // Every download provider is a link-only https {query} template.
         let bad: i64 = conn
             .query_row(
@@ -328,6 +336,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(bad, 0, "download providers must be https {{query}} links");
+    }
+
+    #[test]
+    fn rom_research_providers_have_priority_and_direct_download_on() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        run(&mut conn).expect("migrate");
+        for name in [
+            "RomsGames",
+            "Romspedia",
+            "RomsFun",
+            "WoWROMs",
+            "CoolROM",
+            "EmulatorGames",
+            "ROMSPURE",
+            "Retrostic",
+            "Gamulator",
+            "ROMsMania",
+            "Romulation",
+        ] {
+            let (dd, priority): (i64, i64) = conn
+                .query_row(
+                    "SELECT direct_download, priority FROM search_providers WHERE name = ?1",
+                    [name],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap_or_else(|_| panic!("ROM research provider {name} should be seeded"));
+            assert_eq!(dd, 1, "{name} should have direct_download on");
+            assert_eq!(priority, 10, "{name} should pin at priority 10");
+        }
+        // Reference providers stay lower priority than ROM archives.
+        let wiki_priority: i64 = conn
+            .query_row(
+                "SELECT priority FROM search_providers WHERE name = 'Wikipedia'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            wiki_priority > 10,
+            "Wikipedia must rank below ROM archives (got priority {wiki_priority})"
+        );
     }
 
     #[test]

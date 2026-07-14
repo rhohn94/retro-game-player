@@ -84,10 +84,31 @@ export function useSearchExecution(
         console: consoleComposeToken || undefined,
         region: reg || undefined,
       });
-      setResults(all);
-      // Start with empty/errored groups folded; populated providers stay open.
+      // Pin non-empty high-priority groups first, then non-empty others, then empties.
+      // Backend already orders by priority; this keeps filled ROM archives on top.
+      const sorted = [...all].sort((a, b) => {
+        const aEmpty = a.items.length === 0 || !!a.error;
+        const bEmpty = b.items.length === 0 || !!b.error;
+        if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+        const pa = a.priority ?? 100;
+        const pb = b.priority ?? 100;
+        if (pa !== pb) return pa - pb;
+        return a.providerId - b.providerId;
+      });
+      setResults(sorted);
+      // Collapse empty/error groups and low-priority (reference) groups so
+      // ROM/download hits stay open and visible.
       setCollapsed(
-        new Set(all.filter((g) => g.items.length === 0).map((g) => g.providerId))
+        new Set(
+          sorted
+            .filter(
+              (g) =>
+                g.items.length === 0 ||
+                !!g.error ||
+                (g.priority ?? 100) > 30
+            )
+            .map((g) => g.providerId)
+        )
       );
     } catch (err) {
       const detail = isAppError(err) ? err.detail : String(err);

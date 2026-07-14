@@ -29,8 +29,8 @@ export interface SearchProvider {
    */
   kind: string;
   /**
-   * Per-vendor opt-in for the future OPTIONAL direct-download feature (v0.16
-   * scaffolding). `false` by default; no direct-download action exists yet.
+   * Per-vendor opt-in for direct download (live since v0.24). Research ROM
+   * seeds ship with this on.
    */
   directDownload: boolean;
   /**
@@ -39,6 +39,10 @@ export interface SearchProvider {
    * substitution. `false` by default — the bare game name is searched.
    */
   composeFilters: boolean;
+  /**
+   * Result-group sort key (lower surfaces first). ROM archives use 10.
+   */
+  priority: number;
 }
 
 /**
@@ -90,6 +94,10 @@ export interface CatalogProvider {
   description: string;
   /** True when the provider's search page is JavaScript-rendered. */
   jsRendered: boolean;
+  /** Suggested priority when adding (ROM archives = 10). */
+  priority: number;
+  /** When true, one-click add should enable direct download. */
+  suggestDirectDownload: boolean;
   /** True when a provider with this name or template is already configured. */
   added: boolean;
 }
@@ -104,8 +112,10 @@ export interface ProviderResults {
   providerId: number;
   providerName: string;
   searchUrl: string;
-  /** Whether this vendor has the future direct-download capability enabled. */
+  /** Whether this vendor has direct download enabled. */
   directDownload: boolean;
+  /** Provider priority (lower first) for group ordering. */
+  priority: number;
   items: SearchResultItem[];
   error: string | null;
 }
@@ -127,6 +137,7 @@ export function addProvider(args: {
   kind?: string;
   directDownload?: boolean;
   composeFilters?: boolean;
+  priority?: number;
 }): Promise<SearchProvider> {
   return invoke<SearchProvider>("add_provider", {
     name: args.name,
@@ -134,6 +145,7 @@ export function addProvider(args: {
     kind: args.kind ?? null,
     directDownload: args.directDownload ?? null,
     composeFilters: args.composeFilters ?? null,
+    priority: args.priority ?? null,
   });
 }
 

@@ -16,6 +16,8 @@ export interface DownloadDone {
   id: number;
   gameId?: number;
   alreadyPresent?: boolean;
+  /** Library path of the imported file (Reveal-in-Finder). */
+  filePath?: string;
   stagedPath?: string;
   error?: string;
 }
