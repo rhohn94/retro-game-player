@@ -78,6 +78,16 @@ items → drop site chrome → live filter → rank/sort → hide none (if hideW
 - Optional `+rom` query suffix for meta/download providers (see
   [web-meta-search-design](web-meta-search-design.md)).
 
+## Phase 3 (implemented)
+
+- **Declarative host profiles** (`core/search/profiles.rs`) for SERP result
+  selectors and detail-page file selectors (DDG, Archive.org, Vimm, Romspedia, …).
+- **SERP health**: `ok` | `captcha` | `js_shell` | `empty` | `error` on each
+  provider group; captcha clears chrome links; UI auto-collapses unhealthy
+  groups and shows a small badge.
+- **Multi-hop auto-import** (up to 3 GETs) when detail pages chain HTML
+  interstitials before a real file.
+
 ## Follow-ups
 
-P1 per-site parsers, provider health, console compose-by-default.
+More host profiles as users report sites; console compose-by-default.

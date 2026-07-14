@@ -14,6 +14,7 @@ import { isAppError } from "../../../ipc/commands";
 import type { RankQuery } from "../resultRanking";
 import type { ConsoleInfo } from "../../../ipc/console";
 import { loadAppendRomPref, saveAppendRomPref } from "../searchPrefs";
+import { isUnhealthyProvider } from "../providerHealth";
 
 export interface UseSearchExecutionResult {
   query: string;
@@ -108,8 +109,8 @@ export function useSearchExecution(
         return a.providerId - b.providerId;
       });
       setResults(sorted);
-      // Collapse: empty/error, reference (priority>30), and groups with no
-      // likely title hits after chrome/stopword filtering (quality P0).
+      // Collapse: empty/error, captcha/JS-shell health, reference
+      // (priority>30), and groups with no likely title hits (quality P0).
       const rankQ = {
         name: q,
         console: consoleRankTokens || undefined,
@@ -122,6 +123,7 @@ export function useSearchExecution(
               (g) =>
                 g.items.length === 0 ||
                 !!g.error ||
+                isUnhealthyProvider(g) ||
                 (g.priority ?? 100) > 30 ||
                 !groupHasLikelyHits(g, rankQ)
             )

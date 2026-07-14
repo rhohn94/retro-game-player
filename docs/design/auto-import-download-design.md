@@ -61,7 +61,13 @@ On ⬇ Download:
   assignments when they look like files or download endpoints.
 - Shared candidate builder for anchors + soft hops (scores meta-refresh high).
 
+## Phase 3 multi-hop + profiles (implemented)
+
+- Up to **3 GETs** following HTML → file (or HTML interstitial → file), with
+  visited-URL loop detection and a clear staged reason when the budget ends.
+- Host **file_selectors** from `profiles.rs` boost known download controls.
+
 ## Follow-ups
 
-- Multi-hop budget (2–3) when hop-2 is still HTML with more file links.
-- Site-specific result/file parsers for high-value hosts.
+- More host profiles as high-value sites are confirmed.
+- Optional same-host-only policy after hop 1 (stricter anti-ad).

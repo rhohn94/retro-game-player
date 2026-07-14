@@ -25,6 +25,7 @@
 
 use crate::core::library::{import_file, mapper::map_extension, ImportOutcome};
 use crate::core::search::fetch::unwrap_redirect_wrapper;
+use crate::core::search::profiles::profile_for_host;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use scraper::{Html, Selector};
@@ -51,8 +52,11 @@ const TOTAL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Short timeout for HEAD / range preflight of hop-2 candidates.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// How many top-scored candidates to HEAD before picking hop-2.
+/// How many top-scored candidates to HEAD before picking the next hop.
 const MAX_HEAD_PROBES: usize = 5;
+
+/// Max GET hops in auto-import (user URL + up to two follows). Prevents loops.
+const MAX_DOWNLOAD_HOPS: u32 = 3;
 
 /// Chunk size for the streaming copy (also the cancel/progress granularity).
 const CHUNK: usize = 64 * 1024;
@@ -674,7 +678,37 @@ pub fn extract_file_download_candidates(
             base_score,
             "",
             false,
+            true, // meta/js hops always considered
         );
+    }
+
+    // Host-profile file selectors (Archive download pills, Vimm #download, …).
+    if let Some(host) = page_host.as_deref() {
+        if let Some(profile) = profile_for_host(host) {
+            for sel_str in profile.file_selectors {
+                let Ok(file_sel) = Selector::parse(sel_str) else {
+                    continue;
+                };
+                for el in doc.select(&file_sel) {
+                    let Some(href) = el.value().attr("href").map(str::trim) else {
+                        continue;
+                    };
+                    let text = el.text().collect::<String>();
+                    push_file_candidate(
+                        &mut out,
+                        &mut seen,
+                        href,
+                        base.as_ref(),
+                        page_host.as_deref(),
+                        &hint_terms,
+                        45, // profile boost over bare anchors
+                        &text,
+                        el.value().attr("download").is_some(),
+                        true, // trust host profile selectors
+                    );
+                }
+            }
+        }
     }
 
     for el in doc.select(&selector) {
@@ -696,6 +730,7 @@ pub fn extract_file_download_candidates(
             if has_download_attr { 30 } else { 10 },
             &text,
             has_download_attr,
+            false,
         );
     }
     out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.url.cmp(&b.url)));
@@ -714,6 +749,8 @@ fn push_file_candidate(
     base_score: i32,
     link_text: &str,
     has_download_attr: bool,
+    // When true (profile / meta-refresh), accept even without extension/download-ish path.
+    force_include: bool,
 ) {
     let lower_href = href.to_ascii_lowercase();
     if lower_href.starts_with("javascript:")
@@ -736,7 +773,7 @@ fn push_file_candidate(
     let ext = url_path_extension(&url);
     let has_importable_ext = ext.as_deref().is_some_and(is_importable_extension);
     let download_ish = is_download_ish_url(&url);
-    if !has_importable_ext && !download_ish {
+    if !has_importable_ext && !download_ish && !force_include {
         return;
     }
     if !seen.insert(url.clone()) {
@@ -969,14 +1006,19 @@ const HTML_NO_FILE_REASON: &str = "This link is a web page, not a ROM file, and 
 game file (.zip / ROM) was found on the page. Open it in your browser to download the game, \
 then drag the file into Retro Game Player.";
 
-const HTML_STILL_HTML_REASON: &str = "Followed a download link from the page, but the server \
-still returned a web page instead of a game file. Open the link in your browser to finish \
+const HTML_STILL_HTML_REASON: &str = "Followed download links from the page, but the server \
+still returned web pages instead of a game file. Open the link in your browser to finish \
 the download, then drag the file into Retro Game Player.";
 
-/// Full auto-import path: GET `url` → if HTML, resolve file link → import.
+const HTML_HOP_LOOP_REASON: &str = "Followed download links in a loop without finding a game \
+file. Open the link in your browser to finish the download, then drag the file into Retro \
+Game Player.";
+
+/// Full auto-import path: GET `url` → if HTML, resolve file link (up to
+/// [`MAX_DOWNLOAD_HOPS`] GETs) → import.
 ///
 /// `id` is the download job id (used for `.part` staging names).
-/// `hint` is optional result title / query text for hop-2 ranking.
+/// `hint` is optional result title / query text for hop ranking.
 pub fn download_and_auto_import(
     url: &str,
     staging_dir: &Path,
@@ -986,65 +1028,86 @@ pub fn download_and_auto_import(
     games_dir: &Path,
     hint: Option<&str>,
 ) -> AppResult<DownloadLanding> {
-    let part = part_path(staging_dir, id);
-    let meta = stream_to_staging(url, &part, hooks)?;
+    let mut current_url = url.to_string();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut pending_disp: Option<String> = None;
 
-    if should_treat_as_html(&part, meta.content_type.as_deref()) {
-        let html = std::fs::read_to_string(&part).unwrap_or_default();
-        let candidates = extract_file_download_candidates(&html, url, hint);
-        if let Some((file_url, probe_disp, _confirmed)) = select_best_candidate_url(&candidates) {
-            // Drop the HTML page; fetch the real file into a fresh part path.
-            let _ = std::fs::remove_file(&part);
-            let file_part = part_path(staging_dir, id);
-            let file_meta = stream_to_staging(&file_url, &file_part, hooks)?;
-            if should_treat_as_html(&file_part, file_meta.content_type.as_deref()) {
-                let name = resolve_download_filename(
-                    &file_url,
-                    file_meta
-                        .disposition_filename
-                        .as_deref()
-                        .or(probe_disp.as_deref()),
-                    &file_part,
-                );
-                let staged = staging_dir.join(name);
-                let _ = std::fs::rename(&file_part, &staged);
-                return Ok(DownloadLanding::Unrecognized {
-                    staged_path: staged,
-                    reason: HTML_STILL_HTML_REASON.to_string(),
-                });
-            }
-            let filename = resolve_download_filename(
-                &file_url,
-                file_meta
-                    .disposition_filename
-                    .as_deref()
-                    .or(probe_disp.as_deref()),
-                &file_part,
-            );
-            return land_download(db, games_dir, staging_dir, &file_part, &filename);
+    for hop_index in 0..MAX_DOWNLOAD_HOPS {
+        if !visited.insert(current_url.clone()) {
+            return Ok(DownloadLanding::Unrecognized {
+                staged_path: staging_dir.join("download.html"),
+                reason: HTML_HOP_LOOP_REASON.to_string(),
+            });
         }
-        // No file candidate — keep HTML for Reveal with a clear reason.
-        let name = {
-            let base = meta
-                .disposition_filename
-                .clone()
-                .unwrap_or_else(|| url_filename(url));
-            if base.contains('.') {
-                base
+
+        let part = part_path(staging_dir, id);
+        let meta = stream_to_staging(&current_url, &part, hooks)?;
+        let disp = meta
+            .disposition_filename
+            .clone()
+            .or_else(|| pending_disp.clone());
+
+        if !should_treat_as_html(&part, meta.content_type.as_deref()) {
+            let filename =
+                resolve_download_filename(&current_url, disp.as_deref(), &part);
+            return land_download(db, games_dir, staging_dir, &part, &filename);
+        }
+
+        // HTML page — look for the next hop (file or another interstitial).
+        let html = std::fs::read_to_string(&part).unwrap_or_default();
+        let candidates = extract_file_download_candidates(&html, &current_url, hint);
+        let next = select_best_candidate_url(&candidates).and_then(|(next_url, probe_disp, _)| {
+            if next_url == current_url || visited.contains(&next_url) {
+                None
             } else {
-                format!("{base}.html")
+                Some((next_url, probe_disp))
             }
-        };
-        let staged = staging_dir.join(name);
-        let _ = std::fs::rename(&part, &staged);
-        return Ok(DownloadLanding::Unrecognized {
-            staged_path: staged,
-            reason: HTML_NO_FILE_REASON.to_string(),
         });
+
+        let stage_html = |reason: &str| -> AppResult<DownloadLanding> {
+            let name = {
+                let base = disp
+                    .clone()
+                    .unwrap_or_else(|| url_filename(&current_url));
+                if base.contains('.') {
+                    base
+                } else {
+                    format!("{base}.html")
+                }
+            };
+            let staged = staging_dir.join(name);
+            let _ = std::fs::rename(&part, &staged);
+            Ok(DownloadLanding::Unrecognized {
+                staged_path: staged,
+                reason: reason.to_string(),
+            })
+        };
+
+        match next {
+            Some((next_url, probe_disp)) if hop_index + 1 < MAX_DOWNLOAD_HOPS => {
+                pending_disp = probe_disp.or(disp);
+                let _ = std::fs::remove_file(&part);
+                current_url = next_url;
+            }
+            Some(_) => {
+                // Found another link but hop budget exhausted.
+                return stage_html(HTML_STILL_HTML_REASON);
+            }
+            None => {
+                let reason = if hop_index > 0 {
+                    HTML_STILL_HTML_REASON
+                } else {
+                    HTML_NO_FILE_REASON
+                };
+                return stage_html(reason);
+            }
+        }
     }
 
-    let filename = resolve_download_filename(url, meta.disposition_filename.as_deref(), &part);
-    land_download(db, games_dir, staging_dir, &part, &filename)
+    Ok(DownloadLanding::Unrecognized {
+        staged_path: staging_dir.join("download.html"),
+        reason: HTML_STILL_HTML_REASON.to_string(),
+    })
 }
 
 /// Streams `url` into `dest_part`, enforcing the cap, reporting progress, and
@@ -1841,6 +1904,105 @@ mod tests {
             DownloadLanding::Imported { game_id, .. } => assert!(game_id > 0),
             other => panic!("expected Imported, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn multi_hop_follows_html_to_html_to_zip() {
+        // page → interstitial (download-ish link may be HEAD-probed) → zip with ROM
+        let zip_bytes = zip_with(&[("Multi Hop.nes", b"MULTI-HOP-ROM-BYTES")]);
+        let zip_server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let zip_port = zip_server.server_addr().to_ip().unwrap().port();
+        let zip_bytes_clone = zip_bytes.clone();
+        let zip_join = std::thread::spawn(move || {
+            for _ in 0..4 {
+                match zip_server.recv_timeout(std::time::Duration::from_secs(3)) {
+                    Ok(Some(req)) => {
+                        let _ = req.respond(tiny_http::Response::from_data(zip_bytes_clone.clone()));
+                    }
+                    _ => break,
+                }
+            }
+        });
+
+        let mid_html = format!(
+            r#"<!doctype html><html><body>
+               <a href="http://127.0.0.1:{zip_port}/final.zip">Get file</a>
+               </body></html>"#
+        );
+        let mid_server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let mid_port = mid_server.server_addr().to_ip().unwrap().port();
+        let mid_join = std::thread::spawn(move || {
+            // HEAD probe + GET body
+            for _ in 0..6 {
+                match mid_server.recv_timeout(std::time::Duration::from_secs(3)) {
+                    Ok(Some(req)) => {
+                        let _ = req.respond(tiny_http::Response::from_data(mid_html.clone().into_bytes()));
+                    }
+                    _ => break,
+                }
+            }
+        });
+
+        let page_html = format!(
+            r#"<!doctype html><html><body>
+               <a href="http://127.0.0.1:{mid_port}/download?step=1">Continue</a>
+               </body></html>"#
+        );
+        let page_server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let page_port = page_server.server_addr().to_ip().unwrap().port();
+        let page_join = std::thread::spawn(move || {
+            if let Ok(req) = page_server.recv() {
+                let _ = req.respond(tiny_http::Response::from_data(page_html.into_bytes()));
+            }
+        });
+
+        let db = Db::open_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let games = tmp.path().join("games");
+        let staging = tmp.path().join("staging");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        let (progress, cont) = hooks();
+        let landing = download_and_auto_import(
+            &format!("http://127.0.0.1:{page_port}/start"),
+            &staging,
+            77,
+            &DownloadHooks {
+                on_progress: progress,
+                should_continue: cont,
+            },
+            &db,
+            &games,
+            Some("Multi Hop"),
+        )
+        .expect("multi-hop auto import");
+        page_join.join().unwrap();
+        let _ = mid_join.join();
+        let _ = zip_join.join();
+
+        match landing {
+            DownloadLanding::Imported { game_id, .. } => assert!(game_id > 0),
+            other => panic!("expected Imported via multi-hop, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn profile_file_selectors_boost_archive_style_links() {
+        let html = r#"
+          <html><body>
+            <a href="/about">About</a>
+            <a class="download-pill" href="/download/sonic/Sonic.zip">Download</a>
+          </body></html>
+        "#;
+        let c = extract_file_download_candidates(
+            html,
+            "https://archive.org/details/sonic",
+            Some("Sonic"),
+        );
+        assert!(
+            c.iter().any(|x| x.url.contains("Sonic.zip") || x.url.contains("/download/")),
+            "{c:?}"
+        );
     }
 
     #[test]

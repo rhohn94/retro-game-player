@@ -19,5 +19,6 @@ pub mod discovery;
 pub mod download;
 pub mod fetch;
 pub mod liveness;
+pub mod profiles;
 pub mod provider;
 pub mod template;

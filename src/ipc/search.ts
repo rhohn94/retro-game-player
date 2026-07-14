@@ -108,6 +108,9 @@ export interface CatalogProvider {
  * full results page" even when scraping is empty or fails). `items` are the
  * scraped preview links; `error` is a per-provider fetch/parse failure message.
  */
+/** SERP health from the backend (Phase 3). */
+export type SerpHealth = "ok" | "captcha" | "js_shell" | "empty" | "error" | string;
+
 export interface ProviderResults {
   providerId: number;
   providerName: string;
@@ -118,6 +121,8 @@ export interface ProviderResults {
   priority: number;
   items: SearchResultItem[];
   error: string | null;
+  /** SERP health for auto-collapse / badges (`ok` when healthy). */
+  health?: SerpHealth;
 }
 
 // ── Typed wrappers ───────────────────────────────────────────────────────────

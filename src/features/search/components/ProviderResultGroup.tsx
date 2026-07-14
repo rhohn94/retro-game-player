@@ -14,6 +14,7 @@ import type { SearchResultItem, ProviderResults, LinkState } from "../../../ipc/
 import { FocusRing, useFocusable } from "../../controller";
 import { ResultRow } from "./ResultRow";
 import { GroupCountBadge, GroupSelectAll } from "./GroupControls";
+import { healthBadgeLabel } from "../providerHealth";
 
 export function ProviderResultGroup({
   group,
@@ -123,6 +124,24 @@ export function ProviderResultGroup({
             {group.providerName}
           </span>
           <GroupCountBadge group={group} count={visible.length} />
+          {healthBadgeLabel(group) && (
+            <span
+              title={group.error ?? undefined}
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "var(--aura-on-surface-muted)",
+                border: "1px solid var(--aura-outline-subtle, currentColor)",
+                borderRadius: 4,
+                padding: "1px 5px",
+                flexShrink: 0,
+              }}
+            >
+              {healthBadgeLabel(group)}
+            </span>
+          )}
         </button>
         </FocusRing>
         {/* Direct download is live for opted-in providers (v0.24 W244): the

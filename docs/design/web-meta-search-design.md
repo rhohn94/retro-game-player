@@ -70,7 +70,11 @@ type `Sonic genesis rom` manually.
   results skew toward downloadable hits. Skips when the query already has
   `rom`/`roms`.
 
+## Phase 3 health + profiles (implemented)
+
+- SERP health on each provider group; captcha/JS-shell/empty auto-collapse.
+- Host profiles module covers DDG, Archive.org, and several ROM-catalog hosts.
+
 ## Follow-ups
 
-- Provider health: collapse captcha/error SERPs automatically.
-- Host profiles beyond DDG / Archive.org.
+- Expand profiles as users add high-value sources.

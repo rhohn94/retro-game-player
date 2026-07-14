@@ -18,6 +18,9 @@ use std::time::Duration;
 
 use scraper::{ElementRef, Html, Selector};
 
+use crate::core::search::profiles::{
+    host_from_url, profile_for_host, result_url_matches_profile,
+};
 use crate::error::{AppError, AppResult};
 
 /// Maximum number of preview links returned per provider (keeps the response and
@@ -49,14 +52,101 @@ pub struct ScrapedResult {
     pub url: String,
 }
 
+/// SERP health after a successful fetch (Phase 3). Surfaces captcha / SPA /
+/// empty results so the UI can auto-collapse and label groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SerpHealth {
+    Ok,
+    Captcha,
+    JsShell,
+    Empty,
+}
+
+impl SerpHealth {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SerpHealth::Ok => "ok",
+            SerpHealth::Captcha => "captcha",
+            SerpHealth::JsShell => "js_shell",
+            SerpHealth::Empty => "empty",
+        }
+    }
+}
+
+/// Scrape outcome: links + health assessment.
+#[derive(Debug, Clone)]
+pub struct FetchOutcome {
+    pub links: Vec<ScrapedResult>,
+    pub health: SerpHealth,
+}
+
 /// Fetch `search_url` and extract candidate result links from the returned HTML.
 ///
 /// Returns `Err` when the URL is not http(s), the request fails, or the response
 /// is a non-success status — the caller surfaces that per-provider and falls
 /// back to offering the search-page link itself.
 pub fn fetch_results(search_url: &str) -> AppResult<Vec<ScrapedResult>> {
+    Ok(fetch_results_with_health(search_url)?.links)
+}
+
+/// Like [`fetch_results`], but also returns SERP health for the UI.
+pub fn fetch_results_with_health(search_url: &str) -> AppResult<FetchOutcome> {
     let body = fetch_body(search_url)?;
-    Ok(extract_links(&body, search_url))
+    let mut links = extract_links(&body, search_url);
+    let health = assess_serp_health(&body, &links);
+    // Captcha pages often still yield nav chrome — clear so the group is empty.
+    if health == SerpHealth::Captcha {
+        links.clear();
+    }
+    Ok(FetchOutcome { links, health })
+}
+
+/// Classify a fetched SERP body. Pure / testable.
+pub fn assess_serp_health(html: &str, links: &[ScrapedResult]) -> SerpHealth {
+    if looks_like_captcha(html) {
+        return SerpHealth::Captcha;
+    }
+    if links.is_empty() {
+        if looks_client_rendered(html, count_anchors(html)) {
+            return SerpHealth::JsShell;
+        }
+        return SerpHealth::Empty;
+    }
+    SerpHealth::Ok
+}
+
+/// Heuristic captcha / bot-wall markers (Yandex SmartCaptcha, reCAPTCHA, CF…).
+pub fn looks_like_captcha(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    const MARKERS: &[&str] = &[
+        "smartcaptcha",
+        "g-recaptcha",
+        "h-captcha",
+        "cf-challenge",
+        "cf-turnstile",
+        "challenges.cloudflare.com",
+        "id=\"captcha\"",
+        "class=\"captcha\"",
+        "data-sitekey",
+        "verify you are human",
+        "are you a robot",
+        "unusual traffic",
+        "attention required! | cloudflare",
+        "enable javascript and cookies to continue",
+    ];
+    if MARKERS.iter().any(|m| lower.contains(m)) {
+        return true;
+    }
+    // "captcha" near verify/challenge wording
+    if lower.contains("captcha")
+        && (lower.contains("verify")
+            || lower.contains("challenge")
+            || lower.contains("robot")
+            || lower.contains("human"))
+    {
+        return true;
+    }
+    false
 }
 
 /// Diagnostics for the provider validator (v0.20): the scraped links plus a
@@ -140,51 +230,23 @@ pub fn extract_links(html: &str, base_url: &str) -> Vec<ScrapedResult> {
     extract_links_structured(html, base_url)
 }
 
-/// Host of `url` lowercased, or empty.
-fn host_of(url: &str) -> String {
-    reqwest::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
-        .unwrap_or_default()
-}
-
-/// Known SERP / catalog profiles with reliable result-link selectors.
+/// Known SERP profiles with reliable result-link selectors ([`profiles`]).
 fn extract_profile_links(html: &str, base_url: &str) -> Vec<ScrapedResult> {
-    let host = host_of(base_url);
+    let host = host_from_url(base_url);
     if host.is_empty() {
         return Vec::new();
     }
-
-    // DuckDuckGo HTML / lite SERP
-    if host.contains("duckduckgo.com") {
-        let ddg = collect_by_selectors(
-            html,
-            base_url,
-            &["a.result__a", "a.result-link", ".results_links a.result__a"],
-        );
-        if !ddg.is_empty() {
-            return ddg;
-        }
+    let Some(profile) = profile_for_host(&host) else {
+        return Vec::new();
+    };
+    if profile.result_selectors.is_empty() {
+        return Vec::new();
     }
-
-    // Internet Archive search / collections — detail pages are the useful hits
-    if host.contains("archive.org") {
-        let ia = collect_by_selectors(html, base_url, &["a[href*='/details/']"]);
-        // Filter to actual details (not /details/ alone)
-        let ia: Vec<_> = ia
-            .into_iter()
-            .filter(|r| {
-                r.url.contains("/details/")
-                    && !r.url.ends_with("/details/")
-                    && !r.url.ends_with("/details")
-            })
-            .collect();
-        if !ia.is_empty() {
-            return ia;
-        }
+    let mut links = collect_by_selectors(html, base_url, profile.result_selectors);
+    if let Some(_frag) = profile.result_path_contains {
+        links.retain(|r| result_url_matches_profile(&r.url, profile));
     }
-
-    Vec::new()
+    links
 }
 
 /// Collect links matching any of the CSS `selectors`, in document order,
@@ -832,5 +894,35 @@ mod tests {
         let out = extract_links(html, "https://archive.org/search?query=sonic");
         assert_eq!(out.len(), 1, "{out:?}");
         assert!(out[0].url.contains("/details/sonic"));
+    }
+
+    #[test]
+    fn assess_captcha_and_empty() {
+        assert_eq!(
+            assess_serp_health(
+                r#"<html><body><div class="smartcaptcha">verify</div></body></html>"#,
+                &[]
+            ),
+            SerpHealth::Captcha
+        );
+        assert_eq!(
+            assess_serp_health(
+                r#"<html><body><div id="root"></div><script src="/app.js"></script></body></html>"#,
+                &[]
+            ),
+            SerpHealth::JsShell
+        );
+        assert_eq!(
+            assess_serp_health("<html><body><p>No results</p></body></html>", &[]),
+            SerpHealth::Empty
+        );
+        let links = vec![ScrapedResult {
+            title: "Game".into(),
+            url: "https://x.example.com/g".into(),
+        }];
+        assert_eq!(
+            assess_serp_health("<html><body>ok</body></html>", &links),
+            SerpHealth::Ok
+        );
     }
 }

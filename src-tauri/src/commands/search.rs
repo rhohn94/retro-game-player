@@ -68,6 +68,7 @@ pub struct SearchResultItem {
 /// so the UI can offer "open the full results page" even when scraping yields
 /// nothing or fails. `items` are the scraped preview links; `error` carries a
 /// per-provider fetch/parse failure (the search as a whole still succeeds).
+/// `health` is Phase 3 SERP status: `ok` | `captcha` | `js_shell` | `empty` | `error`.
 #[derive(serde::Serialize)]
 pub struct ProviderResults {
     #[serde(rename = "providerId")]
@@ -82,6 +83,8 @@ pub struct ProviderResults {
     pub priority: i64,
     pub items: Vec<SearchResultItem>,
     pub error: Option<String>,
+    /// SERP health label for auto-collapse / badges (Phase 3).
+    pub health: String,
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -188,21 +191,36 @@ fn provider_results(
                 priority: p.priority,
                 items: Vec::new(),
                 error: Some(e.to_string()),
+                health: "error".into(),
             };
         }
     };
-    let (items, error) = match fetch::fetch_results(&search_url) {
-        Ok(found) => (
-            found
+    let (items, error, health) = match fetch::fetch_results_with_health(&search_url) {
+        Ok(outcome) => {
+            let health = outcome.health.as_str().to_string();
+            let items = outcome
+                .links
                 .into_iter()
                 .map(|r| SearchResultItem {
                     title: r.title,
                     url: r.url,
                 })
-                .collect(),
-            None,
-        ),
-        Err(e) => (Vec::new(), Some(e.to_string())),
+                .collect();
+            let error = match outcome.health {
+                fetch::SerpHealth::Captcha => Some(
+                    "Provider returned a captcha or bot check — open the search page in your browser"
+                        .into(),
+                ),
+                fetch::SerpHealth::JsShell => Some(
+                    "Search page looks JavaScript-rendered — static preview found no results"
+                        .into(),
+                ),
+                fetch::SerpHealth::Empty => None,
+                fetch::SerpHealth::Ok => None,
+            };
+            (items, error, health)
+        }
+        Err(e) => (Vec::new(), Some(e.to_string()), "error".into()),
     };
     ProviderResults {
         provider_id: p.id,
@@ -212,6 +230,7 @@ fn provider_results(
         priority: p.priority,
         items,
         error,
+        health,
     }
 }
 
@@ -382,6 +401,7 @@ pub fn run_search(
                     priority: p.priority,
                     items: Vec::new(),
                     error: Some("search worker thread panicked".to_string()),
+                    health: "error".into(),
                 })
             })
             .collect()
@@ -525,6 +545,7 @@ mod tests {
                 priority: 100,
                 items: Vec::new(),
                 error: Some("search worker thread panicked".to_string()),
+                health: "error".into(),
             })
         });
         assert_eq!(result.provider_id, 7);
