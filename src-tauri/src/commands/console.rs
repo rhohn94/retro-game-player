@@ -17,7 +17,7 @@ use crate::db::repo::Repository;
 use crate::db::Db;
 use crate::error::AppResult;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tauri::State;
 
 /// Wire DTO for a console (static facts + cached media + ownership/catalog counts).
@@ -124,13 +124,19 @@ pub async fn get_console(
     Ok(dto)
 }
 
-/// One catalog title with an ownership flag.
+/// One catalog title with an ownership flag (and library link when owned).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogTitleDto {
+    /// Stable id for Global Catalog UI: `global:{system}:{title}`.
+    pub catalog_id: String,
     pub title: String,
+    /// Console system key (same as games.system).
+    pub system: String,
     /// True when the user's library has a game matching this title.
     pub owned: bool,
+    /// Library game id when owned (for open → Play detail).
+    pub game_id: Option<i64>,
 }
 
 /// A page of a console's title catalog.
@@ -148,6 +154,8 @@ pub struct CatalogPageDto {
 /// search and pagination. Each returned title is flagged `owned` when the user
 /// has a library game whose normalized name matches. `limit` is clamped to
 /// 1..=500 so a single page stays bounded.
+///
+/// Also powers Library **Global Catalog** mode (same DTO + ownership link).
 #[tauri::command]
 pub async fn list_catalog_titles(
     db: State<'_, Db>,
@@ -160,18 +168,25 @@ pub async fn list_catalog_titles(
     let lim = limit.clamp(1, 500) as usize;
     let (total, page) = titles::search(&system, query.as_deref(), off, lim);
 
-    // Normalized names of the user's games for this system → ownership flags.
-    let owned: HashSet<String> = LibraryRepo::new(&db)
-        .list_games(Some(&system))?
-        .into_iter()
-        .map(|g| titles::normalize(&g.clean_name))
-        .collect();
+    // Normalized name → first matching library game id for this system.
+    let mut owned_ids: HashMap<String, i64> = HashMap::new();
+    for g in LibraryRepo::new(&db).list_games(Some(&system))? {
+        let key = titles::normalize(&g.clean_name);
+        owned_ids.entry(key).or_insert(g.id);
+    }
 
     let items = page
         .into_iter()
-        .map(|t| CatalogTitleDto {
-            owned: owned.contains(&titles::normalize(t)),
-            title: t.to_string(),
+        .map(|t| {
+            let norm = titles::normalize(t);
+            let game_id = owned_ids.get(&norm).copied();
+            CatalogTitleDto {
+                catalog_id: format!("global:{system}:{t}"),
+                title: t.to_string(),
+                system: system.clone(),
+                owned: game_id.is_some(),
+                game_id,
+            }
         })
         .collect();
 

@@ -68,33 +68,34 @@ const CATALOG: &[CatalogProvider] = &[
         5,
         false,
     ),
-    // --- ROM archives (research / testability; often pre-seeded by migration 017) ---
-    entry("RomsGames", "https://www.romsgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("Romspedia", "https://romspedia.com/search?term={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("RomsFun", "https://www.romsfun.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("WoWROMs", "https://wowroms.com/en/roms/list?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("CoolROM", "https://coolrom.com.au/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("EmulatorGames", "https://www.emulatorgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("ROMSPURE", "https://romspure.cc/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("Retrostic", "https://www.retrostic.com/search?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("Gamulator", "https://www.gamulator.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("ROMsMania", "https://romsmania.cc/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
-    entry("Romulation", "https://www.romulation.org/roms/search?query={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 10, true),
+    // --- ROM archives (research T3 — pre-seeded by 017; priority 25 after 019) ---
+    // Research ROM archives (T3) — lower priority than preservation; DD suggested.
+    entry("RomsGames", "https://www.romsgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("Romspedia", "https://romspedia.com/search?term={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("RomsFun", "https://www.romsfun.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("WoWROMs", "https://wowroms.com/en/roms/list?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("CoolROM", "https://coolrom.com.au/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("EmulatorGames", "https://www.emulatorgames.net/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("ROMSPURE", "https://romspure.cc/search?q={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("Retrostic", "https://www.retrostic.com/search?search={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("Gamulator", "https://www.gamulator.com/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("ROMsMania", "https://romsmania.cc/?s={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
+    entry("Romulation", "https://www.romulation.org/roms/search?query={query}", "download", "ROM archives", "Research seed — general ROM search template.", false, 25, true),
     // --- Indie & homebrew storefronts ---
     entry("itch.io", "https://itch.io/search?q={query}", "download", "Indie & homebrew", "The largest independent game storefront — homebrew, freeware, and commercial indies.", true, 30, false),
     entry("GameJolt", "https://gamejolt.com/search?q={query}", "download", "Indie & homebrew", "Indie game community and storefront with many free and homebrew titles.", true, 30, false),
-    // --- Public-domain & homebrew ROMs ---
-    entry("PDRoms", "https://www.pdroms.de/?s={query}", "download", "Homebrew & public-domain", "Curated homebrew and public-domain games and ports for retro systems.", false, 30, false),
-    entry("Lexaloffle BBS", "https://www.lexaloffle.com/bbs/?search={query}", "download", "Homebrew & public-domain", "Community board for PICO-8 and Voxatron — thousands of author-released fantasy-console games (v0.25, live-verified).", false, 30, false),
-    entry("OpenGameArt", "https://opengameart.org/art-search?keys={query}", "download", "Homebrew & public-domain", "Free/CC-licensed and public-domain game art, sprites, and audio for creators (v0.25, live-verified).", false, 30, false),
+    // --- Trusted collections (T1) — homebrew / PD / demoscene ---
+    entry("PDRoms", "https://www.pdroms.de/?s={query}", "download", "Homebrew & public-domain", "Curated homebrew and public-domain games and ports for retro systems.", false, 10, false),
+    entry("Lexaloffle BBS", "https://www.lexaloffle.com/bbs/?search={query}", "download", "Homebrew & public-domain", "Community board for PICO-8 and Voxatron — thousands of author-released fantasy-console games (v0.25, live-verified).", false, 10, false),
+    entry("OpenGameArt", "https://opengameart.org/art-search?keys={query}", "download", "Homebrew & public-domain", "Free/CC-licensed and public-domain game art, sprites, and audio for creators (v0.25, live-verified).", false, 10, false),
     // --- Demoscene ---
-    entry("Demozoo", "https://demozoo.org/productions/?q={query}", "download", "Demoscene", "Demoscene database — author-released demos, intros, and games.", false, 30, false),
-    entry("Pouet", "https://www.pouet.net/prodlist.php?prod={query}", "download", "Demoscene", "Long-running demoscene production database.", false, 30, false),
-    // --- Preservation libraries ---
-    entry("Internet Archive", "https://archive.org/search?query={query}", "download", "Preservation library", "Nonprofit digital library hosting software, games, and historical media.", false, 30, false),
+    entry("Demozoo", "https://demozoo.org/productions/?q={query}", "download", "Demoscene", "Demoscene database — author-released demos, intros, and games.", false, 10, false),
+    entry("Pouet", "https://www.pouet.net/prodlist.php?prod={query}", "download", "Demoscene", "Long-running demoscene production database.", false, 10, false),
+    // --- Preservation libraries (T1) — preferred Get path ---
+    entry("Internet Archive", "https://archive.org/search?query={query}", "download", "Preservation library", "Nonprofit digital library hosting software, games, and historical media.", false, 8, true),
     // --- ROM hacks, translations & music ---
-    entry("ROMhacking.net", "https://www.romhacking.net/hacks/?title={query}", "download", "Hacks & translations", "Catalog of fan-made ROM hacks and translations distributed as patches.", false, 30, false),
-    entry("Zophar's Domain", "https://www.zophar.net/music/search?search={query}", "download", "Game music", "Preservation resource for game-music rips and homebrew.", false, 30, false),
+    entry("ROMhacking.net", "https://www.romhacking.net/hacks/?title={query}", "download", "Hacks & translations", "Catalog of fan-made ROM hacks and translations distributed as patches.", false, 10, false),
+    entry("Zophar's Domain", "https://www.zophar.net/music/search?search={query}", "download", "Game music", "Preservation resource for game-music rips and homebrew.", false, 10, false),
     // --- Licensed storefronts ---
     entry("Steam", "https://store.steampowered.com/search/?term={query}", "download", "Storefront", "Valve's licensed commercial storefront, including many retro re-releases.", false, 30, false),
     entry("GOG", "https://www.gog.com/en/games?query={query}", "download", "Storefront", "DRM-free storefront strong on classic and retro PC games.", true, 30, false),

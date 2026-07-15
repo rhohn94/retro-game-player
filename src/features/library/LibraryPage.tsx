@@ -14,8 +14,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { launchGame, listGames } from "../../ipc/commands";
-import type { Game } from "../../ipc/commands";
+import { launchGame, listGames, listCatalogTitles, listConsoles } from "../../ipc/commands";
+import type { Game, CatalogTitle, ConsoleInfo } from "../../ipc/commands";
 import { listCollections, listGamesByCollection, type CollectionWithCount } from "../../ipc/collections";
 import { listContainer, riseIn } from "../../lib/motion";
 import { LoadingState } from "../../components/LoadingState";
@@ -24,11 +24,21 @@ import { EmptyState } from "../../components/EmptyState";
 import { CreateGamesFolderDialog } from "./CreateGamesFolderDialog";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { GameTile } from "./GameTile";
+import { CatalogGameTile } from "./CatalogGameTile";
 import { useBoxart } from "./useBoxart";
 import { LibraryFilters } from "./LibraryFilters";
 import { pickRomFiles, runImport, summarizeImport } from "./import";
 import { EMPTY_CRITERIA, facetValues, filterGames, type FilterCriteria } from "./filter";
 import { swallow } from "../../ipc/swallow";
+import {
+  loadCatalogMode,
+  saveCatalogMode,
+  loadGlobalConsoleKey,
+  saveGlobalConsoleKey,
+  type CatalogMode,
+} from "./catalogMode";
+
+const GLOBAL_PAGE_SIZE = 48;
 
 /** The large hero teaser over the backdrop: cover + title + system + Play. */
 function HeroTeaser({ game }: { game: Game | null }) {
@@ -68,9 +78,14 @@ function HeroTeaser({ game }: { game: Game | null }) {
   );
 }
 
-/** The library gallery screen mounted at "/". */
+/** The library gallery screen mounted at "/". Supports Personal | Global catalog. */
 export function LibraryPage() {
   const navigate = useNavigate();
+  const [catalogMode, setCatalogModeState] = useState<CatalogMode>(() => loadCatalogMode());
+  const setCatalogMode = useCallback((mode: CatalogMode) => {
+    setCatalogModeState(mode);
+    saveCatalogMode(mode);
+  }, []);
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,6 +100,38 @@ export function LibraryPage() {
   // selected in `criteria.collectionId`.
   const [collections, setCollections] = useState<CollectionWithCount[]>([]);
   const [collectionMemberIds, setCollectionMemberIds] = useState<ReadonlySet<number> | null>(null);
+
+  // Global Catalog (bundled title index — paged, console-scoped).
+  const [consoles, setConsoles] = useState<ConsoleInfo[]>([]);
+  const [globalSystem, setGlobalSystem] = useState(() => loadGlobalConsoleKey("nes"));
+  const [globalQuery, setGlobalQuery] = useState("");
+  const [globalOffset, setGlobalOffset] = useState(0);
+  const [globalItems, setGlobalItems] = useState<CatalogTitle[]>([]);
+  const [globalTotal, setGlobalTotal] = useState(0);
+  const [globalLoading, setGlobalLoading] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [focusedCatalog, setFocusedCatalog] = useState<CatalogTitle | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listConsoles()
+      .then((rows) => {
+        if (cancelled) return;
+        setConsoles(rows);
+        // Prefer a console that has a catalog if stored key is missing.
+        setGlobalSystem((prev) => {
+          if (rows.some((c) => c.key === prev)) return prev;
+          const withCatalog = rows.find((c) => c.catalogCount > 0);
+          const key = withCatalog?.key ?? rows[0]?.key ?? "nes";
+          saveGlobalConsoleKey(key);
+          return key;
+        });
+      })
+      .catch((err: unknown) => swallow(err, "LibraryPage.listConsoles"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadGames = useCallback(() => {
     let cancelled = false;
@@ -203,84 +250,336 @@ export function LibraryPage() {
     };
   }, [handleImport]);
 
+  // Load Global Catalog page when mode/system/query/offset change.
+  useEffect(() => {
+    if (catalogMode !== "global" || !globalSystem) return;
+    let cancelled = false;
+    setGlobalLoading(true);
+    const trimmed = globalQuery.trim();
+    const handle = window.setTimeout(
+      () => {
+        listCatalogTitles(globalSystem, trimmed || undefined, globalOffset, GLOBAL_PAGE_SIZE)
+          .then((page) => {
+            if (cancelled) return;
+            setGlobalItems(page.items);
+            setGlobalTotal(page.total);
+            setGlobalError(null);
+            setFocusedCatalog((prev) => prev ?? page.items[0] ?? null);
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) {
+              setGlobalItems([]);
+              setGlobalTotal(0);
+              setGlobalError(err instanceof Error ? err.message : String(err));
+            }
+          })
+          .finally(() => {
+            if (!cancelled) setGlobalLoading(false);
+          });
+      },
+      trimmed ? 180 : 0,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [catalogMode, globalSystem, globalQuery, globalOffset]);
+
+  // Reset page when console or query changes.
+  useEffect(() => {
+    setGlobalOffset(0);
+  }, [globalSystem, globalQuery]);
+
   const facets = useMemo(() => facetValues(games), [games]);
   const visible = useMemo(
     () => filterGames(games, criteria, collectionMemberIds),
     [games, criteria, collectionMemberIds],
   );
 
+  const isGlobal = catalogMode === "global";
+  const globalHasPrev = globalOffset > 0;
+  const globalHasNext = globalOffset + GLOBAL_PAGE_SIZE < globalTotal;
+
+  const openCatalogEntry = useCallback(
+    (entry: CatalogTitle) => {
+      if (entry.owned && entry.gameId != null) {
+        navigate(`/game/${entry.gameId}`);
+        return;
+      }
+      navigate("/search", {
+        state: { query: entry.title, consoleKey: entry.system },
+      });
+    },
+    [navigate],
+  );
+
+  const setGlobalSystemPersist = useCallback((key: string) => {
+    setGlobalSystem(key);
+    saveGlobalConsoleKey(key);
+  }, []);
+
+  // Hero for Global: fake a minimal Game-shaped object for backdrop when focused catalog.
+  const globalHeroGame: Game | null = useMemo(() => {
+    if (!focusedCatalog) return null;
+    if (focusedCatalog.owned && focusedCatalog.gameId != null) {
+      return games.find((g) => g.id === focusedCatalog.gameId) ?? null;
+    }
+    return {
+      id: -1,
+      path: null,
+      system: focusedCatalog.system,
+      crc32: null,
+      md5: null,
+      cleanName: focusedCatalog.title,
+      datMatched: false,
+      coreHint: null,
+      artPath: null,
+      sizeBytes: 0,
+      addedAt: 0,
+      year: null,
+      developer: null,
+      publisher: null,
+      aliases: [],
+      description: null,
+      wikipediaUrl: null,
+      favorite: false,
+      lastPlayedAt: null,
+      playCount: 0,
+      totalPlayTimeMs: 0,
+      source: "rom",
+      launchDescriptor: null,
+      externalId: null,
+    };
+  }, [focusedCatalog, games]);
+
   return (
     <div className="rgp-library">
-      <HeroBackdrop game={focused} />
+      <HeroBackdrop game={isGlobal ? globalHeroGame : focused} />
 
-      {dragOver && (
+      {dragOver && !isGlobal && (
         <div className="rgp-dropzone" aria-hidden>
           <div className="rgp-dropzone__inner">⬇ Drop ROMs to import</div>
         </div>
       )}
 
       <div className="rgp-library__content">
-        <HeroTeaser game={focused} />
+        {isGlobal ? (
+          focusedCatalog && (
+            <motion.div
+              key={focusedCatalog.catalogId}
+              initial={riseIn.initial}
+              animate={riseIn.animate}
+              transition={riseIn.transition}
+            >
+              <AuraCard class="rgp-hero">
+                <div className="rgp-hero__cover">
+                  <span className="rgp-hero__cover-ph">{focusedCatalog.system}</span>
+                </div>
+                <div className="rgp-hero__meta">
+                  <h2 className="rgp-hero__title">{focusedCatalog.title}</h2>
+                  <p className="rgp-hero__system">{focusedCatalog.system}</p>
+                  {focusedCatalog.owned && focusedCatalog.gameId != null ? (
+                    <AuraButton
+                      class="rgp-hero__play"
+                      onClick={() => navigate(`/game/${focusedCatalog.gameId}`)}
+                    >
+                      ▶ Play
+                    </AuraButton>
+                  ) : (
+                    <AuraButton
+                      class="rgp-hero__play"
+                      onClick={() => openCatalogEntry(focusedCatalog)}
+                    >
+                      Find downloads
+                    </AuraButton>
+                  )}
+                </div>
+              </AuraCard>
+            </motion.div>
+          )
+        ) : (
+          <HeroTeaser game={focused} />
+        )}
 
-        <div className="rgp-library__toolbar">
-          <AuraButton variant="primary" onClick={onPickImport} disabled={importing}>
-            {importing ? "Importing…" : "＋ Import games"}
-          </AuraButton>
-          <span className="rgp-muted rgp-library__hint">
-            …or drag ROM files anywhere onto the window.
-          </span>
-          {importNote && <span className="rgp-library__note">{importNote}</span>}
-        </div>
-
-        <LibraryFilters
-          facets={facets}
-          criteria={criteria}
-          onChange={setCriteria}
-          collections={collections}
-        />
-
-        {loading && <LoadingState>Loading library…</LoadingState>}
-        {error && <ErrorNotice>Could not load games: {error}</ErrorNotice>}
-        {!loading && !error && games.length === 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
-            <p className="rgp-muted" style={{ margin: 0 }}>
-              No games yet — import a ROM (drag it in or pick a file), create a
-              games folder, or add an existing content folder in Settings.
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
+        <div className="rgp-library__toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div className="rgp-catalog-mode" role="group" aria-label="Catalog mode">
+            <button
+              type="button"
+              className="rgp-catalog-mode__btn"
+              aria-pressed={!isGlobal}
+              onClick={() => setCatalogMode("personal")}
+            >
+              Personal catalog
+            </button>
+            <button
+              type="button"
+              className="rgp-catalog-mode__btn"
+              aria-pressed={isGlobal}
+              onClick={() => setCatalogMode("global")}
+            >
+              Global catalog
+            </button>
+          </div>
+          {!isGlobal && (
+            <>
               <AuraButton variant="primary" onClick={onPickImport} disabled={importing}>
                 {importing ? "Importing…" : "＋ Import games"}
               </AuraButton>
-              <AuraButton variant="ghost" onClick={() => setShowCreate(true)}>
-                Create a games folder for me
-              </AuraButton>
-            </div>
+              <span className="rgp-muted rgp-library__hint">
+                …or drag ROM files anywhere onto the window.
+              </span>
+              {importNote && <span className="rgp-library__note">{importNote}</span>}
+            </>
+          )}
+          {isGlobal && (
+            <span className="rgp-muted rgp-library__hint">
+              Browse every known title for a console. Open a game you own to Play, or Find
+              downloads for titles you do not have yet.
+            </span>
+          )}
+        </div>
+
+        {isGlobal ? (
+          <div className="rgp-filters" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <label className="rgp-facet">
+              <span className="rgp-facet__label">Console</span>
+              <select
+                className="rgp-facet__select"
+                value={globalSystem}
+                onChange={(e) => setGlobalSystemPersist(e.target.value)}
+                aria-label="Global catalog console"
+              >
+                {consoles.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.abbreviation || c.name} ({c.catalogCount.toLocaleString()} titles)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="rgp-facet" style={{ flex: 1, minWidth: 160 }}>
+              <span className="rgp-facet__label">Search</span>
+              <input
+                className="rgp-input"
+                type="search"
+                value={globalQuery}
+                onChange={(e) => setGlobalQuery(e.target.value)}
+                placeholder="Filter titles…"
+                aria-label="Filter global catalog titles"
+                style={{ width: "100%" }}
+              />
+            </label>
           </div>
-        )}
-        {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId != null && (
-          <EmptyState>This collection is empty.</EmptyState>
-        )}
-        {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId == null && (
-          <EmptyState>No games match your filters.</EmptyState>
+        ) : (
+          <LibraryFilters
+            facets={facets}
+            criteria={criteria}
+            onChange={setCriteria}
+            collections={collections}
+          />
         )}
 
-        <motion.div
-          className="rgp-grid"
-          role="list"
-          aria-label="Games"
-          variants={listContainer}
-          initial="hidden"
-          animate="visible"
-        >
-          {visible.map((game) => (
-            <GameTile
-              key={game.id}
-              game={game}
-              onFocusGame={setFocused}
-              onOpen={(g) => navigate(`/game/${g.id}`)}
-            />
-          ))}
-        </motion.div>
+        {isGlobal ? (
+          <>
+            {globalLoading && <LoadingState>Loading catalog…</LoadingState>}
+            {globalError && <ErrorNotice>Could not load catalog: {globalError}</ErrorNotice>}
+            {!globalLoading && !globalError && globalItems.length === 0 && (
+              <EmptyState>
+                {globalQuery.trim()
+                  ? "No titles match your search."
+                  : "No catalog titles for this console."}
+              </EmptyState>
+            )}
+            <motion.div
+              className="rgp-grid"
+              role="list"
+              aria-label="Global catalog games"
+              variants={listContainer}
+              initial="hidden"
+              animate="visible"
+            >
+              {globalItems.map((entry) => (
+                <CatalogGameTile
+                  key={entry.catalogId}
+                  entry={entry}
+                  onFocusEntry={setFocusedCatalog}
+                  onOpen={openCatalogEntry}
+                />
+              ))}
+            </motion.div>
+            {(globalHasPrev || globalHasNext) && (
+              <div className="rgp-library__pager">
+                <AuraButton
+                  variant="ghost"
+                  disabled={!globalHasPrev}
+                  onClick={() => setGlobalOffset((o) => Math.max(0, o - GLOBAL_PAGE_SIZE))}
+                >
+                  ◀ Prev
+                </AuraButton>
+                <span className="rgp-muted">
+                  {globalTotal === 0
+                    ? "0 titles"
+                    : `${globalOffset + 1}–${Math.min(globalOffset + GLOBAL_PAGE_SIZE, globalTotal)} of ${globalTotal.toLocaleString()}`}
+                </span>
+                <AuraButton
+                  variant="ghost"
+                  disabled={!globalHasNext}
+                  onClick={() => setGlobalOffset((o) => o + GLOBAL_PAGE_SIZE)}
+                >
+                  Next ▶
+                </AuraButton>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {loading && <LoadingState>Loading library…</LoadingState>}
+            {error && <ErrorNotice>Could not load games: {error}</ErrorNotice>}
+            {!loading && !error && games.length === 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+                <p className="rgp-muted" style={{ margin: 0 }}>
+                  No games yet — import a ROM (drag it in or pick a file), create a
+                  games folder, switch to Global catalog to discover titles, or add a
+                  content folder in Settings.
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <AuraButton variant="primary" onClick={onPickImport} disabled={importing}>
+                    {importing ? "Importing…" : "＋ Import games"}
+                  </AuraButton>
+                  <AuraButton variant="ghost" onClick={() => setCatalogMode("global")}>
+                    Browse Global catalog
+                  </AuraButton>
+                  <AuraButton variant="ghost" onClick={() => setShowCreate(true)}>
+                    Create a games folder for me
+                  </AuraButton>
+                </div>
+              </div>
+            )}
+            {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId != null && (
+              <EmptyState>This collection is empty.</EmptyState>
+            )}
+            {!loading && !error && games.length > 0 && visible.length === 0 && criteria.collectionId == null && (
+              <EmptyState>No games match your filters.</EmptyState>
+            )}
+
+            <motion.div
+              className="rgp-grid"
+              role="list"
+              aria-label="Games"
+              variants={listContainer}
+              initial="hidden"
+              animate="visible"
+            >
+              {visible.map((game) => (
+                <GameTile
+                  key={game.id}
+                  game={game}
+                  onFocusGame={setFocused}
+                  onOpen={(g) => navigate(`/game/${g.id}`)}
+                />
+              ))}
+            </motion.div>
+          </>
+        )}
       </div>
 
       <CreateGamesFolderDialog

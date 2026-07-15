@@ -118,6 +118,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/018_seed_web_search_meta_providers.sql"),
         requires_fk_off: false,
     },
+    Migration {
+        version: 19,
+        sql: include_str!("migrations/019_trust_tier_priorities.sql"),
+        requires_fk_off: false,
+    },
 ];
 
 /// Read the database's current schema version (`PRAGMA user_version`, default 0).
@@ -356,15 +361,26 @@ mod tests {
             )
             .expect("DuckDuckGo seed");
         assert!(tmpl.contains("duckduckgo.com") && tmpl.contains("{query}"));
-        assert_eq!(prio, 5, "meta-search should surface above ROM archives (10)");
+        assert_eq!(prio, 5, "meta-search should surface above all other sources");
         assert_eq!(dd, 0, "SERP links are pages — DD off; auto-import resolves files");
         assert_eq!(compose, 1, "console/region should append into the web query");
     }
 
     #[test]
-    fn rom_research_providers_have_priority_and_direct_download_on() {
+    fn trust_tier_priorities_prefer_preservation_over_research_rom() {
+        // Migration 019: T1 (Archive) above T3 (research ROM farms); DD on for IA.
         let mut conn = Connection::open_in_memory().expect("open");
         run(&mut conn).expect("migrate");
+        let (ia_dd, ia_prio): (i64, i64) = conn
+            .query_row(
+                "SELECT direct_download, priority FROM search_providers WHERE name = 'Internet Archive'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("Internet Archive seed");
+        assert_eq!(ia_dd, 1, "Archive should allow direct download + auto-import hop");
+        assert_eq!(ia_prio, 8, "preservation should outrank research ROM sites");
+
         for name in [
             "RomsGames",
             "Romspedia",
@@ -386,9 +402,12 @@ mod tests {
                 )
                 .unwrap_or_else(|_| panic!("ROM research provider {name} should be seeded"));
             assert_eq!(dd, 1, "{name} should have direct_download on");
-            assert_eq!(priority, 10, "{name} should pin at priority 10");
+            assert_eq!(priority, 25, "{name} research band is 25 after trust reband");
+            assert!(
+                priority > ia_prio,
+                "{name} must rank below Internet Archive"
+            );
         }
-        // Reference providers stay lower priority than ROM archives.
         let wiki_priority: i64 = conn
             .query_row(
                 "SELECT priority FROM search_providers WHERE name = 'Wikipedia'",
@@ -397,8 +416,8 @@ mod tests {
             )
             .unwrap();
         assert!(
-            wiki_priority > 10,
-            "Wikipedia must rank below ROM archives (got priority {wiki_priority})"
+            wiki_priority > 25,
+            "Wikipedia must rank below research ROM archives (got {wiki_priority})"
         );
     }
 

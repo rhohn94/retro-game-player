@@ -4,8 +4,19 @@
 > [library-import-design](library-import-design.md)
 
 > **Status:** implemented in v0.24 (W244) — `core/search/download.rs`,
-> `commands/downloads.rs`, in-row `DownloadAction`. This doc is the design of
+> `commands/downloads.rs`, in-row `DownloadAction`. Extended by auto-import
+> multi-hop (see [auto-import-download-design](auto-import-download-design.md))
+> and trust-tier provider priorities (migration 019). This doc is the design of
 > record; §3's staging/limits table matches the shipped constants.
+
+### Contract (canonical)
+
+> **Harmony downloads a file only when the user explicitly clicks Download on
+> that file, and only from a provider with `direct_download` enabled.** Search
+> preview only scrapes results pages. Legality of sources remains the user's
+> responsibility.
+
+Older docs that say “never downloads content” are superseded by this contract.
 
 ## 1. Goal
 

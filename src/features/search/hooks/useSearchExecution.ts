@@ -72,10 +72,12 @@ export function useSearchExecution(
   initialQuery: string,
   providers: SearchProvider[],
   consoles: ConsoleInfo[],
-  resetBrowseState: () => void
+  resetBrowseState: () => void,
+  /** Optional console system key from navigation (Find downloads / Global Catalog). */
+  initialConsoleKey: string = ""
 ): UseSearchExecutionResult {
   const [query, setQuery] = useState(initialQuery);
-  const [consoleKey, setConsoleKey] = useState("");
+  const [consoleKey, setConsoleKey] = useState(initialConsoleKey);
   const [region, setRegion] = useState("");
   const [appendRom, setAppendRomState] = useState(() => loadAppendRomPref());
   const [appendZip, setAppendZipState] = useState(() => loadAppendZipPref());

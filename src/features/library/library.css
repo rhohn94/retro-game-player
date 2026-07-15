@@ -31,6 +31,43 @@
   .rgp-muted {
     color: var(--aura-on-surface-muted);
   }
+
+  /* Personal | Global catalog mode toggle (Global Catalog E1). */
+  .rgp-catalog-mode {
+    display: inline-flex;
+    gap: 0;
+    border: 1px solid var(--aura-outline-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: var(--rgp-radius-card, 8px);
+    overflow: hidden;
+  }
+  .rgp-catalog-mode__btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--aura-on-surface-muted);
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .rgp-catalog-mode__btn[aria-pressed="true"] {
+    background: var(--aura-primary);
+    color: var(--aura-on-primary, #fff);
+  }
+  .rgp-catalog-mode__btn:focus-visible {
+    outline: 2px solid var(--aura-primary);
+    outline-offset: 1px;
+  }
+  .rgp-tile__source-badge--available {
+    opacity: 0.85;
+  }
+  .rgp-library__pager {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: var(--aura-space-4);
+    flex-wrap: wrap;
+  }
   .rgp-notice {
     display: block;
     padding: var(--aura-space-3) var(--aura-space-4);

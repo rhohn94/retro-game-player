@@ -67,8 +67,11 @@ export function rankingNameForQuery(query: string): string {
 const GOOD_FILE_HOSTS = [
   "archive.org",
   "myrient.erista.me",
+  "pdroms.de",
   "cdn.discordapp.com",
+  "ia601",
   "ia801",
+  "ia802",
   "ia902",
   "ia903",
   "ia804",

@@ -27,14 +27,20 @@ metadata so results are not buried.
 
 ## Design
 
-### Priority bands
+### Priority bands (after migration 019 trust reband)
 
 | Band | Value | Who |
 |------|-------|-----|
-| Research ROM archives | 10 | 005 + 017 ROM seeds |
-| Other download | 30 | IA, itch, Steam, PDRoms, … |
+| Meta discovery | 5 | DuckDuckGo |
+| Preservation (T1) | 8 | Internet Archive (DD on) |
+| Trusted collections (T1) | 10 | PDRoms, demoscene, homebrew-ish |
+| Research ROM archives (T3) | 25 | 005 + 017 ROM seeds (still DD on) |
+| Other download / stores | 30 | itch, Steam, GOG, … |
 | Reference | 80 | Wikipedia, MobyGames, … |
 | Default / user-added | 100 | unless catalog suggests otherwise |
+
+**Product intent:** surface **reliable collections** above ad-heavy research ROM
+sites. Research seeds remain for testability but are no longer top of the list.
 
 ### Direct download
 

@@ -325,7 +325,12 @@ export function GameDetailPage() {
                   <AuraButton
                     class="rgp-detail__secondary"
                     onClick={() =>
-                      navigate("/search", { state: { query: game.cleanName } })
+                      navigate("/search", {
+                        state: {
+                          query: game.cleanName,
+                          consoleKey: game.system ?? undefined,
+                        },
+                      })
                     }
                   >
                     Find downloads

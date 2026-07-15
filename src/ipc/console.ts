@@ -36,11 +36,17 @@ export interface ConsoleInfo {
   catalogCount: number;
 }
 
-/** One bundled catalog title with an ownership flag. */
+/** One bundled catalog title with an ownership flag (Global Catalog + console browser). */
 export interface CatalogTitle {
+  /** Stable id: `global:{system}:{title}`. */
+  catalogId: string;
   title: string;
+  /** Console system key. */
+  system: string;
   /** True when the user's library has a matching game. */
   owned: boolean;
+  /** Library game id when owned. */
+  gameId: number | null;
 }
 
 /** A page of a console's title catalog. */

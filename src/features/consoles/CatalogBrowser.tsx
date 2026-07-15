@@ -108,7 +108,11 @@ export function CatalogBrowser({ system }: { system: string }) {
               <button
                 type="button"
                 className="rgp-catalog__row"
-                onClick={() => navigate("/search", { state: { query: t.title } })}
+                onClick={() =>
+                  navigate("/search", {
+                    state: { query: t.title, consoleKey: system },
+                  })
+                }
                 title={`Find downloads for ${t.title}`}
               >
                 <span className="rgp-catalog__name">{t.title}</span>

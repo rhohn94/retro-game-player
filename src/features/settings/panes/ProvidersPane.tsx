@@ -100,7 +100,10 @@ export function ProvidersPane() {
     }
   }
 
-  const romCount = providers.filter((p) => p.priority <= 10 && p.enabled).length;
+  // T1 preservation ≤10; research ROM archives demoted to 25 (migration 019).
+  const romCount = providers.filter(
+    (p) => p.enabled && p.kind === "download" && p.priority > 5 && p.priority <= 25,
+  ).length;
   const ddCount = providers.filter((p) => p.directDownload && p.enabled).length;
 
   return (
@@ -201,7 +204,13 @@ export function ProvidersPane() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 500, fontSize: 13 }}>{p.name}</span>
                 <span style={badgeStyle}>
-                  {p.priority <= 10 ? "ROM" : p.kind === "download" ? "download" : "reference"}
+                  {p.priority <= 12 && p.kind === "download"
+                    ? "trusted"
+                    : p.priority <= 25 && p.kind === "download"
+                      ? "ROM"
+                      : p.kind === "download"
+                        ? "download"
+                        : "reference"}
                 </span>
                 {p.directDownload && (
                   <span

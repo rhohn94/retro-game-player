@@ -46,13 +46,13 @@ export type GroupBy = "provider" | "game";
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export function SearchPage() {
-  // A "Find downloads for this title" jump (e.g. from the game detail page)
-  // arrives with the title pre-filled in navigation state; we run it once the
+  // A "Find downloads for this title" jump (game detail / Global Catalog)
+  // arrives with title (+ optional console) in navigation state; we run once
   // providers have loaded.
   const location = useLocation();
-  const initialQuery = (
-    (location.state as { query?: string } | null)?.query ?? ""
-  ).trim();
+  const navState = location.state as { query?: string; consoleKey?: string } | null;
+  const initialQuery = (navState?.query ?? "").trim();
+  const initialConsoleKey = (navState?.consoleKey ?? "").trim();
 
   const providersApi = useSearchProviders();
   const selection = useResultSelection();
@@ -61,7 +61,8 @@ export function SearchPage() {
     initialQuery,
     providersApi.providers,
     consoles,
-    selection.reset
+    selection.reset,
+    initialConsoleKey
   );
   const linkProbe = useLinkProbe(execution.results);
 
