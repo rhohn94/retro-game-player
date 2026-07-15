@@ -89,6 +89,14 @@ struct ProgressEvent {
     total: Option<u64>,
 }
 
+/// Coarse download stage for the in-row UI (`resolve` | `download` | `import`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PhaseEvent {
+    id: u64,
+    phase: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DoneEvent {
@@ -100,6 +108,9 @@ struct DoneEvent {
     /// Library path of the imported file (for Reveal-in-Finder verification).
     #[serde(skip_serializing_if = "Option::is_none")]
     file_path: Option<String>,
+    /// ROMs imported from this job (usually 1 with best-only zip landing).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imported_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     staged_path: Option<String>,
     /// Why import failed for an unrecognized/staged file (shown in the UI).
@@ -184,6 +195,7 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
         game_id: None,
         already_present: None,
         file_path: None,
+        imported_count: None,
         staged_path: None,
         reason: None,
         error: Some(error),
@@ -191,11 +203,21 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
     let app = job.app.clone();
     let id = job.id;
     let cancel = Arc::clone(&job.cancel);
+    let app_phase = job.app.clone();
     let hooks = DownloadHooks {
         on_progress: &move |received, total| {
             let _ = app.emit("download://progress", ProgressEvent { id, received, total });
         },
         should_continue: &move || !cancel.load(Ordering::Relaxed),
+        on_phase: Some(&move |phase: &str| {
+            let _ = app_phase.emit(
+                "download://phase",
+                PhaseEvent {
+                    id,
+                    phase: phase.to_string(),
+                },
+            );
+        }),
     };
     let db = match Db::open(&job.db_path) {
         Ok(db) => db,
@@ -214,11 +236,13 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
             game_id,
             already_present,
             file_path,
+            imported_count,
         }) => DoneEvent {
             id: job.id,
             game_id: Some(game_id),
             already_present: Some(already_present),
             file_path: Some(file_path),
+            imported_count: Some(imported_count),
             staged_path: None,
             reason: None,
             error: None,
@@ -231,6 +255,7 @@ fn run_download(job: &DownloadJob) -> DoneEvent {
             game_id: None,
             already_present: None,
             file_path: None,
+            imported_count: None,
             staged_path: Some(staged_path.to_string_lossy().into_owned()),
             reason: Some(reason),
             error: None,

@@ -23,7 +23,7 @@
 //! chunk. Landing reuses the v0.12 import pipeline (`core/library/import.rs`)
 //! including its hash dedupe.
 
-use crate::core::library::{import_file, mapper::map_extension, ImportOutcome};
+use crate::core::library::{import_file, mapper::map_extension};
 use crate::core::search::fetch::unwrap_redirect_wrapper;
 use crate::core::search::profiles::profile_for_host;
 use crate::db::Db;
@@ -70,12 +70,14 @@ const USER_AGENT: &str = concat!(
 /// How a finished download landed (mirrored into the `download://done` event).
 #[derive(Debug)]
 pub enum DownloadLanding {
-    /// Imported into the library (one game; zips report the first).
-    /// `file_path` is the on-disk library copy for Reveal-in-Finder verification.
+    /// Imported into the library. Multi-ROM zips default to **best match only**
+    /// (`imported_count` is usually 1); `file_path` is the primary library copy.
     Imported {
         game_id: i64,
         already_present: bool,
         file_path: String,
+        /// How many ROM entries were imported (1 for bare ROM / best-only zip).
+        imported_count: u32,
     },
     /// Not a recognized ROM/zip — kept in staging for the user to resolve
     /// (Reveal / Discard); never silently deleted, never copied to games.
@@ -129,9 +131,54 @@ pub enum MagicKind {
 
 /// Progress callback: `(received_bytes, total_bytes_if_known)`. Returning
 /// `false` from `should_continue` aborts (user cancel).
+///
+/// `on_phase` (optional) reports coarse stages for the UI: `resolve` (HTML hop),
+/// `download` (streaming bytes), `import` (land into library).
 pub struct DownloadHooks<'a> {
     pub on_progress: &'a dyn Fn(u64, Option<u64>),
     pub should_continue: &'a dyn Fn() -> bool,
+    pub on_phase: Option<&'a dyn Fn(&str)>,
+}
+
+fn report_phase(hooks: &DownloadHooks<'_>, phase: &str) {
+    if let Some(cb) = hooks.on_phase {
+        cb(phase);
+    }
+}
+
+/// Hosts allowed after hop 0 when the next URL is not same-host (CDN allowlist).
+fn hop_host_allowed(origin_host: &str, next_host: &str) -> bool {
+    let o = origin_host.to_ascii_lowercase();
+    let n = next_host.to_ascii_lowercase();
+    if o == n || n.ends_with(&format!(".{o}")) || o.ends_with(&format!(".{n}")) {
+        return true;
+    }
+    // Known file CDNs / archive edge hosts.
+    const ALLOW_SUBSTR: &[&str] = &[
+        "archive.org",
+        "myrient.",
+        "pdroms.",
+        "digitaloceanspaces.com",
+        "cloudfront.net",
+        "fastly.",
+        "akamai",
+        "github.com",
+        "githubusercontent.com",
+        "cdn.",
+        "ia601.",
+        "ia801.",
+        "ia802.",
+        "ia902.",
+        "ia903.",
+        "ia804.",
+    ];
+    ALLOW_SUBSTR.iter().any(|s| n.contains(s))
+}
+
+fn url_host(url: &str) -> Option<String> {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
 }
 
 /// A cancellation flag shared with the UI-facing registry.
@@ -368,6 +415,50 @@ pub fn looks_like_html(path: &Path) -> bool {
     read_magic_prefix(path)
         .map(|b| classify_magic(&b) == MagicKind::Html)
         .unwrap_or(false)
+}
+
+/// True when the file starts with the 7z signature.
+pub fn looks_like_7z(path: &Path) -> bool {
+    let mut buf = [0u8; 6];
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    use std::io::Read;
+    if f.read_exact(&mut buf).is_err() {
+        return false;
+    }
+    &buf == b"7z\xbc\xaf\x27\x1c"
+}
+
+/// Import only the best-matching ROM from a zip (query/title hint + dump tags).
+/// Extra extracted ROMs are discarded without importing (Phase B best-only).
+fn land_zip_best_only(
+    db: &Db,
+    games_dir: &Path,
+    staging_dir: &Path,
+    zip_path: &Path,
+    hint: Option<&str>,
+) -> AppResult<DownloadLanding> {
+    let roms = extract_rom_entries(zip_path, staging_dir, hint)?;
+    if roms.is_empty() {
+        return Ok(DownloadLanding::Unrecognized {
+            staged_path: zip_path.to_path_buf(),
+            reason: "The zip archive did not contain any recognized ROM files."
+                .to_string(),
+        });
+    }
+    let best = &roms[0];
+    let outcome = import_file(db, games_dir, best, None)?;
+    for rom in &roms {
+        let _ = std::fs::remove_file(rom);
+    }
+    let _ = std::fs::remove_file(zip_path);
+    Ok(DownloadLanding::Imported {
+        game_id: outcome.game_id,
+        already_present: outcome.already_present,
+        file_path: outcome.stored_path,
+        imported_count: 1,
+    })
 }
 
 /// True when bytes look like a zip archive (PK\x03\x04 or empty PK\x05\x06).
@@ -1032,12 +1123,20 @@ pub fn download_and_auto_import(
     let mut visited: HashSet<String> = HashSet::new();
     let mut pending_disp: Option<String> = None;
 
+    let origin_host = url_host(url);
+
     for hop_index in 0..MAX_DOWNLOAD_HOPS {
         if !visited.insert(current_url.clone()) {
             return Ok(DownloadLanding::Unrecognized {
                 staged_path: staging_dir.join("download.html"),
                 reason: HTML_HOP_LOOP_REASON.to_string(),
             });
+        }
+
+        if hop_index == 0 {
+            report_phase(hooks, "download");
+        } else {
+            report_phase(hooks, "resolve");
         }
 
         let part = part_path(staging_dir, id);
@@ -1050,12 +1149,39 @@ pub fn download_and_auto_import(
         if !should_treat_as_html(&part, meta.content_type.as_deref()) {
             let filename =
                 resolve_download_filename(&current_url, disp.as_deref(), &part);
+            report_phase(hooks, "import");
             return land_download(db, games_dir, staging_dir, &part, &filename, hint);
         }
 
         // HTML page — look for the next hop (file or another interstitial).
+        report_phase(hooks, "resolve");
         let html = std::fs::read_to_string(&part).unwrap_or_default();
-        let candidates = extract_file_download_candidates(&html, &current_url, hint);
+        let mut candidates = extract_file_download_candidates(&html, &current_url, hint);
+        // After the first page, only follow same-host or known CDN targets.
+        if hop_index > 0 {
+            if let Some(ref oh) = origin_host {
+                candidates.retain(|c| {
+                    url_host(&c.url)
+                        .map(|h| hop_host_allowed(oh, &h))
+                        .unwrap_or(false)
+                });
+            }
+        } else if let Some(ref oh) = origin_host {
+            // Prefer same-host / CDN even on hop 0 ranking by filtering out
+            // obvious off-host ads when any allowed candidate remains.
+            let allowed: Vec<_> = candidates
+                .iter()
+                .filter(|c| {
+                    url_host(&c.url)
+                        .map(|h| hop_host_allowed(oh, &h))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            if !allowed.is_empty() {
+                candidates = allowed;
+            }
+        }
         let next = select_best_candidate_url(&candidates).and_then(|(next_url, probe_disp, _)| {
             if next_url == current_url || visited.contains(&next_url) {
                 None
@@ -1335,28 +1461,16 @@ pub fn land_download(
         ));
     }
 
+    if ext == "7z" || looks_like_7z(&staged) {
+        return Err(AppError::Unsupported(
+            ".7z archives are not supported — extract the ROM yourself and import it \
+             (or prefer a .zip when available)"
+                .into(),
+        ));
+    }
+
     if ext == "zip" {
-        let roms = extract_rom_entries(&staged, staging_dir, hint)?;
-        if roms.is_empty() {
-            return Ok(DownloadLanding::Unrecognized {
-                staged_path: staged,
-                reason: "The zip archive did not contain any recognized ROM files."
-                    .to_string(),
-            });
-        }
-        let mut first: Option<ImportOutcome> = None;
-        for rom in &roms {
-            let outcome = import_file(db, games_dir, rom, None)?;
-            let _ = std::fs::remove_file(rom);
-            first.get_or_insert(outcome);
-        }
-        let _ = std::fs::remove_file(&staged);
-        let outcome = first.expect("non-empty roms imported");
-        return Ok(DownloadLanding::Imported {
-            game_id: outcome.game_id,
-            already_present: outcome.already_present,
-            file_path: outcome.stored_path,
-        });
+        return land_zip_best_only(db, games_dir, staging_dir, &staged, hint);
     }
 
     if map_extension(&ext).is_some() {
@@ -1366,6 +1480,7 @@ pub fn land_download(
             game_id: outcome.game_id,
             already_present: outcome.already_present,
             file_path: outcome.stored_path,
+            imported_count: 1,
         });
     }
 
@@ -1382,27 +1497,7 @@ pub fn land_download(
         if renamed != staged {
             std::fs::rename(&staged, &renamed)?;
         }
-        let roms = extract_rom_entries(&renamed, staging_dir, hint)?;
-        if roms.is_empty() {
-            return Ok(DownloadLanding::Unrecognized {
-                staged_path: renamed,
-                reason: "The zip archive did not contain any recognized ROM files."
-                    .to_string(),
-            });
-        }
-        let mut first: Option<ImportOutcome> = None;
-        for rom in &roms {
-            let outcome = import_file(db, games_dir, rom, None)?;
-            let _ = std::fs::remove_file(rom);
-            first.get_or_insert(outcome);
-        }
-        let _ = std::fs::remove_file(&renamed);
-        let outcome = first.expect("non-empty roms imported");
-        return Ok(DownloadLanding::Imported {
-            game_id: outcome.game_id,
-            already_present: outcome.already_present,
-            file_path: outcome.stored_path,
-        });
+        return land_zip_best_only(db, games_dir, staging_dir, &renamed, hint);
     }
 
     Ok(DownloadLanding::Unrecognized {
@@ -1527,6 +1622,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
         )
         .unwrap();
@@ -1559,6 +1655,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
         )
         .unwrap();
@@ -1580,6 +1677,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: &|| false,
+                on_phase: None,
             },
         )
         .unwrap_err();
@@ -1614,6 +1712,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
         )
         .unwrap_err();
@@ -1710,12 +1809,14 @@ mod tests {
             game_id,
             already_present,
             file_path,
+            imported_count,
         } = first
         else {
             panic!("expected Imported");
         };
         assert!(!already_present);
         assert!(!file_path.is_empty(), "imported path should be set for reveal");
+        assert_eq!(imported_count, 1);
 
         // Same content again — hash dedupe resolves to the same game row.
         let part2 = part_path(&staging, 11);
@@ -1725,6 +1826,7 @@ mod tests {
             game_id: id2,
             already_present: dup,
             file_path: _,
+            imported_count: _,
         } = second
         else {
             panic!("expected Imported");
@@ -1895,6 +1997,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
             &db,
             &games,
@@ -1909,6 +2012,7 @@ mod tests {
                 game_id,
                 already_present,
                 file_path,
+                imported_count: _,
             } => {
                 assert!(game_id > 0);
                 assert!(!already_present);
@@ -1980,6 +2084,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
             &db,
             &games,
@@ -2059,6 +2164,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
             &db,
             &games,
@@ -2112,6 +2218,7 @@ mod tests {
             &DownloadHooks {
                 on_progress: progress,
                 should_continue: cont,
+                on_phase: None,
             },
             &db,
             &games,

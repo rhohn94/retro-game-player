@@ -38,6 +38,8 @@ import { useSearchExecution } from "./hooks/useSearchExecution";
 import { useLinkProbe } from "./hooks/useLinkProbe";
 import { useResultSelection } from "./hooks/useResultSelection";
 import { swallow } from "../../ipc/swallow";
+import { startDownload } from "../../ipc/downloads";
+import { downloadableSelection, findBestDownloadMatch } from "./bestMatch";
 
 /** How results are grouped in the panel: by provider (default) or merged into
  *  one game-first row per title ("available from N providers"). */
@@ -207,6 +209,42 @@ export function SearchPage() {
               .openSelected()
               .catch((err: unknown) => swallow(err, "SearchPage.onOpenSelected"))
           }
+          downloadableSelectedCount={
+            results
+              ? downloadableSelection(results, selection.selected).length
+              : 0
+          }
+          onDownloadSelected={() => {
+            if (!results) return;
+            const jobs = downloadableSelection(results, selection.selected);
+            if (jobs.length === 0) return;
+            if (
+              !window.confirm(
+                `Start ${jobs.length} download${jobs.length === 1 ? "" : "s"}? (runs under concurrency limits)`,
+              )
+            ) {
+              return;
+            }
+            void (async () => {
+              for (const j of jobs) {
+                try {
+                  await startDownload(j.providerId, j.url, j.title);
+                } catch (err: unknown) {
+                  swallow(err, "SearchPage.batchDownload");
+                }
+              }
+              selection.clearSelection();
+            })();
+          }}
+          canGetBestMatch={!!(results && findBestDownloadMatch(results, execution.rankQuery))}
+          onGetBestMatch={() => {
+            if (!results) return;
+            const best = findBestDownloadMatch(results, execution.rankQuery);
+            if (!best) return;
+            void startDownload(best.providerId, best.item.url, best.item.title).catch(
+              (err: unknown) => swallow(err, "SearchPage.getBestMatch"),
+            );
+          }}
           groupViews={groupViews}
           mergedViews={mergedViews}
           mergedTotal={mergedTotal}

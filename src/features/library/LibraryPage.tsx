@@ -306,9 +306,7 @@ export function LibraryPage() {
         navigate(`/game/${entry.gameId}`);
         return;
       }
-      navigate("/search", {
-        state: { query: entry.title, consoleKey: entry.system },
-      });
+      navigate(`/catalog/${encodeURIComponent(entry.system)}/${encodeURIComponent(entry.title)}`);
     },
     [navigate],
   );

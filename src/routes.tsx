@@ -10,6 +10,7 @@ import type { ReactElement } from "react";
 import { ConsoleDetailPage, ConsolesPage } from "./features/consoles"; // v0.12
 import { CoresPage } from "./features/cores"; // W16
 import { GameDetailPage, LibraryPage } from "./features/library"; // W13
+import { CatalogTitleDetailPage } from "./features/library/CatalogTitleDetailPage";
 import { SearchPage } from "./features/search/SearchPage"; // W17
 import { SettingsPage } from "./features/settings/SettingsPage"; // W15
 
@@ -61,4 +62,8 @@ export const HARMONY_ROUTES: readonly HarmonyRoute[] = [
     path: "/game/:id",
     element: <GameDetailPage />,
   }, // W13 (no nav entry)
+  {
+    path: "/catalog/:system/:titleEnc",
+    element: <CatalogTitleDetailPage />,
+  }, // Global Catalog title detail
 ];

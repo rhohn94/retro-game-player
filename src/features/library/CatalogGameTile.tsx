@@ -8,18 +8,28 @@ import { useEffect } from "react";
 import type { CatalogTitle } from "../../ipc/console";
 import { listItem } from "../../lib/motion";
 import { useFocusable } from "../controller";
+import { useCatalogBoxart } from "./useCatalogBoxart";
 
 export interface CatalogGameTileProps {
   entry: CatalogTitle;
   onFocusEntry: (entry: CatalogTitle) => void;
   onOpen: (entry: CatalogTitle) => void;
+  /** When true, allow CDN fetch (detail/hero); grid keeps false. */
+  allowArtFetch?: boolean;
 }
 
-/** Focusable cover-style tile for a Global Catalog title (placeholder art for E1). */
-export function CatalogGameTile({ entry, onFocusEntry, onOpen }: CatalogGameTileProps) {
-  const focusId = entry.owned && entry.gameId != null
-    ? `game:${entry.gameId}`
-    : `catalog:${entry.catalogId}`;
+/** Focusable cover-style tile for a Global Catalog title. */
+export function CatalogGameTile({
+  entry,
+  onFocusEntry,
+  onOpen,
+  allowArtFetch = false,
+}: CatalogGameTileProps) {
+  const art = useCatalogBoxart(entry.system, entry.title, allowArtFetch);
+  const focusId =
+    entry.owned && entry.gameId != null
+      ? `game:${entry.gameId}`
+      : `catalog:${entry.catalogId}`;
   const { ref, isFocused, focus } = useFocusable<HTMLButtonElement>(focusId, () =>
     onOpen(entry),
   );
@@ -45,7 +55,11 @@ export function CatalogGameTile({ entry, onFocusEntry, onOpen }: CatalogGameTile
       aria-label={`${entry.title} (${entry.system})${entry.owned ? ", in library" : ""}`}
     >
       <AuraCard class="rgp-tile__card">
-        <span className="rgp-tile__placeholder">{entry.system}</span>
+        {art ? (
+          <img className="rgp-tile__art" src={art} alt="" loading="lazy" />
+        ) : (
+          <span className="rgp-tile__placeholder">{entry.system}</span>
+        )}
         <div className="rgp-tile__title-row">
           <span className="rgp-tile__title">{entry.title}</span>
           {entry.owned ? (

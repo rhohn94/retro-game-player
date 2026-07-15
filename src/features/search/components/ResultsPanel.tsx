@@ -48,6 +48,10 @@ export function ResultsPanel({
   onToggleMergedExpand,
   onClearSelection,
   onOpenSelected,
+  onDownloadSelected,
+  downloadableSelectedCount,
+  onGetBestMatch,
+  canGetBestMatch,
   groupViews,
   mergedViews,
   mergedTotal,
@@ -80,6 +84,10 @@ export function ResultsPanel({
   onToggleMergedExpand: (key: string) => void;
   onClearSelection: () => void;
   onOpenSelected: () => void;
+  onDownloadSelected?: () => void;
+  downloadableSelectedCount?: number;
+  onGetBestMatch?: () => void;
+  canGetBestMatch?: boolean;
   groupViews: GroupView[];
   mergedViews: MergedResult[];
   mergedTotal: number;
@@ -123,6 +131,8 @@ export function ResultsPanel({
               onExpandAll={onExpandAll}
               onCollapseAll={onCollapseAll}
               summary={summary}
+              canGetBestMatch={!!canGetBestMatch}
+              onGetBestMatch={onGetBestMatch}
             />
           )}
           {groupBy === "game"
@@ -160,8 +170,10 @@ export function ResultsPanel({
           {selected.size > 0 && (
             <SelectionFooter
               count={selected.size}
+              downloadableCount={downloadableSelectedCount}
               onClear={onClearSelection}
               onOpenSelected={onOpenSelected}
+              onDownloadSelected={onDownloadSelected}
             />
           )}
         </>

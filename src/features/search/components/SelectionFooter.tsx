@@ -1,18 +1,22 @@
-/** Selection footer: shows the selected-result count and batch-opens the
- *  chosen links in the browser (W362, extracted from SearchPage). Rendered
- *  only while at least one result row is selected. */
+/** Selection footer: selected count, open in browser, optional batch download. */
 import { AuraButton } from "@aura/react";
 import { FocusableAction } from "./FocusableControls";
 
 export function SelectionFooter({
   count,
+  downloadableCount,
   onClear,
   onOpenSelected,
+  onDownloadSelected,
 }: {
   count: number;
+  /** How many selected rows can direct-download (0 hides the button). */
+  downloadableCount?: number;
   onClear: () => void;
   onOpenSelected: () => void;
+  onDownloadSelected?: () => void;
 }) {
+  const canDl = (downloadableCount ?? 0) > 0 && onDownloadSelected;
   return (
     <div
       style={{
@@ -48,6 +52,24 @@ export function SelectionFooter({
           </button>
         )}
       />
+      {canDl && (
+        <FocusableAction
+          focusId="search:download-selected"
+          onActivate={onDownloadSelected}
+          render={({ ref, onClick }) => (
+            <AuraButton
+              ref={ref}
+              variant="secondary"
+              onClick={() => {
+                onClick();
+                onDownloadSelected();
+              }}
+            >
+              Download {downloadableCount}
+            </AuraButton>
+          )}
+        />
+      )}
       <FocusableAction
         focusId="search:open-selected"
         onActivate={onOpenSelected}

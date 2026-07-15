@@ -1,6 +1,6 @@
 // Direct-download IPC (v0.24 W244, #30): start/cancel a user-initiated
 // download from a direct_download-enabled provider, discard staged
-// unrecognized files, and subscribe to the backend's progress/done events.
+// unrecognized files, and subscribe to the backend's progress/phase/done events.
 
 import { invoke } from "./invoke";
 
@@ -11,6 +11,12 @@ export interface DownloadProgress {
   total?: number;
 }
 
+/** `download://phase` payload — resolve | download | import. */
+export interface DownloadPhase {
+  id: number;
+  phase: string;
+}
+
 /** `download://done` payload — exactly one of gameId/stagedPath/error. */
 export interface DownloadDone {
   id: number;
@@ -18,6 +24,8 @@ export interface DownloadDone {
   alreadyPresent?: boolean;
   /** Library path of the imported file (Reveal-in-Finder). */
   filePath?: string;
+  /** ROMs imported (usually 1 with best-only zip landing). */
+  importedCount?: number;
   stagedPath?: string;
   /** Why a staged file was not imported (HTML page, empty zip, …). */
   reason?: string;
@@ -55,6 +63,7 @@ export function discardStagedDownload(path: string): Promise<void> {
  */
 export async function onDownloadEvents(handlers: {
   progress?: (e: DownloadProgress) => void;
+  phase?: (e: DownloadPhase) => void;
   done?: (e: DownloadDone) => void;
 }): Promise<() => void> {
   try {
@@ -62,6 +71,9 @@ export async function onDownloadEvents(handlers: {
     const unsubs = await Promise.all([
       handlers.progress
         ? listen<DownloadProgress>("download://progress", (e) => handlers.progress?.(e.payload))
+        : Promise.resolve(() => undefined),
+      handlers.phase
+        ? listen<DownloadPhase>("download://phase", (e) => handlers.phase?.(e.payload))
         : Promise.resolve(() => undefined),
       handlers.done
         ? listen<DownloadDone>("download://done", (e) => handlers.done?.(e.payload))

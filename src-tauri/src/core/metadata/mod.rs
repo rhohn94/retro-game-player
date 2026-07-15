@@ -12,6 +12,7 @@
 pub mod art_cache;
 pub mod art_fallback_chain;
 pub mod bundle_icon;
+pub mod catalog_art;
 pub mod cdn_client;
 pub mod fallback;
 pub mod name_sanitizer;

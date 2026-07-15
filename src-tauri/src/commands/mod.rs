@@ -72,6 +72,9 @@ macro_rules! register_commands {
             // metadata (W8; v0.12 enrich_game_metadata)
             $crate::commands::metadata::fetch_boxart,
             $crate::commands::metadata::get_cached_art,
+            $crate::commands::metadata::get_cached_art_for_title,
+            $crate::commands::metadata::fetch_boxart_for_title,
+            $crate::commands::metadata::fetch_catalog_title_meta,
             $crate::commands::metadata::enrich_game_metadata,
             // metadata — per-tier hi-res pipeline (W263)
             $crate::commands::metadata::fetch_game_art,

@@ -59,6 +59,8 @@ export function ResultsToolbar({
   onExpandAll,
   onCollapseAll,
   summary,
+  canGetBestMatch,
+  onGetBestMatch,
 }: {
   filter: string;
   onFilterChange: (value: string) => void;
@@ -78,6 +80,8 @@ export function ResultsToolbar({
   totalGroups: number;
   onExpandAll: () => void;
   onCollapseAll: () => void;
+  canGetBestMatch?: boolean;
+  onGetBestMatch?: () => void;
   /** The precomputed "N of M …" / "N links across M providers" summary line. */
   summary: string;
 }) {
@@ -253,12 +257,33 @@ export function ResultsToolbar({
       )}
       <span
         style={{
-          width: "100%",
+          flex: "1 1 100%",
           fontSize: 12,
           color: "var(--aura-on-surface-muted)",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 10,
         }}
       >
-        {summary}
+        <span>{summary}</span>
+        {canGetBestMatch && onGetBestMatch && (
+          <FocusableAction
+            focusId="search:get-best"
+            onActivate={onGetBestMatch}
+            render={({ ref, onClick }) => (
+              <ToolbarLinkButton
+                toolbarRef={ref as React.Ref<HTMLButtonElement>}
+                onClick={() => {
+                  onClick();
+                  onGetBestMatch();
+                }}
+              >
+                ⬇ Get best match
+              </ToolbarLinkButton>
+            )}
+          />
+        )}
       </span>
     </div>
   );

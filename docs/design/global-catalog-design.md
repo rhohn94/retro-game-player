@@ -20,10 +20,10 @@ promotes that index to the main Library surface.
 
 ## Follow-ups
 
-- E2: box art by `(system, title)` via libretro CDN (no `games.id`).
-- E3: dedicated unowned detail shell (metadata + Get).
-- E4: lazy Wikipedia description on detail.
-- E5: optional cross-system search with strict perf bounds.
+- E2: box art by `(system, title)` via libretro CDN — **shipped** (`catalog_art`, `useCatalogBoxart`).
+- E3: unowned detail shell — **shipped** (`/catalog/:system/:titleEnc`).
+- E4: Wikipedia on detail — **shipped** (`fetch_catalog_title_meta`).
+- E5: optional cross-system search with strict perf bounds (still open).
 
 ## Non-goals
 

@@ -28,6 +28,45 @@ pub struct CachedArtTierDto {
     pub path: String,
 }
 
+/// Cached boxart path for a Global Catalog title (no games row), if present.
+#[tauri::command]
+pub async fn get_cached_art_for_title(system: String, title: String) -> AppResult<Option<String>> {
+    let paths = Paths::app_support()?;
+    Ok(crate::core::metadata::catalog_art::cached_title_boxart(
+        &paths, &system, &title,
+    ))
+}
+
+/// Fetch boxart for a Global Catalog title into the catalog art cache.
+/// Returns path or empty string on CDN miss.
+#[tauri::command]
+pub async fn fetch_boxart_for_title(system: String, title: String) -> AppResult<String> {
+    let paths = Paths::app_support()?;
+    crate::core::metadata::catalog_art::fetch_title_boxart(&paths, &system, &title).await
+}
+
+/// Fetch Wikipedia summary for a catalog title (Global detail). Best-effort.
+#[tauri::command]
+pub async fn fetch_catalog_title_meta(title: String) -> AppResult<CatalogTitleMetaDto> {
+    match wikipedia::fetch_summary(&title, "video game").await {
+        Ok(Some(s)) => Ok(CatalogTitleMetaDto {
+            description: Some(s.extract),
+            wikipedia_url: s.page_url,
+        }),
+        _ => Ok(CatalogTitleMetaDto {
+            description: None,
+            wikipedia_url: None,
+        }),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogTitleMetaDto {
+    pub description: Option<String>,
+    pub wikipedia_url: Option<String>,
+}
+
 /// Fetch boxart for a game from the libretro-thumbnails CDN, persisting the
 /// result under `art-cache/`. Returns the on-disk path of the cached art.
 ///

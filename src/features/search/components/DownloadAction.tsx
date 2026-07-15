@@ -1,6 +1,6 @@
 /** The per-row ⬇ Download action for a direct_download-enabled provider
- * (v0.24 W244, #30): idle button → inline determinate progress + Cancel →
- * "✓ In library — Play" + Reveal file (v0.45), with failures and
+ * (v0.24 W244, #30): idle button → phase + progress + Cancel →
+ * "✓ In library — Play" + Reveal file, with failures and
  * the unrecognized-file resolution (Reveal / Discard) rendered in-row —
  * never a modal. */
 import { useEffect, useRef, useState } from "react";
@@ -15,12 +15,30 @@ import { revealItemInDir } from "../../../ipc/opener";
 
 type DownloadState =
   | { kind: "idle" }
-  | { kind: "downloading"; id: number; pct: number | null }
-  | { kind: "done"; gameId: number; alreadyPresent: boolean; filePath?: string }
+  | { kind: "downloading"; id: number; pct: number | null; phase: string }
+  | {
+      kind: "done";
+      gameId: number;
+      alreadyPresent: boolean;
+      filePath?: string;
+      importedCount?: number;
+    }
   | { kind: "unrecognized"; stagedPath: string; reason?: string }
   | { kind: "error"; message: string };
 
 const label = { fontSize: 11, flexShrink: 0 } as const;
+
+function phaseLabel(phase: string, pct: number | null): string {
+  switch (phase) {
+    case "resolve":
+      return "finding file…";
+    case "import":
+      return "importing…";
+    case "download":
+    default:
+      return pct === null ? "downloading…" : `${pct}%`;
+  }
+}
 
 export function DownloadAction({
   providerId,
@@ -36,7 +54,6 @@ export function DownloadAction({
   const [state, setState] = useState<DownloadState>({ kind: "idle" });
   const idRef = useRef<number | null>(null);
 
-  // One event subscription per row while a download is in flight.
   useEffect(() => {
     if (state.kind !== "downloading") return;
     let unsub: (() => void) | undefined;
@@ -46,8 +63,18 @@ export function DownloadAction({
         if (e.id !== idRef.current) return;
         setState((s) =>
           s.kind === "downloading"
-            ? { ...s, pct: e.total ? Math.round((e.received / e.total) * 100) : null }
+            ? {
+                ...s,
+                pct: e.total ? Math.round((e.received / e.total) * 100) : null,
+                phase: s.phase === "resolve" ? "download" : s.phase,
+              }
             : s,
+        );
+      },
+      phase: (e) => {
+        if (e.id !== idRef.current) return;
+        setState((s) =>
+          s.kind === "downloading" ? { ...s, phase: e.phase } : s,
         );
       },
       done: (e) => {
@@ -59,6 +86,7 @@ export function DownloadAction({
             gameId: e.gameId,
             alreadyPresent: e.alreadyPresent ?? false,
             filePath: e.filePath,
+            importedCount: e.importedCount,
           });
         } else if (e.stagedPath)
           setState({
@@ -82,7 +110,7 @@ export function DownloadAction({
     startDownload(providerId, url, title)
       .then((id) => {
         idRef.current = id;
-        setState({ kind: "downloading", id, pct: null });
+        setState({ kind: "downloading", id, pct: null, phase: "download" });
       })
       .catch((err: unknown) => {
         setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
@@ -104,7 +132,7 @@ export function DownloadAction({
   if (state.kind === "downloading") {
     return (
       <span style={{ ...label, color: "var(--aura-on-surface-muted)", display: "inline-flex", gap: 6 }}>
-        {state.pct === null ? "downloading…" : `${state.pct}%`}
+        {phaseLabel(state.phase, state.pct)}
         <button
           type="button"
           onClick={() => void cancelDownload(state.id)}
@@ -116,6 +144,13 @@ export function DownloadAction({
     );
   }
   if (state.kind === "done") {
+    const n = state.importedCount ?? 1;
+    const playLabel =
+      n > 1
+        ? `✓ In library (${n}) — Play`
+        : state.alreadyPresent
+          ? "✓ In library — Play"
+          : "✓ In library — Play";
     return (
       <span style={{ ...label, display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button
@@ -124,7 +159,7 @@ export function DownloadAction({
           title={state.alreadyPresent ? "Already in your library" : "Imported into your library"}
           style={{ ...label, background: "none", border: "none", cursor: "pointer", color: "var(--aura-primary)" }}
         >
-          ✓ In library — Play
+          {playLabel}
         </button>
         {state.filePath && (
           <button

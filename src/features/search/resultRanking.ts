@@ -17,6 +17,7 @@ import {
 import { isKnownFileHost, rankingNameForQuery } from "./titleAliases";
 
 export { contentTerms, isFileLike, isSiteChrome, tokens } from "./resultChrome";
+export { isKnownFileHost } from "./titleAliases";
 
 /** How strongly an item matches the game-name query. */
 export type MatchStrength = "strong" | "partial" | "none";

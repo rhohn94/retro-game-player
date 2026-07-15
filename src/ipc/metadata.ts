@@ -47,6 +47,29 @@ export function getCachedArt(gameId: number): Promise<string | null> {
   return invoke<string | null>("get_cached_art", { gameId });
 }
 
+/** Local-only boxart for a Global Catalog title (no games row). */
+export function getCachedArtForTitle(
+  system: string,
+  title: string,
+): Promise<string | null> {
+  return invoke<string | null>("get_cached_art_for_title", { system, title });
+}
+
+/** Network fetch boxart for a Global Catalog title; empty string on miss. */
+export function fetchBoxartForTitle(system: string, title: string): Promise<string> {
+  return invoke<string>("fetch_boxart_for_title", { system, title });
+}
+
+export interface CatalogTitleMeta {
+  description: string | null;
+  wikipediaUrl: string | null;
+}
+
+/** Best-effort Wikipedia summary for a catalog title. */
+export function fetchCatalogTitleMeta(title: string): Promise<CatalogTitleMeta> {
+  return invoke<CatalogTitleMeta>("fetch_catalog_title_meta", { title });
+}
+
 /**
  * Fetch ONE named art tier for a game from the libretro-thumbnails CDN at
  * full resolution (W263), independent of the other tiers.
