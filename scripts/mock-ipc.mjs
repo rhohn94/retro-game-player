@@ -253,9 +253,27 @@ export const MOCK_FIXTURES = {
   list_catalog_titles: {
     system: "nes", total: 3, offset: 0,
     items: [
-      { title: "Super Mario Bros.", owned: true },
-      { title: "Metroid", owned: false },
-      { title: "Mega Man 2", owned: false },
+      {
+        catalogId: "global:nes:Super Mario Bros.",
+        title: "Super Mario Bros.",
+        system: "nes",
+        owned: true,
+        gameId: 1,
+      },
+      {
+        catalogId: "global:nes:Metroid",
+        title: "Metroid",
+        system: "nes",
+        owned: false,
+        gameId: null,
+      },
+      {
+        catalogId: "global:nes:Mega Man 2",
+        title: "Mega Man 2",
+        system: "nes",
+        owned: false,
+        gameId: null,
+      },
     ],
   },
 
