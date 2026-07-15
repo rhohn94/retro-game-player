@@ -21,4 +21,5 @@ pub mod fetch;
 pub mod liveness;
 pub mod profiles;
 pub mod provider;
+pub mod query_compose;
 pub mod template;

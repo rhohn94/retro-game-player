@@ -19,7 +19,9 @@
 use tauri::State;
 
 use crate::core::search::{
-    catalog, discovery, fetch, liveness, provider as provider_core, template,
+    catalog, discovery, fetch, liveness, provider as provider_core,
+    query_compose::{self, ComposeOpts},
+    template,
 };
 use crate::db::{
     repo::{
@@ -102,65 +104,6 @@ fn to_ipc(p: crate::db::repo::search_providers::SearchProvider) -> SearchProvide
     }
 }
 
-/// Build the effective query for one provider. When the provider opted into
-/// filter composition (v0.18), the non-empty structured filters (console,
-/// region) are appended to the game-name query, narrowing the search at the
-/// source; otherwise the bare game name is used.
-///
-/// When `append_rom` is set (Phase 2 query suffix), a `rom` token is appended
-/// for meta-search and compose-enabled download providers so web SERPs rank
-/// downloadable hits higher — skipped if the query already contains `rom`/`roms`.
-fn effective_query(
-    query: &str,
-    console: &str,
-    region: &str,
-    compose: bool,
-    append_rom: bool,
-    kind: &str,
-    url_template: &str,
-) -> String {
-    let mut q = if !compose {
-        query.trim().to_string()
-    } else {
-        let mut parts: Vec<&str> = vec![query.trim()];
-        for filter in [console.trim(), region.trim()] {
-            if !filter.is_empty() {
-                parts.push(filter);
-            }
-        }
-        parts
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    if append_rom && should_append_rom_suffix(kind, url_template, compose) {
-        let lower = q.to_ascii_lowercase();
-        let has_rom = lower
-            .split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|t| t == "rom" || t == "roms");
-        if !has_rom && !q.is_empty() {
-            q.push_str(" rom");
-        }
-    }
-    q
-}
-
-/// Meta-search hosts always benefit from a `rom` suffix when the user opts in;
-/// other download providers only when they compose console/region filters.
-fn should_append_rom_suffix(kind: &str, url_template: &str, compose: bool) -> bool {
-    let t = url_template.to_ascii_lowercase();
-    if t.contains("duckduckgo.com")
-        || t.contains("bing.com")
-        || t.contains("yandex.")
-        || t.contains("startpage.com")
-        || t.contains("search.brave.com")
-    {
-        return true;
-    }
-    compose && kind == "download"
-}
-
 /// Build one provider's preview group: substitute the query into its template,
 /// fetch + scrape the results page, and map any failure to a per-provider error.
 /// Pure of `State`/`Db` so it can run on a worker thread (see `run_search`).
@@ -169,16 +112,16 @@ fn provider_results(
     query: &str,
     console: &str,
     region: &str,
-    append_rom: bool,
+    opts: ComposeOpts,
 ) -> ProviderResults {
-    let effective = effective_query(
+    let effective = query_compose::effective_query(
         query,
         console,
         region,
         p.compose_filters,
-        append_rom,
         &p.kind,
         &p.url_template,
+        opts,
     );
     let search_url = match template::substitute(&p.url_template, &effective) {
         Ok(url) => url,
@@ -348,7 +291,13 @@ pub fn remove_provider(id: i64, db: State<'_, Db>) -> AppResult<()> {
 /// provider is used; otherwise all enabled providers are used.
 ///
 /// `append_rom` (Phase 2): when true, append a `rom` token for meta-search and
-/// compose-enabled download providers. Default false when omitted.
+/// compose-enabled download providers.
+///
+/// Phase 4 extras (all default false when omitted):
+/// - `append_zip` — append a `zip` token alongside/instead of bare web queries
+/// - `exclude_noise` — meta hosts get `-emulator -wiki -youtube …`
+/// - `quote_title` — multi-word titles quoted on meta hosts
+/// - `exclude_provider_ids` — soft-skip providers (health memory)
 #[tauri::command]
 pub fn run_search(
     query: String,
@@ -356,6 +305,10 @@ pub fn run_search(
     region: Option<String>,
     provider_id: Option<i64>,
     append_rom: Option<bool>,
+    append_zip: Option<bool>,
+    exclude_noise: Option<bool>,
+    quote_title: Option<bool>,
+    exclude_provider_ids: Option<Vec<i64>>,
     db: State<'_, Db>,
 ) -> AppResult<Vec<ProviderResults>> {
     if query.trim().is_empty() {
@@ -363,12 +316,24 @@ pub fn run_search(
     }
     let console = console.unwrap_or_default();
     let region = region.unwrap_or_default();
-    let append_rom = append_rom.unwrap_or(false);
+    let opts = ComposeOpts {
+        append_rom: append_rom.unwrap_or(false),
+        append_zip: append_zip.unwrap_or(false),
+        exclude_noise: exclude_noise.unwrap_or(false),
+        quote_title: quote_title.unwrap_or(false),
+    };
+    let exclude: std::collections::HashSet<i64> = exclude_provider_ids
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
     let repo = SearchProvidersRepo::new(db.inner());
     let providers = if let Some(pid) = provider_id {
         vec![repo.get(pid)?]
     } else {
-        repo.list()?.into_iter().filter(|p| p.enabled).collect()
+        repo.list()?
+            .into_iter()
+            .filter(|p| p.enabled && !exclude.contains(&p.id))
+            .collect()
     };
 
     // Fetch every provider concurrently so total latency is bounded by the
@@ -382,7 +347,7 @@ pub fn run_search(
             .map(|p| {
                 (
                     p,
-                    scope.spawn(|| provider_results(p, query, console, region, append_rom)),
+                    scope.spawn(|| provider_results(p, query, console, region, opts)),
                 )
             })
             .collect();
@@ -526,7 +491,7 @@ pub fn probe_links(urls: Vec<String>) -> AppResult<Vec<liveness::LinkStatus>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_query, ProviderResults};
+    use super::ProviderResults;
 
     /// W220 — a panicking search-worker thread must degrade that provider's
     /// group to an error result, never propagate and crash the whole
@@ -553,152 +518,23 @@ mod tests {
         assert_eq!(result.error.as_deref(), Some("search worker thread panicked"));
     }
 
+    // Phase 4: query composition lives in `core::search::query_compose` and is
+    // covered there. Smoke-check the re-export path still builds from this crate.
     #[test]
-    fn no_compose_returns_bare_query() {
-        assert_eq!(
-            effective_query(
-                "super mario",
-                "SNES",
-                "USA",
-                false,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "super mario"
+    fn query_compose_module_smoke() {
+        use crate::core::search::query_compose::{effective_query, ComposeOpts};
+        let q = effective_query(
+            "sonic",
+            "",
+            "",
+            false,
+            "download",
+            "https://html.duckduckgo.com/html/?q={query}",
+            ComposeOpts {
+                append_rom: true,
+                ..Default::default()
+            },
         );
-    }
-
-    #[test]
-    fn compose_appends_non_empty_filters() {
-        assert_eq!(
-            effective_query(
-                "super mario",
-                "SNES",
-                "USA",
-                true,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "super mario SNES USA"
-        );
-    }
-
-    #[test]
-    fn compose_skips_empty_filters() {
-        assert_eq!(
-            effective_query(
-                "zelda",
-                "",
-                "",
-                true,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "zelda"
-        );
-        assert_eq!(
-            effective_query(
-                "zelda",
-                "N64",
-                "",
-                true,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "zelda N64"
-        );
-        assert_eq!(
-            effective_query(
-                "zelda",
-                "",
-                "EUR",
-                true,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "zelda EUR"
-        );
-    }
-
-    #[test]
-    fn compose_trims_whitespace() {
-        assert_eq!(
-            effective_query(
-                "  contra  ",
-                "  NES  ",
-                "  USA  ",
-                true,
-                false,
-                "download",
-                "https://example.com/?q={query}"
-            ),
-            "contra NES USA"
-        );
-    }
-
-    #[test]
-    fn append_rom_for_duckduckgo_even_without_compose() {
-        assert_eq!(
-            effective_query(
-                "sonic",
-                "",
-                "",
-                false,
-                true,
-                "download",
-                "https://html.duckduckgo.com/html/?q={query}"
-            ),
-            "sonic rom"
-        );
-    }
-
-    #[test]
-    fn append_rom_skips_when_already_present() {
-        assert_eq!(
-            effective_query(
-                "sonic rom",
-                "",
-                "",
-                false,
-                true,
-                "download",
-                "https://html.duckduckgo.com/html/?q={query}"
-            ),
-            "sonic rom"
-        );
-    }
-
-    #[test]
-    fn append_rom_for_download_kind_only_when_compose() {
-        assert_eq!(
-            effective_query(
-                "sonic",
-                "MD",
-                "",
-                true,
-                true,
-                "download",
-                "https://roms.example.com/search?q={query}"
-            ),
-            "sonic MD rom"
-        );
-        // Without compose, non-meta download host does not get the suffix
-        assert_eq!(
-            effective_query(
-                "sonic",
-                "MD",
-                "",
-                false,
-                true,
-                "download",
-                "https://roms.example.com/search?q={query}"
-            ),
-            "sonic"
-        );
+        assert_eq!(q, "sonic rom");
     }
 }

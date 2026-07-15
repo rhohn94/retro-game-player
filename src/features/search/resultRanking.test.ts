@@ -111,6 +111,25 @@ describe("matchStrength", () => {
       matchStrength(item("En", "https://wowroms.com/en/roms/list?search=Sonic"), sonic)
     ).toBe("none");
   });
+
+  it("expands short aliases so oot matches Ocarina of Time titles (Phase 4)", () => {
+    const oot: RankQuery = { name: "oot" };
+    expect(
+      matchStrength(item("The Legend of Zelda: Ocarina of Time (USA)"), oot)
+    ).toBe("strong");
+  });
+});
+
+describe("known file host boost (Phase 4)", () => {
+  it("boosts archive.org over an unknown host for the same title", () => {
+    const q: RankQuery = { name: "sonic" };
+    const archive = scoreItem(
+      item("Sonic", "https://archive.org/details/sonic"),
+      q
+    );
+    const other = scoreItem(item("Sonic", "https://example.com/sonic"), q);
+    expect(archive).toBeGreaterThan(other);
+  });
 });
 
 describe("isSiteChrome / isFileLike", () => {

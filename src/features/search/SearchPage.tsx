@@ -141,6 +141,18 @@ export function SearchPage() {
         onRegionChange={execution.setRegion}
         appendRom={execution.appendRom}
         onAppendRomChange={execution.setAppendRom}
+        appendZip={execution.appendZip}
+        onAppendZipChange={execution.setAppendZip}
+        excludeNoise={execution.excludeNoise}
+        onExcludeNoiseChange={execution.setExcludeNoise}
+        quoteTitle={execution.quoteTitle}
+        onQuoteTitleChange={execution.setQuoteTitle}
+        softSkippedCount={execution.softSkippedIds.length}
+        onResumeAllSoftSkipped={() => {
+          for (const id of execution.softSkippedIds) {
+            execution.resumeSoftSkipped(id);
+          }
+        }}
         onSearch={execution.handleSearch}
         searchDisabled={
           !execution.query.trim() || providersApi.activeCount === 0 || execution.running

@@ -88,6 +88,21 @@ items → drop site chrome → live filter → rank/sort → hide none (if hideW
 - **Multi-hop auto-import** (up to 3 GETs) when detail pages chain HTML
   interstitials before a real file.
 
+## Phase 4 (implemented)
+
+- **Query composition** (`core/search/query_compose.rs`):
+  - Title **aliases** (`oot` → ocarina of time, `smb3`, `s3k`, …)
+  - **Quoted** multi-word titles on meta hosts
+  - **`+zip`** suffix (opt-in) and existing **`+rom`**
+  - **−noise** negatives on meta (`-emulator -wiki -youtube …`)
+- **Health memory** (frontend localStorage): after 3 consecutive captcha /
+  js_shell / error outcomes, soft-skip that provider; **Resume N skipped**
+  control in the query bar.
+- **Zip-by-query**: multi-ROM zip landing prefers the entry matching the
+  search/title hint (USA / `[!]` dump preference as tie-breaker).
+- **Ranking**: alias-aware Match badges; small boost for known file hosts
+  (archive.org, …).
+
 ## Follow-ups
 
-More host profiles as users report sites; console compose-by-default.
+More host profiles / aliases as users report sites; console compose-by-default.

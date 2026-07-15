@@ -5,7 +5,7 @@
  *  result set. Also auto-runs a search that arrived pre-filled via navigation
  *  state ("Find downloads for this title"), once providers have loaded, at
  *  most once per mount. Extracted from SearchPage (v0.16 onward; auto-run
- *  v0.18) with no behavior change. */
+ *  v0.18) with no behavior change. Phase 4 adds compose prefs + health memory. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runSearch } from "../../../ipc/search";
 import type { ProviderResults, SearchProvider } from "../../../ipc/search";
@@ -13,8 +13,23 @@ import { groupHasLikelyHits } from "../components/resultVisibility";
 import { isAppError } from "../../../ipc/commands";
 import type { RankQuery } from "../resultRanking";
 import type { ConsoleInfo } from "../../../ipc/console";
-import { loadAppendRomPref, saveAppendRomPref } from "../searchPrefs";
+import {
+  loadAppendRomPref,
+  saveAppendRomPref,
+  loadAppendZipPref,
+  saveAppendZipPref,
+  loadExcludeNoisePref,
+  saveExcludeNoisePref,
+  loadQuoteTitlePref,
+  saveQuoteTitlePref,
+} from "../searchPrefs";
 import { isUnhealthyProvider } from "../providerHealth";
+import {
+  listSoftSkippedProviderIds,
+  recordSearchHealth,
+  resumeProvider,
+  isSoftSkipped,
+} from "../providerHealthMemory";
 
 export interface UseSearchExecutionResult {
   query: string;
@@ -26,6 +41,19 @@ export interface UseSearchExecutionResult {
   /** Append a `rom` token for meta-search / download providers. */
   appendRom: boolean;
   setAppendRom: (v: boolean) => void;
+  /** Append a `zip` token (Phase 4). */
+  appendZip: boolean;
+  setAppendZip: (v: boolean) => void;
+  /** Meta noise negatives (Phase 4). */
+  excludeNoise: boolean;
+  setExcludeNoise: (v: boolean) => void;
+  /** Quote multi-word titles on meta (Phase 4). */
+  quoteTitle: boolean;
+  setQuoteTitle: (v: boolean) => void;
+  /** Provider ids currently soft-skipped by health memory. */
+  softSkippedIds: number[];
+  /** Clear soft-skip for one provider and re-include it next search. */
+  resumeSoftSkipped: (providerId: number) => void;
   results: ProviderResults[] | null;
   rankQuery: RankQuery;
   running: boolean;
@@ -49,6 +77,10 @@ export function useSearchExecution(
   const [consoleKey, setConsoleKey] = useState("");
   const [region, setRegion] = useState("");
   const [appendRom, setAppendRomState] = useState(() => loadAppendRomPref());
+  const [appendZip, setAppendZipState] = useState(() => loadAppendZipPref());
+  const [excludeNoise, setExcludeNoiseState] = useState(() => loadExcludeNoisePref());
+  const [quoteTitle, setQuoteTitleState] = useState(() => loadQuoteTitlePref());
+  const [softSkippedIds, setSoftSkippedIds] = useState(() => listSoftSkippedProviderIds());
   const [results, setResults] = useState<ProviderResults[] | null>(null);
   const [rankQuery, setRankQuery] = useState<RankQuery>({ name: "" });
   const [running, setRunning] = useState(false);
@@ -59,6 +91,22 @@ export function useSearchExecution(
   const setAppendRom = useCallback((v: boolean) => {
     setAppendRomState(v);
     saveAppendRomPref(v);
+  }, []);
+  const setAppendZip = useCallback((v: boolean) => {
+    setAppendZipState(v);
+    saveAppendZipPref(v);
+  }, []);
+  const setExcludeNoise = useCallback((v: boolean) => {
+    setExcludeNoiseState(v);
+    saveExcludeNoisePref(v);
+  }, []);
+  const setQuoteTitle = useCallback((v: boolean) => {
+    setQuoteTitleState(v);
+    saveQuoteTitlePref(v);
+  }, []);
+  const resumeSoftSkipped = useCallback((providerId: number) => {
+    resumeProvider(providerId);
+    setSoftSkippedIds(listSoftSkippedProviderIds());
   }, []);
 
   const handleSearch = useCallback(async () => {
@@ -90,13 +138,22 @@ export function useSearchExecution(
       region: reg || undefined,
     });
 
+    const excludeIds = listSoftSkippedProviderIds();
+    setSoftSkippedIds(excludeIds);
+
     try {
       const all = await runSearch({
         query: q,
         console: consoleComposeToken || undefined,
         region: reg || undefined,
         appendRom,
+        appendZip,
+        excludeNoise,
+        quoteTitle,
+        excludeProviderIds: excludeIds.length > 0 ? excludeIds : undefined,
       });
+      recordSearchHealth(all);
+      setSoftSkippedIds(listSoftSkippedProviderIds());
       // Pin non-empty high-priority groups first, then non-empty others, then empties.
       // Backend already orders by priority; this keeps filled ROM archives on top.
       const sorted = [...all].sort((a, b) => {
@@ -136,7 +193,18 @@ export function useSearchExecution(
     } finally {
       setRunning(false);
     }
-  }, [query, providers, consoles, consoleKey, region, appendRom, resetBrowseState]);
+  }, [
+    query,
+    providers,
+    consoles,
+    consoleKey,
+    region,
+    appendRom,
+    appendZip,
+    excludeNoise,
+    quoteTitle,
+    resetBrowseState,
+  ]);
 
   // Auto-run a search that arrived pre-filled via navigation state ("Find
   // downloads for this title"), once providers have loaded so enabled ones
@@ -156,6 +224,14 @@ export function useSearchExecution(
     setRegion,
     appendRom,
     setAppendRom,
+    appendZip,
+    setAppendZip,
+    excludeNoise,
+    setExcludeNoise,
+    quoteTitle,
+    setQuoteTitle,
+    softSkippedIds,
+    resumeSoftSkipped,
     results,
     rankQuery,
     running,
@@ -165,3 +241,6 @@ export function useSearchExecution(
     handleSearch,
   };
 }
+
+// re-export for tests / chips UI that want to check a single id
+export { isSoftSkipped };

@@ -259,6 +259,14 @@ export function runSearch(args: {
   providerId?: number;
   /** Append a `rom` token for meta-search / download providers (Phase 2). */
   appendRom?: boolean;
+  /** Append a `zip` token (Phase 4). */
+  appendZip?: boolean;
+  /** Meta hosts get negative noise terms (Phase 4). */
+  excludeNoise?: boolean;
+  /** Quote multi-word titles on meta hosts (Phase 4). */
+  quoteTitle?: boolean;
+  /** Soft-skip providers (health memory, Phase 4). */
+  excludeProviderIds?: number[];
 }): Promise<ProviderResults[]> {
   return invoke<ProviderResults[]>("run_search", {
     query: args.query,
@@ -266,5 +274,9 @@ export function runSearch(args: {
     region: args.region ?? null,
     providerId: args.providerId ?? null,
     appendRom: args.appendRom ?? null,
+    appendZip: args.appendZip ?? null,
+    excludeNoise: args.excludeNoise ?? null,
+    quoteTitle: args.quoteTitle ?? null,
+    excludeProviderIds: args.excludeProviderIds ?? null,
   });
 }

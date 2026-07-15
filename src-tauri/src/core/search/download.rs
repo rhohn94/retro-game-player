@@ -1050,7 +1050,7 @@ pub fn download_and_auto_import(
         if !should_treat_as_html(&part, meta.content_type.as_deref()) {
             let filename =
                 resolve_download_filename(&current_url, disp.as_deref(), &part);
-            return land_download(db, games_dir, staging_dir, &part, &filename);
+            return land_download(db, games_dir, staging_dir, &part, &filename, hint);
         }
 
         // HTML page — look for the next hop (file or another interstitial).
@@ -1203,7 +1203,15 @@ pub fn is_recognized_rom_name(name: &str) -> bool {
 /// Extracts every recognized-ROM entry of `zip_path` into `staging_dir`,
 /// returning the extracted paths. Entry names are flattened to their file
 /// name (no directory traversal into staging) and size-capped cumulatively.
-pub fn extract_rom_entries(zip_path: &Path, staging_dir: &Path) -> AppResult<Vec<PathBuf>> {
+///
+/// When `hint` is set (game title / search query), entries are ordered so the
+/// best query match is first — multi-ROM packs report that game as the primary
+/// import (Phase 4 zip-by-query).
+pub fn extract_rom_entries(
+    zip_path: &Path,
+    staging_dir: &Path,
+    hint: Option<&str>,
+) -> AppResult<Vec<PathBuf>> {
     let file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Validation(format!("not a readable zip: {e}")))?;
@@ -1239,19 +1247,77 @@ pub fn extract_rom_entries(zip_path: &Path, staging_dir: &Path) -> AppResult<Vec
         budget -= copied;
         extracted.push(dest);
     }
+    prefer_roms_by_hint(&mut extracted, hint);
     Ok(extracted)
+}
+
+/// Sort extracted ROM paths so the best query/title match is first.
+/// Also lightly prefers USA / World / `[!]` dump tags when scores tie.
+pub fn prefer_roms_by_hint(paths: &mut [PathBuf], hint: Option<&str>) {
+    let terms: Vec<String> = hint.map(hint_tokens).unwrap_or_default();
+    paths.sort_by(|a, b| {
+        let sa = rom_path_hint_score(a, &terms);
+        let sb = rom_path_hint_score(b, &terms);
+        sb.cmp(&sa).then_with(|| {
+            let na = a
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let nb = b
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            na.cmp(&nb)
+        })
+    });
+}
+
+fn rom_path_hint_score(path: &Path, terms: &[String]) -> i32 {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let mut score = 0i32;
+    if !terms.is_empty() {
+        let mut matched = 0;
+        for t in terms {
+            if name.contains(t) {
+                matched += 1;
+                score += 20;
+            }
+        }
+        if matched == terms.len() {
+            score += 40; // full coverage
+        }
+    }
+    // Dump-quality / region preferences when multi-ROM packs otherwise tie.
+    if name.contains("[!]") {
+        score += 8;
+    }
+    if name.contains("(usa)") || name.contains("(us)") {
+        score += 5;
+    } else if name.contains("(world)") {
+        score += 3;
+    } else if name.contains("(europe)") || name.contains("(eur)") {
+        score += 1;
+    }
+    score
 }
 
 /// Lands a completed staged download: bare recognized ROM or zip-of-ROMs is
 /// imported (staging copies removed on success); anything else is kept in
 /// staging as [`DownloadLanding::Unrecognized`]. `.rar` gets a targeted
 /// message (support was dropped with the GPL-incompatible UnRAR blob, #26).
+///
+/// `hint` is the result title / search query — used to prefer the matching
+/// ROM when a zip contains several (Phase 4).
 pub fn land_download(
     db: &Db,
     games_dir: &Path,
     staging_dir: &Path,
     part: &Path,
     filename: &str,
+    hint: Option<&str>,
 ) -> AppResult<DownloadLanding> {
     let staged = staging_dir.join(filename);
     std::fs::rename(part, &staged)?;
@@ -1270,7 +1336,7 @@ pub fn land_download(
     }
 
     if ext == "zip" {
-        let roms = extract_rom_entries(&staged, staging_dir)?;
+        let roms = extract_rom_entries(&staged, staging_dir, hint)?;
         if roms.is_empty() {
             return Ok(DownloadLanding::Unrecognized {
                 staged_path: staged,
@@ -1316,7 +1382,7 @@ pub fn land_download(
         if renamed != staged {
             std::fs::rename(&staged, &renamed)?;
         }
-        let roms = extract_rom_entries(&renamed, staging_dir)?;
+        let roms = extract_rom_entries(&renamed, staging_dir, hint)?;
         if roms.is_empty() {
             return Ok(DownloadLanding::Unrecognized {
                 staged_path: renamed,
@@ -1597,11 +1663,34 @@ mod tests {
             zip_with(&[("sub/dir/game.nes", b"ROM"), ("readme.txt", b"no")]),
         )
         .unwrap();
-        let out = extract_rom_entries(&zip_path, tmp.path()).unwrap();
+        let out = extract_rom_entries(&zip_path, tmp.path(), None).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out[0].ends_with("game.nes"));
         assert_eq!(std::fs::read(&out[0]).unwrap(), b"ROM");
         assert!(!tmp.path().join("sub").exists()); // flattened, no traversal
+    }
+
+    #[test]
+    fn extract_prefers_rom_matching_query_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("pack.zip");
+        std::fs::write(
+            &zip_path,
+            zip_with(&[
+                ("Other Game (USA).nes", b"OTHER"),
+                ("Sonic the Hedgehog (USA).nes", b"SONIC"),
+                ("Random Title.nes", b"RAND"),
+            ]),
+        )
+        .unwrap();
+        let out =
+            extract_rom_entries(&zip_path, tmp.path(), Some("Sonic the Hedgehog")).unwrap();
+        assert_eq!(out.len(), 3);
+        let first = out[0].file_name().unwrap().to_string_lossy();
+        assert!(
+            first.to_ascii_lowercase().contains("sonic"),
+            "expected sonic first, got {first}"
+        );
     }
 
     #[test]
@@ -1616,7 +1705,7 @@ mod tests {
 
         let part1 = part_path(&staging, 10);
         std::fs::write(&part1, &zip_bytes).unwrap();
-        let first = land_download(&db, &games, &staging, &part1, "pack.zip").unwrap();
+        let first = land_download(&db, &games, &staging, &part1, "pack.zip", None).unwrap();
         let DownloadLanding::Imported {
             game_id,
             already_present,
@@ -1631,7 +1720,7 @@ mod tests {
         // Same content again — hash dedupe resolves to the same game row.
         let part2 = part_path(&staging, 11);
         std::fs::write(&part2, &zip_bytes).unwrap();
-        let second = land_download(&db, &games, &staging, &part2, "pack.zip").unwrap();
+        let second = land_download(&db, &games, &staging, &part2, "pack.zip", None).unwrap();
         let DownloadLanding::Imported {
             game_id: id2,
             already_present: dup,
@@ -1650,7 +1739,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let part = part_path(tmp.path(), 4);
         std::fs::write(&part, b"Rar!").unwrap();
-        let err = land_download(&db, tmp.path(), tmp.path(), &part, "game.rar").unwrap_err();
+        let err = land_download(&db, tmp.path(), tmp.path(), &part, "game.rar", None).unwrap_err();
         assert!(err.to_string().contains(".rar"), "{err}");
     }
 
@@ -1662,7 +1751,7 @@ mod tests {
         std::fs::create_dir_all(&staging).unwrap();
         let part = part_path(&staging, 5);
         std::fs::write(&part, b"???").unwrap();
-        let landing = land_download(&db, tmp.path(), &staging, &part, "mystery.dat").unwrap();
+        let landing = land_download(&db, tmp.path(), &staging, &part, "mystery.dat", None).unwrap();
         match landing {
             DownloadLanding::Unrecognized {
                 staged_path,

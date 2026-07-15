@@ -75,6 +75,21 @@ type `Sonic genesis rom` manually.
 - SERP health on each provider group; captcha/JS-shell/empty auto-collapse.
 - Host profiles module covers DDG, Archive.org, and several ROM-catalog hosts.
 
+## Phase 4 query compose (implemented)
+
+Meta providers (DDG, …) get richer query shaping via toggles on the Search bar:
+
+| Toggle | Default | Effect on meta query |
+|--------|---------|----------------------|
+| +rom   | on      | append `rom` |
+| +zip   | off     | append `zip` |
+| −noise | on      | append `-emulator -wiki -youtube -walkthrough …` |
+| “title”| on      | multi-word titles become `"Sonic the Hedgehog"` |
+
+Plus short-code **aliases** (`oot`, `smb3`, …) expanded before compose.
+Health memory soft-skips providers that captcha/error repeatedly.
+
 ## Follow-ups
 
 - Expand profiles as users add high-value sources.
+- Grow the alias table from real user queries.

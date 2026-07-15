@@ -14,6 +14,7 @@ import {
   pathOnly,
   tokens,
 } from "./resultChrome";
+import { isKnownFileHost, rankingNameForQuery } from "./titleAliases";
 
 export { contentTerms, isFileLike, isSiteChrome, tokens } from "./resultChrome";
 
@@ -53,6 +54,7 @@ const W_PREFIX = 5; // title begins with the first content term
 const W_CONSOLE = 8; // a console token appears in the title
 const W_REGION = 4; // the region token appears in the title
 const W_FILE = 12; // title/path looks like a ROM or archive file
+const W_HOST = 8; // known good file host (archive.org, …)
 const W_CHROME = -1000; // site navigation — sink below real hits
 
 /** How many of `terms` appear in the title (token or substring). */
@@ -66,15 +68,23 @@ function matchedCountInTitle(terms: string[], title: string): number {
   return n;
 }
 
+/** Content terms for name matching, with Phase 4 alias expansion. */
+function nameContentTerms(queryName: string): string[] {
+  return contentTerms(rankingNameForQuery(queryName));
+}
+
 /** Score `item` against `query`. Higher = more relevant. Pure.
  *  Name matching uses the **title only** (never the URL query string). */
 export function scoreItem(item: Rankable, query: RankQuery): number {
-  const nameTerms = contentTerms(query.name);
+  const nameTerms = nameContentTerms(query.name);
+  // Original (non-expanded) terms for full-coverage — alias expansion adds
+  // tokens so "full match" uses the expanded set when the user typed a short code.
   if (nameTerms.length === 0) {
     // No content terms — only chrome demotion / file boost apply.
     let score = 0;
     if (isSiteChrome(item, query.name)) score += W_CHROME;
     if (isFileLike(item)) score += W_FILE;
+    if (isKnownFileHost(item.url)) score += W_HOST;
     return score;
   }
 
@@ -84,7 +94,12 @@ export function scoreItem(item: Rankable, query: RankQuery): number {
 
   const matched = matchedCountInTitle(nameTerms, item.title);
   let score = matched * W_TERM;
-  if (matched === nameTerms.length) score += W_FULL;
+  // Full coverage uses original content terms when present, else expanded.
+  const coreTerms = contentTerms(query.name);
+  const fullTerms = coreTerms.length > 0 ? coreTerms : nameTerms;
+  if (matchedCountInTitle(fullTerms, item.title) === fullTerms.length && fullTerms.length > 0) {
+    score += W_FULL;
+  }
   const first = nameTerms[0];
   if (first && item.title.toLowerCase().startsWith(first)) score += W_PREFIX;
 
@@ -102,6 +117,7 @@ export function scoreItem(item: Rankable, query: RankQuery): number {
   }
 
   if (isFileLike(item)) score += W_FILE;
+  if (isKnownFileHost(item.url)) score += W_HOST;
 
   // Tiny path bonus (no query string): path segment echoes a content term.
   const path = pathOnly(item.url).toLowerCase();
@@ -111,15 +127,26 @@ export function scoreItem(item: Rankable, query: RankQuery): number {
 }
 
 /** Classify how strongly `item` matches the game name — **title only**,
- *  stopwords ignored. Independent of console/region. */
+ *  stopwords ignored. Independent of console/region.
+ *  Phase 4: known short aliases (`oot`) also match full titles. */
 export function matchStrength(item: Rankable, query: RankQuery): MatchStrength {
-  const nameTerms = contentTerms(query.name);
-  if (nameTerms.length === 0) return "none";
   if (isSiteChrome(item, query.name)) return "none";
-  const matched = matchedCountInTitle(nameTerms, item.title);
-  if (matched === 0) return "none";
-  if (matched === nameTerms.length) return "strong";
-  return "partial";
+  const core = contentTerms(query.name);
+  if (core.length > 0) {
+    const matched = matchedCountInTitle(core, item.title);
+    if (matched === core.length) return "strong";
+    if (matched > 0) return "partial";
+  }
+  // Alias expansion: short code didn't appear in the title — try the fuller form.
+  const expanded = nameContentTerms(query.name);
+  const aliasTerms = expanded.filter((t) => !core.includes(t));
+  if (aliasTerms.length > 0) {
+    const matched = matchedCountInTitle(aliasTerms, item.title);
+    if (matched === aliasTerms.length) return "strong";
+    if (matched > 0) return "partial";
+  }
+  if (core.length === 0 && expanded.length === 0) return "none";
+  return "none";
 }
 
 /** True when the row is worth showing under default “hide unlikely” — not
@@ -127,7 +154,8 @@ export function matchStrength(item: Rankable, query: RankQuery): MatchStrength {
 export function isLikelyHit(item: Rankable, query: RankQuery): boolean {
   if (isSiteChrome(item, query.name)) return false;
   const terms = contentTerms(query.name);
-  if (terms.length === 0) return true;
+  const expanded = nameContentTerms(query.name);
+  if (terms.length === 0 && expanded.length === 0) return true;
   return matchStrength(item, query) !== "none";
 }
 
