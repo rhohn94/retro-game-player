@@ -5,6 +5,7 @@
 import type { CSSProperties } from "react";
 import { AuraButton, AuraField } from "@aura/react";
 import type { ConsoleInfo } from "../../../ipc/console";
+import { consoleDropdownLabel } from "../consoleSearch";
 import { SEARCH_REGIONS } from "../resultRanking";
 import { FocusableSearchField, FocusableAction } from "./FocusableControls";
 
@@ -112,12 +113,13 @@ export function SearchQueryBar({
           aria-label="Console"
           value={consoleKey}
           onChange={(e) => onConsoleChange(e.target.value)}
-          style={{ fontSize: 13, padding: "6px 8px", maxWidth: 180 }}
+          title="Filters compose-enabled providers; dual-region systems match all common names (e.g. Genesis and Mega Drive)"
+          style={{ fontSize: 13, padding: "6px 8px", maxWidth: 280, minWidth: 140 }}
         >
           <option value="">Any console</option>
           {consoles.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.abbreviation || c.name}
+            <option key={c.key} value={c.key} title={c.name}>
+              {consoleDropdownLabel(c)}
             </option>
           ))}
         </select>

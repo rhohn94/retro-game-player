@@ -202,10 +202,16 @@ pub fn effective_query(
         if !title.is_empty() {
             parts.push(title);
         }
-        for filter in [console.trim(), region.trim()] {
-            if !filter.is_empty() {
-                parts.push(filter.to_string());
-            }
+        // Expand MD / genesis / "mega drive" etc. into a meta OR group or a
+        // single primary token for ROM-site templates (console_aliases).
+        let console_filter =
+            crate::core::search::console_aliases::compose_console_filter(console, meta);
+        if !console_filter.is_empty() {
+            parts.push(console_filter);
+        }
+        let reg = region.trim();
+        if !reg.is_empty() {
+            parts.push(reg.to_string());
         }
         parts.join(" ")
     };
@@ -270,6 +276,7 @@ mod tests {
 
     #[test]
     fn compose_appends_filters() {
+        // Non-meta: console aliases resolve to a single primary token.
         assert_eq!(
             effective_query(
                 "super mario",
@@ -280,8 +287,24 @@ mod tests {
                 "https://example.com/?q={query}",
                 opts(false, false, false, false)
             ),
-            "super mario SNES USA"
+            "super mario snes USA"
         );
+    }
+
+    #[test]
+    fn compose_meta_ors_genesis_aliases() {
+        let q = effective_query(
+            "sonic",
+            "MD",
+            "",
+            true,
+            "download",
+            "https://html.duckduckgo.com/html/?q={query}",
+            opts(false, false, false, false),
+        );
+        assert!(q.contains("sonic"), "got {q}");
+        assert!(q.contains(" OR "), "expected meta OR group, got {q}");
+        assert!(q.to_ascii_lowercase().contains("genesis"), "got {q}");
     }
 
     #[test]
@@ -296,7 +319,8 @@ mod tests {
             opts(false, false, false, true),
         );
         assert!(q.starts_with("\"sonic the hedgehog\""), "got {q}");
-        assert!(q.contains("MD"));
+        // Meta compose expands MD → OR group with genesis / mega drive / …
+        assert!(q.contains(" OR ") || q.to_ascii_lowercase().contains("genesis"), "got {q}");
     }
 
     #[test]
@@ -381,7 +405,11 @@ mod tests {
             opts(true, false, false, true),
         );
         assert!(q.contains("ocarina of time"), "got {q}");
-        assert!(q.contains("N64"));
+        // Meta: N64 expands to an OR group including n64 / nintendo 64.
+        assert!(
+            q.to_ascii_lowercase().contains("n64") || q.contains(" OR "),
+            "got {q}"
+        );
         assert!(q.contains("rom"));
     }
 }

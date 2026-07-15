@@ -30,6 +30,7 @@ import {
   resumeProvider,
   isSoftSkipped,
 } from "../providerHealthMemory";
+import { consoleComposeValue, consoleRankTokenBag } from "../consoleSearch";
 
 export interface UseSearchExecutionResult {
   query: string;
@@ -115,13 +116,15 @@ export function useSearchExecution(
     const active = providers.filter((p) => p.enabled);
     if (active.length === 0) return;
 
-    // Resolve the selected console into a short token for the backend compose
-    // (e.g. "SNES") and richer tokens for client-side ranking (name + abbr +
-    // key, so any of them matches a result title).
+    // Resolve the selected console: compose uses the system key so the backend
+    // can expand dual-region aliases (genesis OR "mega drive" OR md …);
+    // ranking gets the full alias bag (name + abbr + key + curated tags).
     const selectedConsole = consoles.find((c) => c.key === consoleKey);
-    const consoleComposeToken = selectedConsole?.abbreviation ?? "";
+    const consoleComposeToken = selectedConsole
+      ? consoleComposeValue(selectedConsole)
+      : "";
     const consoleRankTokens = selectedConsole
-      ? `${selectedConsole.name} ${selectedConsole.abbreviation} ${selectedConsole.key}`
+      ? consoleRankTokenBag(selectedConsole)
       : "";
     const reg = region.trim();
 

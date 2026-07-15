@@ -103,6 +103,17 @@ items → drop site chrome → live filter → rank/sort → hide none (if hideW
 - **Ranking**: alias-aware Match badges; small boost for known file hosts
   (archive.org, …).
 
+## Console filter UX + aliases
+
+- Dropdown labels use dual-region short names (e.g. **Genesis / Mega Drive (MD)**)
+  instead of a bare abbreviation.
+- Compose sends the console **system key**; Rust `console_aliases` expands it:
+  - **Meta (DDG, …):** `(genesis OR "mega drive" OR md OR smd OR …)`
+  - **ROM-site compose:** single primary token (`genesis`, `snes`, …)
+- Client ranking uses the same alias bag so titles tagged Genesis, Mega Drive,
+  SMD, GEN, etc. all get the console boost.
+
 ## Follow-ups
 
-More host profiles / aliases as users report sites; console compose-by-default.
+More host profiles / title aliases as users report sites; console compose-by-default
+for more download seeds.

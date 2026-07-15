@@ -15,6 +15,7 @@
 //! discover and add in one click.
 
 pub mod catalog;
+pub mod console_aliases;
 pub mod discovery;
 pub mod download;
 pub mod fetch;
