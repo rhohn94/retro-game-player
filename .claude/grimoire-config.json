@@ -1,6 +1,6 @@
 {
   "schema-version": 4,
-  "framework-version": "v3.90",
+  "framework-version": "v3.101",
   "name": "Retro Game Player",
   "work-paradigm": {
     "value": "Noir"
