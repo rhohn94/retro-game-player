@@ -263,17 +263,83 @@
      Returns { arm, disarm }. arm() defers the attach by a tick so the same
      click/keydown that opened the popup does not immediately dismiss it; the
      deferred attach is validated against `armed` so a disarm before the tick
-     elapses cancels it cleanly. */
+     elapses cancels it cleanly.
+
+     #1038 — native mousedown focus-shift vs. focus-return: for a genuine
+     mouse click, the browser fires pointerdown → mousedown → (default
+     action: shift focus, typically to <body> when the clicked target isn't
+     natively focusable) → mouseup → click. onPointerDown runs during the
+     pointerdown phase, BEFORE mousedown's default action — so when a
+     consumer configures a real focus-return target (passes `isOnOpener`) and
+     its onDismiss chain calls opener.focus() synchronously from here, that
+     focus call happens first and is immediately undone by the native
+     mousedown default action. Traced and confirmed in
+     tests/layout/sidebar-fmb.spec.js's follow-up notes: deferring the
+     refocus to a microtask/rAF does NOT reliably win this race (a
+     MutationObserver-microtask-deferred refocus was observed losing to the
+     native blur too), because the native default action can run before a
+     microtask checkpoint. The robust fix is to suppress the native action
+     directly: arm a same-gesture, capture-phase `mousedown` listener that
+     calls preventDefault() — cancelable per spec, and the standard technique
+     for keeping focus put across a click (the same trick rich-text toolbar
+     buttons use to avoid stealing the editor's selection). Scoped tightly so
+     it never touches a dismisser with no focus-return target configured, and
+     to mouse/pen only — touch's compatibility mousedown lands long after
+     dismissal has already settled and was already unaffected (confirmed by
+     the issue's own tracing), so it stays untouched. Keyboard dismissal
+     (Escape) never runs through pointer handling at all, so it too is
+     unaffected. */
   function createDismisser(opts) {
     var onDismiss = opts.onDismiss;
     var isInside = opts.isInside || function () { return false; };
     var isOnOpener = opts.isOnOpener || function () { return false; };
     var usePointer = opts.pointer !== false;
+    /* A real (non-default) isOnOpener means the consumer actually has an
+       opener to return focus to on dismiss — only then is the native-blur
+       race in play, and only then do we touch mousedown at all. */
+    var hasFocusReturn = typeof opts.isOnOpener === "function";
     var armed = false;
+
+    /* One-shot guard: suppress the native mousedown default action (the
+       focus-shift/blur) for the SAME gesture that just dismissed via
+       onPointerDown. Added on demand (not for the popup's whole open
+       duration) and always torn down — either when its mousedown fires, or,
+       defensively, after FOCUS_GUARD_FALLBACK_MS if the paired mousedown
+       never arrives (e.g. a cancelled pointer), so it can never leak onto an
+       unrelated later click. The fallback is a generous macrotask delay, not
+       0ms: pointerdown and mousedown are two separate native events, and
+       under real-world load (a busy machine, several overlays' worth of
+       concurrent test/automation traffic) the gap between them — while still
+       reliably one same-gesture synchronous dispatch chain in practice — is
+       safer treated as "eventually", not "immediately"; a bare setTimeout(0)
+       risks firing in a genuine gap and clearing the guard a moment before
+       its own paired mousedown lands, reopening the exact bug this exists to
+       close. Bounding the leak window at a few hundred ms instead of one
+       macrotask trades an infinitesimal, purely cosmetic risk (an unrelated
+       mousedown within that window losing a focus-shift default it likely
+       didn't need anyway) for eliminating a real one. */
+    var FOCUS_GUARD_FALLBACK_MS = 400;
+    var focusGuard = null;
+    function clearFocusGuard() {
+      if (!focusGuard) return;
+      clearTimeout(focusGuard.timer);
+      document.removeEventListener("mousedown", focusGuard.handler, true);
+      focusGuard = null;
+    }
+    function armNativeFocusGuard() {
+      clearFocusGuard(); // defensive: never double-arm
+      function handler(e) {
+        clearFocusGuard();
+        e.preventDefault();
+      }
+      focusGuard = { handler: handler, timer: setTimeout(clearFocusGuard, FOCUS_GUARD_FALLBACK_MS) };
+      document.addEventListener("mousedown", handler, true);
+    }
 
     function onPointerDown(e) {
       if (isInside(e.target)) return;           // pointer inside the popup
       if (isOnOpener(e.target)) return;         // on the trigger (it toggles)
+      if (hasFocusReturn && e.pointerType !== "touch") armNativeFocusGuard();
       onDismiss();
     }
     function onScroll(e) {
@@ -299,6 +365,19 @@
       },
       disarm: function () {
         armed = false;
+        /* Deliberately does NOT clearFocusGuard() here. disarm() is exactly
+           what a consumer's own onDismiss chain calls to tear itself down
+           (e.g. js/sidebar.js's releasePinned(), invoked from a
+           MutationObserver watching the pinned attribute onDismiss just
+           cleared) — and that MutationObserver callback is a MICROTASK that
+           runs BEFORE the native mousedown even fires (confirmed via
+           tracing, see the #1038 comment above createDismisser). Clearing
+           the guard here raced it: disarm() would tear down the very guard
+           armed a moment ago for THIS gesture before it ever saw its
+           mousedown, reopening the native-blur bug. The guard cleans itself
+           up on its own (its mousedown handler, or the defensive
+           FOCUS_GUARD_FALLBACK_MS fallback), so disarm() doesn't need to
+           touch it. */
         if (usePointer) document.removeEventListener("pointerdown", onPointerDown, true);
         window.removeEventListener("scroll", onScroll, true);
         window.removeEventListener("resize", onResize);

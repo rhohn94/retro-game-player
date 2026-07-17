@@ -36,7 +36,16 @@
    without the column's own box model auto-growing to fit it. The stack
    container's cross-axis size is likewise pinned to --aura-fmb-column-size;
    only the main (block) axis extends, and only by whole slot-sized
-   increments plus gaps, never by an arbitrary child's content size. */
+   increments plus gaps, never by an arbitrary child's content size.
+
+   v3.555 ITEM-2 (docs/design/fmb-choreography-design.md): this file also
+   carries the member-agnostic BASE detach/decay selectors ([data-fmb-decaying],
+   [data-fmb-detached]) the new js/fmb-choreography.js engine's lifecycle
+   attributes drive — see the "Choreography base" block below. Those
+   selectors are UNSCOPED to aura-fmb-column (they target whatever host the
+   engine wrote the attribute to, elsewhere in the document) — everything
+   else in this file remains scoped to aura-fmb-column's own positioning
+   subtree as before. */
 
 @layer aura.fmb-column {
   aura-fmb-column {
@@ -169,10 +178,32 @@
   /* A stack only paints its glass surface once it has at least one active
      (Stashed) member; JS sets data-fmb-column-active on the stack (mirrors
      the previous data-fmb-column-active on the root element) once
-     registration populates it. Empty stacks stay invisible and inert. */
+     registration populates it. Empty stacks stay invisible and inert.
+
+     pointer-events stays `none` here — deliberately NOT flipped to `auto`
+     alongside opacity (#1037 fix). The stack is a purely decorative backdrop
+     (aria-hidden, see the file banner above) and its slot cells are already
+     pointer-events:none ("FMBs are above the column; slots don't need to
+     intercept", below) — no descendant of this subtree ever needs real hit-
+     testing. Multiple independent FMB members can share one (column, anchor)
+     stack (the legacy default packs BOTH nav-header and the sidebar into
+     start:start), and each member's own resting z-index (css/nav-header.css
+     var(--aura-z-sticky), css/sidebar.css var(--aura-sidebar-z)) sits BELOW
+     this stack's var(--aura-z-overlay) tier — "FMBs are above the column"
+     only holds once a member bumps its OWN z-index via --aura-z-fmb-active
+     (hover/Opened/Pinned). At rest, an `auto` value here made this tall,
+     wide (one slot per stacked member) backdrop the winning hit-test target
+     over ANY sibling member's real control that happened to fall inside its
+     rect — confirmed via elementsFromPoint: a real coordinate click at the
+     sidebar pill's center landed on this stack div instead of the pill
+     itself once the shared start:start stack activated. Leaving pointer-
+     events:none unconditionally makes the whole backdrop click-through on
+     desktop, matching its documented decorative/aria-hidden role; the
+     mobile-only [data-fmb-reveal] control below is the one real interactive
+     element this file ships, and is unaffected (a document.body child,
+     styled independently). */
   aura-fmb-column [data-fmb-column][data-fmb-anchor][data-fmb-column-active] {
     opacity: 1;
-    pointer-events: auto;
   }
 
   /* ── User-FMB size coordination (v3.549 review-fix) ──────────────────────
@@ -580,6 +611,72 @@
       -webkit-backdrop-filter: none;
               backdrop-filter: none;
       border: 2px solid var(--aura-surface-stroke);
+    }
+  }
+
+  /* ── Choreography base: Detach → Decay (v3.555 ITEM-2, unified ITEM-8) ────
+     fmb-choreography-design.md §Seam contract + docs/design/fmb-design.md
+     §5 Detach → Decay → re-stash. js/fmb-choreography.js (a SEPARATE module —
+     see that file's banner comment for why) writes data-fmb-detached /
+     data-fmb-decaying / --aura-fmb-decay-progress directly onto each
+     registered member's OWN host element (nav-header/sidebar/footer/user —
+     NOT a descendant of <aura-fmb-column>, see js/fmb-column.js's file
+     banner), so these selectors are deliberately UNSCOPED to
+     aura-fmb-column — they are member-agnostic infrastructure any current or
+     future FMB member's host picks up for free, mirroring how this file
+     already owns the shared column/anchor geometry rather than each member
+     re-deriving it. Per-member GEOMETRY (exactly how the button silhouette
+     reshapes into the panel) stays in each member's own file — ITEM-3/4/5.
+
+     v3.555 ITEM-8: both attributes now converge on ONE rule, because they
+     converge on ONE continuous driver — --aura-fmb-decay-progress (0..1),
+     written by js/fmb-choreography.js every rAF frame throughout BOTH
+     sub-phases (docs/design/fmb-choreography-design.md §The two-driver
+     model): Detach (distance-driven, reversible) ramps it 0..DETACH_CEIL as
+     the cursor moves through the proximity-fade band, Decay (time-driven)
+     picks up exactly at DETACH_CEIL and ramps the rest to 1. Previously
+     [data-fmb-detached] used a FIXED halfway approximation unrelated to
+     progress (a per-member drift this item closes) — a member entering the
+     band from a shallow angle and one grazing its outer edge looked
+     identical, and crossing into Decay could visibly RE-saturate before
+     fading (progress restarting at 0 while the fixed halfway value it
+     replaced was already past that point). One formula, one rule, for both:
+     a fully decayed member and a freshly re-stashed one are the SAME visual
+     state (the ghost, var(--aura-fmb-ghost-opacity, 0.35) — docs/design/
+     fmb-design.md §1, previously a hard-duplicated 0.35 literal at 4 call
+     sites, see tokens.json's fmb-ghost-opacity comment) — decay is "animate
+     opacity/saturation from fully-Opened (1 / grayscale 0) down to the
+     ghost's own resting values", and detach is the SAME animation run only
+     up to DETACH_CEIL of the way. No CSS transition on either channel: both
+     sub-phases already write a fresh value every rAF frame they are active
+     (Detach while the pointer is moving; Decay continuously), the exact same
+     "continuous JS write, no transition" shape js/glow.js already uses for
+     --aura-glow-intensity — layering a transition on top would make the
+     visual chase a moving target instead of tracking it directly, which
+     the Detach sub-phase's "reversible, recomputed live" contract requires. */
+  [data-fmb-detached],
+  [data-fmb-decaying] {
+    opacity: calc(1 - (1 - var(--aura-fmb-ghost-opacity, 0.35)) * var(--aura-fmb-decay-progress, 0));
+    filter: grayscale(var(--aura-fmb-decay-progress, 0));
+  }
+
+  /* Reduced motion (docs/design/fmb-choreography-design.md §Reduced motion
+     and pointer: coarse): js/fmb-choreography.js never SETS either attribute
+     under prefers-reduced-motion in the first place, so this rule is
+     normally moot under that preference — kept anyway as defense-in-depth
+     (an author who hand-authors one of these attributes directly, bypassing
+     the engine, still gets an instant swap rather than an animated one) and
+     to match this file's existing "every transition gets an explicit
+     reduced-motion override" convention (see the block above). Neither
+     selector declares its own `transition` above (both are continuous
+     per-frame writes, no transition to begin with), so this has nothing to
+     override today — kept as a documented no-op safety net rather than
+     removed, in case a future revision reintroduces a transition on either
+     channel. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-fmb-detached],
+    [data-fmb-decaying] {
+      transition: none;
     }
   }
 

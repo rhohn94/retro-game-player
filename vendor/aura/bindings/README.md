@@ -254,7 +254,7 @@ The React binding is split, and only PART of it is machine-generated (#521):
   `jsx.d.ts`. **Do not hand-edit these** — edit the generator and rerun.
 - **Hand-authored** — `hooks.js` and `hooks.d.ts`. They are *not* emitted by
   the generator and have no regenerate step; edit them directly. A light gate
-  (`tools/test_aura_tools.py`) checks that the two stay in sync (every hook
+  (`tools/test_aura_tools_producer.py`) checks that the two stay in sync (every hook
   exported from `hooks.js` is declared in `hooks.d.ts` and vice versa).
 
 The **Vue/Svelte** `AURA_TAGS` list is likewise generated — the same

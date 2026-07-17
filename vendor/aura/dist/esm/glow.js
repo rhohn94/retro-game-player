@@ -242,6 +242,25 @@ import "./core.js";
     var anyActive = false;
     var groupMax = null; // lazily created { groupName: maxIntensity }
 
+    /* prefers-reduced-motion (#1090): the continuous distance→intensity ramp
+       below (Math.pow(1 - dist/radius, falloff)) IS the Approach movement's
+       animation (fmb-design.md §2 Approach; docs/design/fmb-choreography-
+       design.md §The two-driver model) — every FMB member's ghost-opacity/
+       grayscale calc() rides this SAME --aura-glow-intensity value (see e.g.
+       css/footer.css's circle rule), so gating it here once, generically,
+       covers every current and future .aura-glow/.aura-sheen consumer with
+       no per-member CSS special-casing. Under reduced motion the ramp
+       collapses to a single discrete step — 1 the instant the cursor is
+       within the detection radius, 0 otherwise — never an intermediate
+       value, so the un-ghost reads as one state swap, not a per-frame fade.
+       Checked LIVE inside the frame loop (mirrors js/fmb-choreography.js's
+       own Aura.env.reducedMotion()/coarsePointer() convention and that
+       file's doc comment on why: a matchMedia stub installed by a test, or a
+       real OS preference change, must take effect on the very next frame,
+       not just at IIFE-eval time) — one matchMedia() call per frame the loop
+       is actively running (idle otherwise), not per element. */
+    var reduced = Aura.env.reducedMotion();
+
     for (var i = 0; i < registry.length; i++) {
       var el = registry[i];
       if (!el.isConnected) continue;
@@ -274,7 +293,10 @@ import "./core.js";
 
       var intensity = 0;
       if (dist < radius) {
-        intensity = Math.pow(1 - dist / radius, glow.falloff);
+        /* Reduced motion: a flat step (see the frame()-level doc comment
+           above) instead of the eased power-curve ramp — at most ONE change
+           (0 -> 1) as the cursor crosses the radius boundary. */
+        intensity = reduced ? 1 : Math.pow(1 - dist / radius, glow.falloff);
 
         // Route the glow-position to the right coordinate space.
         //

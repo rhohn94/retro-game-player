@@ -274,14 +274,26 @@ aura-footer[data-aura-footer="reveal"],
   align-items: center;
   justify-content: center;
   gap: 0;
-  /* Ghostly FMB: monochrome + semi-transparent at rest; restores on expand.
-     Only opacity/filter animate now — no geometry channel is ever
-     transitioned, because no geometry channel ever changes. */
-  opacity: 0.35;
-  filter: grayscale(1);
-  transition:
-    opacity var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    filter  var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing);
+  /* Ghostly FMB rest state — now a PROGRESSIVE approach ramp (v3.555 ITEM-5,
+     fmb-design.md §2 Approach) instead of a boolean attribute-toggle
+     transition. js/glow.js already writes --aura-glow-intensity (0..1) on
+     every .aura-glow host every frame while the cursor is within the glow
+     radius — UNCHANGED by this release, see docs/design/fmb-choreography-
+     design.md §The two-driver model — and this calc() rides that SAME live
+     value, un-ghosting continuously as the cursor approaches rather than
+     snapping only once the hover/expand threshold is crossed. No CSS
+     transition is declared here on purpose: the source value already
+     changes smoothly every rendered frame while glow is active, exactly
+     like css/fmb-column.css's own [data-fmb-decaying] rule (also driven by
+     a live JS-written custom property, also transition-less). The hover /
+     focus-within / data-footer-expanded / data-fmb-pinned block further
+     below remains an unconditional opacity:1/filter:none accessibility
+     floor — keyboard and touch users who never trigger a proximity ramp
+     still get full un-ghost. --aura-fmb-ghost-opacity replaces the 4
+     hard-duplicated 0.35 literals across the FMB members (tokens.json's
+     fmb-ghost-opacity comment) — this is one of them. */
+  opacity: calc(var(--aura-fmb-ghost-opacity, 0.35) + (1 - var(--aura-fmb-ghost-opacity, 0.35)) * var(--aura-glow-intensity, 0));
+  filter: grayscale(calc(1 - var(--aura-glow-intensity, 0)));
 }
 
 /* Glow-vs-ghost conflict (v3.532 #A, preserved verbatim from the pre-v3.550
@@ -360,6 +372,41 @@ aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]
      bump") — deduplicates this literal from css/nav-header.css (x2) and
      css/sidebar.css; all four sites consume one source of truth. */
   z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+}
+
+/* ---- Pin press-feedback + pinned-accent ring (v3.555 ITEM-5) --------------
+   fmb-design.md §4 Pin. data-fmb-press is a brief, JS-timed pulse
+   (Aura.fmbChoreography.press(), called from js/footer.js's
+   _onFmbPinClick — one --aura-dur-fast cycle) layered on top of whatever
+   geometry channel is already in effect. transform never touches inset/
+   inline-size/block-size, so the button-stability invariant's !important
+   geometry channels (above) are untouched — this is a temporary,
+   self-reverting nudge, not a lasting state, so a pre/post bounding-rect
+   assertion taken at rest (never mid-press) is unaffected.
+
+   #1107 fix: this rule had no `transition` at all, so the squash snapped
+   straight to --aura-fmb-press-scale and back instead of easing like every
+   other member's own [data-fmb-press] rule (css/nav-header.css's
+   .aura-nav-header[data-fmb-press], css/sidebar.css's
+   [data-sidebar-zone="mark"][data-fmb-press]) — both animate the scale over
+   --aura-dur-fast. Mirroring that token + easing pairing here. */
+aura-footer[data-aura-footer="reveal"][data-fmb-press],
+.aura-footer[data-aura-footer="reveal"][data-fmb-press] {
+  transform: scale(var(--aura-fmb-press-scale, 0.94));
+  transition: transform var(--aura-dur-fast, 0.1s) var(--aura-ease-standard, ease);
+}
+/* Held/pinned indicator: an accent outline ring, visually distinct from the
+   plain-Opened floor above (which only restores opacity/filter) —
+   fmb-design.md §4's recommended default ("an accent-coloured outline/
+   border ring... a border shift preserves the button's contents and
+   contrast"). outline (never border) so it adds no box-model footprint —
+   outline is painted outside the border-box and excluded from
+   getBoundingClientRect(), so it cannot affect the button-stability
+   invariant's bounding-rect assertion. */
+aura-footer[data-aura-footer="reveal"][data-fmb-pinned],
+.aura-footer[data-aura-footer="reveal"][data-fmb-pinned] {
+  outline: 2px solid var(--aura-fmb-pinned-accent, var(--aura-edge-color));
+  outline-offset: 2px;
 }
 
 /* ---- Mobile convergence: reachable through <aura-fmb-column>'s reveal
@@ -507,13 +554,48 @@ aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]
   box-shadow: var(--aura-footer-shadow), inset 0 1px 0 var(--aura-edge-light);
   -webkit-backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
   backdrop-filter: blur(var(--aura-footer-blur)) saturate(var(--aura-footer-saturate));
+  z-index: var(--aura-footer-z-index);
+  /* ---- Open-morph (v3.555 ITEM-5, fmb-design.md §3 Open) ------------------
+     Replaces the old flat opacity crossfade with a real "grows out of the
+     circle" reveal. The panel is a document.body sibling of the circle (see
+     the containing-block doc comment above), so a transform-origin scale()
+     morph is DELIBERATELY AVOIDED here: any non-none `transform` value
+     (even `scale(1)`, a visual no-op) makes the element a containing block
+     for its OWN position:fixed descendants per the CSS Transforms spec —
+     the exact bug class this file's containing-block comments already
+     document at length for the CIRCLE, which is precisely why the panel
+     was moved OUT of the (permanently-translated) host to begin with.
+     Reintroducing a persistent transform on the panel itself would risk the
+     identical trap for any fixed-position popup a consumer nests inside it
+     (Aura's own overlay/menu system already avoids this by portalling to
+     document.body — js/menu.js's menu.js:283 `document.body.appendChild
+     (menu)` — but a transform-based morph would needlessly reopen the risk
+     for future/consumer content). clip-path has no such side effect, so the
+     "grows from the circle's own point" read is achieved with a circular
+     reveal instead of a scale: circle(0% ...) is a literal zero-radius
+     point (matches the invisible rest state) growing to
+     circle(farthest-corner ...) — guaranteed to fully cover the panel's box
+     from ANY origin point (farthest-corner is exact, not a magic-number
+     percentage guess). The origin itself is resolved in JS
+     (js/footer.js's updateMorphOrigin(), called by syncPanelStateMirror()
+     whenever the panel opens) from the CIRCLE's real getBoundingClientRect(),
+     translated into the panel's own fixed-position coordinate space (both
+     share the same viewport-relative coordinate system since both are
+     position:fixed — the only translation needed is subtracting the
+     panel's own top-left) and published as the two custom properties below
+     — the "translate the button rect into the panel's fixed-position
+     coordinate space" the release plan calls for. The (0%, 100%) fallback
+     matches the shared bottom-left anchor corner (see "ANCHOR CORNER"
+     comment above) for the one frame before JS has run, or if script
+     fails. */
+  clip-path: circle(0% at var(--aura-footer-panel-morph-origin-x, 0%) var(--aura-footer-panel-morph-origin-y, 100%));
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  z-index: var(--aura-footer-z-index);
   transition:
-    opacity    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
-    visibility 0s linear var(--aura-footer-reveal-duration);
+    opacity    var(--aura-fmb-morph-duration, var(--aura-fmb-column-duration, 280ms)) var(--aura-fmb-morph-easing, var(--aura-fmb-column-easing, ease)),
+    clip-path  var(--aura-fmb-morph-duration, var(--aura-fmb-column-duration, 280ms)) var(--aura-fmb-morph-easing, var(--aura-fmb-column-easing, ease)),
+    visibility 0s linear var(--aura-fmb-morph-duration, var(--aura-fmb-column-duration, 280ms));
 }
 /* Multi-column layout API (#812) carried over onto the panel — the panel is
    now the element that actually lays out real content. */
@@ -555,14 +637,112 @@ aura-footer[data-aura-footer="reveal"][data-fmb-pinned]:not([data-aura-revealed]
    animating IN, but only flips to hidden after the fade-OUT finishes (see
    the base rule's transition-delay on the closing direction — matches the
    standard "fade out, then hide" idiom used by tooltip/menu panels
-   elsewhere in Aura). */
+   elsewhere in Aura).
+
+   #1109 fix: the base rule (above) sets z-index: var(--aura-footer-z-index)
+   — the footer's ordinary, always-below-nav-header tier — with no bump
+   while Opened, unlike the CIRCLE's own active z-index rule (the "FMB
+   column z-index bump" block earlier in this file), which rises to
+   --aura-z-fmb-active while un-ghosted. The panel is the surface that
+   actually carries real, clickable content once Opened, so it must rise to
+   the SAME tier the circle already does — otherwise the circle can
+   correctly clear the column's glass stack while its own panel still
+   renders underneath it. Bare token value (not the sidebar panel's "+1"
+   trick — that exists there to out-rank sidebar's OWN pill, which footer
+   has no equivalent of), mirroring css/sidebar.css's
+   [data-sidebar-zone="content"] open-panel bump exactly. */
 .aura-footer__panel[data-footer-panel-open] {
+  clip-path: circle(farthest-corner at var(--aura-footer-panel-morph-origin-x, 0%) var(--aura-footer-panel-morph-origin-y, 100%));
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+  z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
   transition:
-    opacity    var(--aura-footer-reveal-duration) var(--aura-footer-reveal-easing),
+    opacity    var(--aura-fmb-morph-duration, var(--aura-fmb-column-duration, 280ms)) var(--aura-fmb-morph-easing, var(--aura-fmb-column-easing, ease)),
+    clip-path  var(--aura-fmb-morph-duration, var(--aura-fmb-column-duration, 280ms)) var(--aura-fmb-morph-easing, var(--aura-fmb-column-easing, ease)),
     visibility 0s linear 0s;
+}
+
+/* ---- Detach -> Decay mirror (v3.555 ITEM-5, unified ITEM-8; fmb-design.md
+   §5) ------------------------------------------------------------------------
+   js/footer.js mirrors the engine's data-fmb-detached/data-fmb-decaying
+   (written to the CIRCLE, per Aura.fmbChoreography.register()'s `host`
+   contract) onto the panel under these PANEL-OWNED attribute names — see
+   js/footer.js's own doc comment on PANEL_DETACHED_ATTR/PANEL_DECAYING_ATTR
+   for why the mirror deliberately does NOT reuse the bare data-fmb-*
+   spelling (it would collide with css/fmb-column.css's UNSCOPED base rule
+   and — being in a LATER cascade layer — win regardless of specificity).
+   That boolean mirror is unchanged by ITEM-8 and still what these selectors
+   KEY off.
+
+   What DID change in ITEM-8: the engine (js/fmb-choreography.js's
+   writeProgress) now writes the live --aura-fmb-decay-progress custom
+   property onto the registered `menu` element — this body-level panel — as
+   well as the host, every rAF frame throughout BOTH sub-phases. The panel
+   is a document.body sibling of the circle (ensureFooterPanel()'s
+   containing-block doc comment), so a custom property set on the host does
+   NOT inherit to it — but a property the engine writes DIRECTLY onto the
+   panel is read here with zero further plumbing. So the panel now uses the
+   IDENTICAL unified formula every other member's menu/panel uses (off the
+   real, distance-then-time-driven progress — 0..DETACH_CEIL through the
+   band, DETACH_CEIL..1 through decay), truly distance-proportional rather
+   than the pre-ITEM-8 fixed-step / plain-transition approximation, and with
+   NO js/footer.js change and NO local ceiling-mirror constant. No CSS
+   transition on either channel: the engine writes a fresh value every frame
+   (the same "continuous JS write, no transition" shape css/fmb-column.css's
+   own base rule uses for the circle) — layering a transition on top would
+   make the reversible Detach sub-phase visibly lag the cursor.
+
+   transform/clip-path are DELIBERATELY untouched here — the geometric
+   "shrink back into the circle" reverse-morph plays only once, exactly at
+   re-stash (the [data-footer-panel-open] attribute's removal, above), not
+   continuously through the fade: fmb-design.md §5 describes detach/decay as
+   a saturation/opacity fall, with the morph proper reserved for movement 3
+   and its reverse. Equal specificity to [data-footer-panel-open] above and
+   declared LATER in this file, so — while EXPANDED_ATTR stays sticky-set
+   (js/footer.js's "sticky open" fix) and [data-footer-panel-open] therefore
+   stays present throughout the whole detach/decay path — these rules
+   correctly win the opacity/filter cascade for their own duration.
+
+   #1092 fix: "no transition on either channel" (above) was the INTENT but
+   not what the code did — the [data-footer-panel-open] rule above declares
+   its own `transition` (opacity/clip-path/visibility, ~280ms morph
+   duration), and per normal CSS cascade rules a selector that never
+   declares a property at all (this rule, before this fix) cannot override
+   an earlier rule's value for that property no matter how it wins on the
+   properties it DOES declare — only a rule that itself declares
+   `transition` can beat the open-state rule's own declaration. Since
+   [data-footer-panel-open] stays matched throughout the whole detach/decay
+   path (previous paragraph), its 280ms transition was silently re-easing
+   every one of the engine's per-frame progress writes, so the fade visibly
+   lagged the cursor instead of tracking it. `transition: none` here — equal
+   specificity, declared after — is what actually delivers the "no
+   transition" contract the paragraph above already described. */
+.aura-footer__panel[data-footer-panel-detached],
+.aura-footer__panel[data-footer-panel-decaying] {
+  opacity: calc(1 - (1 - var(--aura-fmb-ghost-opacity, 0.35)) * var(--aura-fmb-decay-progress, 0));
+  filter: grayscale(var(--aura-fmb-decay-progress, 0));
+  transition: none;
+}
+/* Defense-in-depth (v3.555 ITEM-5, mirrors css/fmb-column.css's own
+   reduced-motion defense-in-depth comment on its equivalent base rules):
+   js/fmb-choreography.js never sets data-fmb-detached/-decaying on a
+   coarse-pointer device at all (processMember()'s `if (coarse) { resetPhase
+   (reg); return; }` no-ops the whole distance path there, per
+   docs/design/fmb-choreography-design.md §Reduced motion and pointer:
+   coarse) — kept anyway in case either mirrored panel attribute is ever
+   present regardless (a hand-authored attribute, or a hybrid-pointer
+   capability change mid-session), so a touch-opened panel never visibly
+   auto-fades: "manual dismiss only" per fmb-design.md's touch contract.
+   Equal specificity to, and declared AFTER, the two rules above, so it
+   wins under pointer:coarse regardless of which of those also matches. */
+@media (pointer: coarse) {
+  .aura-footer__panel[data-footer-panel-detached],
+  .aura-footer__panel[data-footer-panel-decaying] {
+    opacity: 1;
+    filter: none;
+    transition: none;
+  }
 }
 
 /* ---- Permanently revealed (IntersectionObserver sentinel intersects) ------
@@ -580,11 +760,44 @@ aura-footer[data-aura-footer="reveal"][data-aura-revealed],
 
 /* ---- Reduced motion ------------------------------------------------------ */
 /* The reveal still CHANGES state — it just snaps, with no animated fade
-   (space-economy + animation contract). */
+   (space-economy + animation contract).
+
+   v3.555 ITEM-5: extended to cover the new channels this item adds. A plain
+   `.aura-footer__panel { transition: none }` is NOT enough on its own to
+   collapse [data-footer-panel-open]/[data-footer-panel-decaying]/
+   [data-footer-panel-detached]'s OWN transition declarations — each of
+   those selectors is MORE specific (class + attribute) than the bare
+   `.aura-footer__panel` class selector here, so per normal cascade rules
+   (media-query nesting does not add specificity) the more specific rule
+   would otherwise win regardless of source order. List each such selector
+   here explicitly, at matching specificity, so this block's `transition:
+   none` actually wins for all of them.
+
+   #1107 fix: press feedback used to reset `transform: none` outright under
+   reduced motion (reasoned as "opacity-only state swaps" — press being a
+   pure-transform effect with no opacity component, so the old argument went
+   straight to suppressing it). That diverged from every other FMB member's
+   own [data-fmb-press] rule (css/nav-header.css's
+   .aura-nav-header[data-fmb-press], css/sidebar.css's
+   [data-sidebar-zone="mark"][data-fmb-press]), which both keep applying
+   --aura-fmb-press-scale under reduced motion and only null the
+   *transition* — the press state change still happens, it just snaps
+   instead of easing ("movement is suppressed, an instant attribute-driven
+   state swap is fine" — Aura.fmbChoreography.press() itself sets/clears
+   data-fmb-press identically regardless of reduced motion, per
+   js/fmb-choreography.js; only each member's OWN CSS decides whether the
+   resulting state change animates). `transition: none` here — not
+   `transform: none` — brings footer's press feedback into that same
+   contract: the squash still happens, instantly, with no ramp. */
 @media (prefers-reduced-motion: reduce) {
   aura-footer[data-aura-footer="reveal"],
   .aura-footer[data-aura-footer="reveal"],
-  .aura-footer__panel {
+  .aura-footer__panel,
+  .aura-footer__panel[data-footer-panel-open],
+  .aura-footer__panel[data-footer-panel-detached],
+  .aura-footer__panel[data-footer-panel-decaying],
+  aura-footer[data-aura-footer="reveal"][data-fmb-press],
+  .aura-footer[data-aura-footer="reveal"][data-fmb-press] {
     transition: none;
   }
 }

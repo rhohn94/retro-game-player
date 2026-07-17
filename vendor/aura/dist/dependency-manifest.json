@@ -13,6 +13,8 @@
     "js/keyboard-nav.js",
     "js/form-associated-base.js",
     "js/form-control-base.js",
+    "js/fmb-column.js",
+    "js/fmb-choreography.js",
     "js/overlay.js",
     "js/popup-overlay.js",
     "js/menu.js",
@@ -65,8 +67,7 @@
     "js/aura-field.js",
     "js/nav-header.js",
     "js/footer.js",
-    "js/sidebar.js",
-    "js/fmb-column.js"
+    "js/sidebar.js"
   ],
   "modules": [
     {
@@ -138,6 +139,18 @@
       "deps": [
         "js/element-base.js",
         "js/form-associated-base.js"
+      ],
+      "cssLayer": null
+    },
+    {
+      "file": "js/fmb-column.js",
+      "deps": [],
+      "cssLayer": "fmb-column"
+    },
+    {
+      "file": "js/fmb-choreography.js",
+      "deps": [
+        "js/core.js"
       ],
       "cssLayer": null
     },
@@ -542,11 +555,6 @@
         "js/dialog.js"
       ],
       "cssLayer": "sidebar"
-    },
-    {
-      "file": "js/fmb-column.js",
-      "deps": [],
-      "cssLayer": "fmb-column"
     }
   ],
   "extras": [

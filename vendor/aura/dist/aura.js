@@ -1210,6 +1210,25 @@
     var anyActive = false;
     var groupMax = null; // lazily created { groupName: maxIntensity }
 
+    /* prefers-reduced-motion (#1090): the continuous distance→intensity ramp
+       below (Math.pow(1 - dist/radius, falloff)) IS the Approach movement's
+       animation (fmb-design.md §2 Approach; docs/design/fmb-choreography-
+       design.md §The two-driver model) — every FMB member's ghost-opacity/
+       grayscale calc() rides this SAME --aura-glow-intensity value (see e.g.
+       css/footer.css's circle rule), so gating it here once, generically,
+       covers every current and future .aura-glow/.aura-sheen consumer with
+       no per-member CSS special-casing. Under reduced motion the ramp
+       collapses to a single discrete step — 1 the instant the cursor is
+       within the detection radius, 0 otherwise — never an intermediate
+       value, so the un-ghost reads as one state swap, not a per-frame fade.
+       Checked LIVE inside the frame loop (mirrors js/fmb-choreography.js's
+       own Aura.env.reducedMotion()/coarsePointer() convention and that
+       file's doc comment on why: a matchMedia stub installed by a test, or a
+       real OS preference change, must take effect on the very next frame,
+       not just at IIFE-eval time) — one matchMedia() call per frame the loop
+       is actively running (idle otherwise), not per element. */
+    var reduced = Aura.env.reducedMotion();
+
     for (var i = 0; i < registry.length; i++) {
       var el = registry[i];
       if (!el.isConnected) continue;
@@ -1242,7 +1261,10 @@
 
       var intensity = 0;
       if (dist < radius) {
-        intensity = Math.pow(1 - dist / radius, glow.falloff);
+        /* Reduced motion: a flat step (see the frame()-level doc comment
+           above) instead of the eased power-curve ramp — at most ONE change
+           (0 -> 1) as the cursor crosses the radius boundary. */
+        intensity = reduced ? 1 : Math.pow(1 - dist / radius, glow.falloff);
 
         // Route the glow-position to the right coordinate space.
         //
@@ -2132,6 +2154,2068 @@
   });
 })();
 
+/* ==== fmb-column.js ==== */
+/* Aura — <aura-fmb-column> FMB column/anchor registration + positioning engine (v3.549)
+   Rewritten for v3.549 ITEM-2 (docs/design/fmb-design.md §Column positioning,
+   §The three states) onto the generic column/anchor model whose CSS shipped in
+   ITEM-1 (css/fmb-column.css). Members register into one of four logical
+   stacks — (column, anchor) pairs read from data-fmb-column / data-fmb-anchor —
+   instead of a hardcoded 4-slot nav/sidebar/footer/user registry. Any number of
+   members may register at the same (column, anchor); they stack in
+   registration (DOM) order, matching the CSS's block-start-grows-down /
+   block-end-grows-up (column-reverse) convention.
+
+   Hard architectural rule this file enforces (fmb-design.md §Column
+   positioning): "the column reserves space only for the Stashed state." A
+   stack is populated with one slot cell per member that is currently PRESENT
+   in the DOM — but a member only counts as "active" (paints the stack's glass
+   surface, sets data-fmb-column-active) while it is Stashed. An Opened/Pinned
+   member's menu panel is a separate floating panel the member's own host CSS
+   already renders outside this column entirely (js/fmb-column.js never sees
+   it) — so the column's own box model never grows to fit it.
+
+   Migration default (v3.549 ITEM-2): the four pre-v3.549 members
+   (nav-header, sidebar, footer, user-profile FMB) keep their exact current
+   visual positions. Each is auto-registered with a default data-fmb-column /
+   data-fmb-anchor / data-fmb-slot value IF THE HOST HASN'T ALREADY AUTHORED
+   one, reproducing today's layout:
+     nav-header  → column=start, anchor=start  (top-left, registers first)
+     sidebar     → column=start, anchor=start  (top-left, stacks below nav)
+     footer      → column=start, anchor=end    (bottom-left)
+     user-profile→ column=end,   anchor=start  (top-right)
+   Any host that authors its own data-fmb-column/data-fmb-anchor overrides
+   this default — the engine has no hardcoded 4-name allowlist; it discovers
+   ANY element carrying [data-fmb-column][data-fmb-anchor] (plus the four
+   known legacy selectors for back-compat auto-tagging) each sync.
+
+   This item is the CONTAINER mechanism only: button/panel decoupling (#1047)
+   and the user-profile FMB's open/pin unification (#1048) are separate,
+   later releases — the four members keep their existing internal
+   button/panel/pin behavior unchanged; only which column/anchor slot they
+   sit in, and how the column's footprint accounting works, changes here.
+
+   ITEM-3 (mobile merge + reveal control, fmb-design.md §Mobile): below
+   --aura-bp-mobile the CSS (css/fmb-column.css) merges both columns onto
+   the inline-start edge and hides every stack by default
+   (visibility:hidden + pointer-events:none) until the host carries
+   data-fmb-column-revealed. This file owns two new responsibilities: (1)
+   creating/wiring a single reveal <button> (_ensureRevealControl(),
+   [data-fmb-reveal]) that toggles that attribute on click or Enter/Space —
+   a real focusable element, not a hover-only affordance
+   (space-economy-design.md §Accessibility); (2) resetting the revealed
+   state closed whenever the breakpoint transitions AWAY from mobile, so
+   re-entering mobile later always starts hidden again ("hidden by
+   default", not "hidden until first opened, ever after remembered"). Member
+   registration/layout/activation (_discoverMembers/_layoutStack) run
+   IDENTICALLY in mobile and desktop mode — the merge is pure CSS
+   repositioning of the SAME stacks; there is no separate mobile data model.
+
+   ITEM-13 (v3.554, #1080): the reveal <button> is a document.body child,
+   not a DOM descendant of <aura-fmb-column> — see _ensureRevealControl()'s
+   doc comment for the aura-app isolation-boundary/stacking-context fix this
+   corrects (mirrors js/footer.js's ensureFooterPanel() escape).
+
+   v3.555 ITEM-2 (docs/design/fmb-choreography-design.md §Seam contract): this
+   file gained a narrow seam for the new js/fmb-choreography.js engine, which
+   drives the Detach → Decay → re-stash return path (fmb-design.md §State-
+   transition choreography, movement 5) — NO choreography logic lives here.
+   Three additions: (1) Aura.fmbColumn.members(), a module-level read
+   accessor exposing the SAME member discovery this file already does, so the
+   choreography engine (or any future consumer) never needs a second
+   LEGACY_MEMBERS-shaped dispatch; (2) isStashed() now returns false for a
+   host carrying data-fmb-decaying — a mid-decay member has not yet actually
+   returned to Stashed, so it must not count toward stack activation while
+   still keeping its slot cell (isEligible() is unchanged and still governs
+   cell reservation); (3) the MutationObserver attributeFilter now watches
+   data-fmb-detached/-decaying too, so a sync re-runs the moment the
+   choreography engine flips either one. */
+
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser — see js/fmb-column.js history. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  var Aura = window.Aura || (window.Aura = {});
+
+  var DOC_EL       = document.documentElement;
+  var DOC_STYLE    = DOC_EL.style;
+  var DOC_COMPUTED = getComputedStyle(DOC_EL);
+
+  var COLUMNS = ["start", "end"];
+  var ANCHORS = ["start", "end"];
+
+  /* v3.549 ITEM-3 (fmb-design.md §Mobile) — the merged-column reveal control.
+     REVEALED_ATTR lives on the <aura-fmb-column> HOST (mirrors the existing
+     data-fmb-column-active/data-slot-hover convention of hanging transient
+     JS-driven state off attributes the CSS keys on); REVEAL_SEL identifies
+     the reveal <button> itself.
+
+     v3.554 ITEM-13 (#1080): the button is now a document.body child, NOT a
+     DOM descendant of <aura-fmb-column> — see _ensureRevealControl()'s doc
+     comment for why (css/theme.css's `aura-app { isolation: isolate; }`
+     traps any descendant of <aura-app> in a losing stacking context against
+     js/footer.js's body-level floating panel; mirrors ensureFooterPanel()'s
+     own containing-block/stacking-context escape). */
+  var REVEALED_ATTR = "data-fmb-column-revealed";
+  var REVEAL_SEL = "[data-fmb-reveal]";
+
+  /* Legacy 4-member migration defaults (v3.549 ITEM-2). Each entry maps a
+     member's PRESENCE selector to the column/anchor/slot-name it is
+     auto-tagged with if (and only if) the host element does not already
+     carry an authored data-fmb-column attribute — see autoTagLegacyMembers().
+     Order here is also the fallback registration order within a stack
+     (nav before sidebar keeps nav nearest the block-start edge, matching
+     today's visual stacking). */
+  var LEGACY_MEMBERS = [
+    { selector: "aura-nav-header, .aura-nav-header",   slot: "nav",     column: "start", anchor: "start" },
+    { selector: "[data-aura-sidebar]",                 slot: "sidebar", column: "start", anchor: "start" },
+    { selector: "aura-footer, [data-aura-footer]",     slot: "footer",  column: "start", anchor: "end"   },
+    { selector: "[data-aura-user-fmb]",                slot: "user",    column: "end",   anchor: "start" }
+  ];
+
+  /* Parse a raw data-fmb-column-min string into a valid integer or null.
+     Preserved from the pre-v3.549 implementation (#942, #968) — the min-count
+     activation override is unchanged by this item's column/anchor rework. */
+  function parseMinVal(raw) {
+    if (raw === null) return null;
+    var n = parseInt(raw, 10);
+    return (!Number.isFinite(n) || n < 1) ? null : n;
+  }
+
+  /* Read --aura-fmb-column-breakpoint from :root computed styles; fall back to 640px. */
+  function readBreakpoint() {
+    return DOC_COMPUTED.getPropertyValue('--aura-fmb-column-breakpoint').trim() || '640px';
+  }
+
+  /* A single registered member: the host element the FMB lives on, and its
+     resolved column/anchor/slot identity. One MemberEntry is created per
+     present legacy host and per any element authoring its own
+     data-fmb-column/data-fmb-anchor pair — see
+     AuraFmbColumn.prototype._discoverMembers(). The member's slot cell
+     itself lives in a Map on the stack element (stackEl._fmbCellMap, keyed
+     by host), not on the entry — a fresh MemberEntry is created every
+     _discoverMembers() pass, while the cell must persist across passes for
+     DOM-reuse idempotency (see _layoutStack()). */
+  function MemberEntry(host, column, anchor, slotName) {
+    this.host = host;
+    this.column = column;
+    this.anchor = anchor;
+    this.slotName = slotName;
+  }
+
+  /* Stashed-state predicate — generalizes the pre-v3.549 per-member stash
+     booleans (navStashed/footerStashed/userStashed) into one dispatch keyed
+     by slot name for the four legacy members, and a generic fallback for any
+     future consumer-authored member (present + not carrying data-fmb-pinned
+     nor its own data-{member}-expanded-shaped attribute is NOT assumed here —
+     a generic member is considered Stashed unless it exposes the unified
+     data-aura-stashed mirror and that mirror is absent; see fmb-design.md's
+     unified-contract note reused from the pre-v3.549 user-FMB template). */
+  function isStashed(entry) {
+    var host = entry.host;
+    /* v3.555 ITEM-2 seam (fmb-choreography-design.md §Seam contract point 2):
+       a member mid-decay (Opened+unpinned, js/fmb-choreography.js's timed
+       auto-fade running) has NOT yet returned to Stashed — the reverse-morph
+       hasn't completed — so it must not count as Stashed here, regardless of
+       slot name. This mirrors hasVisibleContent()'s box-model-stability
+       precedent below, one attribute over: a decaying member still keeps its
+       slot cell (isEligible() below is what governs cell reservation, and is
+       untouched by decay state), it just doesn't count toward
+       eligibleStashedCount / stack activation while still visibly fading. */
+    if (host.hasAttribute("data-fmb-decaying")) return false;
+    switch (entry.slotName) {
+      case "nav":
+        return host.hasAttribute("data-stashed");
+      case "sidebar":
+        /* FMB-mode eligibility (pre-v3.549 #891, unchanged): only a sidebar in
+           "reveal" mode participates at all; a sidebar in "standard" panel
+           mode is present in the DOM but not an FMB member this sync. Pinned
+           state does NOT evict the sidebar from the column (#951, unchanged
+           by this item) — its slot cell stays put while its panel floats
+           above/past the column. */
+        return host.getAttribute("data-aura-sidebar") === "reveal";
+      case "footer":
+        return host.getAttribute("data-aura-footer") === "reveal" && !host.hasAttribute("data-aura-revealed");
+      case "user":
+        return host.hasAttribute("data-aura-stashed");
+      default:
+        /* Generic member template (fmb-design.md's unified contract): presence
+           of the shared data-aura-stashed mirror, when authored, is read
+           directly rather than inventing a bespoke per-host attribute. A
+           generic host that authors no stash mirror at all is treated as
+           always-Stashed (it has no Opened/Pinned distinction this engine
+           knows about) so it still reserves a column slot. */
+        return host.hasAttribute("data-aura-stashed") || !host.hasAttribute("data-fmb-pinned");
+    }
+  }
+
+  /* Present-eligibility predicate — mirrors isStashed()'s per-slot dispatch
+     but answers "does this member participate in the column AT ALL right
+     now" (pre-v3.549's sidebarFmb/footerFmb "FMB-mode eligibility" concept),
+     independent of stash state. A present-but-not-stashed member still
+     reserves its slot cell (so the column doesn't jump size when it opens)
+     but does not count toward stack activation. */
+  function isEligible(entry) {
+    var host = entry.host;
+    switch (entry.slotName) {
+      case "sidebar":
+        return host.getAttribute("data-aura-sidebar") === "reveal";
+      case "footer":
+        return host.getAttribute("data-aura-footer") === "reveal";
+      default:
+        return true;
+    }
+  }
+
+  /* Migration default (v3.549 ITEM-2), extracted to a free function (v3.555
+     ITEM-2 seam) — tag each present legacy host with its default
+     data-fmb-column/data-fmb-anchor/data-fmb-slot triplet, UNLESS the host
+     already authors its own data-fmb-column (an explicit author override
+     always wins). Idempotent: checks hasAttribute before writing so re-
+     running this on every discovery pass never clobbers a value a consumer
+     or a prior run already set. Never depended on `this` — it always just
+     scanned `document` — so it is now a standalone function the
+     AuraFmbColumn.prototype._autoTagLegacyMembers() method below delegates
+     to, and the module-level discoverMembers() (also below) reuses directly. */
+  function autoTagLegacyMembers() {
+    for (var i = 0; i < LEGACY_MEMBERS.length; i++) {
+      var def = LEGACY_MEMBERS[i];
+      var hosts = document.querySelectorAll(def.selector);
+      for (var h = 0; h < hosts.length; h++) {
+        var host = hosts[h];
+        if (!host.hasAttribute("data-fmb-column")) host.setAttribute("data-fmb-column", def.column);
+        if (!host.hasAttribute("data-fmb-anchor"))  host.setAttribute("data-fmb-anchor", def.anchor);
+        if (!host.hasAttribute("data-fmb-slot"))    host.setAttribute("data-fmb-slot", def.slot);
+      }
+    }
+  }
+
+  /* Re-discover every registered member in the document (v3.555 ITEM-2 seam:
+     the SAME logic AuraFmbColumn.prototype._discoverMembers() below uses,
+     extracted to a free function so it needs no <aura-fmb-column> instance).
+     Any element carrying BOTH data-fmb-column and data-fmb-anchor (after
+     autoTagLegacyMembers() has run) is a registered member, EXCEPT this
+     file's own internal stack containers (_ensureStacks() also gives those
+     the same two attributes as positioning markers, not member hosts) —
+     detected via host.closest("aura-fmb-column") rather than a `parentElement
+     === this` instance check, which is equivalent for the single-instance-
+     per-page model this file already assumes (file banner comment) but
+     instance-independent, which is what makes this function extractable as
+     the module-level read accessor Aura.fmbColumn.members() exposes just
+     below: js/fmb-choreography.js (or any future consumer) reads the SAME
+     discovered member list instead of re-implementing the
+     LEGACY_MEMBERS-shaped dispatch a second time (fmb-choreography-design.md
+     §Seam contract point 1). Registration order = DOM (document) order.
+     Returns plain {host, column, anchor, slotName} records — not
+     MemberEntry instances, which are this file's own internal type; the
+     public accessor stays dependency-free of it. */
+  function discoverMembers() {
+    autoTagLegacyMembers();
+    var hosts = document.querySelectorAll("[data-fmb-column][data-fmb-anchor]");
+    var members = [];
+    for (var i = 0; i < hosts.length; i++) {
+      var host = hosts[i];
+      if (host.closest && host.closest("aura-fmb-column")) continue; // our own stack container, not a member
+      var column = host.getAttribute("data-fmb-column");
+      var anchor = host.getAttribute("data-fmb-anchor");
+      if (COLUMNS.indexOf(column) === -1 || ANCHORS.indexOf(anchor) === -1) continue;
+      var slotName = host.getAttribute("data-fmb-slot") || null;
+      members.push({ host: host, column: column, anchor: anchor, slotName: slotName });
+    }
+    return members;
+  }
+
+  /* Public read accessor (v3.555 ITEM-2 seam, fmb-choreography-design.md
+     §Seam contract point 1): the current FMB member list, freshly discovered
+     from the live DOM on every call — mirrors this file's own back-compat
+     getters' "always correct for the CURRENT DOM state" convention (see
+     AuraFmbColumn.prototype's _navEl-shaped getters below) rather than a
+     cached snapshot that could go stale between calls. Namespace-level, not
+     tied to any <aura-fmb-column> instance, because member discovery is a
+     page-wide DOM query, not per-element state. */
+  Aura.fmbColumn = Aura.fmbColumn || {};
+  Aura.fmbColumn.members = function () {
+    return discoverMembers();
+  };
+
+  /* Content-occupancy predicate (#1074 fix). isStashed()/isEligible() answer
+     from MEMBER STATE alone (attributes) — neither one ever asks whether the
+     member's host is actually rendering anything a stack's glass surface
+     would visually contain. A host can be logically "Stashed" (isStashed()
+     true) while its own CSS has collapsed it to a zero-area box (e.g. a
+     sidebar rail closed to width:0) — the corner slab then activates and
+     paints an ~0.88-alpha glass tile over hero/content with nothing inside
+     it, because the count-based threshold below never looked at the
+     rendered box. hasVisibleContent() closes that gap: a Stashed member only
+     counts toward eligibleStashedCount (and therefore toward stack
+     activation) once its host actually paints a non-zero-area box.
+     getBoundingClientRect() (not offsetWidth/Height) so this also correctly
+     reads position:fixed hosts, which the legacy chrome members always are.
+     Disconnected hosts (mid-teardown) are treated as having no content. Note
+     this does NOT gate presentCount/slot-cell reservation — a member mid-
+     collapse-animation still keeps its cell so the stack's box model doesn't
+     jump; it only gates whether that member's Stashed-ness counts toward the
+     activation threshold. */
+  function hasVisibleContent(host) {
+    if (!host || !host.isConnected) return false;
+    var rect = host.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  class AuraFmbColumn extends HTMLElement {
+    constructor() {
+      super();
+      var self = this;
+      this._syncBound = function syncBound() { self._rafId = null; self._sync(); };
+      /* Guard against observing our OWN DOM writes (#1046 hang fix): _sync()
+         creates/reorders stack containers and slot cells INSIDE this element
+         (_ensureStacks(), _layoutStack()'s cell append/reorder). Those are
+         childList mutations under document.documentElement's subtree just
+         like any external change, so without this guard every _sync() call
+         would re-trigger itself via its own writes — an infinite
+         resync loop. A record whose target is this element or a descendant
+         of it is our own bookkeeping, never a member's state changing, so it
+         must never mark presence dirty or schedule another sync. */
+      this._scheduleSyncBound = function scheduleSyncBound(records) {
+        var relevant = false;
+        for (var i = 0; i < records.length; i++) {
+          var target = records[i].target;
+          if (self.contains(target) || target === self) continue; /* our own subtree write — ignore */
+          relevant = true;
+          if (records[i].type === 'childList' || records[i].type === 'attributes') { self._presenceDirty = true; }
+        }
+        if (relevant) self._scheduleSync();
+      };
+      this._mqlChangeBound = function mqlChangeBound() { self._presenceDirty = true; self._scheduleSync(); };
+
+      /* Pre-bound pointer/focus slot-hover handlers — allocated once per
+         element lifetime (mirrors the pre-v3.549 pattern, #945/#946), now
+         dispatching through the live member registry instead of four
+         hardcoded refs. */
+      this._checkHover = function checkHover() {
+        var stillIn = false;
+        for (var i = 0; i < self._members.length; i++) {
+          if (self._members[i].host.matches(':hover')) { stillIn = true; break; }
+        }
+        if (!stillIn && self._hoverHost !== null) { self._clearHover(); }
+      };
+      this._checkFocus = function checkFocus() {
+        var active = document.activeElement;
+        var stillFocused = false;
+        for (var i = 0; i < self._members.length; i++) {
+          if (self._members[i].host.contains(active)) { stillFocused = true; break; }
+        }
+        if (!stillFocused && self._hoverHost !== null) { self._clearHover(); }
+      };
+      this._hoverOver = function hoverOver(e) {
+        if (!self._anyStackActive) return;
+        self._setHoverFromEvent(e.target);
+      };
+      this._hoverOut = function hoverOut() {
+        if (!self._anyStackActive) return;
+        if (self._hoverHost !== null) requestAnimationFrame(self._checkHover);
+      };
+      this._focusIn = function focusIn(e) {
+        if (!self._anyStackActive) return;
+        self._setHoverFromEvent(e.target);
+      };
+      this._focusOut = function focusOut() {
+        if (!self._anyStackActive) return;
+        if (self._hoverHost !== null) requestAnimationFrame(self._checkFocus);
+      };
+
+      this._mo = null;
+      this._mql = null;
+      this._lastBreakpoint = null;
+      this._rafId = null;
+      this._minCache = null; /* per-stack data-fmb-column-min override; read from the STACK element, see _sync() */
+      this._presenceDirty = true;
+      this._members = [];        /* flat list of MemberEntry, rebuilt on every presence-dirty sync */
+      this._stacks = {};         /* "start:start" -> stack <div> element, created lazily in _ensureStacks() */
+      /* Hover identity is keyed off the stable DOM host element (_hoverHost),
+         NOT a cached MemberEntry reference (_hoverEntry, kept only for the
+         slotName it carries at set-time — see _setHoverFromEvent()). Every
+         presence-dirty _sync() re-runs _discoverMembers(), which allocates a
+         brand-new MemberEntry per host every pass (by design — see the
+         MemberEntry doc comment), and presence-dirty now fires on ANY
+         observed attribute change (not just childList). Comparing by entry
+         identity meant `this._hoverEntry === entry` silently stopped
+         matching the same still-hovered host after any unrelated DOM
+         mutation triggered re-discovery — the per-cell
+         data-fmb-slot-hovered highlight could drop while the pointer was
+         still over the button, and the stale entry reference lingered until
+         the next real pointer/focus event recomputed it (reviewer finding,
+         v3.549 review-fix). Comparing by host element sidesteps this: hosts
+         are stable across re-discovery, only the wrapping MemberEntry is
+         reallocated. */
+      this._hoverHost = null;    /* host element of the currently slot-hovered member, or null */
+      this._hoverEntry = null;   /* MemberEntry last seen for _hoverHost (slotName source, may be stale — never compared by identity) */
+      this._anyStackActive = false; /* fast-path guard: true once ANY stack carries data-fmb-column-active */
+
+      /* v3.549 ITEM-3 — mobile reveal control. this._reveal is the JS-created
+         <button> (lazily built in _ensureRevealControl(), same
+         idempotent-on-reconnect pattern as _ensureStacks()); this._isMobile
+         tracks the LAST-SYNCED breakpoint match so _sync() can detect the
+         mobile->desktop transition edge and reset the revealed state (see
+         _sync()) without re-querying matchMedia twice per call. */
+      this._reveal = null;
+      this._isMobile = false;
+      this._toggleRevealBound = function toggleRevealBound() { self._toggleReveal(); };
+    }
+
+    static get observedAttributes() { return ["data-fmb-column-min"]; }
+
+    /* ---- Back-compat read-only accessors (v3.549 ITEM-2) -------------------
+       The pre-v3.549 engine cached four hardcoded per-member host refs
+       (_navEl/_sidebarChromeEl/_footerChromeEl/_userChromeEl) as plain
+       instance properties, always current because every DOM mutation the
+       old code cared about ran through its own synchronous _sync() path
+       before any test assertion read them. This engine replaces the
+       hardcoded refs with the generic _members registry (only refreshed
+       lazily, on the next _presenceDirty sync), but
+       tests/unit/fmb-column.test.js (rewritten in ITEM-4, not this item)
+       still reads those legacy names directly, sometimes immediately after
+       mutating the DOM with only a setTimeout(0) (no guaranteed rAF tick)
+       before asserting — a gap the old synchronous-cache model never had to
+       account for.
+
+       Two failure modes without these getters: (1) the property is simply
+       `undefined`, or (2) it resolves from the STALE cached _members list.
+       Either way, a MISMATCHED actual-vs-expected pair where the expected
+       side is a live DOM node hangs the web-test-runner/chai reporting
+       pipeline outright on ANY failing `.to.equal()` comparison of that
+       shape (confirmed via isolated repro with both `undefined` and `null`
+       as the actual value — a latent trap in the test tooling itself, not
+       specific to this engine's logic). To avoid that class of hang
+       entirely — not just the specific cases the current test file happens
+       to hit — every getter below re-discovers members freshly from the
+       live DOM on each read (mirroring _discoverMembers(), not the cached
+       _members list), so the answer is always correct for the CURRENT DOM
+       state regardless of whether a _sync() pass has caught up yet. These
+       are pure derived read-only views for compatibility, not new mutable
+       state, and do not replace _members (used by the hot _sync() path,
+       where the cached list is the correct, perf-conscious choice). */
+    get _navEl() { return this._liveMemberHost("nav", null); }
+    get _sidebarChromeEl() { return this._liveMemberHost("sidebar", isEligible); }
+    get _footerChromeEl() { return this._liveMemberHost("footer", isEligible); }
+    get _userChromeEl() { return this._liveMemberHost("user", isStashed); }
+    /* Bare presence refs (pre-v3.549: cached regardless of FMB-mode
+       eligibility, distinct from the *ChromeEl getters above which filter to
+       eligible members only). */
+    get _sidebarEl() { return this._liveMemberHost("sidebar", null); }
+    get _footerEl() { return this._liveMemberHost("footer", null); }
+    get _userEl() { return this._liveMemberHost("user", null); }
+
+    /* Shared helper for the back-compat getters above: freshly discover
+       every registered member from the live DOM (auto-tagging the four
+       legacy hosts first, exactly like _discoverMembers()) and return the
+       host whose slotName matches, optionally filtered by a predicate
+       (isEligible/isStashed) — or null if none matches. */
+    _liveMemberHost(slotName, predicate) {
+      var members = this._discoverMembers();
+      for (var i = 0; i < members.length; i++) {
+        var m = members[i];
+        if (m.slotName === slotName && (!predicate || predicate(m))) return m.host;
+      }
+      return null;
+    }
+    /* Slot-cell refs (pre-v3.549: one fixed <div> per named slot, direct
+       children of the root). This engine keys cells by host in a per-stack
+       Map (_fmbCellMap) instead of four named instance fields — these
+       getters resolve the same "cell for this named member" question by
+       searching every stack's map for a host with a matching slotName. */
+    get _navSlot() { return this._slotCellFor("nav"); }
+    get _sidebarSlot() { return this._slotCellFor("sidebar"); }
+    get _footerSlot() { return this._slotCellFor("footer"); }
+    get _userSlot() { return this._slotCellFor("user"); }
+    _slotCellFor(slotName) {
+      for (var key in this._stacks) {
+        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
+        var stackEl = this._stacks[key];
+        if (!stackEl._fmbCellMap) continue;
+        var found = null;
+        stackEl._fmbCellMap.forEach(function (cell, host) {
+          if (!found && host.getAttribute("data-fmb-slot") === slotName) found = cell;
+        });
+        if (found) return found;
+      }
+      return null;
+    }
+
+    attributeChangedCallback() {
+      if (this.isConnected) this._scheduleSync();
+    }
+
+    connectedCallback() {
+      /* v3.549 reviewer fix (a11y-tree finding): aria-hidden used to be set
+         HERE, on the whole <aura-fmb-column> host — correct in the
+         pre-mobile-reveal model, where every child was a decorative
+         positioning stack and the real FMB hosts were announced by their
+         own elements elsewhere in the DOM. Scoping aria-hidden to just the
+         actually-decorative stack <div> containers (_ensureStacks(), each
+         already carries its own aria-hidden="true") is the narrower, safer
+         fix — the host itself is display:contents and was never itself an
+         AT-relevant node, so it needs no aria-hidden of its own.
+
+         v3.554 ITEM-13 (#1080): the [data-fmb-reveal] <button> is no longer
+         even a descendant of this host (see _ensureRevealControl() — it is
+         now a document.body child, escaping the aura-app isolation
+         boundary), so this host's aria-hidden posture can no longer reach
+         or affect it either way — the button's own accessibility markup
+         (aria-label/aria-expanded, set in _ensureRevealControl()) is now
+         the sole source of truth for how it is announced. */
+      this._ensureStacks();
+      this._ensureRevealControl();
+
+      /* Auto-tag the four legacy members with default data-fmb-column/
+         data-fmb-anchor/data-fmb-slot values if they don't already author
+         their own (v3.549 ITEM-2 migration default) — see LEGACY_MEMBERS. */
+      this._autoTagLegacyMembers();
+
+      /* Observe the whole document for the union of every attribute this
+         engine or any known member's stash/expand vocabulary cares about,
+         plus childList for presence changes and generic data-fmb-column/
+         data-fmb-anchor authoring on ANY element (new/consumer members). */
+      this._mo = new MutationObserver(this._scheduleSyncBound);
+      this._mo.observe(document.documentElement, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+        attributeFilter: [
+          "data-stashed", "data-aura-revealed", "data-aura-sidebar", "data-aura-footer",
+          "data-aura-stashed", "data-aura-user-fmb", "data-fmb-pinned",
+          "data-fmb-column", "data-fmb-anchor",
+          /* v3.555 ITEM-2 seam (fmb-choreography-design.md §Seam contract
+             point 3): js/fmb-choreography.js flips these on a member host
+             while it's Opened+unpinned — a sync must re-run the moment it
+             does, or the column's own slot/eligibility bookkeeping (the
+             isStashed() decaying-member rule above) goes stale mid-decay. */
+          "data-fmb-detached", "data-fmb-decaying"
+        ]
+      });
+
+      document.addEventListener('pointerover', this._hoverOver, { passive: true });
+      document.addEventListener('pointerout',  this._hoverOut,  { passive: true });
+      document.addEventListener('focusin',     this._focusIn,   { passive: true });
+      document.addEventListener('focusout',    this._focusOut,  { passive: true });
+
+      var bp = readBreakpoint();
+      this._mql = window.matchMedia('(max-width: ' + bp + ')');
+      this._mql.addEventListener('change', this._mqlChangeBound);
+      this._lastBreakpoint = bp;
+
+      this._sync();
+    }
+
+    disconnectedCallback() {
+      if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+      this._mql.removeEventListener('change', this._mqlChangeBound);
+      this._mql = null;
+      this._lastBreakpoint = null;
+      document.removeEventListener('pointerover', this._hoverOver);
+      document.removeEventListener('pointerout',  this._hoverOut);
+      document.removeEventListener('focusin',     this._focusIn);
+      document.removeEventListener('focusout',    this._focusOut);
+      /* v3.554 ITEM-13 (#1080): the reveal button is a document.body child,
+         not a DOM descendant of this host (see _ensureRevealControl()), so
+         a genuine disconnect (the host itself being removed) must remove
+         the body-level button outright — mirroring js/footer.js's
+         _teardown() unwinding its own body-level panel. Left in the DOM, a
+         stale button would leak across element lifecycles (a later
+         reconnect's _ensureRevealControl() would find and silently adopt
+         someone else's abandoned node, or — with no second instance ever
+         reconnecting — just sit there forever as dead, unreachable-by-any-
+         column chrome) and single-instance semantics (only one
+         [data-fmb-reveal] button ever exists) would erode over repeated
+         connect/disconnect cycles. */
+      if (this._reveal) {
+        this._reveal.removeEventListener('click', this._toggleRevealBound);
+        if (this._reveal.parentNode) this._reveal.parentNode.removeChild(this._reveal);
+        this._reveal = null;
+      }
+      this._mo.disconnect();
+      this._mo = null;
+      this._presenceDirty = true;
+      this._members = [];
+      if (this._anyStackActive) this._deactivateAll();
+      this.removeAttribute(REVEALED_ATTR);
+      this._isMobile = false;
+    }
+
+    /* Coalesce MutationObserver callbacks within one animation frame (#879). */
+    _scheduleSync() {
+      if (this._rafId) cancelAnimationFrame(this._rafId);
+      this._rafId = requestAnimationFrame(this._syncBound);
+    }
+
+    /* Create the (up to) four stack containers — one per (column, anchor)
+       combination — as direct children, matching ITEM-1's CSS selectors
+       ([data-fmb-column][data-fmb-anchor]). Idempotent: reuses existing
+       stacks on reconnect rather than duplicating them (mirrors the
+       pre-v3.549 slot-div creation guard, #935). */
+    _ensureStacks() {
+      for (var c = 0; c < COLUMNS.length; c++) {
+        for (var a = 0; a < ANCHORS.length; a++) {
+          var column = COLUMNS[c], anchor = ANCHORS[a];
+          var key = column + ":" + anchor;
+          var existing = this.querySelector('[data-fmb-column="' + column + '"][data-fmb-anchor="' + anchor + '"]');
+          if (existing) {
+            this._stacks[key] = existing;
+            continue;
+          }
+          var stack = document.createElement("div");
+          stack.setAttribute("data-fmb-column", column);
+          stack.setAttribute("data-fmb-anchor", anchor);
+          stack.setAttribute("aria-hidden", "true");
+          this.appendChild(stack);
+          this._stacks[key] = stack;
+        }
+      }
+    }
+
+    /* v3.549 ITEM-3 (fmb-design.md §Mobile) — create the single mobile reveal
+       control as a real, focusable <button>.
+
+       v3.554 ITEM-13 (#1080): appended to document.body, NOT this host —
+       css/theme.css's `aura-app { isolation: isolate; }` traps any
+       descendant of <aura-app> (this host lives inside it) in its own
+       stacking context, while js/footer.js's floating panel
+       (ensureFooterPanel()) is deliberately a document.body child (for a
+       containing-block reason — see that function's doc comment) appended
+       AFTER <aura-app> in document order. A body-level sibling painted
+       after <aura-app> beats everything inside the isolated context
+       regardless of z-index (confirmed via elementFromPoint), so no
+       --aura-z-fmb-reveal value on a button still nested inside
+       <aura-fmb-column>/<aura-app> could ever win against the open panel.
+       Moving the button out to document.body — mirroring
+       ensureFooterPanel()'s own escape — is the fix: both elements now
+       compete in the SAME (non-isolated) top-level stacking context, where
+       z-index (--aura-z-fmb-reveal, one tier above --aura-z-fmb-active,
+       #1067) and DOM/paint order are meaningful again.
+
+       Looked up/created at the DOCUMENT level (not `this.querySelector`)
+       for the same reason — the button is no longer inside this host's
+       subtree. <aura-fmb-column> remains a single-instance-per-page root
+       (file banner comment above), so a document-level lookup still
+       resolves to exactly one button; disconnectedCallback() removes it
+       outright on teardown (rather than merely detaching this host's
+       listener) so a torn-down instance never leaves a stale button behind
+       for a later instance to silently adopt.
+
+       Idempotent on reconnect, same guard shape as _ensureStacks(). CSS-only
+       gates its visibility to <640px (@media (max-width: 639px)); the
+       element itself always exists in the DOM at desktop widths too (an
+       inert, display:none-by-default-media-query button costs nothing and
+       keeps this method's logic breakpoint-agnostic — _sync() decides
+       WHETHER the column is "revealed", not whether the button exists). */
+    _ensureRevealControl() {
+      var existing = document.querySelector(REVEAL_SEL);
+      if (existing) { this._reveal = existing; }
+      else {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("data-fmb-reveal", "");
+        btn.className = "aura-glow";
+        btn.setAttribute("aria-label", "Show menu buttons");
+        btn.setAttribute("aria-expanded", "false");
+        btn.appendChild(Aura.icon ? Aura.icon("menu") : document.createTextNode("≡"));
+        document.body.appendChild(btn);
+        this._reveal = btn;
+      }
+      this._reveal.addEventListener('click', this._toggleRevealBound);
+    }
+
+    /* Toggle the merged column's visibility (click, or Enter/Space — a real
+       <button> gets both activation keys for free with no keydown handler
+       needed). Mirrors js/shell-nav.js's toggle()/aria-expanded convention.
+
+       v3.549 reviewer fix (mobile phantom-offset finding): REVEALED_ATTR
+       lives on THIS host, but it is deliberately excluded from both the
+       MutationObserver's attributeFilter allowlist and (redundantly) would
+       be ignored anyway by _scheduleSyncBound's "target === self is our own
+       bookkeeping" guard — see the constructor comment. That was harmless
+       before this fix (nothing downstream read the revealed state), but
+       _syncStartStartOffset() now depends on it (this._isMobile && not
+       revealed → force the export to 0). Without an explicit resync here,
+       toggling reveal would only update the exported offset by accident, on
+       whatever LATER mutation happened to also fire _sync() — schedule one
+       directly so the offset (and any other _sync()-derived state) reflects
+       the new revealed state immediately. */
+    _toggleReveal() {
+      var next = !this.hasAttribute(REVEALED_ATTR);
+      this.toggleAttribute(REVEALED_ATTR, next);
+      if (this._reveal) this._reveal.setAttribute("aria-expanded", next ? "true" : "false");
+      this._scheduleSync();
+    }
+
+    /* Force the revealed state closed (idempotent) — used on the
+       mobile->desktop breakpoint transition (_sync()) and available for any
+       future dismiss trigger (outside click/Escape are not required by this
+       item's acceptance bar, so none is wired yet; #1052 tracks broader
+       mobile-fallback coordination that may want one).
+
+       NOT calling _scheduleSync() here: _closeReveal() is only ever invoked
+       synchronously FROM WITHIN _sync() itself (the mobile->desktop
+       breakpoint-transition edge) — scheduling another sync from inside the
+       current one would be redundant at best. */
+    _closeReveal() {
+      if (!this.hasAttribute(REVEALED_ATTR)) return;
+      this.removeAttribute(REVEALED_ATTR);
+      if (this._reveal) this._reveal.setAttribute("aria-expanded", "false");
+    }
+
+    /* Migration default (v3.549 ITEM-2): tag each present legacy host with
+       its default data-fmb-column/data-fmb-anchor/data-fmb-slot triplet,
+       UNLESS the host already authors its own data-fmb-column (an explicit
+       author override always wins — this engine is not hardcoded to the
+       four names, it only supplies defaults for them). Idempotent: checks
+       hasAttribute before writing so re-running this on every _sync() (via
+       the childList-driven presence re-discovery) never clobbers a value a
+       consumer or a prior run already set.
+
+       v3.555 ITEM-2 seam: the actual scan/tag logic is now the module-level
+       autoTagLegacyMembers() function above (it never depended on `this`) —
+       this instance method is kept as a thin delegate so every existing call
+       site below is unchanged. */
+    _autoTagLegacyMembers() {
+      autoTagLegacyMembers();
+    }
+
+    /* Re-discover every registered member in the document: any element
+       carrying BOTH data-fmb-column and data-fmb-anchor (after
+       _autoTagLegacyMembers() has run, so the four legacy hosts are
+       included). Registration order = DOM (document) order, which
+       _sync()/_layoutStack() preserve into each stack's slot order —
+       satisfying "stacking order within an anchor... registration order".
+
+       v3.555 ITEM-2 seam: delegates to the module-level discoverMembers()
+       function above (the same one Aura.fmbColumn.members() exposes
+       publicly), wrapping its plain {host, column, anchor, slotName} records
+       into this file's internal MemberEntry type — a single discovery
+       implementation, not two. */
+    _discoverMembers() {
+      return discoverMembers().map(function (m) {
+        return new MemberEntry(m.host, m.column, m.anchor, m.slotName);
+      });
+    }
+
+    _sync() {
+      if (!this.isConnected) return;
+
+      var bp = readBreakpoint();
+      if (bp !== this._lastBreakpoint) {
+        this._mql.removeEventListener('change', this._mqlChangeBound);
+        this._mql = window.matchMedia('(max-width: ' + bp + ')');
+        this._mql.addEventListener('change', this._mqlChangeBound);
+        this._lastBreakpoint = bp;
+      }
+
+      /* v3.549 ITEM-3 (fmb-design.md §Mobile): mobile mode no longer
+         short-circuits into _deactivateAll() — the merge is pure CSS
+         repositioning of the SAME stacks (css/fmb-column.css re-anchors
+         [data-fmb-column="end"] onto the inline-start edge and gates
+         visibility on data-fmb-column-revealed), so member
+         discovery/layout/activation below must run identically in both
+         modes for the revealed column to show the correct populated state
+         the instant the user reveals it — deactivating on every mobile
+         _sync() would leave a freshly revealed column empty until the next
+         mutation happened to fire.
+         The one mobile-specific step: reset the revealed state CLOSED the
+         moment the breakpoint crosses FROM mobile INTO desktop, so the
+         column doesn't carry a stale "revealed" attribute into a width
+         where it means nothing, and re-entering mobile later starts hidden
+         again ("hidden by default" — fmb-design.md §Mobile). Entering
+         mobile sets no attribute at all; the resting default (attribute
+         absent) IS hidden, per the CSS's :not([data-fmb-column-revealed])
+         rule. */
+      var isMobile = this._mql.matches;
+      if (this._isMobile && !isMobile) this._closeReveal();
+      this._isMobile = isMobile;
+
+      if (this._presenceDirty) {
+        this._members = this._discoverMembers();
+        this._presenceDirty = false;
+      }
+
+      this._minCache = parseMinVal(this.getAttribute('data-fmb-column-min'));
+
+      /* Group members by stack key, preserving DOM (registration) order —
+         Array.prototype.sort is not needed since querySelectorAll already
+         returns document order and we iterate that order below. */
+      var byStack = { "start:start": [], "start:end": [], "end:start": [], "end:end": [] };
+      for (var i = 0; i < this._members.length; i++) {
+        var m = this._members[i];
+        byStack[m.column + ":" + m.anchor].push(m);
+      }
+
+      var anyActive = false;
+      for (var key in byStack) {
+        if (!Object.prototype.hasOwnProperty.call(byStack, key)) continue;
+        var active = this._layoutStack(this._stacks[key], byStack[key]);
+        if (active) anyActive = true;
+      }
+      this._anyStackActive = anyActive;
+
+      /* Reflow-offset export (fmb-design.md §Reflow policy: the column itself
+         causes NO page-content reflow — this token is retained ONLY for the
+         start/start stack's own collision-avoidance consumer, css/sidebar.css,
+         which positions a full-height Opened surface below whatever occupies
+         that corner. It is NOT re-applied as generic aura-region/aura-split
+         padding — see the js/fmb-column.js file banner and
+         docs/release-planning/release-planning-v3.549.md §5 for the full
+         reasoning. Retired: unlike the pre-v3.549 model, no reflow token is
+         set here when only OTHER stacks are active.
+
+         v3.549 reviewer fix (mobile phantom-offset finding): the offset must
+         read as zero whenever the merged column exists but is not actually
+         visible to the user — mirrors the @media print block's "present in
+         :has()-matchable DOM, but not rendered" handling below in
+         css/fmb-column.css. On mobile the start/start stack can be
+         data-fmb-column-active while the whole column sits behind the
+         reveal control (_sync() no longer deactivates on mobile, by
+         design — see the comment above), so gate this export on "mobile AND
+         not revealed" the same way print gates on "always invisible". */
+      this._syncStartStartOffset();
+
+      /* v3.549 reviewer fix (mobile stack-overlap finding): below the
+         breakpoint both columns merge onto the inline-start edge (CSS
+         re-anchors [data-fmb-column="end"]), so the pre-existing
+         inline-start/inline-end separation that kept start:start and
+         end:start from ever needing to avoid each other no longer holds.
+         Compute a live per-stack push-down/push-up offset so the four
+         logical stacks resolve to four visually distinct positions in the
+         one merged column instead of two pairs landing exactly on top of
+         each other. No-op (and cleared) outside mobile mode — desktop still
+         uses the two independent inline edges and needs no offset. */
+      this._syncMobileStackOffsets(isMobile);
+    }
+
+    /* Live px footprint of one stack's currently-active slot cells — shared
+       by _syncStartStartOffset() (the sidebar collision-avoidance export)
+       and _syncMobileStackOffsets() (the mobile merged-column
+       anti-overlap offset) so both derive the same "how tall is this stack
+       right now" measurement from one place. Returns 0 for an empty/absent
+       stack. */
+    _stackFootprintPx(stack) {
+      var cellCount = stack && stack._fmbCellMap ? stack._fmbCellMap.size : 0;
+      if (cellCount === 0) return 0;
+      var slotSize = Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-size", 96) : 96;
+      var gap = Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12;
+      return cellCount * slotSize + Math.max(0, cellCount - 1) * gap;
+    }
+
+    /* v3.549 reviewer fix — mobile stack-overlap finding. Below the
+       breakpoint, css/fmb-column.css re-anchors [data-fmb-column="end"]'s
+       two stacks onto the SAME inline-start edge the [data-fmb-column="start"]
+       stacks already occupy, merging 4 independent (column, anchor) stacks
+       into what must read as ONE coherent column. Reconciled here as two
+       groups rather than 4 arbitrary positions (matches the reviewer's
+       suggested shape): every block-start-anchored stack (start:start,
+       end:start) stacks sequentially from the top edge; every
+       block-end-anchored stack (start:end, end:end) stacks sequentially from
+       the bottom edge. Concretely: end:start is pushed down by start:start's
+       own live footprint (so it begins where start:start ends), and
+       end:end is pushed up by start:end's own live footprint (so it begins
+       where start:end ends, growing upward per its column-reverse
+       direction) — no two stacks ever occupy the same rect. Desktop is
+       untouched: both offsets are cleared (0px) outside mobile mode, where
+       the two columns sit on independent inline edges and never need to
+       avoid each other. */
+    _syncMobileStackOffsets(isMobile) {
+      var endStart = this._stacks["end:start"];
+      var endEnd = this._stacks["end:end"];
+      if (endStart) {
+        var pushDown = isMobile ? this._stackFootprintPx(this._stacks["start:start"]) : 0;
+        var gap = pushDown > 0 ? (Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12) : 0;
+        endStart.style.setProperty("--aura-fmb-column-mobile-push", (pushDown + gap) + "px");
+      }
+      if (endEnd) {
+        var pushUp = isMobile ? this._stackFootprintPx(this._stacks["start:end"]) : 0;
+        var gap2 = pushUp > 0 ? (Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12) : 0;
+        endEnd.style.setProperty("--aura-fmb-column-mobile-push", (pushUp + gap2) + "px");
+      }
+    }
+
+    /* Lay out one stack's slot cells from its member list; returns whether
+       the stack should be marked data-fmb-column-active (has ≥1 member that
+       is both present/eligible AND Stashed — "the column reserves space only
+       for the Stashed state"). A present-but-Opened member still gets a slot
+       cell (so its button position and the stack's box model don't jump when
+       it opens — the fixed-envelope cells never resize for content) but does
+       NOT itself satisfy activation; the min-count override (data-fmb-column-min
+       on the <aura-fmb-column> root, unchanged from pre-v3.549) still governs
+       how many STASHED members are required before the stack paints. */
+    _layoutStack(stackEl, members) {
+      if (!stackEl) return false;
+
+      /* Reconcile slot cells 1:1 with the CURRENT member list, in order —
+         reuse existing cells by host identity so idempotent re-syncs don't
+         thrash the DOM (mirrors the pre-v3.549 display-toggle idempotency
+         guards, generalized from "4 fixed named slots" to "N discovered
+         members"). Map keyed by host element -> its slot cell, cached on the
+         stack element itself so repeated _sync() calls reuse cells across
+         frames without a global registry. */
+      if (!stackEl._fmbCellMap) stackEl._fmbCellMap = new Map();
+      var cellMap = stackEl._fmbCellMap;
+      var seenHosts = new Set();
+      var eligibleStashedCount = 0;
+      var presentCount = 0;
+
+      for (var mi = 0; mi < members.length; mi++) {
+        var entry = members[mi];
+        var eligible = isEligible(entry);
+        if (!eligible) continue; /* a sidebar/footer NOT in FMB/reveal mode does not occupy a column slot at all (#891, unchanged) */
+        presentCount++;
+        seenHosts.add(entry.host);
+
+        var cell = cellMap.get(entry.host);
+        if (!cell) {
+          cell = document.createElement("div");
+          cell.setAttribute("data-fmb-slot", entry.slotName || "member");
+          cell.setAttribute("data-fmb-slot-host", "");
+          cell.setAttribute("aria-hidden", "true");
+          cellMap.set(entry.host, cell);
+        }
+        /* Re-append in registration order every sync — inexpensive (existing
+           node move, not a fresh create) and keeps DOM order authoritative
+           for the CSS's column/column-reverse stacking direction even if
+           members were discovered in a different relative order this pass. */
+        stackEl.appendChild(cell);
+
+        var stashed = isStashed(entry) && hasVisibleContent(entry.host);
+        if (stashed) eligibleStashedCount++;
+
+        if (this._hoverHost === entry.host) {
+          cell.setAttribute("data-fmb-slot-hovered", "");
+        } else {
+          cell.removeAttribute("data-fmb-slot-hovered");
+        }
+      }
+
+      /* Remove cells for members no longer present/eligible this sync. */
+      cellMap.forEach(function (cell, host) {
+        if (!seenHosts.has(host)) {
+          if (cell.parentNode) cell.parentNode.removeChild(cell);
+          cellMap.delete(host);
+        }
+      });
+
+      /* data-fmb-column-min semantics changed in v3.549 (documented in
+         docs/design/fmb-column-design.md §data-fmb-column-min attribute,
+         reviewer finding). Pre-v3.549 this threshold was evaluated ONCE,
+         GLOBALLY, against presentCount/stashedCount summed across every
+         chrome element combined (one monolithic bar, one combined count).
+         _layoutStack() now runs once per (column, anchor) stack, and both
+         presentCount and eligibleStashedCount above are already scoped to
+         ONLY this stack's own registered members — so the same _minCache
+         value (one host-settable attribute, not four) is clamped and
+         applied PER STACK, independently. This is an intentional
+         architectural consequence of retiring the single column-wide state
+         (fmb-design.md), not an oversight: a column with N independent
+         stacks has no single combined count left to threshold against. */
+      var required = this._minCache !== null ? Math.min(this._minCache, presentCount) : presentCount;
+      var active = presentCount > 0 && eligibleStashedCount >= required;
+
+      if (active) {
+        stackEl.setAttribute("data-fmb-column-active", "");
+        /* data-slot-hover itself is owned exclusively by _setHoverFromEvent()/
+           _clearHover() (event-driven, not re-derived every _sync() pass) —
+           this reconciliation only needs to avoid leaving a STALE hover
+           attribute on a stack that just went inactive, handled in the else
+           branch below. */
+      } else {
+        stackEl.removeAttribute("data-fmb-column-active");
+        if (stackEl.hasAttribute("data-slot-hover")) stackEl.removeAttribute("data-slot-hover");
+      }
+
+      return active;
+    }
+
+    _stackKeyOf(entry) { return entry.column + ":" + entry.anchor; }
+
+    /* Slot-hover dispatch: find which registered member (if any) contains
+       the event target, set data-slot-hover on ITS stack (scoped per-stack,
+       generalizing the pre-v3.549 single-root attribute) and data-fmb-slot-hovered
+       on its cell. */
+    _setHoverFromEvent(target) {
+      var found = null;
+      for (var i = 0; i < this._members.length; i++) {
+        if (this._members[i].host.contains(target)) { found = this._members[i]; break; }
+      }
+      /* Compare by HOST identity, not MemberEntry identity — `found` is a
+         freshly-allocated MemberEntry from the current `this._members` list
+         every time, but `this._hoverHost` is the stable underlying element,
+         so this correctly no-ops when the pointer/focus is still on the same
+         member across re-discovery passes (see the _hoverHost field comment
+         in the constructor). */
+      var foundHost = found ? found.host : null;
+      if (foundHost === this._hoverHost) return;
+      this._hoverHost = foundHost;
+      this._hoverEntry = found;
+      /* Re-run the stack layout's hover-attribute pass cheaply: just update
+         the data-slot-hover/data-fmb-slot-hovered attributes without a full
+         _sync(). */
+      for (var key in this._stacks) {
+        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
+        var stackEl = this._stacks[key];
+        if (!stackEl.hasAttribute("data-fmb-column-active")) continue;
+        var isThisStack = found && this._stackKeyOf(found) === key;
+        if (isThisStack) stackEl.setAttribute("data-slot-hover", found.slotName || "member");
+        else stackEl.removeAttribute("data-slot-hover");
+        if (stackEl._fmbCellMap) {
+          stackEl._fmbCellMap.forEach(function (cell, host) {
+            if (foundHost && host === foundHost) cell.setAttribute("data-fmb-slot-hovered", "");
+            else cell.removeAttribute("data-fmb-slot-hovered");
+          });
+        }
+      }
+    }
+
+    _clearHover() {
+      this._hoverHost = null;
+      this._hoverEntry = null;
+      for (var key in this._stacks) {
+        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
+        var stackEl = this._stacks[key];
+        stackEl.removeAttribute("data-slot-hover");
+        if (stackEl._fmbCellMap) {
+          stackEl._fmbCellMap.forEach(function (cell) { cell.removeAttribute("data-fmb-slot-hovered"); });
+        }
+      }
+    }
+
+    /* Exports the start/start stack's live footprint (in px) as
+       --aura-fmb-column-active-offset-block-start on :root — the sole
+       surviving consumer of this pre-v3.549 token is css/sidebar.css's
+       top-left collision-avoidance rule (an Opened sidebar surface clearing
+       whatever occupies the top-left corner). Set to 0 (removed) when the
+       start/start stack has no active (Stashed) members, so the sidebar's
+       coexistence rule and print media both see a clean zero rather than a
+       stale measurement. NOT applied as generic page-content reflow (see
+       _sync()'s banner comment) — this is the one narrow migration path for
+       a real, still-needed per-member collision-avoidance concern, not a
+       revival of the old column-wide reflow mechanism.
+
+       v3.549 reviewer fix (mobile phantom-offset finding): pre-ITEM-3, mobile
+       mode short-circuited into _deactivateAll() before this method could
+       ever be reached, so "the column is active" and "the column is
+       actually visible" were structurally the same fact. ITEM-3 removed
+       that early-return (member registration/layout must keep running on
+       mobile so a freshly revealed column shows the correct populated state
+       immediately — see _sync()'s banner comment) — so the start/start
+       stack can now be data-fmb-column-active while the merged column sits
+       entirely behind the reveal control, invisible
+       (visibility:hidden/pointer-events:none, css/fmb-column.css's mobile
+       block) until the user taps it. css/sidebar.css's consumer has no
+       width/mobile guard of its own (.aura-sidebar is explicitly exempt
+       from the generic mobile drawer conversion), so left ungated here it
+       would visibly shift the sidebar to "clear" a column the user cannot
+       see yet — a phantom reflow. Mirrors the @media print block's
+       identical "present/:has()-matchable in the DOM, but not actually
+       rendered" handling (css/fmb-column.css's print block reasserts a
+       zero for the same underlying reason: activity in the data model does
+       not imply visibility). Treated as an additional "not really active"
+       condition alongside the existing Stashed-membership check, so both
+       share the same clearing branch below. */
+    _syncStartStartOffset() {
+      var stack = this._stacks["start:start"];
+      var stashedActive = stack && stack.hasAttribute("data-fmb-column-active");
+      var hiddenOnMobile = this._isMobile && !this.hasAttribute(REVEALED_ATTR);
+      var active = stashedActive && !hiddenOnMobile;
+      if (!active) {
+        if (this._lastOffsetActive) {
+          DOC_STYLE.removeProperty("--aura-fmb-column-active-offset-block-start");
+          DOC_STYLE.removeProperty("--aura-fmb-column-active-width");
+          this._lastOffsetActive = false;
+        }
+        return;
+      }
+      var px = this._stackFootprintPx(stack) + "px";
+      DOC_STYLE.setProperty("--aura-fmb-column-active-offset-block-start", px);
+      DOC_STYLE.setProperty("--aura-fmb-column-active-width", px);
+      this._lastOffsetActive = true;
+    }
+
+    _deactivateAll() {
+      for (var key in this._stacks) {
+        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
+        this._stacks[key].removeAttribute("data-fmb-column-active");
+        this._stacks[key].removeAttribute("data-slot-hover");
+      }
+      this._anyStackActive = false;
+      this._clearHover();
+      if (this._lastOffsetActive) {
+        DOC_STYLE.removeProperty("--aura-fmb-column-active-offset-block-start");
+        DOC_STYLE.removeProperty("--aura-fmb-column-active-width");
+        this._lastOffsetActive = false;
+      }
+    }
+  }
+
+  Aura.define("aura-fmb-column", AuraFmbColumn);
+
+})();
+
+/* ==== fmb-choreography.js ==== */
+/* ==========================================================================
+   Aura — shared FMB state-transition choreography engine (v3.555 ITEM-2).
+
+   One shared module every FMB member (nav-header, user-profile, sidebar,
+   footer) opts into via Aura.fmbChoreography.register(), instead of each
+   member growing its own timer/rAF loop and its own copy of the
+   "1-16px reversible, beyond it a 5s timed fade" state machine — the exact
+   per-member drift docs/design/fmb-design.md's Motivation section exists to
+   stop. Implements movement 5 of the five-movement choreography specified in
+   docs/design/fmb-design.md §State-transition choreography (Detach → Decay →
+   re-stash, the unpinned return path); movements 1-4 (Rest ghost, Approach,
+   Open morph, Pin press) are pure CSS + the EXISTING per-member hover/focus/
+   proximity logic and need no JS from this module (see
+   docs/design/fmb-choreography-design.md §The two-driver model).
+
+   Architecture record (frozen before Pass 2 of v3.555 — ITEM-3/4/5 code
+   against this as a settled contract): docs/design/fmb-choreography-design.md,
+   whose "Engine API (as-built)" section documents this file's public surface
+   in prose form. This banner + the JSDoc below are the source of truth; that
+   doc section is a mirror for readers who start there.
+
+   Deliberately a SEPARATE module from js/fmb-column.js (not folded in) —
+   fmb-column.js runs a low-frequency, MutationObserver/resize-driven sync
+   pass (column/anchor POSITIONING, "which slot cell a Stashed member
+   reserves"); this engine runs a continuous per-frame cursor-distance sample
+   while any member is Opened+unpinned (MOTION between states for a member
+   that is already positioned) — a materially different cadence that would
+   otherwise contend with fmb-column.js's own scheduling. See
+   docs/design/fmb-choreography-design.md §Module boundary.
+
+   Seam with js/fmb-column.js (three points, frozen in the design doc):
+     1. Aura.fmbColumn.members() (js/fmb-column.js) is the single shared
+        member-discovery accessor — this file does NOT re-implement the
+        LEGACY_MEMBERS-shaped dispatch. This engine's OWN registration model
+        is push-based (member modules call register() explicitly, since only
+        THEY know which of their own elements is "the button" vs "the menu"
+        — a generic DOM scan cannot resolve that pairing) — Aura.fmbColumn.
+        members() is offered as a reuse option for a registering member that
+        would otherwise re-derive its own host lookup by hand (documented in
+        the "Engine API (as-built)" doc section), not something this engine
+        calls internally.
+     2. js/fmb-column.js's isStashed()/isEligible() treat a data-fmb-decaying
+        host as still occupying its slot cell — implemented there, honoured
+        here by NEVER treating "decaying" as "safe to let the column reflow
+        under."
+     3. js/fmb-column.js's MutationObserver attributeFilter watches
+        data-fmb-detached/-decaying/-pinned, so a column sync re-runs the
+        moment this engine flips any of them.
+
+   Registration API (public — see Aura.fmbChoreography.register() below for
+   the full JSDoc contract) and the exported pure-math namespace
+   (Aura.fmbChoreographyMath, mirroring the Aura.stepperMath /
+   js/aura-stepper.js precedent for unit-testable value math attached to a
+   public sub-namespace rather than hidden in the closure) are this file's
+   two public surfaces.
+
+   SSR guard + HTMX-safety mirror js/glow.js and js/fmb-column.js: this IIFE
+   no-ops outside the browser (#416), and Aura.onMount() below taps the
+   EXISTING core.js MutationObserver-driven mount pass (no new observer is
+   created here) to prune registrations whose host has left the document —
+   the one place this file touches onMount, and it only ever shrinks the
+   registry array (never mutates the DOM), honouring onMount's "MUST NOT
+   mutate the DOM" contract.
+
+   pointer: coarse / prefers-reduced-motion are checked LIVE inside the rAF
+   frame (Aura.env.coarsePointer() / Aura.env.reducedMotion()), not cached
+   once at IIFE-eval time the way js/glow.js's own top-of-file
+   `if (Aura.env.coarsePointer()) return;` is — glow.js's registry is
+   populated by a DOM scan that reruns per mount pass, so a static load-time
+   check is safe there. This engine's registry is populated by explicit
+   register() calls from other modules' own onMount-time enhancement code,
+   which the test harness (and a real hybrid-pointer device) may run AFTER
+   this script has already evaluated — a load-time cache would never see a
+   later-stubbed matchMedia (or a real capability change) at all. Checking
+   live costs one matchMedia() call per frame while the loop is actively
+   running — and the loop IDLES (stops requesting frames) whenever the
+   pointer is still and nothing is decaying, mirroring js/glow.js's own
+   idle-when-quiescent discipline (performance-design.md; see the rAF loop
+   section below) — so this costs nothing on a static page, and while active
+   it was already going to getComputedStyle several properties per member per
+   frame regardless: the correctness win costs nothing material against
+   js/glow.js's far larger per-frame workload precedent. */
+(function () {
+  "use strict";
+  /* SSR guard (#416): no-op outside the browser so SSR/RSC frameworks can
+     evaluate this module (and the dist bundle) in Node without crashing. */
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  var Aura = window.Aura;
+  if (!Aura) return;
+
+  /* Fallback token values (documented constants, mirrors js/glow.js's
+     DEFAULT_GLOW_RADIUS) — used only when --aura-fmb-proximity-fade-band /
+     --aura-fmb-decay-duration are absent or unparseable on a given host. */
+  var DEFAULT_BAND_PX = 16;
+  var DEFAULT_DECAY_MS = 5000;
+  /* v3.555 ITEM-8 — the detach-band's own partial-fade ceiling. Both
+     sub-phases of movement 5 (fmb-design.md §5 Detach → Decay → re-stash)
+     now drive ONE continuous --aura-fmb-decay-progress property (0 = full
+     chroma, 1 = fully decayed/ghost) instead of the detach band writing
+     nothing but a boolean: the reversible Detach sub-phase ramps progress
+     0..DETACH_CEIL as the cursor moves through the band (proportional to
+     distance, recomputed live every frame — moving back toward the menu
+     lowers it again), and the time-driven Decay sub-phase picks up exactly
+     where Detach left off, ramping DETACH_CEIL..1 over
+     --aura-fmb-decay-duration — continuous across the 16px boundary, no
+     re-saturation jump. 0.25 is a deliberate design choice, not a derived
+     constant: the band is a *gentle* partial pre-fade (fmb-design.md §5 — "the
+     menu loses saturation and opacity in proportion to distance", not "fades
+     to ghost within the band"), so it only ever contributes a quarter of the
+     total fade; Decay's timed ramp completes the remaining three-quarters.
+     A JS-only engine constant (like DEFAULT_BAND_PX above), deliberately NOT
+     a token — docs/design/fmb-choreography-design.md's token table allocates
+     none for it, and it is not meant to be re-tuned per-theme the way
+     --aura-fmb-decay-duration is. */
+  var DETACH_CEIL = 0.25;
+  /* Far-offscreen sentinel for "no real pointer position known yet" (mirrors
+     js/glow.js's OFFSCREEN convention exactly): treated as "very far from
+     any rect", which is the correct fallback for glow's ghost-fade and a
+     defensible one here too (see the coarse/reduced-motion notes above the
+     frame loop for the keyboard-only-interaction caveat this shares with
+     glow.js). */
+  var OFFSCREEN = -9999;
+
+  // --------------------------------------------------------------------------
+  // Pure math (exported as Aura.fmbChoreographyMath — mirrors the
+  // Aura.stepperMath precedent in js/aura-stepper.js: value math that has no
+  // DOM/CSSOM dependency lives in named, independently unit-testable
+  // functions rather than inline in the frame loop).
+  // --------------------------------------------------------------------------
+
+  /**
+   * Classify a cursor→menu distance against the proximity-fade band
+   * (docs/design/fmb-design.md §5 Detach → Decay → re-stash). Pure — no
+   * DOM/CSSOM reads; every threshold is a parameter, never a magic number.
+   *   distance <= 0        -> "over"      cursor is inside/on the menu rect
+   *                                       (Aura.dom.distanceToRect returns 0
+   *                                       for "inside") — cancel back to Opened.
+   *   0 < distance <= bandPx -> "detached"  within the 1..bandPx inclusive
+   *                                       band — reversible, no timer.
+   *   distance > bandPx     -> "decaying"  beyond the band — timed auto-fade.
+   * @param {number} distance  Shortest cursor→rect distance in px (0 = inside).
+   * @param {number} bandPx    The proximity-fade-band width in px.
+   * @returns {"over"|"detached"|"decaying"}
+   */
+  function classifyDistance(distance, bandPx) {
+    if (distance <= 0) return "over";
+    if (distance <= bandPx) return "detached";
+    return "decaying";
+  }
+
+  /**
+   * Normalize elapsed decay time into the 0..1 progress
+   * --aura-fmb-decay-progress drives (docs/design/fmb-design.md §5). Pure.
+   * A zero/negative/NaN duration resolves to 1 (fully decayed) rather than
+   * dividing by zero or stalling at a NaN progress forever.
+   * @param {number} elapsedMs   Milliseconds since decay started (a negative
+   *                              value, e.g. from a not-yet-started decay,
+   *                              clamps to 0 progress rather than going negative).
+   * @param {number} durationMs  --aura-fmb-decay-duration in milliseconds.
+   * @returns {number} 0..1
+   */
+  function decayProgress(elapsedMs, durationMs) {
+    if (!(durationMs > 0)) return 1;
+    return Aura.dom.clamp(elapsedMs / durationMs, 0, 1);
+  }
+
+  /**
+   * Continuous 0..DETACH_CEIL progress for the reversible Detach sub-phase
+   * (docs/design/fmb-design.md §5) — proportional to how far into the
+   * proximity-fade band the cursor has moved, so --aura-fmb-decay-progress
+   * carries a real distance signal instead of a boolean "detached, halfway
+   * faded" approximation. Pure — no DOM/CSSOM reads; every threshold is a
+   * parameter. Reversible by construction: the caller re-invokes this every
+   * frame with the CURRENT live distance (js/fmb-choreography.js never
+   * accumulates or ratchets it), so moving back toward the menu lowers the
+   * result and moving toward the band's outer edge raises it.
+   *   distance <= 0        -> 0            at/inside the menu (never called
+   *                                        in practice — classifyDistance
+   *                                        would already have classified
+   *                                        this "over", not "detached").
+   *   0 < distance <= band  -> proportional  (distance/band) * ceil.
+   *   distance > band       -> ceil         clamped (defensive; the
+   *                                        "decaying" phase owns anything
+   *                                        past the band in practice).
+   * @param {number} distance  Cursor→menu distance in px (0 = inside/over).
+   * @param {number} band      --aura-fmb-proximity-fade-band width in px.
+   * @param {number} ceil      DETACH_CEIL — the band's own partial-fade cap.
+   * @returns {number} 0..ceil
+   */
+  function detachProgress(distance, band, ceil) {
+    /* A zero/negative/NaN band offers no partial-fade RANGE to be
+       proportional across — resolve to the ceiling (mirrors decayProgress's
+       "degenerate duration -> fully decayed" fallback shape one level down:
+       a band with no width behaves as if the cursor is always AT its edge). */
+    if (!(band > 0)) return ceil;
+    return Aura.dom.clamp(distance / band, 0, 1) * ceil;
+  }
+
+  /* #1091 — --aura-fmb-decay-easing DECISION: WIRED, not removed.
+     docs/design/fmb-design.md §5 always described the Decay sub-phase as
+     "easing on --aura-fmb-decay-easing" — the token was part of the ORIGINAL
+     design intent, not a decorative leftover; the engine simply never
+     finished implementing it (decayProgress() below writes strictly linear
+     progress). Two real directions were available: (a) let the BROWSER
+     interpolate --aura-fmb-decay-progress via a CSS `transition` +
+     `transition-timing-function: var(--aura-fmb-decay-easing)` on the custom
+     property itself, or (b) resolve the token to an actual curve function in
+     JS and apply it here. (a) does not fit this engine's actual architecture:
+     unregistered CSS custom properties do not interpolate at all under a
+     `transition` (no `@property … { syntax: "<number>" }` registration exists
+     for --aura-fmb-decay-progress, and adding one — plus a `transition`
+     declaration — would have to live in every member's own stylesheet
+     (nav-header.css/sidebar.css/footer.css/fmb-column.css), all off-limits to
+     this fix); and even if it were wired there, the JS already writes a FRESH
+     value every single rAF frame (~60/s) for BOTH sub-phases, so a CSS
+     transition would just be perpetually chasing a moving target (a de facto
+     low-pass filter, not a designed ease curve) rather than animating between
+     two discrete values. (b) is a direct, small, dependency-free fit: resolve
+     the token to cubic-bezier control points once per frame (cheap — this
+     file already does one getComputedStyle read per token per member per
+     frame, see bandPxFor/decayDurationMsFor) and reshape the LINEAR
+     decayProgress() output through it below, exactly like a browser's own
+     transition-timing-function would reshape an elapsed-time fraction.
+     Deliberately applied ONLY to the Decay sub-phase (time-driven, a real
+     elapsed/total fraction exists for a curve to reshape) and NEVER to the
+     Detach sub-phase (detachProgress above — distance-driven and reversible,
+     a direct 1:1 mapping of live cursor position with no "elapsed time" for
+     an easing function to act on; fmb-design.md §5 calls this "proportional
+     to distance", not an eased animation). */
+
+  /* CSS Easing Level 1 keyword -> cubic-bezier control points (the four
+     "ease*" keywords a CSS <easing-function> can also be spelled as; "linear"
+     is handled by resolveEasingParams returning null — an identity curve
+     needs no bezier evaluation at all). */
+  var EASING_KEYWORDS = {
+    "ease": [0.25, 0.1, 0.25, 1],
+    "ease-in": [0.42, 0, 1, 1],
+    "ease-out": [0, 0, 0.58, 1],
+    "ease-in-out": [0.42, 0, 0.58, 1]
+  };
+  var CUBIC_BEZIER_RE = /^cubic-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)$/;
+
+  /**
+   * Parse a computed --aura-fmb-decay-easing string into cubic-bezier control
+   * points. Pure string parsing — no CSSOM. "linear" and anything
+   * unparseable (a stray `steps(...)`, garbage, empty string) resolve to null
+   * — the identity curve, i.e. the exact pre-#1091 linear behavior — rather
+   * than throwing or guessing, mirroring this file's "malformed input
+   * degrades to a safe default" convention (validateMember, decayProgress's
+   * own degenerate-duration case).
+   * @param {string} raw
+   * @returns {[number,number,number,number]|null}
+   */
+  function resolveEasingParams(raw) {
+    var v = ("" + (raw || "")).trim();
+    if (!v || v === "linear") return null;
+    if (Object.prototype.hasOwnProperty.call(EASING_KEYWORDS, v)) return EASING_KEYWORDS[v];
+    var m = CUBIC_BEZIER_RE.exec(v);
+    if (!m) return null;
+    return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), parseFloat(m[4])];
+  }
+
+  /**
+   * Evaluate a cubic-bezier(x1,y1,x2,y2) easing curve at input fraction `t`
+   * (0..1), mirroring CSS <easing-function> semantics: `t` is the elapsed-time
+   * fraction, the return value is the eased OUTPUT fraction — exactly what
+   * `transition-timing-function` computes for a browser-driven transition.
+   * Pure numerical solve (Newton-Raphson, bisection-refined) — no DOM/CSSOM
+   * dependency, independently unit-testable against known control points.
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} x2
+   * @param {number} y2
+   * @param {number} t  0..1
+   * @returns {number} 0..1, clamped — a spec-legal easing-function's X
+   *          component is monotonic 0..1, but Y may legitimately overshoot
+   *          for an author-supplied curve; clamped because
+   *          --aura-fmb-decay-progress feeds calc() opacity/filter
+   *          expressions elsewhere that assume a strict 0..1 range (the same
+   *          contract decayProgress/detachProgress already keep).
+   */
+  function cubicBezierEase(x1, y1, x2, y2, t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    function bx(u) { var mu = 1 - u; return 3 * mu * mu * u * x1 + 3 * mu * u * u * x2 + u * u * u; }
+    function by(u) { var mu = 1 - u; return 3 * mu * mu * u * y1 + 3 * mu * u * u * y2 + u * u * u; }
+    function dbx(u) { return 3 * (1 - u) * (1 - u) * x1 + 6 * (1 - u) * u * (x2 - x1) + 3 * u * u * (1 - x2); }
+    var u = t;
+    for (var i = 0; i < 8; i++) {
+      var d = dbx(u);
+      if (Math.abs(d) < 1e-6) break;
+      var delta = (bx(u) - t) / d;
+      u -= delta;
+      if (u < 0) u = 0; else if (u > 1) u = 1;
+      if (Math.abs(delta) < 1e-7) break;
+    }
+    /* Bisection refinement: guards against a Newton step that failed to
+       converge (a degenerate/out-of-range author curve) — bounded, always
+       terminates, only ever tightens an already-close estimate. */
+    var lo = 0, hi = 1;
+    for (var j = 0; j < 20; j++) {
+      var xu = bx(u);
+      if (Math.abs(xu - t) < 1e-4) break;
+      if (xu < t) lo = u; else hi = u;
+      u = (lo + hi) / 2;
+    }
+    return Aura.dom.clamp(by(u), 0, 1);
+  }
+
+  /**
+   * Apply the --aura-fmb-decay-easing curve to a LINEAR decay fraction
+   * (decayProgress()'s own 0..1 output) — the seam between this file's
+   * pure decay-TIME math and the token-driven easing CURVE (#1091). See
+   * processMember's "decaying" case for the one call site.
+   * @param {number} linearT   decayProgress()'s own 0..1 output.
+   * @param {string} easingRaw The computed --aura-fmb-decay-easing value.
+   * @returns {number} 0..1 eased fraction — identity (no-op, `=== linearT`)
+   *          for "linear" or an unparseable value; never throws, never NaN.
+   */
+  function easeDecay(linearT, easingRaw) {
+    var params = resolveEasingParams(easingRaw);
+    if (!params) return linearT;
+    return cubicBezierEase(params[0], params[1], params[2], params[3], linearT);
+  }
+
+  Aura.fmbChoreographyMath = {
+    classifyDistance: classifyDistance,
+    decayProgress: decayProgress,
+    detachProgress: detachProgress,
+    cubicBezierEase: cubicBezierEase,
+    easeDecay: easeDecay
+  };
+
+  // --------------------------------------------------------------------------
+  // Token readers (impure — read live CSSOM per registered host, mirroring
+  // js/glow.js's radiusFor()/magnetFor() shape: parseFloat(getComputedStyle)
+  // with a documented numeric fallback, never a bare magic number inline).
+  // --------------------------------------------------------------------------
+
+  /* Read --aura-fmb-proximity-fade-band from `el`'s computed style, resolved
+     to px via the shared Aura.lengthPx reader (js/core.js #324) — #1106 item
+     3: a bare parseFloat() of the raw computed-style text silently mistook a
+     rem/em-authored band (e.g. "1rem") for a bare-number px value (1px
+     instead of ~16px) — a custom property's computed value keeps its
+     original unit rather than resolving it the way a real length-typed CSS
+     property would. Aura.lengthPx is the exact shared resolver
+     js/nav-header.js's own --aura-nav-header-* length tokens already use for
+     this; mirroring it here removes a second, incomplete copy of the rem/em
+     resolution logic instead of merely documenting the px-only limitation.
+     px/unitless values still pass through unchanged, so this is a strict
+     superset of the old behavior for anyone already authoring px. */
+  function bandPxFor(el) {
+    return Aura.lengthPx(el, "--aura-fmb-proximity-fade-band", DEFAULT_BAND_PX);
+  }
+
+  /* Read --aura-fmb-decay-duration (a CSS <time>) from `el`'s computed style,
+     resolved to milliseconds via the shared Aura.parseDuration reader. */
+  function decayDurationMsFor(el) {
+    var v = getComputedStyle(el).getPropertyValue("--aura-fmb-decay-duration");
+    return Aura.parseDuration(v, DEFAULT_DECAY_MS);
+  }
+
+  /* Read --aura-fmb-decay-easing (a CSS <easing-function>) from `el`'s
+     computed style — #1091: resolved by easeDecay()/cubicBezierEase() (pure
+     math, above) into an actual eased curve applied to the Decay sub-phase's
+     progress (see processMember's "decaying" case below). Falls back to the
+     literal string "linear" (identity — today's pre-#1091 behavior) rather
+     than a numeric default, since this value is a curve descriptor, not a
+     number — mirrors bandPxFor/decayDurationMsFor's own "absent/unparseable
+     -> documented, safe fallback" shape one level up. */
+  function decayEasingFor(el) {
+    var v = getComputedStyle(el).getPropertyValue("--aura-fmb-decay-easing");
+    return v && v.trim() ? v : "linear";
+  }
+
+  // --------------------------------------------------------------------------
+  // Registration
+  // --------------------------------------------------------------------------
+
+  var registry = []; // registered member records, order = registration order
+
+  /* Validate a register() call's member shape, warning (debug-gated, mirrors
+     every other Aura.warn call site) and returning false on any gap rather
+     than throwing — a malformed registration must degrade to "this member
+     never auto-decays", not crash the page. */
+  function validateMember(m) {
+    var label = m && m.label ? " (" + m.label + ")" : "";
+    if (!m || typeof m !== "object") {
+      Aura.warn("[Aura.fmbChoreography] register() requires a member object" + label);
+      return false;
+    }
+    var elementFields = ["host", "button", "menu"];
+    for (var i = 0; i < elementFields.length; i++) {
+      if (!(m[elementFields[i]] instanceof Element)) {
+        Aura.warn("[Aura.fmbChoreography] register() requires member." + elementFields[i] + " to be an Element" + label);
+        return false;
+      }
+    }
+    var fnFields = ["isOpened", "isPinned", "stash"];
+    for (var j = 0; j < fnFields.length; j++) {
+      if (typeof m[fnFields[j]] !== "function") {
+        Aura.warn("[Aura.fmbChoreography] register() requires member." + fnFields[j] + " to be a function" + label);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /* v3.555 ITEM-8 — write --aura-fmb-decay-progress onto BOTH the host AND the
+     menu element every time the engine sets or clears it. A CSS custom
+     property inherits down the DOM tree but NOT across siblings, so:
+       - nav-header (menu === host, its single-element FMB): the guard below
+         skips the redundant second write — one setProperty, unchanged.
+       - sidebar / user-profile (menu lives inside the host's subtree): the
+         menu already inherits the host's value; writing it again is a
+         harmless duplicate of the identical value.
+       - footer (menu is a document.body sibling of the host — the body-level
+         panel ensureFooterPanel() creates, see js/footer.js's containing-
+         block note): the panel has NO inheritance path to the host's value,
+         so this direct write is the ONLY way it receives the live per-frame
+         progress. Writing on both, generically, gives every member's
+         menu/panel the identical distance-then-time-driven signal with no
+         per-member special-casing here and — crucially — no js/footer.js
+         mirror of the property needed (footer.css reads var(--aura-fmb-decay-
+         progress) directly off the panel now). */
+  function writeProgress(reg, value) {
+    reg.host.style.setProperty("--aura-fmb-decay-progress", value);
+    if (reg.menu !== reg.host) reg.menu.style.setProperty("--aura-fmb-decay-progress", value);
+  }
+
+  /* Clear any live detach/decay state on a registration's host + reset its
+     phase to "idle". Guarded on _phase (skip once already idle) so the
+     common per-frame "member is Pinned or plain Stashed" path costs zero DOM
+     writes (mirrors js/glow.js's applyIntensity() change-detection). */
+  function resetPhase(reg) {
+    if (reg._phase === "idle") return;
+    reg.host.removeAttribute("data-fmb-detached");
+    reg.host.removeAttribute("data-fmb-decaying");
+    writeProgress(reg, "0");
+    reg._phase = "idle";
+    reg._decayStart = null;
+  }
+
+  /* Invoke a validated member callback defensively — a member's own
+     isOpened()/isPinned()/stash() throwing must not crash this engine's
+     shared loop for every OTHER registered member (mirrors core.js's own
+     onMount try/catch-and-report convention). */
+  function safeCall(fn, fallback) {
+    try { return !!fn(); } catch (e) { Aura.error("[Aura.fmbChoreography] member callback threw", e); return fallback; }
+  }
+  function safeInvoke(fn) {
+    try { fn(); } catch (e) { Aura.error("[Aura.fmbChoreography] member callback threw", e); }
+  }
+
+  /**
+   * Register an FMB member into the shared choreography engine — the public
+   * opt-in API docs/design/fmb-choreography-design.md's "Engine API
+   * (as-built)" section documents for ITEM-3/4/5 to code against.
+   *
+   * @param {object}   member
+   * @param {Element}  member.host     The element the engine's own lifecycle
+   *                                   attributes (data-fmb-detached /
+   *                                   data-fmb-decaying) and the live
+   *                                   --aura-fmb-decay-progress custom
+   *                                   property are written to. This MUST be
+   *                                   the SAME host js/fmb-column.js discovers
+   *                                   for this member (data-fmb-column /
+   *                                   -anchor / -slot), so the seam's
+   *                                   isStashed()/isEligible() decaying-member
+   *                                   rule reads the attribute this engine
+   *                                   actually sets.
+   * @param {Element}  member.button   The EXISTING persistent pin-button
+   *                                   (docs/design/fmb-choreography-design.md
+   *                                   §The persistent-button clarification —
+   *                                   never a new element). Read by this
+   *                                   engine's own leave-detection distance
+   *                                   math (processMember's FINDING-1 block,
+   *                                   below — corrected doc: an earlier
+   *                                   revision of this comment said
+   *                                   "menu-only", which stopped being true
+   *                                   once FINDING 1 started measuring the
+   *                                   NEARER of button/menu; #1106 item 4
+   *                                   additionally skips a DISCONNECTED
+   *                                   button's stale zero-rect in that same
+   *                                   math). Also part of the registration
+   *                                   contract so a member never has to
+   *                                   resolve it twice — e.g. for
+   *                                   Aura.fmbChoreography.press(member.button)
+   *                                   on pin-click.
+   * @param {Element}  member.menu     The EXISTING menu/panel container the
+   *                                   button morphs into once Opened. Cursor
+   *                                   distance is measured to THIS rect via
+   *                                   Aura.dom.distanceToRect — never the
+   *                                   button's own radius/rect (glow.js's
+   *                                   130px button-proximity model is a
+   *                                   DIFFERENT measurement for a DIFFERENT
+   *                                   movement; see the two-driver model).
+   * @param {function():boolean} member.isOpened
+   *        Live predicate, polled every frame: true while the member is
+   *        Opened OR Pinned.
+   *        **CRITICAL contract — the linchpin of the return path (ITEM-3/4/5
+   *        MUST implement it this way):** once a member is Opened+unpinned it
+   *        MUST NOT revert to Stashed on its own — do NOT self-close on
+   *        hover-out / focus-out. Keep the member's own
+   *        `data-{member}-expanded` attribute set and delegate the close to
+   *        THIS engine's `stash()` callback. `isOpened()` must therefore stay
+   *        TRUE throughout the entire detach → decay path, until `stash()`
+   *        runs and clears it. If `isOpened()` flipped false the instant the
+   *        cursor left the button, the `if (pinned || !opened)` bail below
+   *        would fire before detach/decay ever started and the whole return
+   *        choreography would never run. (Before Opened, the member's
+   *        existing hover/focus/proximity logic that decides WHEN to open is
+   *        unchanged by this engine — it is only the close/return path this
+   *        engine takes over.)
+   * @param {function():boolean} member.isPinned
+   *        Live predicate: true while data-fmb-pinned is set. Pinned always
+   *        wins — no timer runs, no attribute is set, while true.
+   * @param {function():boolean} [member.isHeld]
+   *        OPTIONAL live predicate, polled every frame alongside focus (see
+   *        processMember's leave-detection block below): when present and it
+   *        returns true, distance is pinned to 0 ("over") exactly like focus
+   *        resting in the button/menu — suspending the detach/decay/stash
+   *        path entirely while held. For a member whose own open surface can
+   *        visually extend beyond the button/menu rects this engine measures
+   *        against (e.g. nav-header's dropdown panel, footer's portaled
+   *        theme-select popup — issue #1089), so that browsing INSIDE that
+   *        surface never reads as "pointer left the control." Omit entirely
+   *        for members with no such surface — a registration that never
+   *        passes it behaves exactly as it did before this field existed.
+   *        Deliberately NOT part of validateMember()'s required fnFields list
+   *        (a missing isHeld is never warned about) and always invoked
+   *        through the same defensive safeCall wrapper as isPinned/isOpened,
+   *        so a throwing isHeld degrades to "not held" instead of crashing
+   *        the shared loop for every other registered member.
+   * @param {function():void} member.stash
+   *        Reverse-morph callback: called exactly once, when decay reaches
+   *        progress 1 (or, under prefers-reduced-motion, the instant the
+   *        cursor/pointer is no longer over the button/menu) — collapse the
+   *        menu back into the button's rect and clear the member's own
+   *        Opened attribute(s). Never called for the reversible detach band
+   *        or for a cancelled decay (cursor returned) — those restore Opened
+   *        in place, they do not stash.
+   * @param {string}   [member.label]  Optional name for Aura.warn diagnostics.
+   * @returns {function():void} unregister — idempotent; clears any live
+   *          detach/decay state on the host and removes the registration.
+   *          Members MUST call this on their own teardown (mirrors every
+   *          other Aura registration API's disposer-return convention, e.g.
+   *          js/dialog.js's trap-focus install()) so no stale attribute or
+   *          registry entry survives an HTMX swap.
+   */
+  Aura.fmbChoreography = Aura.fmbChoreography || {};
+  Aura.fmbChoreography.register = function (member) {
+    if (!validateMember(member)) return function unregister() {};
+
+    var reg = {
+      host: member.host,
+      button: member.button,
+      menu: member.menu,
+      isOpened: member.isOpened,
+      isPinned: member.isPinned,
+      isHeld: member.isHeld || null,
+      stash: member.stash,
+      label: member.label || null,
+      _phase: "idle",       // "idle" | "detached" | "decaying"
+      _decayStart: null     // rAF timestamp (ms) decay began, or null
+    };
+    /* Defensive one-time clear (unconditional, unlike resetPhase()'s
+       steady-state guard) — a freshly (re)registered host may carry stale
+       data-fmb-detached/-decaying from a PRIOR lifecycle this engine never
+       saw torn down cleanly (e.g. an HTMX morph reusing the node without the
+       previous instance's unregister() running first). Always start clean —
+       on both host and menu (writeProgress), so a reused body-level panel
+       never carries a stale progress from a prior instance either. */
+    reg.host.removeAttribute("data-fmb-detached");
+    reg.host.removeAttribute("data-fmb-decaying");
+    writeProgress(reg, "0");
+
+    registry.push(reg);
+    /* FINDING 2 (idle loop): a freshly-registered member must be evaluated at
+       least once even if the loop had already idled — wake it so this member
+       is processed on the next frame (it may already be Opened+unpinned and
+       away from the pointer, needing to begin decaying with no pointer/focus
+       event to trigger it). */
+    moved = true;
+    start();
+
+    /* #1106 item 2 — programmatic-pin stranding. A member's OWN click handler
+       flips `data-fmb-pinned` via setAttribute/toggleAttribute directly on
+       `reg.host` (footer.js/sidebar.js/nav-header.js's own shared
+       PINNED_ATTR convention, also named in member.isPinned's JSDoc above) —
+       that mutation emits none of the pointermove/pointerleave/pointerdown/
+       focusin/focusout events this file's wake() listeners watch. If it lands
+       while the host is mid-detach/decay AND the loop has already idled (a
+       still pointer, nothing decaying — see the idle-when-quiescent
+       discipline below), the `if (pinned || !opened) resetPhase(reg)` branch
+       in processMember is fully correct but never gets to RUN again until
+       some unrelated pointer/focus event happens to wake the loop, stranding
+       data-fmb-detached/-decaying plus a partial --aura-fmb-decay-progress on
+       the now-Pinned host. Rather than requiring every member to remember to
+       call some new public wake()-equivalent (member files are out of scope
+       for this fix, and a silently-forgotten call would silently reintroduce
+       the bug), watch the one attribute this engine already treats as a
+       stable, documented cross-member contract directly: any mutation just
+       wakes the loop, and resetPhase() on the very next frame does the actual
+       clearing — no member cooperation required. Disconnected in
+       unregister() below so no observer outlives its registration. */
+    var pinObserver = new MutationObserver(wake);
+    pinObserver.observe(reg.host, { attributes: true, attributeFilter: ["data-fmb-pinned"] });
+
+    var unregistered = false;
+    return function unregister() {
+      if (unregistered) return;
+      unregistered = true;
+      pinObserver.disconnect();
+      var idx = registry.indexOf(reg);
+      if (idx !== -1) registry.splice(idx, 1);
+      resetPhase(reg);
+    };
+  };
+
+  /**
+   * Brief, token-driven press-feedback for a pin click/Enter/Space
+   * activation. Pointer/mouse presses are already covered by plain CSS
+   * `:active` + `[data-fmb-pinned]` with NO JS needed at all — this helper
+   * exists for the modalities `:active` covers inconsistently across engines
+   * (notably keyboard-triggered activation), and doubles as the "keyboard-
+   * activation shim" docs/design/fmb-choreography-design.md anticipates.
+   * A real `<button>`'s `click` event already fires uniformly for pointer
+   * clicks AND Enter/Space keyboard activation, so calling this from a
+   * member's SINGLE existing click handler (already unified across input
+   * modalities — see tests/unit/nav-header-user-fmb.test.js's pin-toggle
+   * suite) covers every modality with no separate keydown listener needed.
+   *
+   * Sets `data-fmb-press` for one `--aura-dur-fast` cycle, then clears it.
+   * The VISUAL (transform: scale(var(--aura-fmb-press-scale))) is each
+   * member's own CSS rule keyed off `[data-fmb-press]` — per-member geometry
+   * stays in each member's own file (nav-header.css/sidebar.css/footer.css,
+   * ITEM-3/4/5), mirroring the js/fmb-column.js seam's own division between
+   * shared engine and per-member styling. Pinned-state indicator styling
+   * needs NO JS call at all: `[data-fmb-pinned]` + `--aura-fmb-pinned-accent`
+   * in each member's own CSS is the whole mechanism.
+   *
+   * @param {Element} el  Typically the member's persistent button.
+   */
+  Aura.fmbChoreography.press = function (el) {
+    if (!el) return;
+    el.setAttribute("data-fmb-press", "");
+    var ms = Aura.readDelay("--aura-dur-fast", 120);
+    if (el.__auraFmbPressTimer) clearTimeout(el.__auraFmbPressTimer);
+    el.__auraFmbPressTimer = setTimeout(function () {
+      el.removeAttribute("data-fmb-press");
+      el.__auraFmbPressTimer = null;
+    }, ms);
+  };
+
+  // --------------------------------------------------------------------------
+  // The rAF loop — one loop, many registered members (mirrors js/glow.js's
+  // one-loop-many-elements shape AND its idle-when-quiescent discipline).
+  //
+  // FINDING 2 / performance-design.md §"The loop idles (stops requesting
+  // frames) whenever nothing is near the cursor and the pointer is still":
+  // the loop keeps requesting frames only while `moved` (a pointer/focus
+  // event since the last frame) OR `anyDecaying` (>=1 member mid-decay — its
+  // timed fade needs continuous frames to advance even while the pointer is
+  // still). A still pointer with no active decay idles the loop (running =
+  // false), exactly like js/glow.js; the next pointermove/focus event wakes
+  // it via start(). A member sitting in the reversible "detached" band with a
+  // still pointer is a STABLE state (attribute already set, no timer) so it
+  // does NOT keep the loop alive — the next pointer move re-evaluates it.
+  // --------------------------------------------------------------------------
+
+  var running = false;
+  var moved = false;               // a pointer/focus event since the last frame
+  var px = OFFSCREEN, py = OFFSCREEN;
+
+  /* Wake the idle loop: flag activity and (re)start it if it had stopped. */
+  function wake() { moved = true; start(); }
+
+  document.addEventListener("pointermove", function (e) {
+    px = e.clientX;
+    py = e.clientY;
+    wake();
+  }, { passive: true });
+  // Pointer leaving the window/document entirely: fall back to the
+  // "no known pointer" sentinel, mirroring js/glow.js's own pointerleave
+  // handling, so a member does not read a STALE last-known position as
+  // "still over the menu" once the cursor has genuinely left.
+  document.addEventListener("pointerleave", function () {
+    px = OFFSCREEN;
+    py = OFFSCREEN;
+    wake();
+  });
+  /* Keyboard-driven open/close produces NO pointer event, so focus changes
+     must wake the loop too — otherwise a Tab away from an Opened menu (the
+     focus-leave that should begin the return path — see processMember's
+     focusHeld below) would go unnoticed until an unrelated pointer move.
+     focusin/focusout bubble (unlike focus/blur), so one delegated pair on
+     document covers the whole live registry. */
+  document.addEventListener("focusin", wake, { passive: true });
+  document.addEventListener("focusout", wake, { passive: true });
+  /* #1106 item 1 — the wake gap. An outside-click unpin with a STATIONARY
+     pointer fires none of the four events above: no pointermove (the mouse
+     never moved), no pointerleave, and — in a browser that does not shift
+     focus to a programmatically-clicked control (Safari, notably) — no
+     focusin/focusout either. The member is left Opened+unpinned with a
+     genuinely idle loop until some UNRELATED later pointermove happens to
+     wake it. `pointerdown` fires on every such click regardless of focus
+     behavior and regardless of whether the pointer moved, so it closes the
+     gap directly — a plain wake(), exactly like focusin/focusout above: the
+     click itself carries no new position info this loop needs (pointermove
+     already owns px/py), it only needs to make sure a frame runs so
+     processMember re-evaluates isPinned()/isOpened() against whatever
+     position is already known. */
+  document.addEventListener("pointerdown", wake, { passive: true });
+  /* #1106 item 5 — background-tab decay jump. rAF is suspended entirely while
+     a tab is hidden (no frames fire, by design, to save battery), but
+     wall-clock time (what rAF's own timestamp argument and performance.now()
+     both track) keeps advancing regardless. A member already mid-Decay when
+     the tab backgrounds has its `_decayStart` baseline fixed at the LAST
+     real frame; the very first frame delivered after the tab regains focus
+     receives a `ts` that is now the ENTIRE backgrounded duration further
+     along, so `ts - _decayStart` reads as fully (or many times over)
+     elapsed — decayProgress() clamps that to 1 and the member instantly
+     snaps to Stashed instead of resuming its smooth timed fade. Re-baseline
+     every in-flight decay's `_decayStart` forward by the measured hidden
+     duration on the visible transition, so the resumed frame's elapsed-time
+     computation picks up exactly where it left off — the fade continues
+     smoothly across the gap instead of jumping. (No existing
+     visibilitychange precedent in this codebase to mirror — js/glow.js's own
+     rAF loop has no elapsed-TIME accumulator at all, only live distance
+     sampled fresh every frame, so a backgrounded gap cannot desync it the
+     way a timestamp-anchored decay can.) */
+  var hiddenSince = null;
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      hiddenSince = performance.now();
+      return;
+    }
+    if (hiddenSince == null) return;
+    var hiddenMs = performance.now() - hiddenSince;
+    hiddenSince = null;
+    if (hiddenMs > 0) {
+      for (var i = 0; i < registry.length; i++) {
+        var reg = registry[i];
+        if (reg._phase === "decaying" && reg._decayStart != null) reg._decayStart += hiddenMs;
+      }
+    }
+    wake(); // resume promptly even if the pointer never moves post-resume
+  });
+
+  function processMember(reg, ts, reduced, coarse) {
+    if (!reg.host.isConnected || !reg.menu.isConnected) { resetPhase(reg); return; }
+
+    /* pointer: coarse (docs/design/fmb-choreography-design.md §Reduced
+       motion and pointer: coarse) — there is no cursor at all, so the
+       auto-decay/distance path no-ops entirely; a touch-opened member stays
+       open until the member's OWN explicit dismissal (tap button/outside/
+       Escape) closes it — never this engine, never a timer. */
+    if (coarse) { resetPhase(reg); return; }
+
+    var pinned = safeCall(reg.isPinned, false);
+    var opened = safeCall(reg.isOpened, false);
+
+    if (pinned || !opened) {
+      /* Pinned always wins (fmb-design.md §4 Pin — no timer while pinned); a
+         member that isn't Opened at all has nothing here to track. Either
+         way, clear any state left over from a PRIOR open cycle so it never
+         lingers once the member has returned to Stashed/Pinned. */
+      resetPhase(reg);
+      return;
+    }
+
+    /* FINDING 1 — leave detection over BOTH the button and the menu, plus
+       focus. The contract exits Opened only when "pointer/focus leaves the
+       button AND the open menu" (docs/design/fmb-design.md §The three states;
+       §State-transition choreography acceptance): the persistent pin-button
+       sits OUTSIDE the menu rect (fmb-choreography-design.md §The persistent-
+       button clarification — two structurally-distinct elements), so measuring
+       distance to the menu alone would wrongly start detach/decay while the
+       cursor is still hovering the button, and keyboard focus resting in the
+       menu (or on the button) must likewise count as "still on the control."
+       So: focus-within either element pins distance to 0 ("over"); otherwise
+       take the NEARER of the button-rect and menu-rect distances, so the user
+       has to leave both before the return path begins.
+
+       #1089 — a member whose registered button/menu rects don't cover its
+       WHOLE visual open surface (nav-header registers the bar strip itself
+       as both button and menu for its own FMB circle; footer's portaled
+       theme-select popup extends outside its .aura-footer__panel rect) reads
+       browsing that surface as "pointer left," wrongly starting detach/decay
+       under an open dropdown. member.isHeld is that member's own escape
+       hatch: an optional live predicate reporting "something of mine the
+       button/menu rects don't cover is open right now," folded into the same
+       held/focus condition — an isHeld member gets dist = 0 (the "over"
+       treatment) exactly like focusHeld, suspending detach/decay/stash for as
+       long as it reports true. safeCall(..., false) guards a throwing isHeld
+       the same way isPinned/isOpened are guarded elsewhere in this file; the
+       `reg.isHeld &&` short-circuit means a registration that never passes it
+       (the overwhelming majority — see register()'s JSDoc) never even calls
+       safeCall, so its behavior is bit-for-bit unchanged from before this
+       field existed.
+
+       #1106 item 4 — a DISCONNECTED button (removed from the document but
+       still referenced by a stale registration whose owner skipped its own
+       unregister()) has no real box: getBoundingClientRect() on a detached
+       element collapses to a zero rect pinned at the viewport origin (0,0).
+       Left unguarded, that stale rect can read as "the cursor is right on
+       the control" whenever the pointer happens to be anywhere near (0,0) —
+       even though the member's real, still-connected open surface (the
+       menu) is nowhere near the cursor — wrongly cancelling a decay that
+       should legitimately be running. `reg.host`/`reg.menu` already get this
+       exact treatment at the top of this function (a fully torn-down
+       member); `reg.button` is a supporting rect ONLY consulted here for
+       leave-detection, not part of that top-level identity check, so a
+       disconnected button simply drops out of the focus/distance
+       computation below and the member is judged by its real menu alone —
+       still fully functional, not silently disabled. */
+    var buttonLive = reg.button.isConnected;
+    var focusHeld = (buttonLive && reg.button.contains(document.activeElement)) ||
+                    reg.menu.contains(document.activeElement) ||
+                    (reg.isHeld && safeCall(reg.isHeld, false));
+    var dist = focusHeld ? 0 : (buttonLive
+      ? Math.min(
+          Aura.dom.distanceToRect(px, py, reg.button.getBoundingClientRect()),
+          Aura.dom.distanceToRect(px, py, reg.menu.getBoundingClientRect())
+        )
+      : Aura.dom.distanceToRect(px, py, reg.menu.getBoundingClientRect()));
+    var band = bandPxFor(reg.host);
+    var phase = classifyDistance(dist, band);
+
+    if (reduced) {
+      /* prefers-reduced-motion: reduce — collapse instantly. NEVER write
+         data-fmb-detached/-decaying (docs/design/fmb-choreography-design.md
+         §Reduced motion and pointer: coarse): the instant the cursor/focus is
+         no longer on the button or menu, close straight to Stashed. */
+      if (phase !== "over") {
+        resetPhase(reg);
+        safeInvoke(reg.stash);
+      }
+      return;
+    }
+
+    switch (phase) {
+      case "over":
+        /* "cursor returns over button/menu at any point -> cancel: clear
+           both attributes, reset progress, restore Opened." (fmb-design.md
+           §5 Detach → Decay → re-stash) */
+        resetPhase(reg);
+        break;
+
+      case "detached":
+        if (reg._phase !== "detached") {
+          reg.host.removeAttribute("data-fmb-decaying");
+          reg.host.setAttribute("data-fmb-detached", "");
+          reg._phase = "detached";
+          reg._decayStart = null;
+        }
+        /* v3.555 ITEM-8: written every frame the loop is awake (not just on
+           the phase transition above) — reversible, recomputed from the
+           CURRENT live distance, so a pointer moving back toward the menu
+           lowers this and a pointer moving toward the band's outer edge
+           raises it. The rAF loop itself only stays awake while `moved` is
+           true (a pointermove/focus event since the last frame) or a
+           member is decaying (see frame()'s idle condition below) — a still
+           pointer resting in the band is a stable state and correctly does
+           NOT keep re-writing this every frame, but any pointer movement
+           re-wakes the loop via the existing wake()/pointermove listener,
+           which composes with this write requiring no changes there.
+           writeProgress writes it onto the menu element too (footer's
+           body-level panel path — see writeProgress's own doc comment). */
+        writeProgress(reg, detachProgress(dist, band, DETACH_CEIL).toFixed(3));
+        break;
+
+      case "decaying":
+        if (reg._phase !== "decaying") {
+          reg.host.removeAttribute("data-fmb-detached");
+          reg.host.setAttribute("data-fmb-decaying", "");
+          reg._phase = "decaying";
+          reg._decayStart = ts; // timestamp-based: the rAF frame timestamp, not a setInterval tick
+        }
+        /* Starts exactly at DETACH_CEIL (continuous with the band edge — no
+           re-saturation jump when crossing 16px) and ramps the REMAINING
+           (1 - DETACH_CEIL) span to full decay over
+           --aura-fmb-decay-duration. #1091: the linear elapsed/total fraction
+           decayProgress() computes is reshaped by --aura-fmb-decay-easing
+           (easeDecay/cubicBezierEase, pure math above) before it scales the
+           remaining span — "linear"/absent/unparseable resolves to an
+           identity curve (decayEasingFor's own fallback), so an untouched
+           host decays exactly as before this token was wired. The
+           COMPLETION trigger below stays time-based regardless of curve
+           shape: linearT only reaches 1 once elapsed >= duration, and
+           cubicBezierEase(..., 1) === 1 by construction, so easing only
+           reshapes the MID-flight visual, never how long a full decay
+           actually takes. */
+        var linearT = decayProgress(ts - reg._decayStart, decayDurationMsFor(reg.host));
+        var easedT = easeDecay(linearT, decayEasingFor(reg.host));
+        var progress = DETACH_CEIL + (1 - DETACH_CEIL) * easedT;
+        writeProgress(reg, progress.toFixed(3));
+        if (progress >= 1) {
+          resetPhase(reg);
+          safeInvoke(reg.stash); // full decay -> reverse-morph to Stashed
+        }
+        break;
+    }
+  }
+
+  function frame(ts) {
+    if (registry.length === 0) { running = false; return; }
+
+    var reduced = Aura.env.reducedMotion();
+    var coarse = Aura.env.coarsePointer();
+    var anyDecaying = false;
+    /* Iterate a SNAPSHOT: a member's stash() callback may synchronously call
+       its own unregister() (a reverse-morph that tears the member down),
+       splicing `registry` mid-loop — snapshotting keeps the index stable and
+       reads each reg's own _phase for the idle decision below. */
+    var members = registry.slice();
+    for (var i = 0; i < members.length; i++) {
+      processMember(members[i], ts, reduced, coarse);
+      if (members[i]._phase === "decaying") anyDecaying = true;
+    }
+
+    /* Idle when nothing changed and nothing is decaying (FINDING 2). A
+       still-set "detached" band member is a stable resting state and does NOT
+       count — only an in-flight decay timer needs the next frame. */
+    if (moved || anyDecaying) {
+      moved = false;
+      requestAnimationFrame(frame);
+    } else {
+      running = false;
+    }
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    requestAnimationFrame(frame);
+  }
+
+  /* Test/diagnostic seam (NOT part of the member-facing API): reports whether
+     the rAF loop is currently requesting frames. tests/unit/fmb-choreography.
+     test.js uses it to assert the loop idles on quiescence
+     (performance-design.md idle-when-still requirement, FINDING 2). */
+  Aura.fmbChoreography._isRunning = function () { return running; };
+
+  /* HTMX-safety: the ONLY place this module touches Aura.onMount. Prunes
+     registrations whose host has left the document (a member that skipped
+     its own unregister() on teardown, or an HTMX swap that discarded the
+     node outright) so the registry — and therefore the rAF loop — never
+     grows unbounded across swaps. Only ever SHRINKS the registry array;
+     never mutates the DOM, honouring onMount's idempotent/no-DOM-mutation
+     contract (core.js's own doc comment on Aura.onMount). */
+  Aura.onMount(function () {
+    for (var i = registry.length - 1; i >= 0; i--) {
+      if (!registry[i].host.isConnected) registry.splice(i, 1);
+    }
+  });
+})();
+
 /* ==== overlay.js ==== */
 /* ==========================================================================
    Aura — anchored-overlay primitive.
@@ -2398,17 +4482,83 @@
      Returns { arm, disarm }. arm() defers the attach by a tick so the same
      click/keydown that opened the popup does not immediately dismiss it; the
      deferred attach is validated against `armed` so a disarm before the tick
-     elapses cancels it cleanly. */
+     elapses cancels it cleanly.
+
+     #1038 — native mousedown focus-shift vs. focus-return: for a genuine
+     mouse click, the browser fires pointerdown → mousedown → (default
+     action: shift focus, typically to <body> when the clicked target isn't
+     natively focusable) → mouseup → click. onPointerDown runs during the
+     pointerdown phase, BEFORE mousedown's default action — so when a
+     consumer configures a real focus-return target (passes `isOnOpener`) and
+     its onDismiss chain calls opener.focus() synchronously from here, that
+     focus call happens first and is immediately undone by the native
+     mousedown default action. Traced and confirmed in
+     tests/layout/sidebar-fmb.spec.js's follow-up notes: deferring the
+     refocus to a microtask/rAF does NOT reliably win this race (a
+     MutationObserver-microtask-deferred refocus was observed losing to the
+     native blur too), because the native default action can run before a
+     microtask checkpoint. The robust fix is to suppress the native action
+     directly: arm a same-gesture, capture-phase `mousedown` listener that
+     calls preventDefault() — cancelable per spec, and the standard technique
+     for keeping focus put across a click (the same trick rich-text toolbar
+     buttons use to avoid stealing the editor's selection). Scoped tightly so
+     it never touches a dismisser with no focus-return target configured, and
+     to mouse/pen only — touch's compatibility mousedown lands long after
+     dismissal has already settled and was already unaffected (confirmed by
+     the issue's own tracing), so it stays untouched. Keyboard dismissal
+     (Escape) never runs through pointer handling at all, so it too is
+     unaffected. */
   function createDismisser(opts) {
     var onDismiss = opts.onDismiss;
     var isInside = opts.isInside || function () { return false; };
     var isOnOpener = opts.isOnOpener || function () { return false; };
     var usePointer = opts.pointer !== false;
+    /* A real (non-default) isOnOpener means the consumer actually has an
+       opener to return focus to on dismiss — only then is the native-blur
+       race in play, and only then do we touch mousedown at all. */
+    var hasFocusReturn = typeof opts.isOnOpener === "function";
     var armed = false;
+
+    /* One-shot guard: suppress the native mousedown default action (the
+       focus-shift/blur) for the SAME gesture that just dismissed via
+       onPointerDown. Added on demand (not for the popup's whole open
+       duration) and always torn down — either when its mousedown fires, or,
+       defensively, after FOCUS_GUARD_FALLBACK_MS if the paired mousedown
+       never arrives (e.g. a cancelled pointer), so it can never leak onto an
+       unrelated later click. The fallback is a generous macrotask delay, not
+       0ms: pointerdown and mousedown are two separate native events, and
+       under real-world load (a busy machine, several overlays' worth of
+       concurrent test/automation traffic) the gap between them — while still
+       reliably one same-gesture synchronous dispatch chain in practice — is
+       safer treated as "eventually", not "immediately"; a bare setTimeout(0)
+       risks firing in a genuine gap and clearing the guard a moment before
+       its own paired mousedown lands, reopening the exact bug this exists to
+       close. Bounding the leak window at a few hundred ms instead of one
+       macrotask trades an infinitesimal, purely cosmetic risk (an unrelated
+       mousedown within that window losing a focus-shift default it likely
+       didn't need anyway) for eliminating a real one. */
+    var FOCUS_GUARD_FALLBACK_MS = 400;
+    var focusGuard = null;
+    function clearFocusGuard() {
+      if (!focusGuard) return;
+      clearTimeout(focusGuard.timer);
+      document.removeEventListener("mousedown", focusGuard.handler, true);
+      focusGuard = null;
+    }
+    function armNativeFocusGuard() {
+      clearFocusGuard(); // defensive: never double-arm
+      function handler(e) {
+        clearFocusGuard();
+        e.preventDefault();
+      }
+      focusGuard = { handler: handler, timer: setTimeout(clearFocusGuard, FOCUS_GUARD_FALLBACK_MS) };
+      document.addEventListener("mousedown", handler, true);
+    }
 
     function onPointerDown(e) {
       if (isInside(e.target)) return;           // pointer inside the popup
       if (isOnOpener(e.target)) return;         // on the trigger (it toggles)
+      if (hasFocusReturn && e.pointerType !== "touch") armNativeFocusGuard();
       onDismiss();
     }
     function onScroll(e) {
@@ -2434,6 +4584,19 @@
       },
       disarm: function () {
         armed = false;
+        /* Deliberately does NOT clearFocusGuard() here. disarm() is exactly
+           what a consumer's own onDismiss chain calls to tear itself down
+           (e.g. js/sidebar.js's releasePinned(), invoked from a
+           MutationObserver watching the pinned attribute onDismiss just
+           cleared) — and that MutationObserver callback is a MICROTASK that
+           runs BEFORE the native mousedown even fires (confirmed via
+           tracing, see the #1038 comment above createDismisser). Clearing
+           the guard here raced it: disarm() would tear down the very guard
+           armed a moment ago for THIS gesture before it ever saw its
+           mousedown, reopening the native-blur bug. The guard cleans itself
+           up on its own (its mousedown handler, or the defensive
+           FOCUS_GUARD_FALLBACK_MS fallback), so disarm() doesn't need to
+           touch it. */
         if (usePointer) document.removeEventListener("pointerdown", onPointerDown, true);
         window.removeEventListener("scroll", onScroll, true);
         window.removeEventListener("resize", onResize);
@@ -16645,11 +18808,9 @@
        reveals via CSS :focus-within, so the bar is always reachable.
      - Keyboard focus reveal (a11y): focusin on a stash header clears
        data-stashed (keeping the host attribute in agreement with the CSS
-       :focus-within reveal); focusout re-stashes only when focus leaves the bar
-       entirely, the page is still scrolled down, AND no menu panel is open.
-       Pointer-agnostic, so it also covers touch + external-keyboard and
-       screen-reader users — the bar is never a permanently hidden-but-focusable
-       nav. Focus is never trapped.
+       :focus-within reveal). Pointer-agnostic, so it also covers touch +
+       external-keyboard and screen-reader users — the bar is never a
+       permanently hidden-but-focusable nav. Focus is never trapped.
      - Reveal flourish (v2.36 iter 3): every reveal path (hot-zone, focus)
        funnels through revealStash(), which clears data-stashed and — when
        the bar is still scrolled past its threshold — momentarily sets
@@ -16661,6 +18822,16 @@
        pulls a STASHED pill back on-screen (translate); it does NOT restore the
        full header height — only data-expanded (the explicit author/JS override,
        never set here) or reaching the top of the page does.
+     - v3.555 ITEM-3 (docs/design/fmb-choreography-design.md): the nav circle is
+       the choreography engine's single-element exception — the logo-zone anchor
+       IS the persistent button, and the bar-collapse/expand IS the morph, so
+       host === button === menu for its Aura.fmbChoreography.register() call
+       (primeHeaders()). Once revealed (Opened/unpinned), the bar no longer
+       restashes itself on pointer/focus-leave — revealStash() still owns WHEN
+       to open, but restash() is now called ONLY by a deliberate action (pin,
+       Escape-unpin) or by the engine's own stash() callback once its
+       detach→decay timer completes (or instantly under reduced motion). See
+       shouldRestash()'s doc comment for the isOpened() predicate this feeds.
      - Sub-menu (data-nav-submenu) and user-menu (data-nav-user-menu) toggles:
        a real <button aria-expanded aria-controls> shows/hides its panel; Escape
        (focus returns to trigger) and outside pointerdown close it; opening one
@@ -16766,19 +18937,20 @@
     return lengthPx(el, "--aura-nav-header-hotzone", 0);
   }
 
-  /* Hover-retain zone below the revealed bar (#832): when the bar is in the
-     revealed state (data-stashed cleared), the cursor may drift slightly below
-     the bar's bottom edge without triggering a re-stash. The retain zone
-     extends the effective "still hovering" distance below the bar by
-     --aura-nav-hover-retain-offset (defaults to 50% of bar height).
-     Only active while the bar is REVEALED (not stashed) — the top hot-zone
-     size is unchanged. Keyboard and touch paths are unaffected. */
-  function retainOffsetPx(el) {
-    /* Read the CSS custom property if set; fall back to 50% of rendered height. */
-    var fromToken = lengthPx(el, "--aura-nav-header-hover-retain-offset", -1);
-    if (fromToken >= 0) return fromToken;
-    return el.offsetHeight * 0.5;
-  }
+  /* Hover-retain zone below the revealed bar (#832) — v3.555 ITEM-3
+     superseded this bespoke "below the bottom edge" JS computation with the
+     shared choreography engine's generic detach band
+     (--aura-fmb-proximity-fade-band, measured from the WHOLE revealed bar's
+     rect via Aura.dom.distanceToRect, not just its bottom edge). The
+     --aura-nav-header-hover-retain-offset token this used to read is now
+     bridged into the engine's own parameter in CSS
+     (css/nav-header.css's `.aura-nav-header { --aura-fmb-proximity-fade-band:
+     var(--aura-nav-header-hover-retain-offset, …); }`), so the token keeps
+     its documented meaning and default — only the JS-side reader (retainOffsetPx,
+     the old cachedToken(h, '_retainOffset', …) call in primeHeaders(), and
+     syncHotzone()'s own retain-zone rect math) is gone as dead code once
+     nothing calls restash() directly from a leave handler any more.
+     docs/design/nav-header-design.md's token table is updated to match. */
 
   /* Floating Menu Button (FMB) proximity expand radius: how many px outside the
      circle edge the cursor must be to trigger revealStash() — a JS-side hover
@@ -16796,6 +18968,28 @@
     return v > 0 ? v : 48;
   }
   function cachedToken(h, key, fn) { return h[key] != null ? h[key] : fn(h); }
+
+  /* v3.559 #1111 (item 1): the five hot-zone/threshold tokens below are
+     cached on the host once at primeHeaders() install time — cheap reads
+     the rest of this module treats as effectively static via cachedToken().
+     But js/fmb-column.js's cross-member size coordination (the shared
+     mobile-column stack a nav-header can join) can change the RESOLVED
+     value of the underlying tokens (e.g. the FMB circle's expand ring, or
+     the hotzone band) after install without ever re-running primeHeaders()
+     itself — a stale cache then keeps testing proximity/scroll against the
+     OLD geometry indefinitely. Re-primed on every window resize (see
+     onResize() below) — the same "resize invalidates derived state"
+     convention armHeaderHeightObserver already applies to the header-height
+     token and the hamburger/overflow re-sync, just for this cache instead
+     of a ResizeObserver (these are token reads, not box-geometry reads, so
+     a plain resize listener is enough — no forced layout). */
+  function primeHotzoneTokens(h) {
+    h._fmbExpand       = fmbExpandPx(h);
+    h._hotzone         = hotzonePx(h);
+    h._direction       = directionPx(h);
+    h._stashThreshold  = stashThresholdPx(h);
+    h._shrinkThreshold = thresholdPx(h);
+  }
 
   /* True when any trigger button inside the header currently has its panel open. */
   function hasOpenMenu(h) {
@@ -17156,17 +19350,34 @@
            bar never auto-restores the full header at the top — it stays stashed
            (data-shrunk so a reveal brings back the floating pill, not the full
            bar) until summoned by the hot-zone / focus, exactly like a
-           scroll-stashed bar. Re-assert both attributes so a stray scroll tick
-           that cleared one (e.g. crossing the shrink-threshold up at the top)
-           can't strand it half-revealed. The reveal paths still clear
-           data-stashed transiently; this only re-seeds the resting state. */
+           scroll-stashed bar. Re-assert the shrunk attribute so a stray scroll
+           tick that cleared it (e.g. crossing the shrink-threshold up at the
+           top) can't strand it half-revealed. */
         if (!h.hasAttribute(SHRUNK_ATTR)) h.setAttribute(SHRUNK_ATTR, "");
-        var hz = cachedToken(h, '_hotzone', hotzonePx);
-        if (!h.hasAttribute(STASHED_ATTR) &&
-            !hasOpenMenu(h) &&
-            !h.matches(":hover") && !h.matches(":focus-within") &&
-            !(pointerY >= 0 && pointerY <= hz)) {
-          restash(h);   /* re-seed the resting pill + drop any stale summon flag */
+        /* v3.555 ITEM-3 (sticky-open contract): the one-time INITIAL seed
+           (mount, before this header has ever been revealed) still snaps
+           straight to the resting stashed pill with no engine involvement —
+           nothing was ever Opened yet for a user to walk away from. Every
+           SUBSEQUENT scroll tick must NOT repeat this seed: once a reveal has
+           happened, an Opened+unpinned stash-default header returns to
+           Stashed ONLY via the choreography engine's own detach→decay→
+           stash() path (primeHeaders()'s register() call), never a scroll-
+           tick snap-back — that would be exactly the self-revert the
+           CRITICAL register() contract (docs/design/fmb-choreography-
+           design.md) forbids. h._fmbSeeded marks the one-shot boundary; it is
+           set unconditionally below so a header already revealed at its very
+           first tick (a vanishingly unlikely race, not a real interaction)
+           degrades to "starts revealed" rather than fighting the engine on a
+           later tick. */
+        if (!h._fmbSeeded) {
+          h._fmbSeeded = true;
+          var hz = cachedToken(h, '_hotzone', hotzonePx);
+          if (!h.hasAttribute(STASHED_ATTR) &&
+              !hasOpenMenu(h) &&
+              !h.matches(":hover") && !h.matches(":focus-within") &&
+              !(pointerY >= 0 && pointerY <= hz)) {
+            restash(h);   /* seed the resting pill + drop any stale summon flag */
+          }
         }
       } else if (!past) {
         /* Back at/near the top → drop the stash latch and restore the full
@@ -17266,6 +19477,13 @@
     window.requestAnimationFrame(syncAllNavOverflows);
     /* Re-seed tooltip delays after layout change may expose new overflow items. */
     seedTooltipDelays();
+    /* v3.559 #1111 (item 1): re-prime the cached hot-zone/threshold tokens
+       (see primeHotzoneTokens()) — a resize can change the resolved value
+       of the underlying tokens (directly, via a breakpoint, or indirectly
+       via js/fmb-column.js's size coordination), and cachedToken() would
+       otherwise keep returning the value captured at install time forever. */
+    var resizeHeaders = document.querySelectorAll(ROOT_SEL);
+    for (var ri = 0; ri < resizeHeaders.length; ri++) primeHotzoneTokens(resizeHeaders[ri]);
     /* Open panels are CLOSED on viewport resize by the shared dismisser
        (armNavDismissal) — the canonical overlay/menu gesture contract — so the
        old reposition-open-panels pass here is gone (#393). Content-driven
@@ -17273,19 +19491,29 @@
   }
 
   /* A bar that a reveal affordance (hot-zone / focus) pulled back on-screen
-     should re-hide when that affordance ends — but ONLY if it is genuinely in
-     the stash zone, i.e. its last known scroll offset is past the deeper
-     stash-threshold. The stage-1 floating pill (data-shrunk but never scrolled
-     past the stash-threshold) shares the {shrunk, !stashed} attribute signature
-     yet must NEVER auto-stash on a mere pointer / focus move — that was the
-     premature-stash bug. lastYMap is the per-host offset cache syncShrink writes
-     each tick and stashThresholdPx reads a token, so this predicate touches no
-     geometry. Pointer-leave (syncHotzone) and focus-leave (onFocusOut) both use
-     it, so the two paths cannot drift apart. */
+     is genuinely "in the stash zone" — i.e. its last known scroll offset is
+     past the deeper stash-threshold. The stage-1 floating pill (data-shrunk
+     but never scrolled past the stash-threshold) shares the {shrunk,
+     !stashed} attribute signature yet must never be treated as an engaged
+     FMB reveal on a mere pointer / focus move — that was the premature-stash
+     bug. lastYMap is the per-host offset cache syncShrink writes each tick
+     and stashThresholdPx reads a token, so this predicate touches no
+     geometry.
+
+     v3.555 ITEM-3: this is now also the "genuinely Opened" half of the nav
+     circle's Aura.fmbChoreography.register() isOpened() predicate (see
+     primeHeaders()) — `shouldRestash(h) || h.hasAttribute("data-fmb-pinned")`.
+     Neither JS leave-handler calls restash() directly from here any more
+     (see syncHotzone()/onClick's Escape branch): the CHOREOGRAPHY ENGINE now
+     owns the return-to-Stashed transition once a member is genuinely Opened,
+     calling restash() itself via its stash() callback after the detach→decay
+     path completes (or instantly under reduced motion) — this function only
+     answers "is the bar currently in the revealed, engaged state," never
+     "should it close right now." */
   function shouldRestash(h) {
     if (!h.hasAttribute(SHRUNK_ATTR) || h.hasAttribute(STASHED_ATTR)) return false;
-    /* stash-default's resting state IS the stashed pill (v3.4), so it re-stashes
-       on pointer/focus-leave at ANY scroll offset — including the top — rather
+    /* stash-default's resting state IS the stashed pill (v3.4), so any reveal
+       counts as "engaged" at ANY scroll offset — including the top — rather
        than requiring the bar to be past the scroll stash-threshold. */
     if (isStashDefault(h)) return true;
     return (lastYMap.get(h) || 0) > cachedToken(h, '_stashThreshold', stashThresholdPx);
@@ -17294,7 +19522,16 @@
   /* Re-conceal a revealed bar: set data-stashed and, for stash-default, drop the
      data-expanded summon flag revealStash set (so the next reveal re-applies it).
      A scroll-stashed bar never carried data-expanded, so the clear is a no-op
-     there — keeping both restash paths (hot-zone, focus) on one definition. */
+     there.
+
+     v3.555 ITEM-3: this is now the Aura.fmbChoreography.register() `stash()`
+     callback for the nav circle (see primeHeaders()) — the ENGINE calls this
+     once the detach→decay path completes (or instantly under reduced
+     motion), and it is the ONLY place an Opened+unpinned bar returns to
+     Stashed. The two deliberate-action call sites (pin-click's re-stash-
+     before-pin normalization, Escape's defensive unpin restash) still call it
+     directly — those are explicit user actions, not passive leave-detection,
+     so they are unaffected by the engine's ownership of the passive path. */
   function restash(h) {
     if (isStashDefault(h)) h.removeAttribute(EXPANDED_ATTR);
     if (h.hasAttribute(SHRUNK_ATTR)) {
@@ -17329,6 +19566,17 @@
   var pointerY = -1;
   var pointerX = -1;
   function syncHotzone() {
+    /* v3.559 #1111 (item 3): checked LIVE here, every call — matching how
+       js/fmb-choreography.js's own engine reads pointer:coarse live inside
+       its rAF frame rather than caching it once at wire-up time. The
+       pointermove listener below is now installed UNCONDITIONALLY (wireDelegation
+       no longer gates it on a coarse read captured once at page-load), so an
+       input-modality change mid-session — e.g. a convertible laptop
+       switching between touch and mouse — is picked up the very next call
+       instead of leaving this reveal path permanently disabled (or
+       permanently enabled) from whatever the pointer type happened to be at
+       install time. */
+    if (Aura.env && Aura.env.coarsePointer && Aura.env.coarsePointer()) return;
     var headers = document.querySelectorAll(ROOT_SEL);
     for (var i = 0; i < headers.length; i++) {
       var h = headers[i];
@@ -17367,27 +19615,22 @@
         /* Hot-zone / FMB proximity reveal funnels through revealStash so the
            glide-in + bloom flourish fire here too. */
         revealStash(h);
-      } else if (shouldRestash(h)) {
-        /* Hover-retain zone (#832): when the bar is REVEALED (shouldRestash
-           returns true only when data-stashed is cleared + scroll past threshold),
-           extend the effective hover region to cover the area just below the bar.
-           The retain offset is 50% of bar height by default, or the
-           --aura-nav-hover-retain-offset token. This prevents the bar from
-           re-stashing the instant the cursor drifts slightly below the bottom
-           edge — matching the acceptance criteria of #832. The top-edge
-           hot-zone size (hotzone) is unchanged; the retain zone adds downward
-           coverage only while the bar is in the revealed state. */
-        var rect = h.getBoundingClientRect();
-        var retainBottom = rect.bottom + cachedToken(h, '_retainOffset', retainOffsetPx);
-        /* Pointer is in the retain zone (between bar top and bar bottom + offset). */
-        var inRetainZone = pointerY >= rect.top && pointerY <= retainBottom;
-        if (!inRetainZone && !hasOpenMenu(h)) {
-          /* Cursor left the band while the bar is genuinely in the stash zone
-             AND no submenu/user-menu panel is open → re-stash. An open menu
-             panel keeps the bar revealed so the user can interact with it. */
-          restash(h);
-        }
       }
+      /* v3.555 ITEM-3 (sticky-open contract, docs/design/fmb-choreography-
+         design.md's CRITICAL register() contract): a revealed-but-unpinned
+         bar used to re-stash HERE — a bespoke "below the bar's bottom edge"
+         retain-zone rect computation (#832) — the instant the cursor left
+         that zone. Both the direct restash() call AND that geometry are
+         gone: an Opened member must NOT self-revert on pointer-leave. The
+         choreography engine (Aura.fmbChoreography.register(), wired in
+         primeHeaders()) now owns the whole return path via its own generic
+         distance-to-host sampling (Aura.dom.distanceToRect against this same
+         element's live rect) and calls restash() itself through the stash()
+         callback, after its detach→decay timer completes (or instantly under
+         reduced motion). The retain zone's own forgiving-buffer INTENT lives
+         on as the engine's --aura-fmb-proximity-fade-band, bridged in
+         css/nav-header.css from the original --aura-nav-header-hover-retain-
+         offset token so #832's tuned default survives the migration. */
     }
   }
 
@@ -17481,11 +19724,6 @@
     }, 350);
   }
 
-  /* On focusout, re-stash only if focus left the header ENTIRELY (relatedTarget
-     is outside it) AND the bar is genuinely in the stash zone — focus moving
-     between two controls inside the bar must not re-stash, and focus is never
-     trapped (Tab/Shift-Tab leave normally). A revealing pointer hover /
-     :focus-within is already gone by definition here, so CSS won't fight us. */
   /* ---- Header dim on outside keyboard focus (#412) ----------------------
      CSS owns the LOOK (.aura-nav-header[data-nav-dimmed]:not(:focus-within));
      this delegation owns the FLAG, replacing the old body-level
@@ -17518,20 +19756,15 @@
     if (!e.relatedTarget) syncHeaderDim(null);
   }
 
-  function onFocusOut(e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var header = t.closest(ROOT_SEL);
-    if (!header || !isStashHeader(header)) return;
-    var next = e.relatedTarget;
-    if (next && header.contains(next)) return;   // focus stayed inside the bar
-    /* Shared stash-zone guard (shouldRestash): never re-stash a stage-1 pill on
-       focus-leave — symmetric with the hot-zone path. An open menu panel also
-       blocks re-stash so dismissing the panel doesn't collapse the FMB. */
-    if (shouldRestash(header) && !hasOpenMenu(header)) {
-      restash(header);
-    }
-  }
+  /* v3.555 ITEM-3 (sticky-open contract): a dedicated onFocusOut() used to
+     live here, re-stashing a revealed bar the instant keyboard focus left it
+     entirely (symmetric with syncHotzone()'s pointer-leave restash). Removed
+     for the same reason: an Opened+unpinned member must not self-revert on
+     focus-leave — the choreography engine's own document-level focusin/
+     focusout listeners (js/fmb-choreography.js) now detect "focus left both
+     the button and the menu" and drive the return path (detach → decay →
+     restash() via stash()), so this member no longer needs its own
+     focus-leave handler at all. */
 
   /* ---- Menu panel portal (backdrop-filter fix) -------------------------- */
   /* aura-nav-header has backdrop-filter:blur(...) which makes it a backdrop
@@ -18120,6 +20353,14 @@
       t.closest("[data-nav-submenu], [data-nav-user-menu], [data-aura-nav-portal]"));
   }
 
+  /* #1088: scroll/resize/blur close any OPEN DROPDOWN (the #393 contract
+     below, unchanged) but must NOT unpin the header's own FMB circle — a
+     scroll notch or the window losing focus is not a dismissal gesture for a
+     pinned bar (contrast onPointerDown, which is). Both the delegated
+     (Aura.overlay) and fallback dismissers below call the bare
+     `closeAllIn(document)` — no options object — which now defaults
+     opts.unpinHeader to false, so this is a documentation-only note: no
+     unpinHeader:true is ever passed from here. */
   function buildNavDismisser() {
     if (Aura.overlay && typeof Aura.overlay.createDismisser === "function") {
       return Aura.overlay.createDismisser({
@@ -18764,7 +21005,17 @@
     }
   }
 
-  function closeAllIn(scope) {
+  /* `opts.unpinHeader` (#1088): closeAllIn() is called from several very
+     different gestures — a genuine outside pointerdown, a scroll/resize/
+     blur, and a menuitem click — that must ALL close any open dropdown but
+     must NOT all unpin the header root's own data-fmb-pinned (the "pinned
+     bar" a stashed FMB nav-circle becomes after a logo-zone pin). Only a
+     press confirmed to be genuinely outside the header's own bar surface
+     should fold the pin-clear into this sweep; every other caller omits the
+     option (default false) and gets the close-dropdowns-only half. See
+     onPointerDown below for the one caller that computes this flag. */
+  function closeAllIn(scope, opts) {
+    var unpinHeader = !!(opts && opts.unpinHeader);
     var open = (scope || document).querySelectorAll(
       ROOT_SEL.split(",").map(function (s) {
         return s.trim() + " button[aria-expanded='true']";
@@ -18793,13 +21044,23 @@
        has an outside click/Escape unpin an FMB regardless of its own pin
        state — data-fmb-pinned only means "stays open while the
        pointer/focus wanders elsewhere," not "immune to explicit
-       dismissal." */
+       dismissal." Unaffected by opts.unpinHeader (#1088 is scoped to the
+       header-root FMB circle's own pin below, not this separate widget). */
     var userFmbHosts = (scope || document).querySelectorAll(USER_FMB_SEL);
     for (var si = 0; si < userFmbHosts.length; si++) {
       var host = userFmbHosts[si];
       var trigger = userFmbTriggerFor(host);
       if (trigger && isOpen(trigger)) closeMenu(trigger, false);
-      else if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+      else {
+        /* #1111 — the panel is already closed (or there is no trigger), but
+           the host can still carry a stale data-fmb-pinned and/or
+           data-user-fmb-expanded (the hover-proximity signal): closeMenu()
+           above clears both together via unpinUserFmbHostFor(), so this
+           fallback branch must too, or the expand flag can survive an
+           outside click that pinned-attr clearing alone used to satisfy. */
+        if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+        if (host.hasAttribute(USER_FMB_EXPANDED_ATTR)) host.removeAttribute(USER_FMB_EXPANDED_ATTR);
+      }
     }
     /* FMB circle Pinned exit (#1068): fold the header-root's own
        data-fmb-pinned (set by the logo-zone click above, distinct from the
@@ -18807,11 +21068,17 @@
        outside-click cleanup — fmb-design.md requires an outside click to
        unpin exactly like Escape does. No restash/focus-move here: an
        outside click never returns focus (contrast the Escape branch, which
-       does), and the pinned circle is by definition already Stashed. */
-    var pinnedRoots = (scope || document).querySelectorAll(ROOT_SEL);
-    for (var pri = 0; pri < pinnedRoots.length; pri++) {
-      if (pinnedRoots[pri].hasAttribute("data-fmb-pinned")) {
-        pinnedRoots[pri].removeAttribute("data-fmb-pinned");
+       does), and the pinned circle is by definition already Stashed.
+       Gated on opts.unpinHeader (#1088): scroll/resize/blur, menuitem
+       clicks, and an in-bar press on the bar's own surface all reach this
+       function too, and none of those is the "outside click" #1068 means —
+       only onPointerDown's genuinely-outside branch sets the flag. */
+    if (unpinHeader) {
+      var pinnedRoots = (scope || document).querySelectorAll(ROOT_SEL);
+      for (var pri = 0; pri < pinnedRoots.length; pri++) {
+        if (pinnedRoots[pri].hasAttribute("data-fmb-pinned")) {
+          pinnedRoots[pri].removeAttribute("data-fmb-pinned");
+        }
       }
     }
   }
@@ -18870,7 +21137,24 @@
       return;
     }
 
-    /* Menuitem click: smooth-scroll for in-page hash, set pending shimmer, close menu. */
+    /* Menuitem click: smooth-scroll for in-page hash, set pending shimmer, close menu.
+       #1088 decision (documented per the issue's own framing): this closeAllIn()
+       call deliberately never passes unpinHeader:true, for either branch below —
+         - smoothScrollToFragment(href) true: a same-page, in-page-hash action.
+           e.preventDefault() stops any navigation, the document never unloads,
+           and the header is still literally on screen right after — unpinning
+           here would be an unrelated side effect of a click that never left the
+           bar's own page state.
+         - smoothScrollToFragment(href) false: either setNavPending()'s same-tab
+           link (the document is about to unload once the browser's default
+           navigation runs right after this handler returns) or a plain link to
+           a different page/tab. Either way the current document's DOM — and
+           therefore its data-fmb-pinned — is moot: whether we clear it here or
+           not has no observable effect once the page navigates away.
+       So "don't unpin" is correct for the same-page case and harmless for the
+       navigate-away case, making the shared default (closeAllIn(document) with
+       no options, unpinHeader defaults false) the simplest correct choice for
+       every menuitem click — no branch here needs unpinHeader:true. */
     var menuItem = t.closest("[role='menuitem']");
     if (menuItem && menuItem.closest("[data-nav-submenu], [data-nav-user-menu], [data-aura-nav-portal]")) {
       var href = menuItem.getAttribute("href") || "";
@@ -18922,6 +21206,13 @@
         e.preventDefault();
         if (!fmbHeader.hasAttribute(STASHED_ATTR)) restash(fmbHeader);
         fmbHeader.toggleAttribute("data-fmb-pinned");
+        /* v3.555 ITEM-3 (fmb-design.md §4 Pin — press feedback): fmbHeader
+           IS the registered `button` for the nav circle's single-element
+           exception (register() call in primeHeaders()) — no separate
+           element to target. */
+        if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+          Aura.fmbChoreography.press(fmbHeader);
+        }
         return;
       }
     }
@@ -18976,7 +21267,16 @@
        logo must not unpin it here a beat before its own click handler's
        toggle runs. */
     if (t.closest('[data-nav-zone="logo"] a, a[data-nav-zone="logo"]')) return;
-    closeAllIn(document);
+    /* #1088: a press anywhere else INSIDE the header's own bar surface (its
+       root/background, title zone, or a plain top-level nav link — anything
+       not already matched by the exclusions above) is not "outside" the
+       header. closeAllIn() still runs so any dropdown open elsewhere on the
+       page closes (the pre-existing #393 outside-press contract), but the
+       unpin half only fires once we've confirmed the press landed genuinely
+       outside ROOT_SEL — otherwise clicking the bar's own chrome would
+       unpin a bar that was never left. */
+    var genuinelyOutside = !t.closest(ROOT_SEL);
+    closeAllIn(document, { unpinHeader: genuinelyOutside });
   }
 
   /* Returns focusable [role="menuitem"] elements in a panel as a plain Array. */
@@ -19456,16 +21756,12 @@
          data-nav-behavior before any isStashHeader/threshold read below. */
       normalizeNavBehavior(headers[i]);
       armStashMirror(headers[i]);
-      headers[i]._fmbExpand       = fmbExpandPx(headers[i]);
-      headers[i]._hotzone         = hotzonePx(headers[i]);
-      headers[i]._direction       = directionPx(headers[i]);
-      headers[i]._stashThreshold  = stashThresholdPx(headers[i]);
-      headers[i]._shrinkThreshold = thresholdPx(headers[i]);
-      headers[i]._retainOffset    = retainOffsetPx(headers[i]);
+      primeHotzoneTokens(headers[i]);
       ensureHamburger(headers[i]);
       ensureNavGlow(headers[i]);
       ensureUserFmb(headers[i]);
       armHeaderHeightObserver(headers[i]);
+      registerNavCircleChoreography(headers[i]);
       var triggers = headers[i].querySelectorAll(
         "[data-nav-submenu] button, [data-nav-user-menu] button"
       );
@@ -19479,6 +21775,73 @@
     }
     syncShrink();
     syncProgress();
+  }
+
+  /* v3.555 ITEM-3 — opt the nav circle into the shared detach→decay→re-stash
+     engine (docs/design/fmb-choreography-design.md §Engine API (as-built),
+     §The persistent-button clarification's "nav-header is the single-element
+     exception"): the logo-zone anchor IS the persistent button and the
+     bar-collapse IS the morph, so there is no second element to register —
+     host, button, and menu all resolve to the SAME nav-header element `h`.
+       host   = h — the same host js/fmb-column.js discovers for the "nav"
+                slot (data-fmb-column/-anchor, LEGACY_MEMBERS' "aura-nav-
+                header, .aura-nav-header" selector).
+       button = h — the always-clickable, always-on-screen control (the FMB
+                circle IS the logo-zone anchor's own box; press() targets it
+                directly, see the FMB logo-zone click handler above).
+       menu   = h — the SAME element's expanded pill/bar shape; the engine's
+                distance math naturally collapses to one measurement since
+                button and menu rects are identical by construction.
+     Only stash-family headers (isStashHeader) ever engage the Stashed/
+     Opened/Pinned cycle at all — a plain "shrink" header never sets
+     data-stashed, so registering it would be inert (isOpened() always
+     false) but harmless; skip it anyway to keep the registry free of
+     no-op entries. Idempotent per header via h._fmbChoreographyUnregister,
+     guarded the same way as every other per-header WeakSet/flag arm in this
+     file (armStashMirror, armHeaderHeightObserver) — primeHeaders() re-runs
+     on every mount pass. Unregistered on header teardown (teardownHeader). */
+  function registerNavCircleChoreography(h) {
+    if (h._fmbChoreographyUnregister) return;            // idempotent
+    if (!isStashHeader(h)) return;                        // shrink-only: never Opened
+    if (!Aura.fmbChoreography || typeof Aura.fmbChoreography.register !== "function") return;
+    h._fmbChoreographyUnregister = Aura.fmbChoreography.register({
+      host: h,
+      button: h,
+      menu: h,
+      /* "Genuinely Opened" reuses shouldRestash()'s own predicate (the
+         revealed-and-engaged state that used to gate a direct restash() call
+         on leave — see its doc comment) OR'd with Pinned, matching the
+         register() JSDoc's isOpened template
+         (`hasAttribute(expanded) || isPinned()`) for a member whose "expanded
+         attr" is the ABSENCE of data-stashed rather than a positive flag. */
+      isOpened: function () { return shouldRestash(h) || h.hasAttribute("data-fmb-pinned"); },
+      isPinned: function () { return h.hasAttribute("data-fmb-pinned"); },
+      /* #1089 — the bar strip IS both button and menu for this member (see
+         the doc comment above), so the engine's own distance math has no
+         way to see a dropdown panel that visually extends below the bar:
+         browsing INTO that panel reads as "pointer left," wrongly starting
+         detach/decay/stash while the panel is still open on screen. hasOpenMenu()
+         (defined above) already answers "is any trigger's panel open right
+         now" for exactly this purpose — reuse it as the engine's isHeld hook
+         so it holds distance at 0 (the "over" treatment) for as long as a
+         dropdown is open, regardless of where the cursor actually is. */
+      isHeld: function () { return hasOpenMenu(h); },
+      /* restash() is exactly the reverse-morph the JSDoc requires: it
+         re-collapses the bar to the FMB circle AND clears the member's own
+         Opened signal (data-stashed is the positive-polarity Stashed flag
+         here, so "setting" it IS "clearing Opened" for this member's
+         inverted vocabulary). See restash()'s own comment for why the two
+         deliberate-action call sites (pin-click, Escape) still call it
+         directly without going through this callback. */
+      stash: function () { restash(h); },
+      label: "nav-header"
+    });
+    onHeaderTeardown(h, function () {
+      if (h._fmbChoreographyUnregister) {
+        h._fmbChoreographyUnregister();
+        h._fmbChoreographyUnregister = null;
+      }
+    });
   }
 
   /* Inject the ☰ disclosure button (#380). The collapse CSS and the
@@ -19587,15 +21950,33 @@
     return null;
   }
 
-  /* Clear a controlling user-FMB host's pin (and, for the direct-unpin
-     callers below, close its menu too) — the single hook every closeMenu()
-     call site funnels through so the FMB's visual state never lags a menu
-     dismissed via Escape/outside-click/sibling-open rather than a re-click
-     on the FMB itself. No-ops harmlessly when the trigger has no
-     controlling user-FMB host (an ordinary nav submenu). */
+  /* Clear a controlling user-FMB host's pin AND Opened signal (and, for the
+     direct-unpin callers below, close its menu too) — the single hook every
+     closeMenu() call site funnels through so the FMB's visual state never
+     lags a menu dismissed via Escape/outside-click/sibling-open rather than
+     a re-click on the FMB itself. No-ops harmlessly when the trigger has no
+     controlling user-FMB host (an ordinary nav submenu).
+
+     v3.555 ITEM-3 (sticky-open contract): also clears USER_FMB_EXPANDED_ATTR,
+     not just the pin. Before this item, syncOneUserFmb() cleared the expanded
+     attribute itself the next time the pointer was found to be away — a
+     passive reconciliation that is now GONE (an Opened+unpinned member must
+     not self-revert on proximity-leave; only the choreography engine's
+     stash() callback does, via Aura.fmbChoreography.register()'s isOpened()
+     predicate = `hasAttribute(EXPANDED) || hasAttribute(PINNED)`). A
+     deliberate dismissal (Escape, outside click, a sibling menu opening) is
+     a real action, not a passive leave, so it closes the menu HERE directly
+     — but it must also clear the expanded attribute in the same breath, or
+     isOpened() would keep reporting true for a menu that closeMenu() just
+     hid, and the engine would sample distance against a closed panel
+     forever. Centralizing both clears in this one chokepoint (every
+     closeMenu() call already funnels through it) keeps the pin/open/engine
+     signals from drifting apart regardless of dismissal path. */
   function unpinUserFmbHostFor(trigger) {
     var host = userFmbHostFor(trigger);
-    if (host && host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+    if (!host) return;
+    if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+    if (host.hasAttribute(USER_FMB_EXPANDED_ATTR)) host.removeAttribute(USER_FMB_EXPANDED_ATTR);
   }
 
   /* True when (x, y) falls within a portaled panel's rect, expanded by a
@@ -19662,16 +22043,22 @@
          on an already-open trigger is a harmless no-op via openMenu()'s own
          panel check. */
       openUserFmbMenu(el);
-    } else {
-      if (el.hasAttribute(USER_FMB_EXPANDED_ATTR)) el.removeAttribute(USER_FMB_EXPANDED_ATTR);
-      /* Pointer left both the circle and the panel while unpinned — close the
-         menu (mirrors fmb-design.md's Opened→Stashed exit condition:
-         "pointer/focus leaves the button AND the open menu, with no Pinned
-         state set"). closeUserFmbMenuIfIdle() itself no-ops while the host
-         is :focus-within (a keyboard user tabbed in should not be closed out
-         from under their feet by an unrelated mouse-proximity computation). */
-      closeUserFmbMenuIfIdle(el);
     }
+    /* v3.555 ITEM-3 (sticky-open contract, docs/design/fmb-choreography-
+       design.md's CRITICAL register() contract): this used to have an ELSE
+       branch that cleared USER_FMB_EXPANDED_ATTR and closed the menu the
+       moment the pointer left both the circle and the panel. That direct
+       self-close is gone: once Opened+unpinned, this member must NOT revert
+       to Stashed on its own — it only decides WHEN to open (the `if
+       (stayOpen)` branch above, unchanged). The choreography engine
+       (Aura.fmbChoreography.register(), wired in enhanceUserFmb()) now owns
+       the return path — its own distance-to-button/menu sampling detects the
+       leave and drives detach → decay → its stash() callback, which is the
+       ONLY place USER_FMB_EXPANDED_ATTR is cleared and the menu closed for a
+       passive leave (see stash()'s own comment below). A deliberate
+       dismissal (Escape, outside click, click-to-pin) still closes directly
+       via unpinUserFmbHostFor()/onUserFmbPinClick — those are real actions,
+       not passive leave-detection. */
   }
 
   /* Global pointermove listener — installed once, serves all instances
@@ -19774,6 +22161,30 @@
     var el = e.currentTarget;
     var pinning = !el.hasAttribute(USER_FMB_PINNED_ATTR);
     el.toggleAttribute(USER_FMB_PINNED_ATTR, pinning);
+    /* v3.555 ITEM-3 (fmb-design.md §4 Pin — press feedback): a real <button>'s
+       click event already fires uniformly for pointer AND Enter/Space
+       keyboard activation, so this single call site covers every modality —
+       see Aura.fmbChoreography.press()'s own JSDoc. Fire on every toggle
+       (pin AND unpin), matching the press feedback every other FMB member's
+       pin control gets on activation.
+       #1093 bugfix: pass the HOST (`el`), not the inner button. css/nav-
+       header.css's press rule is `[data-aura-user-fmb][data-fmb-press]` —
+       keyed off the HOST, matching this file's OWN nav-circle single-element
+       exception a few hundred lines up (onClick's `Aura.fmbChoreography.
+       press(fmbHeader)` — fmbHeader IS the registered `button`, no separate
+       element to target) and js/footer.js's identical `press(self)` call —
+       both members glow/press as one persistent element, no distinguished
+       sub-part (contrast js/sidebar.js's `press(pill)`, whose CSS keys off
+       the pill sub-part specifically because the sidebar host is NOT the
+       button). The user-FMB host IS its own button here too (enhanceUserFmb()
+       glows it as a whole, "no distinguished sub-part" — see the comment on
+       el.classList.add("aura-glow") above), so it takes the fmbHeader/self
+       shape, not sidebar's. Passing el.querySelector("button") set the
+       attribute on the WRONG element (the CSS selector never matches an
+       inner button), so the squash never rendered. */
+    if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+      Aura.fmbChoreography.press(el);
+    }
     if (pinning) {
       openUserFmbMenu(el);
     } else {
@@ -19869,22 +22280,40 @@
        CSS expand-state selector list already includes :focus-within (full
        ghost-fade un-suppression on focus), but the MENU itself only opened
        via a pointer-proximity computation in syncOneUserFmb, which never
-       runs for a keyboard-only interaction (no pointermove fires). Wire the
-       same openUserFmbMenu()/closeUserFmbMenuIfIdle() pair to focusin/focusout
-       so both input modalities reach the same Opened state through the same
-       two functions. focusout's relatedTarget check skips the close when
-       focus is merely moving from the button into its own (portaled) panel. */
-    el._userFmbFocusIn = function () { openUserFmbMenu(el); };
-    el._userFmbFocusOut = function (e) {
-      var next = e.relatedTarget;
-      if (next && el.contains(next)) return;
-      var trigger = userFmbTriggerFor(el);
-      var panel = trigger && panelFor(trigger);
-      if (next && panel && panel.contains(next)) return;
-      closeUserFmbMenuIfIdle(el);
+       runs for a keyboard-only interaction (no pointermove fires). Wire
+       openUserFmbMenu() to focusin so keyboard input reaches the same Opened
+       state hover does.
+
+       v3.555 ITEM-3 (sticky-open contract): the symmetric focusout handler
+       that used to live here (closing the menu the instant focus left the
+       host/panel) is gone — an Opened+unpinned member must not self-revert
+       on focus-leave. The choreography engine's own document-level
+       focusin/focusout listeners (js/fmb-choreography.js) now detect "focus
+       left both the button and the menu" as part of its leave-detection and
+       drive the return path via detach → decay → stash() (registered below),
+       so this member needs no focusout listener of its own any more.
+
+       #1086 — the focus-open must ALSO latch USER_FMB_EXPANDED_ATTR, exactly
+       like the pointer-proximity open in syncOneUserFmb() does: the engine's
+       registered isOpened() reads only EXPANDED||PINNED, so a focus-opened
+       menu that set neither was INVISIBLE to the engine — its
+       `if (pinned || !opened)` guard bailed before the focus-leave detection
+       above could ever run, and (with the member's own focusout self-close
+       removed by ITEM-3) Tab-into-and-past the avatar left the menu
+       permanently open. This is the engine's own CRITICAL registration
+       contract: isOpened() must reflect EVERY opened path. The latch is
+       sticky by design — only stash() (or a deliberate dismissal via
+       closeMenu()'s unpinUserFmbHostFor() chokepoint, which clears it on
+       Escape/outside-click/sibling-open, including every coarse-pointer
+       explicit dismissal) clears it. Skipped while pinned (Pinned already
+       covers Opened, mirrors js/sidebar.js's focusin latch). */
+    el._userFmbFocusIn = function () {
+      if (!el.hasAttribute(USER_FMB_PINNED_ATTR) && !el.hasAttribute(USER_FMB_EXPANDED_ATTR)) {
+        el.setAttribute(USER_FMB_EXPANDED_ATTR, "");
+      }
+      openUserFmbMenu(el);
     };
     el.addEventListener("focusin", el._userFmbFocusIn);
-    el.addEventListener("focusout", el._userFmbFocusOut);
 
     /* Reflect the live pin state into aria-pressed on the inner button so
        assistive tech announces the pin — DELIBERATELY aria-pressed, not
@@ -19898,13 +22327,77 @@
        hover-opened, unpinned state too), aria-pressed says "is this control
        HELD open regardless of pointer/focus location." A screen-reader user
        hearing "expanded, not pressed" correctly learns the menu will close
-       if they look away; "expanded, pressed" tells them it won't. */
+       if they look away; "expanded, pressed" tells them it won't.
+
+       #1108: seed the initial value HERE, at enhance time, before any
+       interaction — the MutationObserver below only reacts to a LATER
+       mutation of USER_FMB_PINNED_ATTR, it does not fire for the state
+       already present the instant observation starts. Without this, a fresh
+       page load exposed a plain button with no toggle semantics at all until
+       the first pin, a false "not a toggle button" read for assistive tech
+       that never got a chance to hear aria-pressed until it changed. Reflects
+       whatever the pin state already is (normally false, but a standalone
+       author could hand-author a pre-pinned host). */
+    if (btn) btn.setAttribute("aria-pressed", el.hasAttribute(USER_FMB_PINNED_ATTR) ? "true" : "false");
     el._userFmbPinMo = new MutationObserver(function () {
       var pinned = el.hasAttribute(USER_FMB_PINNED_ATTR);
       var b = el.querySelector("button");
       if (b) b.setAttribute("aria-pressed", pinned ? "true" : "false");
     });
     el._userFmbPinMo.observe(el, { attributes: true, attributeFilter: [USER_FMB_PINNED_ATTR] });
+
+    registerUserFmbChoreography(el);
+  }
+
+  /* v3.555 ITEM-3 — opt this member into the shared detach→decay→re-stash
+     engine (docs/design/fmb-choreography-design.md §Engine API (as-built)):
+       host   = el (the user-fmb host itself — the SAME host js/fmb-column.js
+                already discovers for the "user" slot, per register()'s host
+                contract).
+       button = el.querySelector("button") — the avatar control: the
+                EXISTING persistent, always-clickable control (never a new
+                element), reused as-is per the persistent-button
+                clarification.
+       menu   = panelFor(trigger) — the EXISTING dropdown panel this host's
+                trigger already controls (a stable, already-in-DOM element
+                found by id via aria-controls, portaled but never
+                recreated — safe to resolve once at enhance time).
+     Guarded on Aura.fmbChoreography existing (a consumer may load
+     js/nav-header.js without js/fmb-choreography.js — the engine is an
+     opt-in peer, not a hard dependency) and on trigger/button/menu all being
+     resolvable (a bare standalone host with no wired menu has nothing for
+     the engine to track — register() would itself warn-and-no-op on missing
+     elements, but skipping the call here avoids that diagnostic noise for a
+     deliberately bare host, e.g. the "does not throw for the bare (unwired)
+     standalone shape" fixture). Idempotent per element via
+     el._userFmbChoreographyUnregister (armed once by enhanceUserFmb()'s own
+     _userFmbEnhanced guard). */
+  function registerUserFmbChoreography(el) {
+    if (!Aura.fmbChoreography || typeof Aura.fmbChoreography.register !== "function") return;
+    var trigger = userFmbTriggerFor(el);
+    var btn = el.querySelector("button");
+    var menu = trigger && panelFor(trigger);
+    if (!trigger || !btn || !menu) return;
+    el._userFmbChoreographyUnregister = Aura.fmbChoreography.register({
+      host: el,
+      button: btn,
+      menu: menu,
+      isOpened: function () {
+        return el.hasAttribute(USER_FMB_EXPANDED_ATTR) || el.hasAttribute(USER_FMB_PINNED_ATTR);
+      },
+      isPinned: function () { return el.hasAttribute(USER_FMB_PINNED_ATTR); },
+      /* Reverse-morph callback: the ONLY place a passively-abandoned Opened
+         user-FMB returns to Stashed (docs/design/fmb-choreography-design.md's
+         CRITICAL contract). Clears the Opened signal AND closes the menu —
+         reusing closeUserFmbMenuIfIdle() (its own pinned/focus guards are
+         redundant but harmless here, since the engine only calls stash()
+         once it has already confirmed focus has left both button and menu). */
+      stash: function () {
+        el.removeAttribute(USER_FMB_EXPANDED_ATTR);
+        closeUserFmbMenuIfIdle(el);
+      },
+      label: "user-fmb"
+    });
   }
 
   /* Tear down everything enhanceUserFmb() armed — used both by the sugar
@@ -19922,7 +22415,14 @@
     if (btn && el._userFmbKeydown) btn.removeEventListener("keydown", el._userFmbKeydown);
     el._userFmbKeydown = null;
     if (el._userFmbFocusIn)  { el.removeEventListener("focusin",  el._userFmbFocusIn);  el._userFmbFocusIn  = null; }
-    if (el._userFmbFocusOut) { el.removeEventListener("focusout", el._userFmbFocusOut); el._userFmbFocusOut = null; }
+    /* v3.555 ITEM-3: unregister from the shared choreography engine last —
+       its own unregister() is idempotent and already clears any live
+       data-fmb-detached/-decaying/--aura-fmb-decay-progress on this host, so
+       ordering relative to the attribute clears below does not matter. */
+    if (el._userFmbChoreographyUnregister) {
+      el._userFmbChoreographyUnregister();
+      el._userFmbChoreographyUnregister = null;
+    }
     el.classList.remove("aura-glow");
     el.removeAttribute(USER_FMB_STASHED_ATTR);
     el.removeAttribute(USER_FMB_EXPANDED_ATTR);
@@ -20964,7 +23464,7 @@
       header._direction       = null;
       header._stashThreshold  = null;
       header._shrinkThreshold = null;
-      header._retainOffset    = null;
+      header._fmbSeeded       = null;   // v3.555 ITEM-3: re-mount re-seeds stash-default
       headerTeardowns.delete(header); /* consumed — a re-mount re-registers */
       for (var j = 0; j < list.length; j++) {
         try { list[j](header); } catch (e) { Aura.error("[Aura] nav-header teardown:", e); }
@@ -22397,9 +24897,11 @@
     document.addEventListener("pointerenter", onTooltipPointerEnter, true);
     /* Keyboard focus reveal (a11y) — pointer-agnostic, so it covers touch +
        keyboard and screen-reader users even though pointermove is skipped on
-       coarse pointers. focusin/out bubble (unlike focus/blur). */
+       coarse pointers. focusin bubbles (unlike focus); the focus-LEAVE half
+       of this contract now belongs to the choreography engine (v3.555
+       ITEM-3 — see the onFocusOut removal note above), so only focusin is
+       wired here. */
     document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
     /* Header dim flag — replaces the body-level :has(:focus-visible) (#412). */
     document.addEventListener("focusin", onDimFocusIn);
     document.addEventListener("focusout", onDimFocusOut);
@@ -22417,12 +24919,17 @@
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize, { passive: true });
     /* Hot-zone reveal needs a real cursor; coarse/touch pointers have none, so
-       skip the listener there (reveal-on-focus / scrolling back to the top still
-       apply, so a stash header is never stuck off-screen). Mirrors glow.js. */
-    var coarse = Aura.env && Aura.env.coarsePointer && Aura.env.coarsePointer();
-    if (!coarse) {
-      document.addEventListener("pointermove", onPointerMove, { passive: true });
-    }
+       syncHotzone() itself no-ops there (reveal-on-focus / scrolling back to
+       the top still apply, so a stash header is never stuck off-screen).
+       v3.559 #1111 (item 3): the listener is installed UNCONDITIONALLY —
+       wireDelegation() runs exactly once (the `wired` guard above), so a
+       coarse read cached here at that one moment would never see a later
+       input-modality change (a real capability change, or the test harness
+       stubbing matchMedia after this script already evaluated). The coarse
+       check now lives inside syncHotzone() itself, read live on every call,
+       matching js/fmb-choreography.js's own "checked LIVE inside the rAF
+       frame, not cached once at wire-up time" convention. */
+    document.addEventListener("pointermove", onPointerMove, { passive: true });
   }
 })();
 
@@ -22545,7 +25052,15 @@
      accidental collision with consumer code or other Aura attributes. */
   var REVEALED_ATTR = "data-aura-revealed";
   /* Attribute that marks the footer as being keyboard-focused (for focus-within
-     reveal, #766 #804). */
+     reveal, #766 #804). #1109: also folded into the FMB choreography engine's
+     isOpened() check (see the register() call in _enhance()) — a sticky
+     signal, set the instant focus reaches the host or panel and cleared ONLY
+     by the engine's stash() callback (mirrors EXPANDED_ATTR's own "sticky
+     open" contract, docs/design/fmb-choreography-design.md §Engine API
+     (as-built)), so a keyboard-driven open funnels through the SAME
+     detach → decay → stash() return path a proximity-driven open already
+     does, instead of closing instantly via _onFocusOut's REVEALED_ATTR
+     removal below with no engine involvement at all. */
   var FOCUSED_ATTR = "data-aura-footer-focused";
   /* Attribute set by JS proximity detection to temporarily expand the FMB circle
      before the cursor physically touches the element edge (mirrors the nav-header
@@ -22608,8 +25123,15 @@
   /* Host attributes that (in addition to :hover/:focus-within, tracked via
      real listeners below) determine whether the panel should be open.
      data-aura-footer-layout is mirrored too, unconditionally, so the split
-     layout API still reaches the panel's own layout rule. */
-  var PANEL_OPEN_ATTRS = [REVEALED_ATTR, EXPANDED_ATTR, PINNED_ATTR];
+     layout API still reaches the panel's own layout rule. FOCUSED_ATTR
+     (#1109) is included here — not just checked directly by isOpened() in
+     _enhance() — so the panel STAYS visually open (data-footer-panel-open)
+     for the entire sticky-focus window, exactly like EXPANDED_ATTR keeps it
+     open through a proximity-driven detach/decay: if FOCUSED_ATTR were
+     sticky but absent from this list, the panel would still slam shut the
+     instant _onFocusOut's real-time _footerFocused flag flips false, even
+     though the engine correctly kept polling. */
+  var PANEL_OPEN_ATTRS = [REVEALED_ATTR, EXPANDED_ATTR, PINNED_ATTR, FOCUSED_ATTR];
   var PANEL_LAYOUT_ATTR = 'data-aura-footer-layout';
   /* The single computed attribute CSS keys the panel's visibility off —
      set on the panel itself (not the host) since the panel is body-level,
@@ -22621,6 +25143,35 @@
   /* #755 initial-load snap marker class, mirrored onto the panel for the
      same DOM-descendant reason as PANEL_OPEN_ATTR above. */
   var NO_TRANSITION_CLASS = 'aura-footer--no-transition';
+
+  /* v3.555 ITEM-5 — FMB choreography detach/decay mirror
+     (docs/design/fmb-choreography-design.md §Engine API (as-built)):
+     js/fmb-choreography.js (the shared engine) writes data-fmb-detached /
+     data-fmb-decaying onto the HOST (the circle — the same host
+     js/fmb-column.js discovers for this member, per the engine's register()
+     contract) as an unpinned Opened menu returns to Stashed (fmb-design.md
+     §5 Detach -> Decay -> re-stash). The circle picks up the matching
+     opacity/filter fade for free from css/fmb-column.css's member-agnostic
+     base [data-fmb-detached]/[data-fmb-decaying] rules (bare attribute
+     selectors, unscoped — they match ANY element bearing the attribute).
+     The PANEL does not: it is a document.body sibling, not a descendant
+     those selectors' own host can reach, AND it never receives the engine's
+     live --aura-fmb-decay-progress custom property (a plain inline-style
+     write on the HOST, not inherited across DOM siblings) those base rules
+     read. Mirror the two booleans onto the panel under PANEL-OWNED names —
+     never the bare data-fmb-* spelling, which would let css/fmb-column.css's
+     UNSCOPED rule match the panel too and (reading the never-mirrored live
+     progress as its 0 fallback, then WINNING regardless of specificity
+     because the fmb-column layer sits AFTER footer's in css/aura.css's
+     @layer order) force opacity straight back to 1, defeating the fade —
+     so css/footer.css can drive the panel's own fade with a plain CSS
+     transition timed off --aura-fmb-decay-duration / --aura-fmb-morph-
+     duration instead of a second per-frame JS mirror (see css/footer.css's
+     [data-footer-panel-detached]/[data-footer-panel-decaying] rules). */
+  var CHOREO_DETACHED_ATTR = 'data-fmb-detached';
+  var CHOREO_DECAYING_ATTR = 'data-fmb-decaying';
+  var PANEL_DETACHED_ATTR = 'data-footer-panel-detached';
+  var PANEL_DECAYING_ATTR = 'data-footer-panel-decaying';
 
   /* ---- Button/panel decoupling (v3.550, #1047) --------------------------
      ensureFooterPanel(): creates the single floating-panel wrapper (idempotent
@@ -22667,6 +25218,32 @@
     return panel;
   }
 
+  /* v3.555 ITEM-5 — Open-morph geometry (fmb-choreography-design.md §The
+     persistent-button clarification; fmb-design.md §3 Open). The panel is a
+     document.body sibling, not a descendant of the circle (ensureFooterPanel()'s
+     containing-block doc comment above), so its morph origin cannot be a
+     static authored percentage the way an in-place-expanding element's could
+     — it must be resolved from the circle's REAL on-screen rect, translated
+     into the panel's OWN box-relative coordinate space. Both are
+     position:fixed, so both getBoundingClientRect() calls already share the
+     same viewport-relative coordinate system; the only translation needed is
+     subtracting the panel's own top-left so the origin is expressed relative
+     to the panel's box — the coordinate space css/footer.css's clip-path
+     circle(... at x y) argument resolves against. Published as two px-valued
+     custom properties (css/footer.css reads them) — this is the "translate
+     the button rect into the panel's fixed-position coordinate space" the
+     release plan calls for. Cheap (two rect reads) and only ever called from
+     a discrete state change (syncPanelStateMirror, below), never per-frame. */
+  function updateMorphOrigin(self) {
+    if (!self._panel) return;
+    var circleRect = self.getBoundingClientRect();
+    var panelRect = self._panel.getBoundingClientRect();
+    var originX = (circleRect.left + circleRect.width / 2) - panelRect.left;
+    var originY = (circleRect.top + circleRect.height / 2) - panelRect.top;
+    self._panel.style.setProperty('--aura-footer-panel-morph-origin-x', originX + 'px');
+    self._panel.style.setProperty('--aura-footer-panel-morph-origin-y', originY + 'px');
+  }
+
   /* Recomputes PANEL_OPEN_ATTR on the body-level panel from the host's
      current state: any of the attribute-driven signals (data-aura-revealed,
      data-footer-expanded, data-fmb-pinned) OR the live :hover/:focus-within
@@ -22678,7 +25255,14 @@
      so the panel's own split-layout and no-transition rules stay in sync —
      both are DOM state on the host that the panel, no longer a DOM
      descendant, cannot reach via a CSS combinator. Idempotent — only touches
-     an attribute/class when its value actually differs. */
+     an attribute/class when its value actually differs.
+
+     v3.555 ITEM-5: also recomputes the morph origin whenever the panel is
+     opening (updateMorphOrigin, above — so a resize between one open cycle
+     and the next is picked up), and mirrors the engine's detach/decay
+     booleans onto the panel under their own PANEL_DETACHED_ATTR/
+     PANEL_DECAYING_ATTR names (see the doc comment on those constants for
+     why the mirror does not reuse the bare data-fmb-* spelling). */
   function syncPanelStateMirror(self) {
     if (!self._panel) return;
     var open = !!self._footerHovered || !!self._footerFocused;
@@ -22689,6 +25273,15 @@
     }
     if (open !== self._panel.hasAttribute(PANEL_OPEN_ATTR)) {
       self._panel.toggleAttribute(PANEL_OPEN_ATTR, open);
+    }
+    if (open) updateMorphOrigin(self);
+    var detached = self.hasAttribute(CHOREO_DETACHED_ATTR);
+    if (detached !== self._panel.hasAttribute(PANEL_DETACHED_ATTR)) {
+      self._panel.toggleAttribute(PANEL_DETACHED_ATTR, detached);
+    }
+    var decaying = self.hasAttribute(CHOREO_DECAYING_ATTR);
+    if (decaying !== self._panel.hasAttribute(PANEL_DECAYING_ATTR)) {
+      self._panel.toggleAttribute(PANEL_DECAYING_ATTR, decaying);
     }
     if (self.hasAttribute(PANEL_LAYOUT_ATTR)) {
       if (self._panel.getAttribute(PANEL_LAYOUT_ATTR) !== self.getAttribute(PANEL_LAYOUT_ATTR)) {
@@ -22741,7 +25334,12 @@
     var disposers = [];
     if (typeof MutationObserver !== "undefined") {
       var mo = new MutationObserver(function () { syncPanelStateMirror(self); });
-      mo.observe(self, { attributes: true, attributeFilter: PANEL_OPEN_ATTRS.concat([PANEL_LAYOUT_ATTR, 'class']) });
+      /* v3.555 ITEM-5: also watch data-fmb-detached/data-fmb-decaying — the
+         two attributes js/fmb-choreography.js flips on this host during the
+         unpinned Detach -> Decay return path — so the panel's own mirrored
+         copies (PANEL_DETACHED_ATTR/PANEL_DECAYING_ATTR) stay in sync the
+         moment the engine sets or clears them. */
+      mo.observe(self, { attributes: true, attributeFilter: PANEL_OPEN_ATTRS.concat([PANEL_LAYOUT_ATTR, 'class', CHOREO_DETACHED_ATTR, CHOREO_DECAYING_ATTR]) });
       disposers.push(function () { mo.disconnect(); });
     }
     var onEnter = function () { self._footerHovered = true; syncPanelStateMirror(self); };
@@ -22823,6 +25421,21 @@
     /* Click-pinned: CSS handles expand state; skip proximity compute. */
     if (self.hasAttribute(PINNED_ATTR)) return;
     if (fmbPointerX < 0) return;
+    /* pointer: coarse (#1085, docs/design/fmb-choreography-design.md
+       §Reduced motion and pointer: coarse): no cursor exists to approach
+       with under a coarse pointer, so the proximity Approach this function
+       drives does not apply at all (fmb-design.md §2's own exemption —
+       js/sidebar.js's syncOne() and js/nav-header.js already gate the same
+       way). Without this, a tap near the corner on a touch device ≥640px
+       emitted a pointermove that proximity-opened the body-level panel —
+       and nothing could then close it: the engine deliberately no-ops on
+       coarse (explicit dismissal only) and unpinning does not clear
+       EXPANDED_ATTR. Checked LIVE (not cached at listener-install time,
+       contrast nav-header's install-time gate) so a matchMedia stub in a
+       test — or a genuine hybrid-pointer capability change — takes effect
+       on the very next sync pass, matching the engine's own per-frame
+       reads. */
+    if (Aura.env.coarsePointer()) return;
 
     /* Mobile convergence (v3.552, #1051): below --aura-bp-mobile the circle
        is hidden (visibility:hidden; pointer-events:none) by
@@ -22867,10 +25480,24 @@
     var dy = fmbPointerY - cy;
     var inProximity = (dx * dx + dy * dy) <= (r + expand) * (r + expand);
 
+    /* v3.555 ITEM-5 — sticky open (docs/design/fmb-choreography-design.md
+       §Engine API (as-built), the CRITICAL register() contract): this used
+       to ALSO clear EXPANDED_ATTR the instant proximity was lost
+       (`else if (!inProximity) { self.removeAttribute(EXPANDED_ATTR); }`) —
+       the exact self-revert-on-hover-out behaviour the engine's own JSDoc
+       calls out by name as the thing that silently kills detach/decay: if
+       EXPANDED_ATTR (isOpened()'s own signal, see the register() call in
+       _enhance() below) flips false the instant the cursor leaves, the
+       engine's `if (pinned || !opened)` guard bails before the return-path
+       choreography ever starts. Once set, EXPANDED_ATTR now stays set for
+       as long as proximity is lost — the engine's stash() callback (wired
+       below) is the ONLY place that clears it again, once the unpinned
+       Detach -> Decay path completes (fmb-design.md §5). Re-entering
+       proximity is unaffected: the branch below still (re-)sets it
+       immediately, and the engine's own "over" phase cancels any in-flight
+       detach/decay the moment distance reads back to ~0. */
     if (inProximity && !hasOpenPanel(self)) {
       if (!self.hasAttribute(EXPANDED_ATTR)) self.setAttribute(EXPANDED_ATTR, '');
-    } else if (!inProximity) {
-      if (self.hasAttribute(EXPANDED_ATTR)) self.removeAttribute(EXPANDED_ATTR);
     }
   }
 
@@ -22991,16 +25618,201 @@
          _reflectTactile() pattern. Scoped to reveal mode (this branch only runs
          when _isReveal() is true) so a static footer stays matte. */
       this.classList.add("aura-glow");
+      var self = this;
+      /* v3.555 ITEM-5 — FMB choreography engine registration
+         (docs/design/fmb-choreography-design.md §Engine API (as-built)).
+         host and button are the SAME element — the circle IS the existing
+         persistent pin-button (§The persistent-button clarification: no
+         duplicate node is ever introduced); menu is the existing body-level
+         .aura-footer__panel. isOpened() reads the THREE sticky signals the
+         sticky-open fix (EXPANDED_ATTR/PINNED_ATTR) and #1109's own fix
+         (FOCUSED_ATTR — see that constant's doc comment for why a focus-held
+         open needed folding in here too) leave untouched on hover-out/
+         focus-out/click-pin — CRITICAL: stash() is the ONLY place any of
+         them is cleared once this member is Opened+unpinned (see
+         syncOneFmb()'s doc comment above for why the old self-revert branch
+         was removed). Guarded: js/fmb-choreography.js is a separate,
+         optional module a consumer could omit when hand-picking individual
+         files instead of the full dist bundle — footer.js must keep working
+         (just without auto-decay) if it is absent, mirroring
+         js/sidebar.js's `if (Aura && Aura.dialog)` guard for its own
+         optional-subsystem dependency. */
+      if (Aura.fmbChoreography && typeof Aura.fmbChoreography.register === "function") {
+        this._unregisterChoreography = Aura.fmbChoreography.register({
+          host: this,
+          button: this,
+          menu: this._panel,
+          isOpened: function () { return self.hasAttribute(EXPANDED_ATTR) || self.hasAttribute(PINNED_ATTR) || self.hasAttribute(FOCUSED_ATTR); },
+          isPinned: function () { return self.hasAttribute(PINNED_ATTR); },
+          /* #1089 — menu is .aura-footer__panel, but a portaled popup the
+             panel hosts (e.g. the demo's <aura-theme-select>'s inner
+             <aura-select> dropdown — see hasOpenPanel()'s own doc comment
+             above for the "check both locations" reasoning) can extend
+             beyond the panel's own rect. Without this hook, browsing into
+             that popup reads as "pointer left both button and menu,"
+             wrongly starting detach/decay/stash while the popup is still
+             open. hasOpenPanel() already answers exactly that question for
+             the pre-existing proximity-glow guard at line ~548 above — reuse
+             it as the engine's isHeld hook instead of re-deriving the same
+             query. */
+          isHeld: function () { return hasOpenPanel(self); },
+          /* #1109: clears BOTH sticky open-source attributes this member can
+             set — a focus-driven open (FOCUSED_ATTR) must close through the
+             exact same funnel a proximity-driven open (EXPANDED_ATTR) does,
+             so stash() is the one place that ends either. */
+          stash: function () { self.removeAttribute(EXPANDED_ATTR); self.removeAttribute(FOCUSED_ATTR); },
+          label: 'footer'
+        });
+      }
       /* Click-to-pin: toggling data-fmb-pinned keeps the FMB expanded until
          the user clicks again. Ignore clicks on interactive descendants (links,
          buttons, inputs) so they still work normally when the footer is open. */
-      var self = this;
       this._onFmbPinClick = function (e) {
         if (self.hasAttribute(REVEALED_ATTR)) return;
         if (e.target.closest("a, button, input, select, textarea")) return;
-        self.toggleAttribute(PINNED_ATTR);
+        var pinning = !self.hasAttribute(PINNED_ATTR);
+        self.toggleAttribute(PINNED_ATTR, pinning);
+        /* #1085 — coarse pointers: an unpin tap must genuinely CLOSE.
+           EXPANDED_ATTR is a fine-pointer proximity signal, but it can be
+           carried into a coarse context (a hybrid device switching pointer
+           capability mid-session, or state set before this fix's proximity
+           gate landed) — and on coarse the engine never runs, so nothing
+           else would ever clear it: the panel would survive the unpin with
+           no exit. Explicit dismissal is the member's own job on touch
+           (fmb-choreography-design.md §Reduced motion and pointer: coarse),
+           and a deliberate unpin tap is exactly that — not the passive
+           hover-leave the engine's sticky-open contract forbids acting on.
+           Fine pointers are untouched: there the engine's detach → decay →
+           stash() owns clearing EXPANDED_ATTR. */
+        if (!pinning && self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+        /* Pin press-feedback (v3.555 ITEM-5, fmb-design.md §4 Pin): this
+           click handler is already the single call site for a pin toggle,
+           so one press() call here is the whole wiring — the visual
+           (transform: scale(--aura-fmb-press-scale)) is css/footer.css's
+           own [data-fmb-press] rule. Guarded for the same optional-module
+           reason as register() above. */
+        if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+          Aura.fmbChoreography.press(self);
+        }
       };
       this.addEventListener("click", this._onFmbPinClick);
+
+      /* #1104 — keyboard operability: this host IS the pin-button (host and
+         button are the SAME element, per the click handler above and the
+         choreography register() call's `button: this`), so it must be
+         independently focusable and operable without a mouse — today it has
+         no tabindex, no role="button", no accessible name, and no Enter/
+         Space handling, so pinning is mouse-only.
+
+         role="button" REPLACES the landmark role connectedCallback set
+         (role="contentinfo", or an author override — this._fmbSavedRole
+         stashes whatever was there so _teardown() can restore it exactly,
+         mirroring js/nav-header.js's _applyFmbSemantics() saving the logo's
+         href before overwriting it). A single element can only expose one
+         role at a time, and the circle's functional identity while enhanced
+         for reveal mode really is "a toggle button that reveals the footer"
+         — the actual footer CONTENT already lives in the separate
+         .aura-footer__panel (button/panel decoupling, v3.550 #1047), not on
+         this host — matching every other FMB member's own pin control
+         (js/nav-header.js's user-fmb avatar button, js/sidebar.js's pill)
+         exposing role=button, not a landmark role, on the element users
+         actually press. */
+      this._fmbSavedRole = this.getAttribute("role");
+      this.setAttribute("role", "button");
+      this._fmbAddedTabindex = !this.hasAttribute("tabindex");
+      if (this._fmbAddedTabindex) this.setAttribute("tabindex", "0");
+      this._fmbAddedAriaLabel = !this.hasAttribute("aria-label") && !this.hasAttribute("aria-labelledby");
+      if (this._fmbAddedAriaLabel) this.setAttribute("aria-label", "Toggle footer pin");
+      /* aria-pressed (not aria-expanded): mirrors js/nav-header.js's
+         onUserFmbKeydown/el._userFmbPinMo convention for its own host===button
+         FMB avatar — DELIBERATELY aria-pressed, since PINNED_ATTR's own
+         meaning ("held open regardless of where the pointer/focus wanders")
+         is exactly what aria-pressed communicates, and there is no separate
+         menu-visibility toggle here for aria-expanded to describe (contrast
+         a real disclosure button with its own aria-controls target). Synced
+         via a dedicated MutationObserver so every path that can flip
+         PINNED_ATTR — this click handler, the #1084 Escape/outside-pointerdown
+         handlers below, or a consumer/test setting the attribute directly —
+         is covered from one place. */
+      this.setAttribute("aria-pressed", this.hasAttribute(PINNED_ATTR) ? "true" : "false");
+      this._fmbPinAriaMo = new MutationObserver(function () {
+        self.setAttribute("aria-pressed", self.hasAttribute(PINNED_ATTR) ? "true" : "false");
+      });
+      this._fmbPinAriaMo.observe(this, { attributes: true, attributeFilter: [PINNED_ATTR] });
+      this._fmbButtonSemanticsApplied = true;
+
+      /* Enter/Space activate the toggle. Unlike js/nav-header.js's logo
+         anchor (a real <a>, which fires click on Enter for free from the
+         browser and only needs an explicit Space handler), this host is a
+         plain custom element with no native interactive behavior — NEITHER
+         key fires a click automatically, so both need an explicit handler.
+         Delegates to self.click() (which the existing _onFmbPinClick click
+         listener above handles) rather than re-implementing the pin-toggle/
+         press-feedback/coarse-pointer-cleanup logic a second time, so every
+         activation modality (pointer click, Enter, Space) shares one code
+         path. Guarded the same way _onFmbPinClick itself is guarded against
+         interactive descendants, in case a future author nests one directly
+         in the (still host-resident) mark zone. */
+      this._onFmbKeydown = function (e) {
+        if (e.target.closest("a, button, input, select, textarea")) return;
+        var key = e.key;
+        if (key === "Enter" || key === " " || key === "Spacebar" || e.keyCode === 13 || e.keyCode === 32) {
+          e.preventDefault();
+          self.click();
+        }
+      };
+      this.addEventListener("keydown", this._onFmbKeydown);
+
+      /* #1084 — outside pointerdown unpins the pinned panel, matching every
+         other FMB member's dismissal contract (fmb-design.md). Exclusion
+         list: the circle itself (self), the floating panel (self._panel —
+         body-level, not a DOM descendant of self, so a bare self.contains()
+         would miss it — same reason hasOpenPanel()/containsAcrossHostAndPanel()
+         above check both locations), and any currently-open portaled popup
+         (e.g. the demo's <aura-theme-select>'s inner <aura-select> dropdown,
+         which js/menu.js's detachToBody() moves to a document.body SIBLING of
+         the panel — outside BOTH self and self._panel's own subtrees, so
+         needs its own check). Capture phase mirrors js/sidebar.js's
+         armPushDismissal and js/nav-header.js's onPointerDown so the outside
+         check runs even if an intervening handler stops propagation. */
+      this._onFmbOutsidePointerDown = function (e) {
+        if (!self.hasAttribute(PINNED_ATTR)) return;
+        var t = e.target;
+        if (!t || !t.closest) return;
+        if (self.contains(t)) return;
+        if (self._panel && self._panel.contains(t)) return;
+        if (t.closest("aura-menu")) return;
+        self.removeAttribute(PINNED_ATTR);
+        /* #1085 parity: an outside tap on a coarse pointer must genuinely
+           close, mirroring the identical cleanup in _onFmbPinClick above. */
+        if (self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+      };
+      document.addEventListener("pointerdown", this._onFmbOutsidePointerDown, true);
+
+      /* #1084 — Escape unpins + closes the pinned panel regardless of where
+         focus currently is: document-level, mirroring js/nav-header.js's FMB
+         circle Pinned-exit branch in onKeyDown (a page-visible pin latch is
+         dismissed by Escape from anywhere, not only while focus happens to be
+         inside the member — js/sidebar.js's own per-element Escape listener
+         is scoped to its element because the sidebar's pinned CONTENT lives
+         inside that same element; the footer's pinned content lives in the
+         body-level panel instead, so scoping to `this` would miss Escape
+         presses from inside the panel entirely). */
+      this._onFmbEscape = function (e) {
+        if (e.key !== "Escape") return;
+        if (!self.hasAttribute(PINNED_ATTR)) return;
+        e.preventDefault();
+        self.removeAttribute(PINNED_ATTR);
+        if (self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+      };
+      document.addEventListener("keydown", this._onFmbEscape);
+
       /* Unified stash-state mirror (#1019): data-aura-stashed is present exactly
          while data-aura-revealed is absent. MutationObserver-driven so every
          reveal/conceal path (IO, focus-within, short-content, re-root, consumer
@@ -23126,8 +25938,19 @@
          should cause it to reveal even before the sentinel intersects. Listen for
          focusin (bubbles from any descendant); on focusout only remove the revealed
          state if focus actually left the footer AND the sentinel is not intersecting.
-         The FOCUSED_ATTR is a JS-only internal marker; CSS relies only on
-         data-aura-revealed (set below).
+
+         #1109 — FOCUSED_ATTR is ALSO set here now (sticky, per that
+         constant's own doc comment): a keyboard user tabbing in is exactly
+         the "focus-held open" this issue's fix funnels through the shared
+         choreography engine, alongside REVEALED_ATTR's pre-existing
+         "force-visible for a11y" behaviour. The two are deliberately
+         independent: REVEALED_ATTR is still cleared eagerly below on
+         focus-out (untouched by this fix — that a11y contract is orthogonal
+         to FMB choreography), while FOCUSED_ATTR stays set — PANEL_OPEN_ATTRS
+         (above) already includes it, so the panel keeps rendering visually
+         open even after REVEALED_ATTR clears — until the engine's own
+         stash() callback clears it once the resulting detach/decay
+         completes (or instantly, under reduced motion).
 
          Dual-location (v3.550 reviewer fix, same root cause as
          armPanelStateMirror above): focusin bubbles, but ONLY from
@@ -23142,6 +25965,21 @@
          instead of a plain self.contains() check. */
       this._onFocusIn = function () {
         self.setAttribute(REVEALED_ATTR, '');
+        /* #1109: only set the sticky FOCUSED_ATTR when the choreography
+           engine actually registered (self._unregisterChoreography is the
+           SAME truthy-guard _enhance() used around the register() call
+           above) — this attribute is ONLY ever cleared by the engine's own
+           stash() callback (see register()'s stash above), so setting it
+           with no engine present to eventually clear it would leave the
+           footer permanently in the "focus-opened" panel state after the
+           very first Tab-in, for the lifetime of the page. Without the
+           engine, focus-driven reveal keeps working exactly as it always
+           has (REVEALED_ATTR alone, cleared on focus-out below) — "just
+           without auto-decay," the same accepted trade-off already
+           documented for EXPANDED_ATTR when this optional module is absent. */
+        if (self._unregisterChoreography && !self.hasAttribute(FOCUSED_ATTR)) {
+          self.setAttribute(FOCUSED_ATTR, '');
+        }
         updateScrollPadding(self, true);
         if (self._liveRegion) self._liveRegion.textContent = 'Footer content available';
       };
@@ -23401,6 +26239,14 @@
     }
 
     _teardown() {
+      /* v3.555 ITEM-5: unregister from the choreography engine FIRST — before
+         anything else below — so any live decay timer for this host is
+         cancelled and its data-fmb-detached/-decaying/--aura-fmb-decay-progress
+         lifecycle state is cleared immediately (Aura.fmbChoreography.register()'s
+         own idempotent-disposer contract), rather than left dangling across an
+         HTMX swap that discards this node. Guarded the same way the register()
+         call itself is guarded (the module may be absent). */
+      if (this._unregisterChoreography) { this._unregisterChoreography(); this._unregisterChoreography = null; }
       /* Button/panel decoupling (v3.550, #1047): disconnect the re-home
          observer and unwrap the panel FIRST — before any other teardown step
          — so a reveal→static attribute switch (attributeChangedCallback calls
@@ -23439,6 +26285,11 @@
       var idx = fmbInstances.indexOf(this);
       if (idx >= 0) fmbInstances.splice(idx, 1);
       this.removeAttribute(EXPANDED_ATTR);
+      /* #1109: FOCUSED_ATTR is the same kind of sticky, engine-owned open
+         signal as EXPANDED_ATTR above — clear it too so a disconnect mid-
+         decay never leaves it behind (e.g. an HTMX swap discarding this
+         node before the engine's own unregister()-triggered resetPhase runs). */
+      this.removeAttribute(FOCUSED_ATTR);
       if (this._io) { this._io.disconnect(); this._io = null; }
       if (this._shellObserver) { this._shellObserver.disconnect(); this._shellObserver = null; }
       /* ResizeObserver on documentElement (#783 #759 #767). */
@@ -23464,6 +26315,26 @@
       this._lastScrollRoot = null;
       /* Remove FMB pin-click handler. */
       if (this._onFmbPinClick) { this.removeEventListener("click", this._onFmbPinClick); this._onFmbPinClick = null; }
+      /* #1104 — undo the keyboard-operability wiring, restoring whatever role
+         was present before _enhance() replaced it with "button" (guarded by
+         _fmbButtonSemanticsApplied so a footer that was NEVER enhanced for
+         reveal mode — e.g. a static footer running through this same
+         teardown on disconnect — never has its role/tabindex touched at
+         all). */
+      if (this._fmbButtonSemanticsApplied) {
+        if (this._fmbSavedRole != null) this.setAttribute("role", this._fmbSavedRole);
+        else this.removeAttribute("role");
+        this._fmbSavedRole = null;
+        if (this._fmbAddedTabindex) { this.removeAttribute("tabindex"); this._fmbAddedTabindex = false; }
+        if (this._fmbAddedAriaLabel) { this.removeAttribute("aria-label"); this._fmbAddedAriaLabel = false; }
+        this.removeAttribute("aria-pressed");
+        this._fmbButtonSemanticsApplied = false;
+      }
+      if (this._fmbPinAriaMo) { this._fmbPinAriaMo.disconnect(); this._fmbPinAriaMo = null; }
+      if (this._onFmbKeydown) { this.removeEventListener("keydown", this._onFmbKeydown); this._onFmbKeydown = null; }
+      /* #1084 — remove the document-level Escape/outside-pointerdown listeners. */
+      if (this._onFmbOutsidePointerDown) { document.removeEventListener("pointerdown", this._onFmbOutsidePointerDown, true); this._onFmbOutsidePointerDown = null; }
+      if (this._onFmbEscape) { document.removeEventListener("keydown", this._onFmbEscape); this._onFmbEscape = null; }
       this.removeAttribute(PINNED_ATTR);
       this._fmbRadius = this._fmbExpand = 0;
       /* Mirror the _enhance() glow add — unconditional, like the other FMB
@@ -23507,7 +26378,8 @@
 /* ==== sidebar.js ==== */
 /* ==========================================================================
    Aura — sidebar FMB (v3.88; genuine full-height engine v3.542, #1014;
-   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049)
+   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049;
+   shared choreography engine adoption v3.555 ITEM-4)
 
    Enhances every .aura-sidebar[data-aura-sidebar] element. As of v3.550 the
    host is a zero-size POSITIONING ROOT only — the actual visible geometry
@@ -23519,14 +26391,20 @@
        genuine full-height surface when Opened/Pinned (css/sidebar.css owns
        all of this geometry — this file only drives the state attributes).
 
-   Behavior (unchanged triggers from pre-v3.550):
+   Behavior:
      - JS proximity detection: sets data-sidebar-expanded when the cursor
        approaches within --aura-sidebar-fmb-expand-px of the PILL's edge
        (measured against the pill's own rect now, not the host's — the host
        has no box of its own to measure), mirroring the nav-header / footer
        FMB proximity mechanics. This is a PREVIEW of the same genuine
-       full-height surface (no focus trap, no background isolation) — it
-       retracts on pointer-leave.
+       full-height surface (no focus trap, no background isolation).
+       STICKY as of v3.555 (ITEM-4): syncOne() below only ever SETS this
+       attribute once the member is registered with the shared choreography
+       engine — it no longer clears it on proximity exit (pre-v3.555: it
+       retracted instantly on pointer-leave). Closing is now the engine's
+       job — see the "Shared choreography engine registration" block in
+       enhance() and docs/design/fmb-choreography-design.md "Engine API
+       (as-built)".
      - Click-to-pin: toggles data-fmb-pinned to keep the surface open with
        FULL behavior (overlay: trapFocus + isolateBackground; push: content
        offset) until the user activates the pill again, presses Escape,
@@ -23535,15 +26413,22 @@
        toggle: role=button, tabindex=0, aria-expanded mirrors the pinned
        state, Enter/Space activate — mirrors js/shell-nav.js's toggle
        affordance (#725 pattern) rather than relying on the host's own
-       whole-element click-to-pin alone.
+       whole-element click-to-pin alone. Both toggle paths call
+       Aura.fmbChoreography.press() for pin press-feedback (v3.555 ITEM-4).
 
    Mode dial: data-sidebar-mode="overlay" (default) | "push" — see
    docs/design/sidebar-fmb-design.md. Overlay arms Aura.dialog.trapFocus +
    isolateBackground ONLY while pinned; push never traps and instead relies
    on the CSS-only :root:has() derived --aura-sidebar-push-inline offset
    (css/sidebar.css) — no JS setProperty call needed for the offset itself.
+   Push's offset is gated on [data-fmb-pinned] only, so the v3.555 detach/
+   decay path (which only ever runs while UNPINNED) never coincides with an
+   active push reflow — see docs/design/sidebar-fmb-design.md's adoption
+   section for the full resolution.
 
-   Load order: after element-base.js, dialog.js, overlay.js, popup-overlay.js.
+   Load order: after element-base.js, dialog.js, overlay.js, popup-overlay.js,
+   fmb-choreography.js (same default bundle order, build.py's JS_ORDER —
+   registration below degrades to a harmless no-op if the engine is absent).
    ========================================================================== */
 (function () {
   "use strict";
@@ -23552,6 +26437,16 @@
      import the module tree without crashing on missing globals. */
   if (typeof window === "undefined" || typeof document === "undefined") return;
   var Aura = window.Aura;
+  /* #1106 (engine-hardening cluster): every sibling FMB module (js/footer.js,
+     js/nav-header.js) bails here if the core Aura namespace itself hasn't
+     loaded yet — this file was missing that guard. Aura.env.coarsePointer()
+     is called unconditionally from syncOne() below (and several other call
+     sites throughout this file), so a page that manages to load
+     js/sidebar.js before js/aura.js/element-base.js populates window.Aura
+     (a load-order mistake, but one every sibling module defends against
+     uniformly) would throw on the very first pointermove instead of no-oping
+     like the rest of the bundle. */
+  if (!Aura) return;
 
   var BEHAVIOR_ATTR = "data-aura-sidebar";
   /* JS proximity expand: set while the cursor is inside the expand-px ring. */
@@ -23610,6 +26505,17 @@
     /* Skip when pinned — CSS data-fmb-pinned keeps it open regardless. */
     if (el.hasAttribute(PINNED_ATTR)) return;
     if (pointerX < 0) return;
+    /* pointer: coarse (v3.555 ITEM-4, docs/design/fmb-choreography-design.md
+       §Reduced motion and pointer: coarse): no cursor exists to approach
+       with under a coarse pointer, so the Approach movement this function
+       drives does not apply at all (fmb-design.md §2's own exemption).
+       Checked LIVE, not cached at module-eval time, so a matchMedia stub
+       installed by a test (or a genuine hybrid-pointer capability change)
+       takes effect on the very next sync pass — this module's `instances`
+       are populated by enhance() calls that can run long after this file
+       first evaluates, the same reasoning js/fmb-choreography.js's own
+       banner comment gives for checking live rather than caching once. */
+    if (Aura.env.coarsePointer()) return;
 
     /* v3.550 (button/panel decoupling, #1047): the HOST is now a zero-size
        positioning root — el.getBoundingClientRect() would report a
@@ -23644,7 +26550,17 @@
 
     if (inProximity) {
       if (!el.hasAttribute(EXPANDED_ATTR)) el.setAttribute(EXPANDED_ATTR, "");
-    } else {
+    } else if (!el._fmbUnregister) {
+      /* Sticky open (v3.555 ITEM-4, docs/design/fmb-choreography-design.md
+         "Engine API (as-built)" — the CRITICAL contract): once registered
+         with the shared choreography engine (below, in enhance()), this
+         function must NEVER clear EXPANDED_ATTR on proximity exit — the
+         engine's stash() callback owns closing via the detach->decay return
+         path; isOpened() must keep reporting true until stash() runs, or
+         detach/decay never starts at all. Only fall back to the pre-v3.555
+         instant-collapse behavior when no engine registration exists (e.g.
+         js/sidebar.js used standalone, outside the default bundle, where
+         nothing else would ever clear this attribute). */
       if (el.hasAttribute(EXPANDED_ATTR)) el.removeAttribute(EXPANDED_ATTR);
     }
   }
@@ -23712,6 +26628,29 @@
     return el.querySelector('[data-sidebar-zone="mark"]');
   }
 
+  /* Resolve the panel — the full-height content zone — used as THE MENU the
+     shared choreography engine measures detach/decay distance against
+     (v3.555 ITEM-4; docs/design/fmb-choreography-design.md's persistent-
+     button clarification: the EXISTING panel, never a new element). */
+  function panelOf(el) {
+    return el.querySelector('[data-sidebar-zone="content"]');
+  }
+
+  /* #1108: the ONE predicate for "is this member's panel visibly open" —
+     Opened (hover/proximity/keyboard-latched, EXPANDED_ATTR) OR Pinned
+     (PINNED_ATTR); css/sidebar.css's own open-state selector list
+     (:hover, :focus-within, [data-sidebar-expanded], [data-fmb-pinned])
+     already treats these two attributes as equally "open" for the panel's
+     own visibility — aria-expanded and the choreography engine's isOpened()
+     callback below both need that SAME definition, so it lives here once
+     and both call sites reuse it, rather than each re-deriving its own
+     (previously divergent: syncPillExpanded() below checked PINNED_ATTR
+     only, under-reporting a merely-hovered/proximity-opened panel as
+     collapsed to assistive tech). */
+  function isVisiblyOpen(el) {
+    return el.hasAttribute(EXPANDED_ATTR) || el.hasAttribute(PINNED_ATTR);
+  }
+
   function setPinned(el, pinned) {
     if (pinned) {
       if (!el.hasAttribute(PINNED_ATTR)) el.setAttribute(PINNED_ATTR, "");
@@ -23720,16 +26659,41 @@
     }
   }
 
+  /* Explicit dismissal of the Opened (expanded, unpinned) tier (#1083,
+     fmb-design.md's coarse-pointer contract): clears EXPANDED_ATTR directly.
+     This is a REAL user action (pill tap, outside tap, Escape), not the
+     passive hover/focus-leave the engine's CRITICAL sticky-open contract
+     forbids members from acting on — the engine itself no-ops entirely on
+     coarse pointers ("a touch-opened member stays open until the member's
+     OWN explicit dismissal", js/fmb-choreography.js processMember), so this
+     member-side path is the only close a touch user has. */
+  function closeOpenedTier(el) {
+    if (el.hasAttribute(EXPANDED_ATTR)) el.removeAttribute(EXPANDED_ATTR);
+    /* On a coarse pointer the tap leaves focus wherever it landed (usually
+       the tabindex=0 pill), and css/sidebar.css's open-state selector list
+       includes :focus-within — clearing the attribute alone would leave the
+       panel visually open with no cursor whose departure could ever close
+       it. Blur focus out of the member so the panel genuinely closes. */
+    if (Aura.env.coarsePointer()) {
+      var active = document.activeElement;
+      if (active && el.contains(active) && typeof active.blur === "function") active.blur();
+    }
+  }
+
   /* Arm full pinned behavior: overlay mode gets a focus trap + background
      isolation (inert/aria-hidden, NO visual scrim — chrome-over-content glass
      tier, unlike the mobile shell drawer); push mode gets neither, relying on
-     the CSS-only offset instead. Both modes get dismissal (Escape + outside-
-     pointer via Aura.popupOverlay.createDismisser), with push disabling the
-     dismisser's scroll/resize auto-dismiss (a push-mode surface living
-     alongside normal page scroll should not vanish on ordinary scrolling —
-     Escape / outside-pointer / pill re-toggle remain the dismiss paths).
-     Mirrors js/shell-nav.js's open()/close() arm-on-open/release-on-close
-     pattern (#725). */
+     the CSS-only offset instead. Dismissal splits by mode (#1087): overlay
+     arms the shared Aura.popupOverlay.createDismisser (outside-pointer +
+     scroll/resize/blur); push mode NEVER arms it — the shared dismisser's
+     scroll/resize/blur listeners are unconditional, and a push-mode surface
+     living alongside normal page scroll must not vanish on ordinary
+     scrolling/resize/blur (sidebar-fmb-design.md §Push mode). Push dismissal
+     is Escape (the member's own host-scoped keydown while focus is still
+     inside, PLUS a document-level fallback for once it isn't — #1098, see
+     the keydown wiring in enhance()) + outside-pointer via armPushDismissal
+     + pill re-toggle, nothing else. Mirrors js/shell-nav.js's open()/close()
+     arm-on-open/release-on-close pattern (#725). */
   function armPinned(el) {
     var pill = pillOf(el);
     if (Aura && Aura.dialog) {
@@ -23738,17 +26702,27 @@
         if (Aura.dialog.trapFocus) el._sidebarUntrap = Aura.dialog.trapFocus(el);
       }
     }
-    if (Aura && Aura.popupOverlay && typeof Aura.popupOverlay.createDismisser === "function") {
+    /* #1087 — the shared dismisser is OVERLAY-MODE ONLY. It attaches its
+       scroll/resize/blur listeners unconditionally (js/overlay.js
+       createDismisser.arm() — `pointer:false` only ever omitted the
+       outside-pointer gesture), so arming it in push mode auto-unpinned the
+       sidebar on the first page scroll, window resize, or window blur —
+       exactly the dismissals sidebar-fmb-design.md §Push mode requires
+       DISABLED ("would make it unusable" alongside normal page scroll).
+       Push mode gets NOTHING from the dismisser it actually wants: its
+       outside-pointer path is armPushDismissal below, and Escape is handled
+       by the member's own host-scoped keydown handler while focus is still
+       inside it, plus a document-level fallback for once focus has moved
+       into the pushed page content (#1098 — that handler never fired once
+       focus left; see the keydown wiring in enhance()). Skip createDismisser
+       entirely here rather than growing per-gesture opt-outs. Overlay mode
+       is unchanged: full gesture set (outside-pointer + scroll + resize +
+       blur). */
+    if (!isPushMode(el) && Aura && Aura.popupOverlay && typeof Aura.popupOverlay.createDismisser === "function") {
       el._sidebarDismisser = Aura.popupOverlay.createDismisser({
         onDismiss: function () { setPinned(el, false); },
         isInside: function (t) { return el.contains(t); },
-        isOnOpener: function (t) { return !!pill && pill.contains(t); },
-        /* Push mode: scroll/resize/blur must not auto-dismiss a surface that
-           coexists with normal page scroll — only Escape / outside-pointer /
-           re-toggle should close it. createDismisser has no per-gesture
-           opt-out beyond `pointer`, so push mode arms a minimal direct-
-           delegation fallback instead (see armPushDismissal below). */
-        pointer: !isPushMode(el)
+        isOnOpener: function (t) { return !!pill && pill.contains(t); }
       });
       el._sidebarDismisser.arm();
     }
@@ -23757,13 +26731,16 @@
     if (first) first.focus({ preventScroll: true });
   }
 
-  /* Push mode's own outside-pointer + Escape delegation — createDismisser's
-     `pointer:false` above already omits its outside-pointer listener; this
-     supplies just that one gesture directly (scroll/resize/blur stay OFF,
-     per the acceptance criteria) so push-mode dismissal still has an
-     outside-pointer path without inheriting the auto-dismiss-on-scroll
-     behavior that would make a push-mode surface unusable while reading a
-     long page. */
+  /* Push mode's own outside-pointer delegation — the shared createDismisser
+     is never armed in push mode at all (#1087: its scroll/resize/blur
+     listeners are unconditional and would auto-unpin on ordinary page
+     scroll/resize/blur), so this supplies the one global gesture push mode
+     DOES want, directly: pointerdown outside the member and its pill unpins.
+     scroll/resize/blur stay OFF per sidebar-fmb-design.md §Push mode; Escape
+     is handled by the member's own host-scoped keydown handler while focus
+     is inside it, plus a document-level fallback (#1098, wired in enhance())
+     for once focus has moved into the pushed page content — push mode never
+     traps focus, so that is the normal reading flow, not an edge case. */
   function armPushDismissal(el, pill) {
     function onPointerDown(e) {
       var t = e.target;
@@ -23788,13 +26765,35 @@
     }
     if (skipFocusReturn) return;
     var pill = pillOf(el);
-    if (pill) pill.focus({ preventScroll: true });
+    if (!pill) return;
+    /* #1083 — coarse pointers: do NOT return focus to the pill. There is no
+       keyboard context to preserve on a plain touch unpin, and focusing the
+       pill would hold the panel open via css/sidebar.css's :focus-within
+       open-state selector with no cursor whose departure could ever close it
+       (the engine no-ops on coarse). Blur any focus the tap left inside the
+       member instead, so unpin genuinely closes the surface. */
+    if (Aura.env.coarsePointer()) {
+      var active = document.activeElement;
+      if (active && el.contains(active) && typeof active.blur === "function") active.blur();
+      return;
+    }
+    /* #1083 — the focus return is PROGRAMMATIC, not a user opening gesture:
+       suppress the keyboard-open focusin latch for the synchronous focusin
+       this dispatches, so an unpin/close path can never re-latch
+       EXPANDED_ATTR by side effect (focus events fire synchronously inside
+       focus(), so the flag window covers exactly this one dispatch). */
+    el._sidebarSuppressFocusLatch = true;
+    pill.focus({ preventScroll: true });
+    el._sidebarSuppressFocusLatch = false;
   }
 
-  /* Reflect aria-expanded on the pill from the live PINNED_ATTR state. */
+  /* Reflect aria-expanded on the pill from the live visibly-open state
+     (#1108: Opened OR Pinned — see isVisiblyOpen() above. Previously checked
+     PINNED_ATTR only, so a hover-opened-but-not-pinned panel announced
+     aria-expanded="false" to assistive tech while visibly open on screen). */
   function syncPillExpanded(el) {
     var pill = pillOf(el);
-    if (pill) pill.setAttribute("aria-expanded", el.hasAttribute(PINNED_ATTR) ? "true" : "false");
+    if (pill) pill.setAttribute("aria-expanded", isVisiblyOpen(el) ? "true" : "false");
   }
 
   /* ---- Per-element enhance / teardown ----------------------------------- */
@@ -23811,6 +26810,29 @@
        missing pill. */
     var pill = pillOf(el);
     el._fmbPill = pill;
+    /* Resolved once alongside the pill — the panel is THE MENU the shared
+       choreography engine measures detach/decay distance against (v3.555
+       ITEM-4, registered further below, gated to FMB mode). */
+    var panel = panelOf(el);
+    el._fmbPanel = panel;
+    /* Cached once so the click/keydown handlers below (some of which run
+       even for a non-FMB drawer sidebar, per the historical any-value gate
+       further down) can gate their engine calls without re-reading the
+       attribute on every activation. */
+    var isFmbMode = el.getAttribute(BEHAVIOR_ATTR) === "reveal";
+    /* Pin press-feedback (v3.555 ITEM-4, docs/design/fmb-choreography-
+       design.md's Aura.fmbChoreography.press() JSDoc): the pill is a
+       role="button" <span>, not a native <button> — its two input-modality
+       toggle paths (click-to-pin below, and the Enter/Space keydown handler
+       further down) do NOT already funnel through one unified click event
+       the way the engine's own JSDoc describes for a real <button> member,
+       so both call sites invoke this helper explicitly. No-ops outside FMB
+       mode or without a pill/engine present. */
+    function pressPill() {
+      if (pill && isFmbMode && Aura && Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+        Aura.fmbChoreography.press(pill);
+      }
+    }
     /* Cache the FMB geometry tokens once at enhance time — these design-system
        constants don't change at runtime, so probing them on every rAF tick is
        unnecessary. Cached on the element so teardown can clear them. */
@@ -23842,7 +26864,21 @@
        always had. */
     el._sidebarPinClick = function (e) {
       if (e.target.closest("a, button, input, select, textarea")) return;
+      /* #1083 — coarse-pointer explicit dismissal of the Opened tier: a tap
+         on the pill while the panel is Opened (expanded) but unpinned CLOSES
+         it rather than pinning — per fmb-design.md's coarse-pointer contract
+         the engine never auto-decays on touch, so without this the tap
+         escalated an already-open panel to Pinned and the Opened tier had no
+         pill-side exit at all. Fine pointers keep the historical toggle (the
+         engine's detach→decay path owns the Opened tier's close there). */
+      if (isFmbMode && Aura.env.coarsePointer() &&
+          !el.hasAttribute(PINNED_ATTR) && el.hasAttribute(EXPANDED_ATTR) &&
+          pill && pill.contains(e.target)) {
+        closeOpenedTier(el);
+        return;
+      }
       el.toggleAttribute(PINNED_ATTR);
+      pressPill();
     };
     el.addEventListener("click", el._sidebarPinClick);
 
@@ -23857,7 +26893,105 @@
        the drawer. Everything above this line (proximity, stash mirror,
        glow, geometry caches, click-to-pin) keeps its historical any-value
        behavior. */
-    if (el.getAttribute(BEHAVIOR_ATTR) !== "reveal") return;
+    if (!isFmbMode) return;
+
+    /* ---- Shared choreography engine registration (v3.555 ITEM-4) --------
+       docs/design/fmb-choreography-design.md "Engine API (as-built)":
+       register the EXISTING pill (button) + EXISTING content zone (menu)
+       pair — no new element is introduced, per the persistent-button
+       clarification. host MUST be the SAME element js/fmb-column.js
+       discovers for this member ([data-aura-sidebar], the LEGACY_MEMBERS
+       "sidebar" slot selector) — see the engine's own JSDoc.
+
+       CRITICAL (the engine's own callout, docs/design/fmb-choreography-
+       design.md): once Opened+unpinned this member must NOT self-revert on
+       hover/focus-out. EXPANDED_ATTR (data-sidebar-expanded) is therefore
+       STICKY as of this item — syncOne() above only ever SETS it once
+       registered here, never clears it; isOpened() keeps reporting it true
+       until stash() below runs. Before this item the sidebar reverted
+       instantly the moment :hover/:focus-within/[data-sidebar-expanded]
+       all dropped (the pure-CSS ghost-rim-suppression :not() selector
+       above is unrelated to this, but was the same shape of "all triggers
+       dropped -> revert" logic this item replaces for the OPEN state) —
+       that reversion is now delegated entirely to the engine's
+       detach->decay->stash() return path.
+
+       Gate on BOTH pill and panel (#1097): the engine's own validateMember()
+       rejects a call whose `button` isn't an Element (pill-less markup) and
+       hands back a harmless-looking no-op unregister function — genuinely
+       indistinguishable from a real disposer by type alone. Calling
+       register() anyway on pill-less markup let that no-op get stored as a
+       TRUTHY el._fmbUnregister below, which silently disabled syncOne()'s
+       "no engine -> instant-clear" fallback for a member the engine was
+       never actually driving in the first place (it cannot compute a
+       button-relative distance without a button element to measure). Gating
+       here — matching what syncOne() itself already requires via
+       el._fmbPill — keeps el._fmbUnregister genuinely unset (falsy) whenever
+       registration didn't really take, so the fallback stays live. */
+    if (pill && panel && Aura && Aura.fmbChoreography && typeof Aura.fmbChoreography.register === "function") {
+      el._fmbUnregister = Aura.fmbChoreography.register({
+        host: el,
+        button: pill,
+        menu: panel,
+        /* #1108: reuse the SAME "visibly open" predicate aria-expanded now
+           reads (isVisiblyOpen() above) rather than re-deriving an identical
+           boolean expression here — one definition of "open" for both. */
+        isOpened: function () { return isVisiblyOpen(el); },
+        isPinned: function () { return el.hasAttribute(PINNED_ATTR); },
+        stash: function () { el.removeAttribute(EXPANDED_ATTR); },
+        label: "sidebar"
+      });
+
+      /* Keyboard-driven open (Tab onto the pill or a link inside the
+         content zone, no mouse ever involved) must ALSO latch EXPANDED_ATTR
+         — :focus-within already opens the panel visually via CSS regardless
+         (the combined open-state selector in css/sidebar.css), but without
+         this the engine's isOpened() would never see a keyboard-only open
+         as tracked, leaving it on the old instant-close-on-blur path
+         instead of the detach->decay return path. Mirrors syncOne()'s own
+         "set, never clear" rule — focusout is intentionally NOT handled
+         here; only stash() clears it. Scoped to the engine-registered case
+         only (mirrors syncOne()'s own fallback): with no engine to
+         eventually stash() it, latching this permanently would leave the
+         sidebar stuck open with nothing to close it. */
+      el._sidebarFmbFocusIn = function () {
+        if (el.hasAttribute(PINNED_ATTR)) return;
+        /* #1083 — a PROGRAMMATIC focus return (releasePinned's pill.focus()
+           after unpin/Escape/outside-click) is not a user opening gesture:
+           re-latching here made every unpin path immediately re-open the
+           member. The flag is set synchronously around exactly that one
+           focus() dispatch. */
+        if (el._sidebarSuppressFocusLatch) return;
+        /* #1083 — coarse pointers: never latch. The latch exists so the
+           ENGINE can track a keyboard-opened member and close it via its
+           focus-leave → detach → decay path — but the engine no-ops entirely
+           on coarse pointers, so a latched attribute there is permanent:
+           nothing would ever clear it and the panel became unclosable until
+           reload. On touch the pin toggle owns open/close; a hardware-
+           keyboard user on a touch device still gets the :focus-within CSS
+           preview, which retracts by itself when focus moves on. Checked
+           LIVE (same reasoning as syncOne above). */
+        if (Aura.env.coarsePointer()) return;
+        if (!el.hasAttribute(EXPANDED_ATTR)) el.setAttribute(EXPANDED_ATTR, "");
+      };
+      el.addEventListener("focusin", el._sidebarFmbFocusIn);
+    }
+
+    /* #1083 — coarse-pointer outside-tap dismissal for the Opened tier
+       (fmb-design.md's coarse contract: "explicit dismissal — tap the
+       button, tap outside, or Escape"). The pinned tier already has the
+       armPinned() dismisser; the Opened (expanded, unpinned) tier had NO
+       outside exit on touch, where the engine deliberately never runs.
+       Fine pointers are untouched — there the engine's detach→decay return
+       path owns the Opened tier. Capture-phase, mirroring armPushDismissal. */
+    el._sidebarOpenedOutsideDismiss = function (e) {
+      if (!Aura.env.coarsePointer()) return;
+      if (el.hasAttribute(PINNED_ATTR) || !el.hasAttribute(EXPANDED_ATTR)) return;
+      var t = e.target;
+      if (t && el.contains(t)) return;
+      closeOpenedTier(el);
+    };
+    document.addEventListener("pointerdown", el._sidebarOpenedOutsideDismiss, true);
 
     /* Pill toggle affordance (v3.542, #1014): the [data-sidebar-zone="mark"]
        circle icon becomes an explicit toggle — role=button, tabindex=0,
@@ -23886,27 +27020,96 @@
       el._sidebarPillKeydown = function (e) {
         if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
         e.preventDefault();
+        /* #1083 — mirror the click path's coarse-pointer Opened-tier close
+           (the pill's two activation modalities must agree). */
+        if (Aura.env.coarsePointer() &&
+            !el.hasAttribute(PINNED_ATTR) && el.hasAttribute(EXPANDED_ATTR)) {
+          closeOpenedTier(el);
+          return;
+        }
         el.toggleAttribute(PINNED_ATTR);
+        pressPill();
       };
       pill.addEventListener("keydown", el._sidebarPillKeydown);
     }
 
     /* Escape closes a pinned surface and returns focus to the pill —
        delegated per-instance since the pinned/unpinned lifecycle is scoped
-       to this element (mirrors js/shell-nav.js's keydown Escape handling). */
+       to this element (mirrors js/shell-nav.js's keydown Escape handling).
+       Host-scoped: this only fires while focus is still somewhere inside
+       `el` (or the event otherwise bubbles through it). Overlay mode's focus
+       trap guarantees that's always true while pinned, but push mode never
+       traps (line ~43 above), so el._sidebarDocKeydown below covers push
+       mode once focus has moved elsewhere (#1098). */
     el._sidebarKeydown = function (e) {
       if (e.key !== "Escape") return;
+      if (el.hasAttribute(PINNED_ATTR)) {
+        e.preventDefault();
+        el.removeAttribute(PINNED_ATTR);
+        return;
+      }
+      /* #1083 — Escape also dismisses the Opened (expanded, unpinned) tier:
+         part of fmb-design.md's explicit-dismissal vocabulary, and on coarse
+         pointers the ONLY keyboard exit (the engine never runs there). An
+         explicit Escape is a real action, not the passive leave the engine's
+         sticky-open contract reserves for itself, so clearing EXPANDED_ATTR
+         here does not violate the register() contract. */
+      if (el.hasAttribute(EXPANDED_ATTR)) {
+        e.preventDefault();
+        closeOpenedTier(el);
+      }
+    };
+    el.addEventListener("keydown", el._sidebarKeydown);
+
+    /* Document-level Escape fallback for push mode (#1098): push mode never
+       traps focus, so once focus moves from the sidebar into the pushed
+       article content — the normal push-mode reading flow, not an edge
+       case — el._sidebarKeydown above never fires again; nothing was
+       listening at the document level, so Escape stopped unpinning the
+       sidebar entirely. Overlay mode doesn't need this: its focus trap keeps
+       focus inside `el`, so el._sidebarKeydown alone still catches every
+       Escape press there. Mirrors js/nav-header.js's own document-level
+       Escape handling for its FMB circle's Pinned exit (#1068), including
+       its scoping discipline: dialog.js's focus-trap keydown listener and
+       overlay.js's popup dismissal both unconditionally call
+       e.preventDefault() on an Escape they own (dialog.js whenever any
+       dialog is open, overlay.js whenever a popup is active) BEFORE this
+       listener runs (both load earlier in build.py's JS_ORDER, and
+       overlay.js's is capture-phase so it runs first regardless) — checking
+       e.defaultPrevented here means an Escape meant for a dialog/popup on
+       top is never also swallowed/re-acted-on by the sidebar. Wired
+       unconditionally in enhance()/removed in teardown() like
+       el._sidebarKeydown above; gated internally to push mode + actually
+       pinned so a non-pinned, non-push, or non-FMB sidebar never reacts. */
+    el._sidebarDocKeydown = function (e) {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      if (!isPushMode(el)) return;
       if (!el.hasAttribute(PINNED_ATTR)) return;
       e.preventDefault();
       el.removeAttribute(PINNED_ATTR);
     };
-    el.addEventListener("keydown", el._sidebarKeydown);
+    document.addEventListener("keydown", el._sidebarDocKeydown);
 
     /* Arm/release full pinned behavior (trap + isolation + dismissal) exactly
        when data-fmb-pinned transitions, and keep aria-expanded in sync —
        MutationObserver-driven so every path that flips the attribute (pill
        click, host click, Enter/Space, programmatic API) is covered from one
-       place, mirroring the stash mirror above. */
+       place, mirroring the stash mirror above.
+
+       #1108: EXPANDED_ATTR joins the filter too — aria-expanded now mirrors
+       isVisiblyOpen() (Opened OR Pinned, see above), so every path that flips
+       EITHER attribute must re-sync it: syncOne()'s proximity latch,
+       closeOpenedTier()'s explicit dismissal, the keyboard focusin latch, and
+       the choreography engine's own stash() callback all set/clear
+       EXPANDED_ATTR directly and none of them called syncPillExpanded()
+       themselves — before this fix a hover/proximity-opened (Opened,
+       unpinned) panel kept announcing aria-expanded="false" for its entire
+       visibly-open lifetime, only ever flipping to "true" once actually
+       Pinned. The arm/release pinned-behavior branch below is unaffected —
+       it only ever keys off PINNED_ATTR regardless of why this callback
+       fired, so an EXPANDED_ATTR-only mutation harmlessly re-checks a pinned
+       state that hasn't changed. */
     el._pinMo = new MutationObserver(function () {
       syncPillExpanded(el);
       var pinned = el.hasAttribute(PINNED_ATTR);
@@ -23918,7 +27121,7 @@
         releasePinned(el);
       }
     });
-    el._pinMo.observe(el, { attributes: true, attributeFilter: [PINNED_ATTR] });
+    el._pinMo.observe(el, { attributes: true, attributeFilter: [PINNED_ATTR, EXPANDED_ATTR] });
   }
 
   function teardown(el) {
@@ -23929,6 +27132,22 @@
        attributes cannot re-add the mirror attribute after teardown (#1019). */
     if (el._stashMirrorMo) { el._stashMirrorMo.disconnect(); el._stashMirrorMo = null; }
     if (el._pinMo) { el._pinMo.disconnect(); el._pinMo = null; }
+    /* Unregister from the shared choreography engine (v3.555 ITEM-4) —
+       idempotent, clears any live data-fmb-detached/-decaying/
+       --aura-fmb-decay-progress on the host and drops the registry entry,
+       mirroring every other Aura registration API's disposer-return
+       convention. */
+    if (el._fmbUnregister) { el._fmbUnregister(); el._fmbUnregister = null; }
+    if (el._sidebarFmbFocusIn) {
+      el.removeEventListener("focusin", el._sidebarFmbFocusIn);
+      el._sidebarFmbFocusIn = null;
+    }
+    /* #1083 — remove the coarse-pointer Opened-tier outside-tap dismisser. */
+    if (el._sidebarOpenedOutsideDismiss) {
+      document.removeEventListener("pointerdown", el._sidebarOpenedOutsideDismiss, true);
+      el._sidebarOpenedOutsideDismiss = null;
+    }
+    el._sidebarSuppressFocusLatch = false;
     /* Release trap/isolation/dismissal BEFORE clearing the pinned attribute —
        releasePinned() reads the live pill; removeAttribute below would still
        leave a correct final DOM state either way, but releasing first avoids
@@ -23945,6 +27164,11 @@
       el.removeEventListener("keydown", el._sidebarKeydown);
       el._sidebarKeydown = null;
     }
+    /* #1098 — remove the document-level push-mode Escape fallback. */
+    if (el._sidebarDocKeydown) {
+      document.removeEventListener("keydown", el._sidebarDocKeydown);
+      el._sidebarDocKeydown = null;
+    }
     var pill = pillOf(el);
     if (pill) {
       if (el._sidebarPillKeydown) pill.removeEventListener("keydown", el._sidebarPillKeydown);
@@ -23954,6 +27178,7 @@
     }
     el._sidebarPillKeydown = null;
     el._fmbPill = null;
+    el._fmbPanel = null;
     el._fmbRadius = el._fmbExpand = 0;
     el._sidebarEnhanced = false;
   }
@@ -23978,1015 +27203,5 @@
     }
   });
   mo.observe(document.body || document.documentElement, { childList: true, subtree: true });
-
-})();
-
-/* ==== fmb-column.js ==== */
-/* Aura — <aura-fmb-column> FMB column/anchor registration + positioning engine (v3.549)
-   Rewritten for v3.549 ITEM-2 (docs/design/fmb-design.md §Column positioning,
-   §The three states) onto the generic column/anchor model whose CSS shipped in
-   ITEM-1 (css/fmb-column.css). Members register into one of four logical
-   stacks — (column, anchor) pairs read from data-fmb-column / data-fmb-anchor —
-   instead of a hardcoded 4-slot nav/sidebar/footer/user registry. Any number of
-   members may register at the same (column, anchor); they stack in
-   registration (DOM) order, matching the CSS's block-start-grows-down /
-   block-end-grows-up (column-reverse) convention.
-
-   Hard architectural rule this file enforces (fmb-design.md §Column
-   positioning): "the column reserves space only for the Stashed state." A
-   stack is populated with one slot cell per member that is currently PRESENT
-   in the DOM — but a member only counts as "active" (paints the stack's glass
-   surface, sets data-fmb-column-active) while it is Stashed. An Opened/Pinned
-   member's menu panel is a separate floating panel the member's own host CSS
-   already renders outside this column entirely (js/fmb-column.js never sees
-   it) — so the column's own box model never grows to fit it.
-
-   Migration default (v3.549 ITEM-2): the four pre-v3.549 members
-   (nav-header, sidebar, footer, user-profile FMB) keep their exact current
-   visual positions. Each is auto-registered with a default data-fmb-column /
-   data-fmb-anchor / data-fmb-slot value IF THE HOST HASN'T ALREADY AUTHORED
-   one, reproducing today's layout:
-     nav-header  → column=start, anchor=start  (top-left, registers first)
-     sidebar     → column=start, anchor=start  (top-left, stacks below nav)
-     footer      → column=start, anchor=end    (bottom-left)
-     user-profile→ column=end,   anchor=start  (top-right)
-   Any host that authors its own data-fmb-column/data-fmb-anchor overrides
-   this default — the engine has no hardcoded 4-name allowlist; it discovers
-   ANY element carrying [data-fmb-column][data-fmb-anchor] (plus the four
-   known legacy selectors for back-compat auto-tagging) each sync.
-
-   This item is the CONTAINER mechanism only: button/panel decoupling (#1047)
-   and the user-profile FMB's open/pin unification (#1048) are separate,
-   later releases — the four members keep their existing internal
-   button/panel/pin behavior unchanged; only which column/anchor slot they
-   sit in, and how the column's footprint accounting works, changes here.
-
-   ITEM-3 (mobile merge + reveal control, fmb-design.md §Mobile): below
-   --aura-bp-mobile the CSS (css/fmb-column.css) merges both columns onto
-   the inline-start edge and hides every stack by default
-   (visibility:hidden + pointer-events:none) until the host carries
-   data-fmb-column-revealed. This file owns two new responsibilities: (1)
-   creating/wiring a single reveal <button> (_ensureRevealControl(),
-   [data-fmb-reveal]) that toggles that attribute on click or Enter/Space —
-   a real focusable element, not a hover-only affordance
-   (space-economy-design.md §Accessibility); (2) resetting the revealed
-   state closed whenever the breakpoint transitions AWAY from mobile, so
-   re-entering mobile later always starts hidden again ("hidden by
-   default", not "hidden until first opened, ever after remembered"). Member
-   registration/layout/activation (_discoverMembers/_layoutStack) run
-   IDENTICALLY in mobile and desktop mode — the merge is pure CSS
-   repositioning of the SAME stacks; there is no separate mobile data model.
-
-   ITEM-13 (v3.554, #1080): the reveal <button> is a document.body child,
-   not a DOM descendant of <aura-fmb-column> — see _ensureRevealControl()'s
-   doc comment for the aura-app isolation-boundary/stacking-context fix this
-   corrects (mirrors js/footer.js's ensureFooterPanel() escape). */
-
-(function () {
-  "use strict";
-  /* SSR guard (#416): no-op outside the browser — see js/fmb-column.js history. */
-  if (typeof window === "undefined" || typeof document === "undefined") return;
-
-  var Aura = window.Aura || (window.Aura = {});
-
-  var DOC_EL       = document.documentElement;
-  var DOC_STYLE    = DOC_EL.style;
-  var DOC_COMPUTED = getComputedStyle(DOC_EL);
-
-  var COLUMNS = ["start", "end"];
-  var ANCHORS = ["start", "end"];
-
-  /* v3.549 ITEM-3 (fmb-design.md §Mobile) — the merged-column reveal control.
-     REVEALED_ATTR lives on the <aura-fmb-column> HOST (mirrors the existing
-     data-fmb-column-active/data-slot-hover convention of hanging transient
-     JS-driven state off attributes the CSS keys on); REVEAL_SEL identifies
-     the reveal <button> itself.
-
-     v3.554 ITEM-13 (#1080): the button is now a document.body child, NOT a
-     DOM descendant of <aura-fmb-column> — see _ensureRevealControl()'s doc
-     comment for why (css/theme.css's `aura-app { isolation: isolate; }`
-     traps any descendant of <aura-app> in a losing stacking context against
-     js/footer.js's body-level floating panel; mirrors ensureFooterPanel()'s
-     own containing-block/stacking-context escape). */
-  var REVEALED_ATTR = "data-fmb-column-revealed";
-  var REVEAL_SEL = "[data-fmb-reveal]";
-
-  /* Legacy 4-member migration defaults (v3.549 ITEM-2). Each entry maps a
-     member's PRESENCE selector to the column/anchor/slot-name it is
-     auto-tagged with if (and only if) the host element does not already
-     carry an authored data-fmb-column attribute — see autoTagLegacyMembers().
-     Order here is also the fallback registration order within a stack
-     (nav before sidebar keeps nav nearest the block-start edge, matching
-     today's visual stacking). */
-  var LEGACY_MEMBERS = [
-    { selector: "aura-nav-header, .aura-nav-header",   slot: "nav",     column: "start", anchor: "start" },
-    { selector: "[data-aura-sidebar]",                 slot: "sidebar", column: "start", anchor: "start" },
-    { selector: "aura-footer, [data-aura-footer]",     slot: "footer",  column: "start", anchor: "end"   },
-    { selector: "[data-aura-user-fmb]",                slot: "user",    column: "end",   anchor: "start" }
-  ];
-
-  /* Parse a raw data-fmb-column-min string into a valid integer or null.
-     Preserved from the pre-v3.549 implementation (#942, #968) — the min-count
-     activation override is unchanged by this item's column/anchor rework. */
-  function parseMinVal(raw) {
-    if (raw === null) return null;
-    var n = parseInt(raw, 10);
-    return (!Number.isFinite(n) || n < 1) ? null : n;
-  }
-
-  /* Read --aura-fmb-column-breakpoint from :root computed styles; fall back to 640px. */
-  function readBreakpoint() {
-    return DOC_COMPUTED.getPropertyValue('--aura-fmb-column-breakpoint').trim() || '640px';
-  }
-
-  /* A single registered member: the host element the FMB lives on, and its
-     resolved column/anchor/slot identity. One MemberEntry is created per
-     present legacy host and per any element authoring its own
-     data-fmb-column/data-fmb-anchor pair — see
-     AuraFmbColumn.prototype._discoverMembers(). The member's slot cell
-     itself lives in a Map on the stack element (stackEl._fmbCellMap, keyed
-     by host), not on the entry — a fresh MemberEntry is created every
-     _discoverMembers() pass, while the cell must persist across passes for
-     DOM-reuse idempotency (see _layoutStack()). */
-  function MemberEntry(host, column, anchor, slotName) {
-    this.host = host;
-    this.column = column;
-    this.anchor = anchor;
-    this.slotName = slotName;
-  }
-
-  /* Stashed-state predicate — generalizes the pre-v3.549 per-member stash
-     booleans (navStashed/footerStashed/userStashed) into one dispatch keyed
-     by slot name for the four legacy members, and a generic fallback for any
-     future consumer-authored member (present + not carrying data-fmb-pinned
-     nor its own data-{member}-expanded-shaped attribute is NOT assumed here —
-     a generic member is considered Stashed unless it exposes the unified
-     data-aura-stashed mirror and that mirror is absent; see fmb-design.md's
-     unified-contract note reused from the pre-v3.549 user-FMB template). */
-  function isStashed(entry) {
-    var host = entry.host;
-    switch (entry.slotName) {
-      case "nav":
-        return host.hasAttribute("data-stashed");
-      case "sidebar":
-        /* FMB-mode eligibility (pre-v3.549 #891, unchanged): only a sidebar in
-           "reveal" mode participates at all; a sidebar in "standard" panel
-           mode is present in the DOM but not an FMB member this sync. Pinned
-           state does NOT evict the sidebar from the column (#951, unchanged
-           by this item) — its slot cell stays put while its panel floats
-           above/past the column. */
-        return host.getAttribute("data-aura-sidebar") === "reveal";
-      case "footer":
-        return host.getAttribute("data-aura-footer") === "reveal" && !host.hasAttribute("data-aura-revealed");
-      case "user":
-        return host.hasAttribute("data-aura-stashed");
-      default:
-        /* Generic member template (fmb-design.md's unified contract): presence
-           of the shared data-aura-stashed mirror, when authored, is read
-           directly rather than inventing a bespoke per-host attribute. A
-           generic host that authors no stash mirror at all is treated as
-           always-Stashed (it has no Opened/Pinned distinction this engine
-           knows about) so it still reserves a column slot. */
-        return host.hasAttribute("data-aura-stashed") || !host.hasAttribute("data-fmb-pinned");
-    }
-  }
-
-  /* Present-eligibility predicate — mirrors isStashed()'s per-slot dispatch
-     but answers "does this member participate in the column AT ALL right
-     now" (pre-v3.549's sidebarFmb/footerFmb "FMB-mode eligibility" concept),
-     independent of stash state. A present-but-not-stashed member still
-     reserves its slot cell (so the column doesn't jump size when it opens)
-     but does not count toward stack activation. */
-  function isEligible(entry) {
-    var host = entry.host;
-    switch (entry.slotName) {
-      case "sidebar":
-        return host.getAttribute("data-aura-sidebar") === "reveal";
-      case "footer":
-        return host.getAttribute("data-aura-footer") === "reveal";
-      default:
-        return true;
-    }
-  }
-
-  /* Content-occupancy predicate (#1074 fix). isStashed()/isEligible() answer
-     from MEMBER STATE alone (attributes) — neither one ever asks whether the
-     member's host is actually rendering anything a stack's glass surface
-     would visually contain. A host can be logically "Stashed" (isStashed()
-     true) while its own CSS has collapsed it to a zero-area box (e.g. a
-     sidebar rail closed to width:0) — the corner slab then activates and
-     paints an ~0.88-alpha glass tile over hero/content with nothing inside
-     it, because the count-based threshold below never looked at the
-     rendered box. hasVisibleContent() closes that gap: a Stashed member only
-     counts toward eligibleStashedCount (and therefore toward stack
-     activation) once its host actually paints a non-zero-area box.
-     getBoundingClientRect() (not offsetWidth/Height) so this also correctly
-     reads position:fixed hosts, which the legacy chrome members always are.
-     Disconnected hosts (mid-teardown) are treated as having no content. Note
-     this does NOT gate presentCount/slot-cell reservation — a member mid-
-     collapse-animation still keeps its cell so the stack's box model doesn't
-     jump; it only gates whether that member's Stashed-ness counts toward the
-     activation threshold. */
-  function hasVisibleContent(host) {
-    if (!host || !host.isConnected) return false;
-    var rect = host.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  class AuraFmbColumn extends HTMLElement {
-    constructor() {
-      super();
-      var self = this;
-      this._syncBound = function syncBound() { self._rafId = null; self._sync(); };
-      /* Guard against observing our OWN DOM writes (#1046 hang fix): _sync()
-         creates/reorders stack containers and slot cells INSIDE this element
-         (_ensureStacks(), _layoutStack()'s cell append/reorder). Those are
-         childList mutations under document.documentElement's subtree just
-         like any external change, so without this guard every _sync() call
-         would re-trigger itself via its own writes — an infinite
-         resync loop. A record whose target is this element or a descendant
-         of it is our own bookkeeping, never a member's state changing, so it
-         must never mark presence dirty or schedule another sync. */
-      this._scheduleSyncBound = function scheduleSyncBound(records) {
-        var relevant = false;
-        for (var i = 0; i < records.length; i++) {
-          var target = records[i].target;
-          if (self.contains(target) || target === self) continue; /* our own subtree write — ignore */
-          relevant = true;
-          if (records[i].type === 'childList' || records[i].type === 'attributes') { self._presenceDirty = true; }
-        }
-        if (relevant) self._scheduleSync();
-      };
-      this._mqlChangeBound = function mqlChangeBound() { self._presenceDirty = true; self._scheduleSync(); };
-
-      /* Pre-bound pointer/focus slot-hover handlers — allocated once per
-         element lifetime (mirrors the pre-v3.549 pattern, #945/#946), now
-         dispatching through the live member registry instead of four
-         hardcoded refs. */
-      this._checkHover = function checkHover() {
-        var stillIn = false;
-        for (var i = 0; i < self._members.length; i++) {
-          if (self._members[i].host.matches(':hover')) { stillIn = true; break; }
-        }
-        if (!stillIn && self._hoverHost !== null) { self._clearHover(); }
-      };
-      this._checkFocus = function checkFocus() {
-        var active = document.activeElement;
-        var stillFocused = false;
-        for (var i = 0; i < self._members.length; i++) {
-          if (self._members[i].host.contains(active)) { stillFocused = true; break; }
-        }
-        if (!stillFocused && self._hoverHost !== null) { self._clearHover(); }
-      };
-      this._hoverOver = function hoverOver(e) {
-        if (!self._anyStackActive) return;
-        self._setHoverFromEvent(e.target);
-      };
-      this._hoverOut = function hoverOut() {
-        if (!self._anyStackActive) return;
-        if (self._hoverHost !== null) requestAnimationFrame(self._checkHover);
-      };
-      this._focusIn = function focusIn(e) {
-        if (!self._anyStackActive) return;
-        self._setHoverFromEvent(e.target);
-      };
-      this._focusOut = function focusOut() {
-        if (!self._anyStackActive) return;
-        if (self._hoverHost !== null) requestAnimationFrame(self._checkFocus);
-      };
-
-      this._mo = null;
-      this._mql = null;
-      this._lastBreakpoint = null;
-      this._rafId = null;
-      this._minCache = null; /* per-stack data-fmb-column-min override; read from the STACK element, see _sync() */
-      this._presenceDirty = true;
-      this._members = [];        /* flat list of MemberEntry, rebuilt on every presence-dirty sync */
-      this._stacks = {};         /* "start:start" -> stack <div> element, created lazily in _ensureStacks() */
-      /* Hover identity is keyed off the stable DOM host element (_hoverHost),
-         NOT a cached MemberEntry reference (_hoverEntry, kept only for the
-         slotName it carries at set-time — see _setHoverFromEvent()). Every
-         presence-dirty _sync() re-runs _discoverMembers(), which allocates a
-         brand-new MemberEntry per host every pass (by design — see the
-         MemberEntry doc comment), and presence-dirty now fires on ANY
-         observed attribute change (not just childList). Comparing by entry
-         identity meant `this._hoverEntry === entry` silently stopped
-         matching the same still-hovered host after any unrelated DOM
-         mutation triggered re-discovery — the per-cell
-         data-fmb-slot-hovered highlight could drop while the pointer was
-         still over the button, and the stale entry reference lingered until
-         the next real pointer/focus event recomputed it (reviewer finding,
-         v3.549 review-fix). Comparing by host element sidesteps this: hosts
-         are stable across re-discovery, only the wrapping MemberEntry is
-         reallocated. */
-      this._hoverHost = null;    /* host element of the currently slot-hovered member, or null */
-      this._hoverEntry = null;   /* MemberEntry last seen for _hoverHost (slotName source, may be stale — never compared by identity) */
-      this._anyStackActive = false; /* fast-path guard: true once ANY stack carries data-fmb-column-active */
-
-      /* v3.549 ITEM-3 — mobile reveal control. this._reveal is the JS-created
-         <button> (lazily built in _ensureRevealControl(), same
-         idempotent-on-reconnect pattern as _ensureStacks()); this._isMobile
-         tracks the LAST-SYNCED breakpoint match so _sync() can detect the
-         mobile->desktop transition edge and reset the revealed state (see
-         _sync()) without re-querying matchMedia twice per call. */
-      this._reveal = null;
-      this._isMobile = false;
-      this._toggleRevealBound = function toggleRevealBound() { self._toggleReveal(); };
-    }
-
-    static get observedAttributes() { return ["data-fmb-column-min"]; }
-
-    /* ---- Back-compat read-only accessors (v3.549 ITEM-2) -------------------
-       The pre-v3.549 engine cached four hardcoded per-member host refs
-       (_navEl/_sidebarChromeEl/_footerChromeEl/_userChromeEl) as plain
-       instance properties, always current because every DOM mutation the
-       old code cared about ran through its own synchronous _sync() path
-       before any test assertion read them. This engine replaces the
-       hardcoded refs with the generic _members registry (only refreshed
-       lazily, on the next _presenceDirty sync), but
-       tests/unit/fmb-column.test.js (rewritten in ITEM-4, not this item)
-       still reads those legacy names directly, sometimes immediately after
-       mutating the DOM with only a setTimeout(0) (no guaranteed rAF tick)
-       before asserting — a gap the old synchronous-cache model never had to
-       account for.
-
-       Two failure modes without these getters: (1) the property is simply
-       `undefined`, or (2) it resolves from the STALE cached _members list.
-       Either way, a MISMATCHED actual-vs-expected pair where the expected
-       side is a live DOM node hangs the web-test-runner/chai reporting
-       pipeline outright on ANY failing `.to.equal()` comparison of that
-       shape (confirmed via isolated repro with both `undefined` and `null`
-       as the actual value — a latent trap in the test tooling itself, not
-       specific to this engine's logic). To avoid that class of hang
-       entirely — not just the specific cases the current test file happens
-       to hit — every getter below re-discovers members freshly from the
-       live DOM on each read (mirroring _discoverMembers(), not the cached
-       _members list), so the answer is always correct for the CURRENT DOM
-       state regardless of whether a _sync() pass has caught up yet. These
-       are pure derived read-only views for compatibility, not new mutable
-       state, and do not replace _members (used by the hot _sync() path,
-       where the cached list is the correct, perf-conscious choice). */
-    get _navEl() { return this._liveMemberHost("nav", null); }
-    get _sidebarChromeEl() { return this._liveMemberHost("sidebar", isEligible); }
-    get _footerChromeEl() { return this._liveMemberHost("footer", isEligible); }
-    get _userChromeEl() { return this._liveMemberHost("user", isStashed); }
-    /* Bare presence refs (pre-v3.549: cached regardless of FMB-mode
-       eligibility, distinct from the *ChromeEl getters above which filter to
-       eligible members only). */
-    get _sidebarEl() { return this._liveMemberHost("sidebar", null); }
-    get _footerEl() { return this._liveMemberHost("footer", null); }
-    get _userEl() { return this._liveMemberHost("user", null); }
-
-    /* Shared helper for the back-compat getters above: freshly discover
-       every registered member from the live DOM (auto-tagging the four
-       legacy hosts first, exactly like _discoverMembers()) and return the
-       host whose slotName matches, optionally filtered by a predicate
-       (isEligible/isStashed) — or null if none matches. */
-    _liveMemberHost(slotName, predicate) {
-      var members = this._discoverMembers();
-      for (var i = 0; i < members.length; i++) {
-        var m = members[i];
-        if (m.slotName === slotName && (!predicate || predicate(m))) return m.host;
-      }
-      return null;
-    }
-    /* Slot-cell refs (pre-v3.549: one fixed <div> per named slot, direct
-       children of the root). This engine keys cells by host in a per-stack
-       Map (_fmbCellMap) instead of four named instance fields — these
-       getters resolve the same "cell for this named member" question by
-       searching every stack's map for a host with a matching slotName. */
-    get _navSlot() { return this._slotCellFor("nav"); }
-    get _sidebarSlot() { return this._slotCellFor("sidebar"); }
-    get _footerSlot() { return this._slotCellFor("footer"); }
-    get _userSlot() { return this._slotCellFor("user"); }
-    _slotCellFor(slotName) {
-      for (var key in this._stacks) {
-        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
-        var stackEl = this._stacks[key];
-        if (!stackEl._fmbCellMap) continue;
-        var found = null;
-        stackEl._fmbCellMap.forEach(function (cell, host) {
-          if (!found && host.getAttribute("data-fmb-slot") === slotName) found = cell;
-        });
-        if (found) return found;
-      }
-      return null;
-    }
-
-    attributeChangedCallback() {
-      if (this.isConnected) this._scheduleSync();
-    }
-
-    connectedCallback() {
-      /* v3.549 reviewer fix (a11y-tree finding): aria-hidden used to be set
-         HERE, on the whole <aura-fmb-column> host — correct in the
-         pre-mobile-reveal model, where every child was a decorative
-         positioning stack and the real FMB hosts were announced by their
-         own elements elsewhere in the DOM. Scoping aria-hidden to just the
-         actually-decorative stack <div> containers (_ensureStacks(), each
-         already carries its own aria-hidden="true") is the narrower, safer
-         fix — the host itself is display:contents and was never itself an
-         AT-relevant node, so it needs no aria-hidden of its own.
-
-         v3.554 ITEM-13 (#1080): the [data-fmb-reveal] <button> is no longer
-         even a descendant of this host (see _ensureRevealControl() — it is
-         now a document.body child, escaping the aura-app isolation
-         boundary), so this host's aria-hidden posture can no longer reach
-         or affect it either way — the button's own accessibility markup
-         (aria-label/aria-expanded, set in _ensureRevealControl()) is now
-         the sole source of truth for how it is announced. */
-      this._ensureStacks();
-      this._ensureRevealControl();
-
-      /* Auto-tag the four legacy members with default data-fmb-column/
-         data-fmb-anchor/data-fmb-slot values if they don't already author
-         their own (v3.549 ITEM-2 migration default) — see LEGACY_MEMBERS. */
-      this._autoTagLegacyMembers();
-
-      /* Observe the whole document for the union of every attribute this
-         engine or any known member's stash/expand vocabulary cares about,
-         plus childList for presence changes and generic data-fmb-column/
-         data-fmb-anchor authoring on ANY element (new/consumer members). */
-      this._mo = new MutationObserver(this._scheduleSyncBound);
-      this._mo.observe(document.documentElement, {
-        attributes: true,
-        childList: true,
-        subtree: true,
-        attributeFilter: [
-          "data-stashed", "data-aura-revealed", "data-aura-sidebar", "data-aura-footer",
-          "data-aura-stashed", "data-aura-user-fmb", "data-fmb-pinned",
-          "data-fmb-column", "data-fmb-anchor"
-        ]
-      });
-
-      document.addEventListener('pointerover', this._hoverOver, { passive: true });
-      document.addEventListener('pointerout',  this._hoverOut,  { passive: true });
-      document.addEventListener('focusin',     this._focusIn,   { passive: true });
-      document.addEventListener('focusout',    this._focusOut,  { passive: true });
-
-      var bp = readBreakpoint();
-      this._mql = window.matchMedia('(max-width: ' + bp + ')');
-      this._mql.addEventListener('change', this._mqlChangeBound);
-      this._lastBreakpoint = bp;
-
-      this._sync();
-    }
-
-    disconnectedCallback() {
-      if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
-      this._mql.removeEventListener('change', this._mqlChangeBound);
-      this._mql = null;
-      this._lastBreakpoint = null;
-      document.removeEventListener('pointerover', this._hoverOver);
-      document.removeEventListener('pointerout',  this._hoverOut);
-      document.removeEventListener('focusin',     this._focusIn);
-      document.removeEventListener('focusout',    this._focusOut);
-      /* v3.554 ITEM-13 (#1080): the reveal button is a document.body child,
-         not a DOM descendant of this host (see _ensureRevealControl()), so
-         a genuine disconnect (the host itself being removed) must remove
-         the body-level button outright — mirroring js/footer.js's
-         _teardown() unwinding its own body-level panel. Left in the DOM, a
-         stale button would leak across element lifecycles (a later
-         reconnect's _ensureRevealControl() would find and silently adopt
-         someone else's abandoned node, or — with no second instance ever
-         reconnecting — just sit there forever as dead, unreachable-by-any-
-         column chrome) and single-instance semantics (only one
-         [data-fmb-reveal] button ever exists) would erode over repeated
-         connect/disconnect cycles. */
-      if (this._reveal) {
-        this._reveal.removeEventListener('click', this._toggleRevealBound);
-        if (this._reveal.parentNode) this._reveal.parentNode.removeChild(this._reveal);
-        this._reveal = null;
-      }
-      this._mo.disconnect();
-      this._mo = null;
-      this._presenceDirty = true;
-      this._members = [];
-      if (this._anyStackActive) this._deactivateAll();
-      this.removeAttribute(REVEALED_ATTR);
-      this._isMobile = false;
-    }
-
-    /* Coalesce MutationObserver callbacks within one animation frame (#879). */
-    _scheduleSync() {
-      if (this._rafId) cancelAnimationFrame(this._rafId);
-      this._rafId = requestAnimationFrame(this._syncBound);
-    }
-
-    /* Create the (up to) four stack containers — one per (column, anchor)
-       combination — as direct children, matching ITEM-1's CSS selectors
-       ([data-fmb-column][data-fmb-anchor]). Idempotent: reuses existing
-       stacks on reconnect rather than duplicating them (mirrors the
-       pre-v3.549 slot-div creation guard, #935). */
-    _ensureStacks() {
-      for (var c = 0; c < COLUMNS.length; c++) {
-        for (var a = 0; a < ANCHORS.length; a++) {
-          var column = COLUMNS[c], anchor = ANCHORS[a];
-          var key = column + ":" + anchor;
-          var existing = this.querySelector('[data-fmb-column="' + column + '"][data-fmb-anchor="' + anchor + '"]');
-          if (existing) {
-            this._stacks[key] = existing;
-            continue;
-          }
-          var stack = document.createElement("div");
-          stack.setAttribute("data-fmb-column", column);
-          stack.setAttribute("data-fmb-anchor", anchor);
-          stack.setAttribute("aria-hidden", "true");
-          this.appendChild(stack);
-          this._stacks[key] = stack;
-        }
-      }
-    }
-
-    /* v3.549 ITEM-3 (fmb-design.md §Mobile) — create the single mobile reveal
-       control as a real, focusable <button>.
-
-       v3.554 ITEM-13 (#1080): appended to document.body, NOT this host —
-       css/theme.css's `aura-app { isolation: isolate; }` traps any
-       descendant of <aura-app> (this host lives inside it) in its own
-       stacking context, while js/footer.js's floating panel
-       (ensureFooterPanel()) is deliberately a document.body child (for a
-       containing-block reason — see that function's doc comment) appended
-       AFTER <aura-app> in document order. A body-level sibling painted
-       after <aura-app> beats everything inside the isolated context
-       regardless of z-index (confirmed via elementFromPoint), so no
-       --aura-z-fmb-reveal value on a button still nested inside
-       <aura-fmb-column>/<aura-app> could ever win against the open panel.
-       Moving the button out to document.body — mirroring
-       ensureFooterPanel()'s own escape — is the fix: both elements now
-       compete in the SAME (non-isolated) top-level stacking context, where
-       z-index (--aura-z-fmb-reveal, one tier above --aura-z-fmb-active,
-       #1067) and DOM/paint order are meaningful again.
-
-       Looked up/created at the DOCUMENT level (not `this.querySelector`)
-       for the same reason — the button is no longer inside this host's
-       subtree. <aura-fmb-column> remains a single-instance-per-page root
-       (file banner comment above), so a document-level lookup still
-       resolves to exactly one button; disconnectedCallback() removes it
-       outright on teardown (rather than merely detaching this host's
-       listener) so a torn-down instance never leaves a stale button behind
-       for a later instance to silently adopt.
-
-       Idempotent on reconnect, same guard shape as _ensureStacks(). CSS-only
-       gates its visibility to <640px (@media (max-width: 639px)); the
-       element itself always exists in the DOM at desktop widths too (an
-       inert, display:none-by-default-media-query button costs nothing and
-       keeps this method's logic breakpoint-agnostic — _sync() decides
-       WHETHER the column is "revealed", not whether the button exists). */
-    _ensureRevealControl() {
-      var existing = document.querySelector(REVEAL_SEL);
-      if (existing) { this._reveal = existing; }
-      else {
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("data-fmb-reveal", "");
-        btn.className = "aura-glow";
-        btn.setAttribute("aria-label", "Show menu buttons");
-        btn.setAttribute("aria-expanded", "false");
-        btn.appendChild(Aura.icon ? Aura.icon("menu") : document.createTextNode("≡"));
-        document.body.appendChild(btn);
-        this._reveal = btn;
-      }
-      this._reveal.addEventListener('click', this._toggleRevealBound);
-    }
-
-    /* Toggle the merged column's visibility (click, or Enter/Space — a real
-       <button> gets both activation keys for free with no keydown handler
-       needed). Mirrors js/shell-nav.js's toggle()/aria-expanded convention.
-
-       v3.549 reviewer fix (mobile phantom-offset finding): REVEALED_ATTR
-       lives on THIS host, but it is deliberately excluded from both the
-       MutationObserver's attributeFilter allowlist and (redundantly) would
-       be ignored anyway by _scheduleSyncBound's "target === self is our own
-       bookkeeping" guard — see the constructor comment. That was harmless
-       before this fix (nothing downstream read the revealed state), but
-       _syncStartStartOffset() now depends on it (this._isMobile && not
-       revealed → force the export to 0). Without an explicit resync here,
-       toggling reveal would only update the exported offset by accident, on
-       whatever LATER mutation happened to also fire _sync() — schedule one
-       directly so the offset (and any other _sync()-derived state) reflects
-       the new revealed state immediately. */
-    _toggleReveal() {
-      var next = !this.hasAttribute(REVEALED_ATTR);
-      this.toggleAttribute(REVEALED_ATTR, next);
-      if (this._reveal) this._reveal.setAttribute("aria-expanded", next ? "true" : "false");
-      this._scheduleSync();
-    }
-
-    /* Force the revealed state closed (idempotent) — used on the
-       mobile->desktop breakpoint transition (_sync()) and available for any
-       future dismiss trigger (outside click/Escape are not required by this
-       item's acceptance bar, so none is wired yet; #1052 tracks broader
-       mobile-fallback coordination that may want one).
-
-       NOT calling _scheduleSync() here: _closeReveal() is only ever invoked
-       synchronously FROM WITHIN _sync() itself (the mobile->desktop
-       breakpoint-transition edge) — scheduling another sync from inside the
-       current one would be redundant at best. */
-    _closeReveal() {
-      if (!this.hasAttribute(REVEALED_ATTR)) return;
-      this.removeAttribute(REVEALED_ATTR);
-      if (this._reveal) this._reveal.setAttribute("aria-expanded", "false");
-    }
-
-    /* Migration default (v3.549 ITEM-2): tag each present legacy host with
-       its default data-fmb-column/data-fmb-anchor/data-fmb-slot triplet,
-       UNLESS the host already authors its own data-fmb-column (an explicit
-       author override always wins — this engine is not hardcoded to the
-       four names, it only supplies defaults for them). Idempotent: checks
-       hasAttribute before writing so re-running this on every _sync() (via
-       the childList-driven presence re-discovery) never clobbers a value a
-       consumer or a prior run already set. */
-    _autoTagLegacyMembers() {
-      for (var i = 0; i < LEGACY_MEMBERS.length; i++) {
-        var def = LEGACY_MEMBERS[i];
-        var hosts = document.querySelectorAll(def.selector);
-        for (var h = 0; h < hosts.length; h++) {
-          var host = hosts[h];
-          if (!host.hasAttribute("data-fmb-column")) host.setAttribute("data-fmb-column", def.column);
-          if (!host.hasAttribute("data-fmb-anchor"))  host.setAttribute("data-fmb-anchor", def.anchor);
-          if (!host.hasAttribute("data-fmb-slot"))    host.setAttribute("data-fmb-slot", def.slot);
-        }
-      }
-    }
-
-    /* Re-discover every registered member in the document: any element
-       carrying BOTH data-fmb-column and data-fmb-anchor (after
-       _autoTagLegacyMembers() has run, so the four legacy hosts are
-       included). Registration order = DOM (document) order, which
-       _sync()/_layoutStack() preserve into each stack's slot order —
-       satisfying "stacking order within an anchor... registration order". */
-    _discoverMembers() {
-      this._autoTagLegacyMembers();
-      var hosts = document.querySelectorAll("[data-fmb-column][data-fmb-anchor]");
-      var members = [];
-      for (var i = 0; i < hosts.length; i++) {
-        var host = hosts[i];
-        /* Skip our OWN stack containers (they also carry these attributes as
-           positioning markers, not member hosts). */
-        if (host.parentElement === this) continue;
-        var column = host.getAttribute("data-fmb-column");
-        var anchor = host.getAttribute("data-fmb-anchor");
-        if (COLUMNS.indexOf(column) === -1 || ANCHORS.indexOf(anchor) === -1) continue;
-        var slotName = host.getAttribute("data-fmb-slot") || null;
-        members.push(new MemberEntry(host, column, anchor, slotName));
-      }
-      return members;
-    }
-
-    _sync() {
-      if (!this.isConnected) return;
-
-      var bp = readBreakpoint();
-      if (bp !== this._lastBreakpoint) {
-        this._mql.removeEventListener('change', this._mqlChangeBound);
-        this._mql = window.matchMedia('(max-width: ' + bp + ')');
-        this._mql.addEventListener('change', this._mqlChangeBound);
-        this._lastBreakpoint = bp;
-      }
-
-      /* v3.549 ITEM-3 (fmb-design.md §Mobile): mobile mode no longer
-         short-circuits into _deactivateAll() — the merge is pure CSS
-         repositioning of the SAME stacks (css/fmb-column.css re-anchors
-         [data-fmb-column="end"] onto the inline-start edge and gates
-         visibility on data-fmb-column-revealed), so member
-         discovery/layout/activation below must run identically in both
-         modes for the revealed column to show the correct populated state
-         the instant the user reveals it — deactivating on every mobile
-         _sync() would leave a freshly revealed column empty until the next
-         mutation happened to fire.
-         The one mobile-specific step: reset the revealed state CLOSED the
-         moment the breakpoint crosses FROM mobile INTO desktop, so the
-         column doesn't carry a stale "revealed" attribute into a width
-         where it means nothing, and re-entering mobile later starts hidden
-         again ("hidden by default" — fmb-design.md §Mobile). Entering
-         mobile sets no attribute at all; the resting default (attribute
-         absent) IS hidden, per the CSS's :not([data-fmb-column-revealed])
-         rule. */
-      var isMobile = this._mql.matches;
-      if (this._isMobile && !isMobile) this._closeReveal();
-      this._isMobile = isMobile;
-
-      if (this._presenceDirty) {
-        this._members = this._discoverMembers();
-        this._presenceDirty = false;
-      }
-
-      this._minCache = parseMinVal(this.getAttribute('data-fmb-column-min'));
-
-      /* Group members by stack key, preserving DOM (registration) order —
-         Array.prototype.sort is not needed since querySelectorAll already
-         returns document order and we iterate that order below. */
-      var byStack = { "start:start": [], "start:end": [], "end:start": [], "end:end": [] };
-      for (var i = 0; i < this._members.length; i++) {
-        var m = this._members[i];
-        byStack[m.column + ":" + m.anchor].push(m);
-      }
-
-      var anyActive = false;
-      for (var key in byStack) {
-        if (!Object.prototype.hasOwnProperty.call(byStack, key)) continue;
-        var active = this._layoutStack(this._stacks[key], byStack[key]);
-        if (active) anyActive = true;
-      }
-      this._anyStackActive = anyActive;
-
-      /* Reflow-offset export (fmb-design.md §Reflow policy: the column itself
-         causes NO page-content reflow — this token is retained ONLY for the
-         start/start stack's own collision-avoidance consumer, css/sidebar.css,
-         which positions a full-height Opened surface below whatever occupies
-         that corner. It is NOT re-applied as generic aura-region/aura-split
-         padding — see the js/fmb-column.js file banner and
-         docs/release-planning/release-planning-v3.549.md §5 for the full
-         reasoning. Retired: unlike the pre-v3.549 model, no reflow token is
-         set here when only OTHER stacks are active.
-
-         v3.549 reviewer fix (mobile phantom-offset finding): the offset must
-         read as zero whenever the merged column exists but is not actually
-         visible to the user — mirrors the @media print block's "present in
-         :has()-matchable DOM, but not rendered" handling below in
-         css/fmb-column.css. On mobile the start/start stack can be
-         data-fmb-column-active while the whole column sits behind the
-         reveal control (_sync() no longer deactivates on mobile, by
-         design — see the comment above), so gate this export on "mobile AND
-         not revealed" the same way print gates on "always invisible". */
-      this._syncStartStartOffset();
-
-      /* v3.549 reviewer fix (mobile stack-overlap finding): below the
-         breakpoint both columns merge onto the inline-start edge (CSS
-         re-anchors [data-fmb-column="end"]), so the pre-existing
-         inline-start/inline-end separation that kept start:start and
-         end:start from ever needing to avoid each other no longer holds.
-         Compute a live per-stack push-down/push-up offset so the four
-         logical stacks resolve to four visually distinct positions in the
-         one merged column instead of two pairs landing exactly on top of
-         each other. No-op (and cleared) outside mobile mode — desktop still
-         uses the two independent inline edges and needs no offset. */
-      this._syncMobileStackOffsets(isMobile);
-    }
-
-    /* Live px footprint of one stack's currently-active slot cells — shared
-       by _syncStartStartOffset() (the sidebar collision-avoidance export)
-       and _syncMobileStackOffsets() (the mobile merged-column
-       anti-overlap offset) so both derive the same "how tall is this stack
-       right now" measurement from one place. Returns 0 for an empty/absent
-       stack. */
-    _stackFootprintPx(stack) {
-      var cellCount = stack && stack._fmbCellMap ? stack._fmbCellMap.size : 0;
-      if (cellCount === 0) return 0;
-      var slotSize = Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-size", 96) : 96;
-      var gap = Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12;
-      return cellCount * slotSize + Math.max(0, cellCount - 1) * gap;
-    }
-
-    /* v3.549 reviewer fix — mobile stack-overlap finding. Below the
-       breakpoint, css/fmb-column.css re-anchors [data-fmb-column="end"]'s
-       two stacks onto the SAME inline-start edge the [data-fmb-column="start"]
-       stacks already occupy, merging 4 independent (column, anchor) stacks
-       into what must read as ONE coherent column. Reconciled here as two
-       groups rather than 4 arbitrary positions (matches the reviewer's
-       suggested shape): every block-start-anchored stack (start:start,
-       end:start) stacks sequentially from the top edge; every
-       block-end-anchored stack (start:end, end:end) stacks sequentially from
-       the bottom edge. Concretely: end:start is pushed down by start:start's
-       own live footprint (so it begins where start:start ends), and
-       end:end is pushed up by start:end's own live footprint (so it begins
-       where start:end ends, growing upward per its column-reverse
-       direction) — no two stacks ever occupy the same rect. Desktop is
-       untouched: both offsets are cleared (0px) outside mobile mode, where
-       the two columns sit on independent inline edges and never need to
-       avoid each other. */
-    _syncMobileStackOffsets(isMobile) {
-      var endStart = this._stacks["end:start"];
-      var endEnd = this._stacks["end:end"];
-      if (endStart) {
-        var pushDown = isMobile ? this._stackFootprintPx(this._stacks["start:start"]) : 0;
-        var gap = pushDown > 0 ? (Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12) : 0;
-        endStart.style.setProperty("--aura-fmb-column-mobile-push", (pushDown + gap) + "px");
-      }
-      if (endEnd) {
-        var pushUp = isMobile ? this._stackFootprintPx(this._stacks["start:end"]) : 0;
-        var gap2 = pushUp > 0 ? (Aura.lengthPx ? Aura.lengthPx(DOC_EL, "--aura-fmb-column-gap", 12) : 12) : 0;
-        endEnd.style.setProperty("--aura-fmb-column-mobile-push", (pushUp + gap2) + "px");
-      }
-    }
-
-    /* Lay out one stack's slot cells from its member list; returns whether
-       the stack should be marked data-fmb-column-active (has ≥1 member that
-       is both present/eligible AND Stashed — "the column reserves space only
-       for the Stashed state"). A present-but-Opened member still gets a slot
-       cell (so its button position and the stack's box model don't jump when
-       it opens — the fixed-envelope cells never resize for content) but does
-       NOT itself satisfy activation; the min-count override (data-fmb-column-min
-       on the <aura-fmb-column> root, unchanged from pre-v3.549) still governs
-       how many STASHED members are required before the stack paints. */
-    _layoutStack(stackEl, members) {
-      if (!stackEl) return false;
-
-      /* Reconcile slot cells 1:1 with the CURRENT member list, in order —
-         reuse existing cells by host identity so idempotent re-syncs don't
-         thrash the DOM (mirrors the pre-v3.549 display-toggle idempotency
-         guards, generalized from "4 fixed named slots" to "N discovered
-         members"). Map keyed by host element -> its slot cell, cached on the
-         stack element itself so repeated _sync() calls reuse cells across
-         frames without a global registry. */
-      if (!stackEl._fmbCellMap) stackEl._fmbCellMap = new Map();
-      var cellMap = stackEl._fmbCellMap;
-      var seenHosts = new Set();
-      var eligibleStashedCount = 0;
-      var presentCount = 0;
-
-      for (var mi = 0; mi < members.length; mi++) {
-        var entry = members[mi];
-        var eligible = isEligible(entry);
-        if (!eligible) continue; /* a sidebar/footer NOT in FMB/reveal mode does not occupy a column slot at all (#891, unchanged) */
-        presentCount++;
-        seenHosts.add(entry.host);
-
-        var cell = cellMap.get(entry.host);
-        if (!cell) {
-          cell = document.createElement("div");
-          cell.setAttribute("data-fmb-slot", entry.slotName || "member");
-          cell.setAttribute("data-fmb-slot-host", "");
-          cell.setAttribute("aria-hidden", "true");
-          cellMap.set(entry.host, cell);
-        }
-        /* Re-append in registration order every sync — inexpensive (existing
-           node move, not a fresh create) and keeps DOM order authoritative
-           for the CSS's column/column-reverse stacking direction even if
-           members were discovered in a different relative order this pass. */
-        stackEl.appendChild(cell);
-
-        var stashed = isStashed(entry) && hasVisibleContent(entry.host);
-        if (stashed) eligibleStashedCount++;
-
-        if (this._hoverHost === entry.host) {
-          cell.setAttribute("data-fmb-slot-hovered", "");
-        } else {
-          cell.removeAttribute("data-fmb-slot-hovered");
-        }
-      }
-
-      /* Remove cells for members no longer present/eligible this sync. */
-      cellMap.forEach(function (cell, host) {
-        if (!seenHosts.has(host)) {
-          if (cell.parentNode) cell.parentNode.removeChild(cell);
-          cellMap.delete(host);
-        }
-      });
-
-      /* data-fmb-column-min semantics changed in v3.549 (documented in
-         docs/design/fmb-column-design.md §data-fmb-column-min attribute,
-         reviewer finding). Pre-v3.549 this threshold was evaluated ONCE,
-         GLOBALLY, against presentCount/stashedCount summed across every
-         chrome element combined (one monolithic bar, one combined count).
-         _layoutStack() now runs once per (column, anchor) stack, and both
-         presentCount and eligibleStashedCount above are already scoped to
-         ONLY this stack's own registered members — so the same _minCache
-         value (one host-settable attribute, not four) is clamped and
-         applied PER STACK, independently. This is an intentional
-         architectural consequence of retiring the single column-wide state
-         (fmb-design.md), not an oversight: a column with N independent
-         stacks has no single combined count left to threshold against. */
-      var required = this._minCache !== null ? Math.min(this._minCache, presentCount) : presentCount;
-      var active = presentCount > 0 && eligibleStashedCount >= required;
-
-      if (active) {
-        stackEl.setAttribute("data-fmb-column-active", "");
-        /* data-slot-hover itself is owned exclusively by _setHoverFromEvent()/
-           _clearHover() (event-driven, not re-derived every _sync() pass) —
-           this reconciliation only needs to avoid leaving a STALE hover
-           attribute on a stack that just went inactive, handled in the else
-           branch below. */
-      } else {
-        stackEl.removeAttribute("data-fmb-column-active");
-        if (stackEl.hasAttribute("data-slot-hover")) stackEl.removeAttribute("data-slot-hover");
-      }
-
-      return active;
-    }
-
-    _stackKeyOf(entry) { return entry.column + ":" + entry.anchor; }
-
-    /* Slot-hover dispatch: find which registered member (if any) contains
-       the event target, set data-slot-hover on ITS stack (scoped per-stack,
-       generalizing the pre-v3.549 single-root attribute) and data-fmb-slot-hovered
-       on its cell. */
-    _setHoverFromEvent(target) {
-      var found = null;
-      for (var i = 0; i < this._members.length; i++) {
-        if (this._members[i].host.contains(target)) { found = this._members[i]; break; }
-      }
-      /* Compare by HOST identity, not MemberEntry identity — `found` is a
-         freshly-allocated MemberEntry from the current `this._members` list
-         every time, but `this._hoverHost` is the stable underlying element,
-         so this correctly no-ops when the pointer/focus is still on the same
-         member across re-discovery passes (see the _hoverHost field comment
-         in the constructor). */
-      var foundHost = found ? found.host : null;
-      if (foundHost === this._hoverHost) return;
-      this._hoverHost = foundHost;
-      this._hoverEntry = found;
-      /* Re-run the stack layout's hover-attribute pass cheaply: just update
-         the data-slot-hover/data-fmb-slot-hovered attributes without a full
-         _sync(). */
-      for (var key in this._stacks) {
-        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
-        var stackEl = this._stacks[key];
-        if (!stackEl.hasAttribute("data-fmb-column-active")) continue;
-        var isThisStack = found && this._stackKeyOf(found) === key;
-        if (isThisStack) stackEl.setAttribute("data-slot-hover", found.slotName || "member");
-        else stackEl.removeAttribute("data-slot-hover");
-        if (stackEl._fmbCellMap) {
-          stackEl._fmbCellMap.forEach(function (cell, host) {
-            if (foundHost && host === foundHost) cell.setAttribute("data-fmb-slot-hovered", "");
-            else cell.removeAttribute("data-fmb-slot-hovered");
-          });
-        }
-      }
-    }
-
-    _clearHover() {
-      this._hoverHost = null;
-      this._hoverEntry = null;
-      for (var key in this._stacks) {
-        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
-        var stackEl = this._stacks[key];
-        stackEl.removeAttribute("data-slot-hover");
-        if (stackEl._fmbCellMap) {
-          stackEl._fmbCellMap.forEach(function (cell) { cell.removeAttribute("data-fmb-slot-hovered"); });
-        }
-      }
-    }
-
-    /* Exports the start/start stack's live footprint (in px) as
-       --aura-fmb-column-active-offset-block-start on :root — the sole
-       surviving consumer of this pre-v3.549 token is css/sidebar.css's
-       top-left collision-avoidance rule (an Opened sidebar surface clearing
-       whatever occupies the top-left corner). Set to 0 (removed) when the
-       start/start stack has no active (Stashed) members, so the sidebar's
-       coexistence rule and print media both see a clean zero rather than a
-       stale measurement. NOT applied as generic page-content reflow (see
-       _sync()'s banner comment) — this is the one narrow migration path for
-       a real, still-needed per-member collision-avoidance concern, not a
-       revival of the old column-wide reflow mechanism.
-
-       v3.549 reviewer fix (mobile phantom-offset finding): pre-ITEM-3, mobile
-       mode short-circuited into _deactivateAll() before this method could
-       ever be reached, so "the column is active" and "the column is
-       actually visible" were structurally the same fact. ITEM-3 removed
-       that early-return (member registration/layout must keep running on
-       mobile so a freshly revealed column shows the correct populated state
-       immediately — see _sync()'s banner comment) — so the start/start
-       stack can now be data-fmb-column-active while the merged column sits
-       entirely behind the reveal control, invisible
-       (visibility:hidden/pointer-events:none, css/fmb-column.css's mobile
-       block) until the user taps it. css/sidebar.css's consumer has no
-       width/mobile guard of its own (.aura-sidebar is explicitly exempt
-       from the generic mobile drawer conversion), so left ungated here it
-       would visibly shift the sidebar to "clear" a column the user cannot
-       see yet — a phantom reflow. Mirrors the @media print block's
-       identical "present/:has()-matchable in the DOM, but not actually
-       rendered" handling (css/fmb-column.css's print block reasserts a
-       zero for the same underlying reason: activity in the data model does
-       not imply visibility). Treated as an additional "not really active"
-       condition alongside the existing Stashed-membership check, so both
-       share the same clearing branch below. */
-    _syncStartStartOffset() {
-      var stack = this._stacks["start:start"];
-      var stashedActive = stack && stack.hasAttribute("data-fmb-column-active");
-      var hiddenOnMobile = this._isMobile && !this.hasAttribute(REVEALED_ATTR);
-      var active = stashedActive && !hiddenOnMobile;
-      if (!active) {
-        if (this._lastOffsetActive) {
-          DOC_STYLE.removeProperty("--aura-fmb-column-active-offset-block-start");
-          DOC_STYLE.removeProperty("--aura-fmb-column-active-width");
-          this._lastOffsetActive = false;
-        }
-        return;
-      }
-      var px = this._stackFootprintPx(stack) + "px";
-      DOC_STYLE.setProperty("--aura-fmb-column-active-offset-block-start", px);
-      DOC_STYLE.setProperty("--aura-fmb-column-active-width", px);
-      this._lastOffsetActive = true;
-    }
-
-    _deactivateAll() {
-      for (var key in this._stacks) {
-        if (!Object.prototype.hasOwnProperty.call(this._stacks, key)) continue;
-        this._stacks[key].removeAttribute("data-fmb-column-active");
-        this._stacks[key].removeAttribute("data-slot-hover");
-      }
-      this._anyStackActive = false;
-      this._clearHover();
-      if (this._lastOffsetActive) {
-        DOC_STYLE.removeProperty("--aura-fmb-column-active-offset-block-start");
-        DOC_STYLE.removeProperty("--aura-fmb-column-active-width");
-        this._lastOffsetActive = false;
-      }
-    }
-  }
-
-  Aura.define("aura-fmb-column", AuraFmbColumn);
 
 })();

@@ -1,6 +1,8 @@
 /* ==========================================================================
    Aura — sidebar FMB (v3.88; genuine full-height engine v3.542, #1014;
-   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049)
+   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049;
+   shared choreography engine adoption v3.555 ITEM-4 — Approach ramp, press/
+   pinned-accent feedback, detach/decay, morph-token rewire)
 
    A fixed-position Floating Menu Button anchored just below the nav-header
    FMB on the left side by default. The PILL ([data-sidebar-zone="mark"]) is a
@@ -112,7 +114,20 @@
     inset-inline-start: var(--aura-nav-header-pad-inline);
     inline-size: var(--aura-sidebar-fmb-size);
     block-size: var(--aura-sidebar-fmb-size);
-    z-index: var(--aura-sidebar-z);
+    /* #1037 fix: one tier ABOVE --aura-sidebar-z, not equal to it. THE PANEL
+       ([data-sidebar-zone="content"], below) anchors to this same corner and,
+       once Pinned, sits at this exact base tier too (its own "open" rule keys
+       z-index off the same --aura-sidebar-z token) — a genuine tie, broken
+       only by DOM order, and the panel is declared AFTER the pill. A real
+       pointer click at the pill's coordinates while Pinned therefore hit-test
+       resolved to the panel (document.elementsFromPoint confirmed it), never
+       reaching the pill underneath — exactly the dispatchClick workaround
+       tests/layout/sidebar-fmb.spec.js's follow-up comment describes. The
+       pill is the one persistent, always-clickable toggle across all three
+       states (button-stability invariant, fmb-design.md), so it must win
+       this tie unconditionally; the content panel's own z-index is left
+       untouched (it has no need to out-rank anything else on the page). */
+    z-index: calc(var(--aura-sidebar-z) + 1);
 
     display: flex;
     align-items: center;
@@ -129,15 +144,34 @@
     border: 1px solid var(--aura-surface-stroke);
     color: var(--aura-text);
 
-    /* Ghostly monochrome at rest; restores on expand (mirrors nav-header FMB
-       and [data-aura-user-fmb]). Only opacity/filter ever transition here —
-       the button's geometry is constant, so no size/radius/position channels
-       are needed in this list at all. */
-    opacity: 0.35;
-    filter: grayscale(1);
+    /* Ghostly monochrome at rest; restores progressively as the cursor
+       approaches (v3.555 ITEM-4 Approach ramp, docs/design/fmb-choreography-
+       design.md §The two-driver model — replaces the old binary hover/
+       focus/pin snap) or fully on click-pin. Driven by the SAME
+       --aura-glow-intensity js/glow.js already writes per frame on every
+       .aura-glow host (the pill is one — see js/sidebar.js's enhance()):
+       opacity ramps --aura-fmb-ghost-opacity->1 and filter ramps
+       grayscale(1)->grayscale(0) as intensity climbs 0->1, so the pill
+       regains colour AS the cursor nears rather than snapping at the
+       hover/expand threshold (fmb-design.md §2). --aura-fmb-ghost-opacity
+       token-migrates the rest-opacity literal (was a bare 0.35) so every
+       FMB member shares one source of truth instead of four independent
+       copies. The binary hover/focus/pin floor rule further below is kept
+       UNCHANGED as an accessibility floor — higher specificity, it still
+       forces a full, immediate restore the instant any of those states
+       applies, so a path that never produces a live --aura-glow-intensity
+       (keyboard-only activation, coarse pointer — see the dedicated
+       @media (pointer: coarse) override below) still gets full un-ghost,
+       never a stuck partial ramp. Only opacity/filter/transform/box-shadow
+       ever transition here — the button's geometry is constant, so no
+       size/radius/position channels are needed in this list at all. */
+    opacity: calc(var(--aura-fmb-ghost-opacity, 0.35) + (1 - var(--aura-fmb-ghost-opacity, 0.35)) * var(--aura-glow-intensity, 0));
+    filter: grayscale(calc(1 - var(--aura-glow-intensity, 0)));
     transition:
-      opacity var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      filter  var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+      opacity    var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      filter     var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      transform  var(--aura-dur-fast) var(--aura-ease-out),
+      box-shadow var(--aura-sidebar-duration) var(--aura-sidebar-easing);
   }
 
   /* ---- Placement variants: pill (v3.551, #1049) --------------------------
@@ -196,6 +230,25 @@
     background: var(--aura-glass-tint-layer), var(--aura-sidebar-surface-solid);
   }
 
+  /* ---- pointer: coarse: no Approach ramp (v3.555 ITEM-4, docs/design/
+     fmb-choreography-design.md §Reduced motion and pointer: coarse) --------
+     There is no cursor to approach with on a coarse-pointer device
+     (fmb-design.md §2's own exemption — js/sidebar.js's syncOne() mirrors
+     this on the JS side), so pin the rest state to the flat ghost value
+     instead of the calc() ramp above: even if a stray --aura-glow-intensity
+     value were ever present (js/glow.js itself already no-ops entirely
+     under a coarse pointer, #797), this keeps the rest state from
+     interpolating. The binary hover/focus/expanded/pinned floor rule below
+     is untouched — a tap-to-open still fully un-ghosts. Mirrors the
+     existing @media (pointer: coarse) precedent in css/footer.css:141 and
+     css/glow.css:205,288. */
+  @media (pointer: coarse) {
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
+      opacity: var(--aura-fmb-ghost-opacity, 0.35);
+      filter: grayscale(1);
+    }
+  }
+
   /* Pill wakes (full opacity/color) on hover ANYWHERE in the host, focus-
      within the host (pill OR an open panel link), JS proximity, or pin — but
      its BOX never changes; only the ghost treatment lifts. Host-scoped
@@ -211,6 +264,47 @@
     filter: none;
   }
 
+  /* ---- Pin feedback: press scale + pinned-accent ring (v3.555 ITEM-4,
+     docs/design/fmb-design.md §4 Pin) --------------------------------------
+     Press: js/sidebar.js calls Aura.fmbChoreography.press(pill) from both
+     the click-to-pin handler and the pill's own Enter/Space keydown handler
+     — the pill is a role="button" <span>, not a native <button>, so its two
+     input-modality toggle paths do not already funnel through one unified
+     click event the way the engine's own JSDoc describes for a real
+     <button> member; both call sites invoke press() explicitly instead.
+     --aura-fmb-press-scale is the token-driven depth; the transform channel
+     lives in the base rule's transition list above. #1107: this rule's own
+     selector ([data-fmb-press], an extra attribute) is MORE specific than the
+     base rule's and the reduced-motion block's shared `[data-sidebar-zone=
+     "mark"]` text, but it never redeclares `transition` itself — so the
+     `transition` property the browser actually uses for THIS element still
+     resolves from whichever of those two lower-specificity rules wins (the
+     reduced-motion block, being declared later at equal specificity to the
+     base rule). That happens to already snap this transform today, but only
+     as an implicit side effect of two OTHER rules' relative order — nothing
+     here says so. See the reduced-motion block's own `[data-fmb-press]`
+     override below for the explicit, self-documenting statement of the same
+     "movement suppressed, instant attribute-driven flip is fine" contract
+     footer/nav-header carry too (nav-header.css:804's `[data-fmb-press] {
+     transition: none; }`), independent of that specificity coincidence.
+
+     Pinned-accent: an inset ring (--aura-fmb-pinned-accent, defaulting to
+     --aura-edge-color per fmb-design.md's "Recommended default") makes the
+     Pinned state visually DISTINCT from the plain Opened state — before
+     this item both states shared the SAME opacity:1/filter:none floor rule
+     above with no way to tell "hovering" from "held open" at a glance.
+     Width derives from --aura-border-width (doubled) rather than a bare
+     literal — the pill has no dedicated ring-width token of its own. inset
+     avoids any question of whether [data-sidebar-zone="mark"]'s own
+     overflow:hidden would clip an outer shadow. */
+  .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"][data-fmb-press] {
+    transform: scale(var(--aura-fmb-press-scale, 0.94));
+  }
+
+  .aura-sidebar[data-aura-sidebar][data-fmb-pinned] [data-sidebar-zone="mark"] {
+    box-shadow: inset 0 0 0 calc(var(--aura-border-width, 1px) * 2) var(--aura-fmb-pinned-accent, var(--aura-edge-color));
+  }
+
   /* ---- FMB column preview z-index bump (v3.549 ITEM-2 migration; v3.550:
      retargeted to the pill, the element that now actually needs to stay
      clickable above the column's glass tile) --------------------------------
@@ -222,8 +316,17 @@
   .aura-sidebar[data-aura-sidebar]:not([data-fmb-pinned]):is(:hover, :focus-within, [data-sidebar-expanded]) [data-sidebar-zone="mark"] {
     /* Shared token (v3.549 review-fix, tokens.json "FMB active z-index
        bump") — deduplicates this literal from css/nav-header.css (x2) and
-       css/footer.css; all four sites now consume one source of truth. */
-    z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+       css/footer.css; all four sites now consume one source of truth.
+       #1037 fix: one tier ABOVE the shared token, mirroring the rest-state
+       bump above — the content panel's own hover-preview rule (below) bumps
+       to this SAME shared token, so leaving the pill at the bare token value
+       re-creates the identical tie a hover (not just a Pinned click) already
+       triggers: hovering the pill to preview-open the panel is the near-
+       universal first half of any real pointer click, and the panel's
+       hover-revealed rect covers the pill's own corner (both anchor to the
+       same point), so the panel — later in DOM order — would win the tie and
+       swallow the click before it ever reaches the pill. */
+    z-index: calc(var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1)) + 1);
   }
 
   /* ---- The panel: independent floating surface, hidden at rest ----------
@@ -240,9 +343,33 @@
     position: fixed;
     inset-block-start: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
     inset-inline-start: var(--aura-nav-header-pad-inline);
-    inset-block-end: auto;
+    /* #1099: was `auto`. block-size CANNOT interpolate 0 -> auto (neither
+       endpoint is a real length the transition engine can lerp toward), so
+       the open morph's height channel silently snapped no matter what sat in
+       the transition list below. Fix: give BOTH block insets a real,
+       interpolable <length-percentage> value at rest, and let block-size
+       stay `auto` in EVERY state (rest AND open) rather than ever being the
+       animated property itself — a position:fixed box with inset-block-start
+       and inset-block-end both non-auto solves block-size as
+       `containing-block-height - start - end` (CSS Position §height/width
+       resolution), so the two INSETS now carry the entire height animation.
+       This expression is deliberately the exact negation of inset-block-start
+       above: start + end == 100% always, so block-size resolves to exactly
+       0 at rest (unchanged visual result) while both edges are real values a
+       transition can lerp. The open rule below sets both to a literal `0`
+       (via the `inset-block: 0` shorthand) — 100%/0% and the px component
+       both interpolate smoothly, so the panel's bottom edge glides up from
+       "level with the top edge" to "viewport bottom" as part of the SAME
+       transition that slides the top edge, instead of the box's height
+       snapping open instantly while only its position glided. */
+    inset-block-end: calc(100% - (var(--aura-sidebar-fmb-size) + var(--aura-space-5)));
     inline-size: 0;
-    block-size: 0;
+    /* #1099: was a literal `0`. Constant `auto` in every state now — see the
+       inset-block-end comment above; the height channel lives on the two
+       insets instead, so block-size never actually changes value and is
+       dropped from the transition list below (nothing left to animate
+       there). */
+    block-size: auto;
     z-index: var(--aura-sidebar-z);
 
     box-sizing: border-box;
@@ -259,13 +386,41 @@
     color: var(--aura-text);
     padding: 0;
 
+    /* v3.555 ITEM-4: the open<->rest GEOMETRY channels (everything except
+       opacity/visibility) now run on the SHARED --aura-fmb-morph-duration/
+       -easing channel (docs/design/fmb-design.md §3 Open — "the button
+       morphs into the menu container... --aura-fmb-morph-duration/-easing,
+       defaulting to --aura-fmb-column-duration/-easing") instead of the
+       sidebar's own --aura-sidebar-duration/-easing. Both default to the
+       SAME resolved value (var(--aura-dur-base) / var(--aura-ease-out)) as
+       of this release, so this is a pure token-source swap with zero visual
+       change today — a future re-tune of the shared morph channel now moves
+       every adopting FMB member (nav-header/user/sidebar/footer) together
+       instead of needing four separate edits. opacity stays on the
+       sidebar's own token — it is not part of the geometry morph itself
+       (matches the Approach ramp's pill treatment above, also outside the
+       morph channel); visibility's delay tracks whichever duration now
+       governs the geometry it waits on.
+
+       #1099: `inset-inline-start`/`inset-inline-end`/`inset-block-start`/
+       `inset-block-end` join the list — previously NO inset/anchor channel
+       transitioned at all, so the panel's anchor point (and, per the
+       block-size rework above, its whole height) snapped to the open-state
+       geometry the instant any open trigger matched, while only
+       `inline-size` (already listed) glided — a lopsided "width morphs,
+       height and position snap" wobble instead of one clean silhouette
+       morph. `block-size` is dropped: it is now a constant `auto` in every
+       state (see above), so transitioning it is a no-op. */
     transition:
-      inline-size  var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      block-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      padding      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      inline-size       var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-inline-start var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-inline-end   var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-block-start  var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-block-end    var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      padding      var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
       opacity      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      visibility   0s linear var(--aura-sidebar-duration),
-      transform    var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+      visibility   0s linear var(--aura-fmb-morph-duration),
+      transform    var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing);
     transform: translateX(-100%);
   }
 
@@ -281,7 +436,15 @@
     transform: translateX(100%);
   }
   .aura-sidebar[data-aura-sidebar][data-sidebar-anchor="end"] [data-sidebar-zone="content"] {
-    inset-block-start: auto;
+    /* #1099: was `auto` — the same non-interpolable-endpoint problem the
+       default anchor's rest rule fixed above, mirrored: this variant anchors
+       the pill near the viewport's BLOCK-END edge, so it is inset-block-END
+       that holds the real pill-offset value and inset-block-START that used
+       to be the free/auto edge. Give it the negated expression instead (start
+       + end == 100% always, same reasoning as the default anchor), so this
+       variant's height/anchor morph transitions smoothly too, through the
+       exact same shared transition list (no transition redeclared here). */
+    inset-block-start: calc(100% - (var(--aura-sidebar-fmb-size) + var(--aura-space-5)));
     inset-block-end: calc(var(--aura-sidebar-fmb-size) + var(--aura-space-5));
   }
 
@@ -331,13 +494,30 @@
        programmatically with no concurrent :hover/:focus-within — still
        animates in instead of snapping open with zero transition. */
     transform: translateX(0);
+    /* v3.555 ITEM-4: geometry channels on the shared morph token — see the
+       rest-state rule's own comment above for the full rationale (both
+       resolve to the same value as --aura-sidebar-duration/-easing today,
+       so this is a zero-visual-change token-source swap).
+
+       #1099: same inset/anchor additions as the rest rule's transition list.
+       The property list that actually governs which channels animate is
+       whichever state is being transitioned TO, so this list is kept in
+       lockstep with the rest rule's to avoid the two silently drifting apart
+       (open->rest and rest->open would otherwise animate a different channel
+       set). `block-size` is dropped for the same reason as the rest rule: it
+       is a constant `auto` now, not an animated channel. `inset-block: 0`
+       above sets both inset-block-start AND inset-block-end to the literal 0
+       this list transitions toward. */
     transition:
-      inline-size  var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      block-size   var(--aura-sidebar-duration) var(--aura-sidebar-easing),
-      padding      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
+      inline-size       var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-inline-start var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-inline-end   var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-block-start  var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      inset-block-end    var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
+      padding      var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing),
       opacity      var(--aura-sidebar-duration) var(--aura-sidebar-easing),
       visibility   0s linear 0s,
-      transform    var(--aura-sidebar-duration) var(--aura-sidebar-easing);
+      transform    var(--aura-fmb-morph-duration) var(--aura-fmb-morph-easing);
   }
 
   /* ---- Placement variants: open panel docks against the inline-END edge
@@ -365,6 +545,58 @@
      are now different boxes needing the same treatment independently). ---- */
   .aura-sidebar[data-aura-sidebar]:not([data-fmb-pinned]):is(:hover, :focus-within, [data-sidebar-expanded]) [data-sidebar-zone="content"] {
     z-index: var(--aura-z-fmb-active, calc(var(--aura-z-overlay, 1000) + 1));
+  }
+
+  /* ---- Detach -> Decay -> re-stash (v3.555 ITEM-4, movement 5 unpinned
+     return path; unified ITEM-8; docs/design/fmb-choreography-design.md
+     "Engine API (as-built)") -------------------------------------------------
+     js/sidebar.js registers the pill (button) + panel (menu) into the
+     shared Aura.fmbChoreography engine; data-fmb-detached/-decaying and the
+     live --aura-fmb-decay-progress custom property land on THIS host (the
+     zero-size positioning root) and are read here via inheritance by both
+     descendant zones — the host MUST be (and is) the same element
+     js/fmb-column.js discovers for this member, per the engine's own
+     registration contract.
+
+     ITEM-8: Detach and Decay now converge on the SAME continuous driver —
+     --aura-fmb-decay-progress is written every rAF frame throughout BOTH
+     sub-phases (0..DETACH_CEIL through the band, distance-driven and
+     reversible; DETACH_CEIL..1 through decay, time-driven — docs/design/
+     fmb-choreography-design.md §The two-driver model), so each zone below
+     uses ONE formula for both [data-fmb-detached] and [data-fmb-decaying]
+     instead of the band previously approximating a FIXED halfway step
+     unrelated to progress (a per-member drift this item closes — a member
+     grazing the band's outer edge and one deep inside it used to look
+     identical, and crossing into Decay could visibly re-saturate before
+     fading, since progress restarted at 0 while the old fixed halfway value
+     it replaced was already past that point).
+
+     Two floors, one per zone, both fed by the SAME progress:
+       - mark (the pill icon): floors at --aura-fmb-ghost-opacity — its own
+         Rest ghost value — so full decay hands off to the re-stashed Rest
+         appearance with no visible discontinuity.
+       - content (the panel): floors at 0 — it has no "ghost" resting look at
+         all (invisible/inert whenever not Opened), so it fades to fully
+         transparent rather than parking at a partial ghost opacity nothing
+         else in this member's Stashed state ever shows.
+     No transition:none override is needed here — each zone's own base-rule
+     transition list already smooths the per-frame calc() updates into a
+     gentle, imperceptibly-lagged curve (the decay itself runs over
+     --aura-fmb-decay-duration, 5s by default, against a ~200ms transition —
+     the lag is a small, constant fraction of the total and reads as ease
+     rather than mush), landing exactly where js/fmb-choreography.js's
+     stash() (called at progress 1) removes data-sidebar-expanded and the
+     normal closed-state geometry rule (above) takes over. */
+  .aura-sidebar[data-aura-sidebar][data-fmb-detached] [data-sidebar-zone="mark"],
+  .aura-sidebar[data-aura-sidebar][data-fmb-decaying] [data-sidebar-zone="mark"] {
+    opacity: calc(1 - (1 - var(--aura-fmb-ghost-opacity, 0.35)) * var(--aura-fmb-decay-progress, 0));
+    filter: grayscale(var(--aura-fmb-decay-progress, 0));
+  }
+
+  .aura-sidebar[data-aura-sidebar][data-fmb-detached] [data-sidebar-zone="content"],
+  .aura-sidebar[data-aura-sidebar][data-fmb-decaying] [data-sidebar-zone="content"] {
+    opacity: calc(1 - var(--aura-fmb-decay-progress, 0));
+    filter: grayscale(var(--aura-fmb-decay-progress, 0));
   }
 
   /* ---- Sidebar navigation links. ---- */
@@ -646,6 +878,46 @@
        this rule is declared after it, so the tie resolves here. */
     :root:has(.aura-sidebar[data-aura-sidebar][data-sidebar-column="end"][data-sidebar-mode="push"][data-fmb-pinned])
       :is(aura-region, .aura-region, aura-split, .aura-split) {
+      transition: none;
+    }
+
+    /* v3.555 ITEM-4: the Approach ramp (base pill rule, §Approach ramp
+       above) tracks --aura-glow-intensity continuously by DISTANCE, not
+       time — a plain `transition: none` (above) removes the ANIMATION but
+       not that continuous distance-driven interpolation itself, which
+       would still read as the "Approach ramp interpolation" reduced motion
+       must drop entirely (docs/design/fmb-choreography-design.md §Reduced
+       motion and pointer: coarse). Pin the rest value back to the flat
+       ghost opacity/filter here; the binary hover/focus/expanded/pinned
+       floor rule (higher specificity, unaffected by this) still forces an
+       immediate full restore the instant any of those states applies — this
+       override only changes the REST value, giving a clean binary
+       ghost<->awake swap instead of a proximity ramp. Same specificity as
+       the base rule (0,3,0); this block is declared last in the file, so it
+       wins the tie at rest. */
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"] {
+      opacity: var(--aura-fmb-ghost-opacity, 0.35);
+      filter: grayscale(1);
+    }
+
+    /* #1107 (Unify FMB press feedback across members): explicit, self-
+       documenting reduced-motion coverage for the press-scale squash —
+       mirrors css/nav-header.css:804's `[data-fmb-press] { transition: none;
+       }` (the same treatment footer/user-profile carry too as of this
+       release). The agreed cross-member contract is "movement suppressed
+       under reduced motion, instant attribute-driven state flips allowed":
+       js/sidebar.js's pressPill() still calls Aura.fmbChoreography.press()
+       unconditionally (it does not gate on reduced motion, matching every
+       other member) — data-fmb-press is still set/cleared for one
+       --aura-dur-fast cycle either way, so `transition: none` (not
+       `transform: none`) is the correct treatment here: the squash still
+       visibly flips, it just SNAPS instead of ramping, rather than being
+       suppressed outright. Declared here rather than left to the
+       coincidental specificity relationship the base press rule's own
+       comment used to describe (see that rule, above) — this line is true
+       regardless of how the base/press rules' specificities happen to
+       compare. */
+    .aura-sidebar[data-aura-sidebar] [data-sidebar-zone="mark"][data-fmb-press] {
       transition: none;
     }
   }

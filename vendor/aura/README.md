@@ -164,6 +164,57 @@ two tags **after** the core bundle on the pages that need it; see the
 [Opt-in extras section](docs/dependency-manifest.md#opt-in-extras-load-on-top-of-the-core-bundle)
 of the dependency manifest for the recipe and SRI hashes.
 
+## Consuming Aura via the Dependency Channel
+
+A fourth path, alongside `dist/`, the submodule, and npm-git above: pin an
+exact version from a **published GitHub Release** and let a small stdlib
+engine resolve, download, checksum-verify, and vendor it — no clone of this
+repo, no toolchain, just `gh`/`curl` and a checksum tool.
+
+Every release since **v3.540** publishes the Dependency Channel trio —
+`aura-v{X.Y.Z}.tar.gz` + `release.json` + `SHA256SUMS` — plus the legacy
+zip/loose `dist/` assets. If your project runs Grimoire's
+`grm-sync-deps` engine, declare the pin in your own repo's `vendor.toml`:
+
+```toml
+[deps.aura]
+repo = "rhohn94/design-language"
+channel = "stable"
+version = "3.555.0"                 # the pin — sync fetches exactly this tag
+artifact = "aura-v3.555.0.tar.gz"
+dest = "lib/third-party/aura"
+kind = "asset-bundle"
+strip_components = 1                # tarball entries are namespaced aura-vX.Y.Z/
+```
+
+then sync it:
+
+```sh
+python3 .claude/skills/grm-sync-deps/sync_deps.py --dep aura
+```
+
+Without that tooling, verify the trio by hand — this actually works against
+the real, currently-published release:
+
+```sh
+gh release download v3.555.0 --repo rhohn94/design-language
+shasum -a 256 -c SHA256SUMS   # aura-v3.555.0.tar.gz: OK / release.json: OK
+```
+
+Starting with v3.556, the tarball *additionally* ships `tokens.resolved.json` +
+`tools/aura_tokens.py` + `tools/aura_conformance.py` (new — earlier releases'
+tarballs carry the trio but not these three files), so native/egui
+consumers can regenerate platform token files from the tarball alone, with
+no checkout of this repo. For "what changed and do I need to act," read the
+curated notes at `docs/release-notes/v{X.Y}.md` (this **is** the GitHub
+Release body). `tools/check_release_current.py`
+(`just check-release-current`) is a standing guard confirming the channel
+hasn't gone stale.
+
+Full field-by-field `release.json` reference, the vendor.toml schema, and a
+verified walkthrough: **[`docs/design/distribution-design.md`
+§3c](docs/design/distribution-design.md#3c-the-dependency-channel--pin-sync-and-verify-a-release-1062)**.
+
 ## Framework bindings (React / Vue / Svelte)
 
 Aura's core is framework-free custom elements, and **optional** thin adapters

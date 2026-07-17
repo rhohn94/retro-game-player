@@ -41,11 +41,9 @@ import "./overlay.js";
        reveals via CSS :focus-within, so the bar is always reachable.
      - Keyboard focus reveal (a11y): focusin on a stash header clears
        data-stashed (keeping the host attribute in agreement with the CSS
-       :focus-within reveal); focusout re-stashes only when focus leaves the bar
-       entirely, the page is still scrolled down, AND no menu panel is open.
-       Pointer-agnostic, so it also covers touch + external-keyboard and
-       screen-reader users — the bar is never a permanently hidden-but-focusable
-       nav. Focus is never trapped.
+       :focus-within reveal). Pointer-agnostic, so it also covers touch +
+       external-keyboard and screen-reader users — the bar is never a
+       permanently hidden-but-focusable nav. Focus is never trapped.
      - Reveal flourish (v2.36 iter 3): every reveal path (hot-zone, focus)
        funnels through revealStash(), which clears data-stashed and — when
        the bar is still scrolled past its threshold — momentarily sets
@@ -57,6 +55,16 @@ import "./overlay.js";
        pulls a STASHED pill back on-screen (translate); it does NOT restore the
        full header height — only data-expanded (the explicit author/JS override,
        never set here) or reaching the top of the page does.
+     - v3.555 ITEM-3 (docs/design/fmb-choreography-design.md): the nav circle is
+       the choreography engine's single-element exception — the logo-zone anchor
+       IS the persistent button, and the bar-collapse/expand IS the morph, so
+       host === button === menu for its Aura.fmbChoreography.register() call
+       (primeHeaders()). Once revealed (Opened/unpinned), the bar no longer
+       restashes itself on pointer/focus-leave — revealStash() still owns WHEN
+       to open, but restash() is now called ONLY by a deliberate action (pin,
+       Escape-unpin) or by the engine's own stash() callback once its
+       detach→decay timer completes (or instantly under reduced motion). See
+       shouldRestash()'s doc comment for the isOpened() predicate this feeds.
      - Sub-menu (data-nav-submenu) and user-menu (data-nav-user-menu) toggles:
        a real <button aria-expanded aria-controls> shows/hides its panel; Escape
        (focus returns to trigger) and outside pointerdown close it; opening one
@@ -162,19 +170,20 @@ import "./overlay.js";
     return lengthPx(el, "--aura-nav-header-hotzone", 0);
   }
 
-  /* Hover-retain zone below the revealed bar (#832): when the bar is in the
-     revealed state (data-stashed cleared), the cursor may drift slightly below
-     the bar's bottom edge without triggering a re-stash. The retain zone
-     extends the effective "still hovering" distance below the bar by
-     --aura-nav-hover-retain-offset (defaults to 50% of bar height).
-     Only active while the bar is REVEALED (not stashed) — the top hot-zone
-     size is unchanged. Keyboard and touch paths are unaffected. */
-  function retainOffsetPx(el) {
-    /* Read the CSS custom property if set; fall back to 50% of rendered height. */
-    var fromToken = lengthPx(el, "--aura-nav-header-hover-retain-offset", -1);
-    if (fromToken >= 0) return fromToken;
-    return el.offsetHeight * 0.5;
-  }
+  /* Hover-retain zone below the revealed bar (#832) — v3.555 ITEM-3
+     superseded this bespoke "below the bottom edge" JS computation with the
+     shared choreography engine's generic detach band
+     (--aura-fmb-proximity-fade-band, measured from the WHOLE revealed bar's
+     rect via Aura.dom.distanceToRect, not just its bottom edge). The
+     --aura-nav-header-hover-retain-offset token this used to read is now
+     bridged into the engine's own parameter in CSS
+     (css/nav-header.css's `.aura-nav-header { --aura-fmb-proximity-fade-band:
+     var(--aura-nav-header-hover-retain-offset, …); }`), so the token keeps
+     its documented meaning and default — only the JS-side reader (retainOffsetPx,
+     the old cachedToken(h, '_retainOffset', …) call in primeHeaders(), and
+     syncHotzone()'s own retain-zone rect math) is gone as dead code once
+     nothing calls restash() directly from a leave handler any more.
+     docs/design/nav-header-design.md's token table is updated to match. */
 
   /* Floating Menu Button (FMB) proximity expand radius: how many px outside the
      circle edge the cursor must be to trigger revealStash() — a JS-side hover
@@ -192,6 +201,28 @@ import "./overlay.js";
     return v > 0 ? v : 48;
   }
   function cachedToken(h, key, fn) { return h[key] != null ? h[key] : fn(h); }
+
+  /* v3.559 #1111 (item 1): the five hot-zone/threshold tokens below are
+     cached on the host once at primeHeaders() install time — cheap reads
+     the rest of this module treats as effectively static via cachedToken().
+     But js/fmb-column.js's cross-member size coordination (the shared
+     mobile-column stack a nav-header can join) can change the RESOLVED
+     value of the underlying tokens (e.g. the FMB circle's expand ring, or
+     the hotzone band) after install without ever re-running primeHeaders()
+     itself — a stale cache then keeps testing proximity/scroll against the
+     OLD geometry indefinitely. Re-primed on every window resize (see
+     onResize() below) — the same "resize invalidates derived state"
+     convention armHeaderHeightObserver already applies to the header-height
+     token and the hamburger/overflow re-sync, just for this cache instead
+     of a ResizeObserver (these are token reads, not box-geometry reads, so
+     a plain resize listener is enough — no forced layout). */
+  function primeHotzoneTokens(h) {
+    h._fmbExpand       = fmbExpandPx(h);
+    h._hotzone         = hotzonePx(h);
+    h._direction       = directionPx(h);
+    h._stashThreshold  = stashThresholdPx(h);
+    h._shrinkThreshold = thresholdPx(h);
+  }
 
   /* True when any trigger button inside the header currently has its panel open. */
   function hasOpenMenu(h) {
@@ -552,17 +583,34 @@ import "./overlay.js";
            bar never auto-restores the full header at the top — it stays stashed
            (data-shrunk so a reveal brings back the floating pill, not the full
            bar) until summoned by the hot-zone / focus, exactly like a
-           scroll-stashed bar. Re-assert both attributes so a stray scroll tick
-           that cleared one (e.g. crossing the shrink-threshold up at the top)
-           can't strand it half-revealed. The reveal paths still clear
-           data-stashed transiently; this only re-seeds the resting state. */
+           scroll-stashed bar. Re-assert the shrunk attribute so a stray scroll
+           tick that cleared it (e.g. crossing the shrink-threshold up at the
+           top) can't strand it half-revealed. */
         if (!h.hasAttribute(SHRUNK_ATTR)) h.setAttribute(SHRUNK_ATTR, "");
-        var hz = cachedToken(h, '_hotzone', hotzonePx);
-        if (!h.hasAttribute(STASHED_ATTR) &&
-            !hasOpenMenu(h) &&
-            !h.matches(":hover") && !h.matches(":focus-within") &&
-            !(pointerY >= 0 && pointerY <= hz)) {
-          restash(h);   /* re-seed the resting pill + drop any stale summon flag */
+        /* v3.555 ITEM-3 (sticky-open contract): the one-time INITIAL seed
+           (mount, before this header has ever been revealed) still snaps
+           straight to the resting stashed pill with no engine involvement —
+           nothing was ever Opened yet for a user to walk away from. Every
+           SUBSEQUENT scroll tick must NOT repeat this seed: once a reveal has
+           happened, an Opened+unpinned stash-default header returns to
+           Stashed ONLY via the choreography engine's own detach→decay→
+           stash() path (primeHeaders()'s register() call), never a scroll-
+           tick snap-back — that would be exactly the self-revert the
+           CRITICAL register() contract (docs/design/fmb-choreography-
+           design.md) forbids. h._fmbSeeded marks the one-shot boundary; it is
+           set unconditionally below so a header already revealed at its very
+           first tick (a vanishingly unlikely race, not a real interaction)
+           degrades to "starts revealed" rather than fighting the engine on a
+           later tick. */
+        if (!h._fmbSeeded) {
+          h._fmbSeeded = true;
+          var hz = cachedToken(h, '_hotzone', hotzonePx);
+          if (!h.hasAttribute(STASHED_ATTR) &&
+              !hasOpenMenu(h) &&
+              !h.matches(":hover") && !h.matches(":focus-within") &&
+              !(pointerY >= 0 && pointerY <= hz)) {
+            restash(h);   /* seed the resting pill + drop any stale summon flag */
+          }
         }
       } else if (!past) {
         /* Back at/near the top → drop the stash latch and restore the full
@@ -662,6 +710,13 @@ import "./overlay.js";
     window.requestAnimationFrame(syncAllNavOverflows);
     /* Re-seed tooltip delays after layout change may expose new overflow items. */
     seedTooltipDelays();
+    /* v3.559 #1111 (item 1): re-prime the cached hot-zone/threshold tokens
+       (see primeHotzoneTokens()) — a resize can change the resolved value
+       of the underlying tokens (directly, via a breakpoint, or indirectly
+       via js/fmb-column.js's size coordination), and cachedToken() would
+       otherwise keep returning the value captured at install time forever. */
+    var resizeHeaders = document.querySelectorAll(ROOT_SEL);
+    for (var ri = 0; ri < resizeHeaders.length; ri++) primeHotzoneTokens(resizeHeaders[ri]);
     /* Open panels are CLOSED on viewport resize by the shared dismisser
        (armNavDismissal) — the canonical overlay/menu gesture contract — so the
        old reposition-open-panels pass here is gone (#393). Content-driven
@@ -669,19 +724,29 @@ import "./overlay.js";
   }
 
   /* A bar that a reveal affordance (hot-zone / focus) pulled back on-screen
-     should re-hide when that affordance ends — but ONLY if it is genuinely in
-     the stash zone, i.e. its last known scroll offset is past the deeper
-     stash-threshold. The stage-1 floating pill (data-shrunk but never scrolled
-     past the stash-threshold) shares the {shrunk, !stashed} attribute signature
-     yet must NEVER auto-stash on a mere pointer / focus move — that was the
-     premature-stash bug. lastYMap is the per-host offset cache syncShrink writes
-     each tick and stashThresholdPx reads a token, so this predicate touches no
-     geometry. Pointer-leave (syncHotzone) and focus-leave (onFocusOut) both use
-     it, so the two paths cannot drift apart. */
+     is genuinely "in the stash zone" — i.e. its last known scroll offset is
+     past the deeper stash-threshold. The stage-1 floating pill (data-shrunk
+     but never scrolled past the stash-threshold) shares the {shrunk,
+     !stashed} attribute signature yet must never be treated as an engaged
+     FMB reveal on a mere pointer / focus move — that was the premature-stash
+     bug. lastYMap is the per-host offset cache syncShrink writes each tick
+     and stashThresholdPx reads a token, so this predicate touches no
+     geometry.
+
+     v3.555 ITEM-3: this is now also the "genuinely Opened" half of the nav
+     circle's Aura.fmbChoreography.register() isOpened() predicate (see
+     primeHeaders()) — `shouldRestash(h) || h.hasAttribute("data-fmb-pinned")`.
+     Neither JS leave-handler calls restash() directly from here any more
+     (see syncHotzone()/onClick's Escape branch): the CHOREOGRAPHY ENGINE now
+     owns the return-to-Stashed transition once a member is genuinely Opened,
+     calling restash() itself via its stash() callback after the detach→decay
+     path completes (or instantly under reduced motion) — this function only
+     answers "is the bar currently in the revealed, engaged state," never
+     "should it close right now." */
   function shouldRestash(h) {
     if (!h.hasAttribute(SHRUNK_ATTR) || h.hasAttribute(STASHED_ATTR)) return false;
-    /* stash-default's resting state IS the stashed pill (v3.4), so it re-stashes
-       on pointer/focus-leave at ANY scroll offset — including the top — rather
+    /* stash-default's resting state IS the stashed pill (v3.4), so any reveal
+       counts as "engaged" at ANY scroll offset — including the top — rather
        than requiring the bar to be past the scroll stash-threshold. */
     if (isStashDefault(h)) return true;
     return (lastYMap.get(h) || 0) > cachedToken(h, '_stashThreshold', stashThresholdPx);
@@ -690,7 +755,16 @@ import "./overlay.js";
   /* Re-conceal a revealed bar: set data-stashed and, for stash-default, drop the
      data-expanded summon flag revealStash set (so the next reveal re-applies it).
      A scroll-stashed bar never carried data-expanded, so the clear is a no-op
-     there — keeping both restash paths (hot-zone, focus) on one definition. */
+     there.
+
+     v3.555 ITEM-3: this is now the Aura.fmbChoreography.register() `stash()`
+     callback for the nav circle (see primeHeaders()) — the ENGINE calls this
+     once the detach→decay path completes (or instantly under reduced
+     motion), and it is the ONLY place an Opened+unpinned bar returns to
+     Stashed. The two deliberate-action call sites (pin-click's re-stash-
+     before-pin normalization, Escape's defensive unpin restash) still call it
+     directly — those are explicit user actions, not passive leave-detection,
+     so they are unaffected by the engine's ownership of the passive path. */
   function restash(h) {
     if (isStashDefault(h)) h.removeAttribute(EXPANDED_ATTR);
     if (h.hasAttribute(SHRUNK_ATTR)) {
@@ -725,6 +799,17 @@ import "./overlay.js";
   var pointerY = -1;
   var pointerX = -1;
   function syncHotzone() {
+    /* v3.559 #1111 (item 3): checked LIVE here, every call — matching how
+       js/fmb-choreography.js's own engine reads pointer:coarse live inside
+       its rAF frame rather than caching it once at wire-up time. The
+       pointermove listener below is now installed UNCONDITIONALLY (wireDelegation
+       no longer gates it on a coarse read captured once at page-load), so an
+       input-modality change mid-session — e.g. a convertible laptop
+       switching between touch and mouse — is picked up the very next call
+       instead of leaving this reveal path permanently disabled (or
+       permanently enabled) from whatever the pointer type happened to be at
+       install time. */
+    if (Aura.env && Aura.env.coarsePointer && Aura.env.coarsePointer()) return;
     var headers = document.querySelectorAll(ROOT_SEL);
     for (var i = 0; i < headers.length; i++) {
       var h = headers[i];
@@ -763,27 +848,22 @@ import "./overlay.js";
         /* Hot-zone / FMB proximity reveal funnels through revealStash so the
            glide-in + bloom flourish fire here too. */
         revealStash(h);
-      } else if (shouldRestash(h)) {
-        /* Hover-retain zone (#832): when the bar is REVEALED (shouldRestash
-           returns true only when data-stashed is cleared + scroll past threshold),
-           extend the effective hover region to cover the area just below the bar.
-           The retain offset is 50% of bar height by default, or the
-           --aura-nav-hover-retain-offset token. This prevents the bar from
-           re-stashing the instant the cursor drifts slightly below the bottom
-           edge — matching the acceptance criteria of #832. The top-edge
-           hot-zone size (hotzone) is unchanged; the retain zone adds downward
-           coverage only while the bar is in the revealed state. */
-        var rect = h.getBoundingClientRect();
-        var retainBottom = rect.bottom + cachedToken(h, '_retainOffset', retainOffsetPx);
-        /* Pointer is in the retain zone (between bar top and bar bottom + offset). */
-        var inRetainZone = pointerY >= rect.top && pointerY <= retainBottom;
-        if (!inRetainZone && !hasOpenMenu(h)) {
-          /* Cursor left the band while the bar is genuinely in the stash zone
-             AND no submenu/user-menu panel is open → re-stash. An open menu
-             panel keeps the bar revealed so the user can interact with it. */
-          restash(h);
-        }
       }
+      /* v3.555 ITEM-3 (sticky-open contract, docs/design/fmb-choreography-
+         design.md's CRITICAL register() contract): a revealed-but-unpinned
+         bar used to re-stash HERE — a bespoke "below the bar's bottom edge"
+         retain-zone rect computation (#832) — the instant the cursor left
+         that zone. Both the direct restash() call AND that geometry are
+         gone: an Opened member must NOT self-revert on pointer-leave. The
+         choreography engine (Aura.fmbChoreography.register(), wired in
+         primeHeaders()) now owns the whole return path via its own generic
+         distance-to-host sampling (Aura.dom.distanceToRect against this same
+         element's live rect) and calls restash() itself through the stash()
+         callback, after its detach→decay timer completes (or instantly under
+         reduced motion). The retain zone's own forgiving-buffer INTENT lives
+         on as the engine's --aura-fmb-proximity-fade-band, bridged in
+         css/nav-header.css from the original --aura-nav-header-hover-retain-
+         offset token so #832's tuned default survives the migration. */
     }
   }
 
@@ -877,11 +957,6 @@ import "./overlay.js";
     }, 350);
   }
 
-  /* On focusout, re-stash only if focus left the header ENTIRELY (relatedTarget
-     is outside it) AND the bar is genuinely in the stash zone — focus moving
-     between two controls inside the bar must not re-stash, and focus is never
-     trapped (Tab/Shift-Tab leave normally). A revealing pointer hover /
-     :focus-within is already gone by definition here, so CSS won't fight us. */
   /* ---- Header dim on outside keyboard focus (#412) ----------------------
      CSS owns the LOOK (.aura-nav-header[data-nav-dimmed]:not(:focus-within));
      this delegation owns the FLAG, replacing the old body-level
@@ -914,20 +989,15 @@ import "./overlay.js";
     if (!e.relatedTarget) syncHeaderDim(null);
   }
 
-  function onFocusOut(e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var header = t.closest(ROOT_SEL);
-    if (!header || !isStashHeader(header)) return;
-    var next = e.relatedTarget;
-    if (next && header.contains(next)) return;   // focus stayed inside the bar
-    /* Shared stash-zone guard (shouldRestash): never re-stash a stage-1 pill on
-       focus-leave — symmetric with the hot-zone path. An open menu panel also
-       blocks re-stash so dismissing the panel doesn't collapse the FMB. */
-    if (shouldRestash(header) && !hasOpenMenu(header)) {
-      restash(header);
-    }
-  }
+  /* v3.555 ITEM-3 (sticky-open contract): a dedicated onFocusOut() used to
+     live here, re-stashing a revealed bar the instant keyboard focus left it
+     entirely (symmetric with syncHotzone()'s pointer-leave restash). Removed
+     for the same reason: an Opened+unpinned member must not self-revert on
+     focus-leave — the choreography engine's own document-level focusin/
+     focusout listeners (js/fmb-choreography.js) now detect "focus left both
+     the button and the menu" and drive the return path (detach → decay →
+     restash() via stash()), so this member no longer needs its own
+     focus-leave handler at all. */
 
   /* ---- Menu panel portal (backdrop-filter fix) -------------------------- */
   /* aura-nav-header has backdrop-filter:blur(...) which makes it a backdrop
@@ -1516,6 +1586,14 @@ import "./overlay.js";
       t.closest("[data-nav-submenu], [data-nav-user-menu], [data-aura-nav-portal]"));
   }
 
+  /* #1088: scroll/resize/blur close any OPEN DROPDOWN (the #393 contract
+     below, unchanged) but must NOT unpin the header's own FMB circle — a
+     scroll notch or the window losing focus is not a dismissal gesture for a
+     pinned bar (contrast onPointerDown, which is). Both the delegated
+     (Aura.overlay) and fallback dismissers below call the bare
+     `closeAllIn(document)` — no options object — which now defaults
+     opts.unpinHeader to false, so this is a documentation-only note: no
+     unpinHeader:true is ever passed from here. */
   function buildNavDismisser() {
     if (Aura.overlay && typeof Aura.overlay.createDismisser === "function") {
       return Aura.overlay.createDismisser({
@@ -2160,7 +2238,17 @@ import "./overlay.js";
     }
   }
 
-  function closeAllIn(scope) {
+  /* `opts.unpinHeader` (#1088): closeAllIn() is called from several very
+     different gestures — a genuine outside pointerdown, a scroll/resize/
+     blur, and a menuitem click — that must ALL close any open dropdown but
+     must NOT all unpin the header root's own data-fmb-pinned (the "pinned
+     bar" a stashed FMB nav-circle becomes after a logo-zone pin). Only a
+     press confirmed to be genuinely outside the header's own bar surface
+     should fold the pin-clear into this sweep; every other caller omits the
+     option (default false) and gets the close-dropdowns-only half. See
+     onPointerDown below for the one caller that computes this flag. */
+  function closeAllIn(scope, opts) {
+    var unpinHeader = !!(opts && opts.unpinHeader);
     var open = (scope || document).querySelectorAll(
       ROOT_SEL.split(",").map(function (s) {
         return s.trim() + " button[aria-expanded='true']";
@@ -2189,13 +2277,23 @@ import "./overlay.js";
        has an outside click/Escape unpin an FMB regardless of its own pin
        state — data-fmb-pinned only means "stays open while the
        pointer/focus wanders elsewhere," not "immune to explicit
-       dismissal." */
+       dismissal." Unaffected by opts.unpinHeader (#1088 is scoped to the
+       header-root FMB circle's own pin below, not this separate widget). */
     var userFmbHosts = (scope || document).querySelectorAll(USER_FMB_SEL);
     for (var si = 0; si < userFmbHosts.length; si++) {
       var host = userFmbHosts[si];
       var trigger = userFmbTriggerFor(host);
       if (trigger && isOpen(trigger)) closeMenu(trigger, false);
-      else if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+      else {
+        /* #1111 — the panel is already closed (or there is no trigger), but
+           the host can still carry a stale data-fmb-pinned and/or
+           data-user-fmb-expanded (the hover-proximity signal): closeMenu()
+           above clears both together via unpinUserFmbHostFor(), so this
+           fallback branch must too, or the expand flag can survive an
+           outside click that pinned-attr clearing alone used to satisfy. */
+        if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+        if (host.hasAttribute(USER_FMB_EXPANDED_ATTR)) host.removeAttribute(USER_FMB_EXPANDED_ATTR);
+      }
     }
     /* FMB circle Pinned exit (#1068): fold the header-root's own
        data-fmb-pinned (set by the logo-zone click above, distinct from the
@@ -2203,11 +2301,17 @@ import "./overlay.js";
        outside-click cleanup — fmb-design.md requires an outside click to
        unpin exactly like Escape does. No restash/focus-move here: an
        outside click never returns focus (contrast the Escape branch, which
-       does), and the pinned circle is by definition already Stashed. */
-    var pinnedRoots = (scope || document).querySelectorAll(ROOT_SEL);
-    for (var pri = 0; pri < pinnedRoots.length; pri++) {
-      if (pinnedRoots[pri].hasAttribute("data-fmb-pinned")) {
-        pinnedRoots[pri].removeAttribute("data-fmb-pinned");
+       does), and the pinned circle is by definition already Stashed.
+       Gated on opts.unpinHeader (#1088): scroll/resize/blur, menuitem
+       clicks, and an in-bar press on the bar's own surface all reach this
+       function too, and none of those is the "outside click" #1068 means —
+       only onPointerDown's genuinely-outside branch sets the flag. */
+    if (unpinHeader) {
+      var pinnedRoots = (scope || document).querySelectorAll(ROOT_SEL);
+      for (var pri = 0; pri < pinnedRoots.length; pri++) {
+        if (pinnedRoots[pri].hasAttribute("data-fmb-pinned")) {
+          pinnedRoots[pri].removeAttribute("data-fmb-pinned");
+        }
       }
     }
   }
@@ -2266,7 +2370,24 @@ import "./overlay.js";
       return;
     }
 
-    /* Menuitem click: smooth-scroll for in-page hash, set pending shimmer, close menu. */
+    /* Menuitem click: smooth-scroll for in-page hash, set pending shimmer, close menu.
+       #1088 decision (documented per the issue's own framing): this closeAllIn()
+       call deliberately never passes unpinHeader:true, for either branch below —
+         - smoothScrollToFragment(href) true: a same-page, in-page-hash action.
+           e.preventDefault() stops any navigation, the document never unloads,
+           and the header is still literally on screen right after — unpinning
+           here would be an unrelated side effect of a click that never left the
+           bar's own page state.
+         - smoothScrollToFragment(href) false: either setNavPending()'s same-tab
+           link (the document is about to unload once the browser's default
+           navigation runs right after this handler returns) or a plain link to
+           a different page/tab. Either way the current document's DOM — and
+           therefore its data-fmb-pinned — is moot: whether we clear it here or
+           not has no observable effect once the page navigates away.
+       So "don't unpin" is correct for the same-page case and harmless for the
+       navigate-away case, making the shared default (closeAllIn(document) with
+       no options, unpinHeader defaults false) the simplest correct choice for
+       every menuitem click — no branch here needs unpinHeader:true. */
     var menuItem = t.closest("[role='menuitem']");
     if (menuItem && menuItem.closest("[data-nav-submenu], [data-nav-user-menu], [data-aura-nav-portal]")) {
       var href = menuItem.getAttribute("href") || "";
@@ -2318,6 +2439,13 @@ import "./overlay.js";
         e.preventDefault();
         if (!fmbHeader.hasAttribute(STASHED_ATTR)) restash(fmbHeader);
         fmbHeader.toggleAttribute("data-fmb-pinned");
+        /* v3.555 ITEM-3 (fmb-design.md §4 Pin — press feedback): fmbHeader
+           IS the registered `button` for the nav circle's single-element
+           exception (register() call in primeHeaders()) — no separate
+           element to target. */
+        if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+          Aura.fmbChoreography.press(fmbHeader);
+        }
         return;
       }
     }
@@ -2372,7 +2500,16 @@ import "./overlay.js";
        logo must not unpin it here a beat before its own click handler's
        toggle runs. */
     if (t.closest('[data-nav-zone="logo"] a, a[data-nav-zone="logo"]')) return;
-    closeAllIn(document);
+    /* #1088: a press anywhere else INSIDE the header's own bar surface (its
+       root/background, title zone, or a plain top-level nav link — anything
+       not already matched by the exclusions above) is not "outside" the
+       header. closeAllIn() still runs so any dropdown open elsewhere on the
+       page closes (the pre-existing #393 outside-press contract), but the
+       unpin half only fires once we've confirmed the press landed genuinely
+       outside ROOT_SEL — otherwise clicking the bar's own chrome would
+       unpin a bar that was never left. */
+    var genuinelyOutside = !t.closest(ROOT_SEL);
+    closeAllIn(document, { unpinHeader: genuinelyOutside });
   }
 
   /* Returns focusable [role="menuitem"] elements in a panel as a plain Array. */
@@ -2852,16 +2989,12 @@ import "./overlay.js";
          data-nav-behavior before any isStashHeader/threshold read below. */
       normalizeNavBehavior(headers[i]);
       armStashMirror(headers[i]);
-      headers[i]._fmbExpand       = fmbExpandPx(headers[i]);
-      headers[i]._hotzone         = hotzonePx(headers[i]);
-      headers[i]._direction       = directionPx(headers[i]);
-      headers[i]._stashThreshold  = stashThresholdPx(headers[i]);
-      headers[i]._shrinkThreshold = thresholdPx(headers[i]);
-      headers[i]._retainOffset    = retainOffsetPx(headers[i]);
+      primeHotzoneTokens(headers[i]);
       ensureHamburger(headers[i]);
       ensureNavGlow(headers[i]);
       ensureUserFmb(headers[i]);
       armHeaderHeightObserver(headers[i]);
+      registerNavCircleChoreography(headers[i]);
       var triggers = headers[i].querySelectorAll(
         "[data-nav-submenu] button, [data-nav-user-menu] button"
       );
@@ -2875,6 +3008,73 @@ import "./overlay.js";
     }
     syncShrink();
     syncProgress();
+  }
+
+  /* v3.555 ITEM-3 — opt the nav circle into the shared detach→decay→re-stash
+     engine (docs/design/fmb-choreography-design.md §Engine API (as-built),
+     §The persistent-button clarification's "nav-header is the single-element
+     exception"): the logo-zone anchor IS the persistent button and the
+     bar-collapse IS the morph, so there is no second element to register —
+     host, button, and menu all resolve to the SAME nav-header element `h`.
+       host   = h — the same host js/fmb-column.js discovers for the "nav"
+                slot (data-fmb-column/-anchor, LEGACY_MEMBERS' "aura-nav-
+                header, .aura-nav-header" selector).
+       button = h — the always-clickable, always-on-screen control (the FMB
+                circle IS the logo-zone anchor's own box; press() targets it
+                directly, see the FMB logo-zone click handler above).
+       menu   = h — the SAME element's expanded pill/bar shape; the engine's
+                distance math naturally collapses to one measurement since
+                button and menu rects are identical by construction.
+     Only stash-family headers (isStashHeader) ever engage the Stashed/
+     Opened/Pinned cycle at all — a plain "shrink" header never sets
+     data-stashed, so registering it would be inert (isOpened() always
+     false) but harmless; skip it anyway to keep the registry free of
+     no-op entries. Idempotent per header via h._fmbChoreographyUnregister,
+     guarded the same way as every other per-header WeakSet/flag arm in this
+     file (armStashMirror, armHeaderHeightObserver) — primeHeaders() re-runs
+     on every mount pass. Unregistered on header teardown (teardownHeader). */
+  function registerNavCircleChoreography(h) {
+    if (h._fmbChoreographyUnregister) return;            // idempotent
+    if (!isStashHeader(h)) return;                        // shrink-only: never Opened
+    if (!Aura.fmbChoreography || typeof Aura.fmbChoreography.register !== "function") return;
+    h._fmbChoreographyUnregister = Aura.fmbChoreography.register({
+      host: h,
+      button: h,
+      menu: h,
+      /* "Genuinely Opened" reuses shouldRestash()'s own predicate (the
+         revealed-and-engaged state that used to gate a direct restash() call
+         on leave — see its doc comment) OR'd with Pinned, matching the
+         register() JSDoc's isOpened template
+         (`hasAttribute(expanded) || isPinned()`) for a member whose "expanded
+         attr" is the ABSENCE of data-stashed rather than a positive flag. */
+      isOpened: function () { return shouldRestash(h) || h.hasAttribute("data-fmb-pinned"); },
+      isPinned: function () { return h.hasAttribute("data-fmb-pinned"); },
+      /* #1089 — the bar strip IS both button and menu for this member (see
+         the doc comment above), so the engine's own distance math has no
+         way to see a dropdown panel that visually extends below the bar:
+         browsing INTO that panel reads as "pointer left," wrongly starting
+         detach/decay/stash while the panel is still open on screen. hasOpenMenu()
+         (defined above) already answers "is any trigger's panel open right
+         now" for exactly this purpose — reuse it as the engine's isHeld hook
+         so it holds distance at 0 (the "over" treatment) for as long as a
+         dropdown is open, regardless of where the cursor actually is. */
+      isHeld: function () { return hasOpenMenu(h); },
+      /* restash() is exactly the reverse-morph the JSDoc requires: it
+         re-collapses the bar to the FMB circle AND clears the member's own
+         Opened signal (data-stashed is the positive-polarity Stashed flag
+         here, so "setting" it IS "clearing Opened" for this member's
+         inverted vocabulary). See restash()'s own comment for why the two
+         deliberate-action call sites (pin-click, Escape) still call it
+         directly without going through this callback. */
+      stash: function () { restash(h); },
+      label: "nav-header"
+    });
+    onHeaderTeardown(h, function () {
+      if (h._fmbChoreographyUnregister) {
+        h._fmbChoreographyUnregister();
+        h._fmbChoreographyUnregister = null;
+      }
+    });
   }
 
   /* Inject the ☰ disclosure button (#380). The collapse CSS and the
@@ -2983,15 +3183,33 @@ import "./overlay.js";
     return null;
   }
 
-  /* Clear a controlling user-FMB host's pin (and, for the direct-unpin
-     callers below, close its menu too) — the single hook every closeMenu()
-     call site funnels through so the FMB's visual state never lags a menu
-     dismissed via Escape/outside-click/sibling-open rather than a re-click
-     on the FMB itself. No-ops harmlessly when the trigger has no
-     controlling user-FMB host (an ordinary nav submenu). */
+  /* Clear a controlling user-FMB host's pin AND Opened signal (and, for the
+     direct-unpin callers below, close its menu too) — the single hook every
+     closeMenu() call site funnels through so the FMB's visual state never
+     lags a menu dismissed via Escape/outside-click/sibling-open rather than
+     a re-click on the FMB itself. No-ops harmlessly when the trigger has no
+     controlling user-FMB host (an ordinary nav submenu).
+
+     v3.555 ITEM-3 (sticky-open contract): also clears USER_FMB_EXPANDED_ATTR,
+     not just the pin. Before this item, syncOneUserFmb() cleared the expanded
+     attribute itself the next time the pointer was found to be away — a
+     passive reconciliation that is now GONE (an Opened+unpinned member must
+     not self-revert on proximity-leave; only the choreography engine's
+     stash() callback does, via Aura.fmbChoreography.register()'s isOpened()
+     predicate = `hasAttribute(EXPANDED) || hasAttribute(PINNED)`). A
+     deliberate dismissal (Escape, outside click, a sibling menu opening) is
+     a real action, not a passive leave, so it closes the menu HERE directly
+     — but it must also clear the expanded attribute in the same breath, or
+     isOpened() would keep reporting true for a menu that closeMenu() just
+     hid, and the engine would sample distance against a closed panel
+     forever. Centralizing both clears in this one chokepoint (every
+     closeMenu() call already funnels through it) keeps the pin/open/engine
+     signals from drifting apart regardless of dismissal path. */
   function unpinUserFmbHostFor(trigger) {
     var host = userFmbHostFor(trigger);
-    if (host && host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+    if (!host) return;
+    if (host.hasAttribute(USER_FMB_PINNED_ATTR)) host.removeAttribute(USER_FMB_PINNED_ATTR);
+    if (host.hasAttribute(USER_FMB_EXPANDED_ATTR)) host.removeAttribute(USER_FMB_EXPANDED_ATTR);
   }
 
   /* True when (x, y) falls within a portaled panel's rect, expanded by a
@@ -3058,16 +3276,22 @@ import "./overlay.js";
          on an already-open trigger is a harmless no-op via openMenu()'s own
          panel check. */
       openUserFmbMenu(el);
-    } else {
-      if (el.hasAttribute(USER_FMB_EXPANDED_ATTR)) el.removeAttribute(USER_FMB_EXPANDED_ATTR);
-      /* Pointer left both the circle and the panel while unpinned — close the
-         menu (mirrors fmb-design.md's Opened→Stashed exit condition:
-         "pointer/focus leaves the button AND the open menu, with no Pinned
-         state set"). closeUserFmbMenuIfIdle() itself no-ops while the host
-         is :focus-within (a keyboard user tabbed in should not be closed out
-         from under their feet by an unrelated mouse-proximity computation). */
-      closeUserFmbMenuIfIdle(el);
     }
+    /* v3.555 ITEM-3 (sticky-open contract, docs/design/fmb-choreography-
+       design.md's CRITICAL register() contract): this used to have an ELSE
+       branch that cleared USER_FMB_EXPANDED_ATTR and closed the menu the
+       moment the pointer left both the circle and the panel. That direct
+       self-close is gone: once Opened+unpinned, this member must NOT revert
+       to Stashed on its own — it only decides WHEN to open (the `if
+       (stayOpen)` branch above, unchanged). The choreography engine
+       (Aura.fmbChoreography.register(), wired in enhanceUserFmb()) now owns
+       the return path — its own distance-to-button/menu sampling detects the
+       leave and drives detach → decay → its stash() callback, which is the
+       ONLY place USER_FMB_EXPANDED_ATTR is cleared and the menu closed for a
+       passive leave (see stash()'s own comment below). A deliberate
+       dismissal (Escape, outside click, click-to-pin) still closes directly
+       via unpinUserFmbHostFor()/onUserFmbPinClick — those are real actions,
+       not passive leave-detection. */
   }
 
   /* Global pointermove listener — installed once, serves all instances
@@ -3170,6 +3394,30 @@ import "./overlay.js";
     var el = e.currentTarget;
     var pinning = !el.hasAttribute(USER_FMB_PINNED_ATTR);
     el.toggleAttribute(USER_FMB_PINNED_ATTR, pinning);
+    /* v3.555 ITEM-3 (fmb-design.md §4 Pin — press feedback): a real <button>'s
+       click event already fires uniformly for pointer AND Enter/Space
+       keyboard activation, so this single call site covers every modality —
+       see Aura.fmbChoreography.press()'s own JSDoc. Fire on every toggle
+       (pin AND unpin), matching the press feedback every other FMB member's
+       pin control gets on activation.
+       #1093 bugfix: pass the HOST (`el`), not the inner button. css/nav-
+       header.css's press rule is `[data-aura-user-fmb][data-fmb-press]` —
+       keyed off the HOST, matching this file's OWN nav-circle single-element
+       exception a few hundred lines up (onClick's `Aura.fmbChoreography.
+       press(fmbHeader)` — fmbHeader IS the registered `button`, no separate
+       element to target) and js/footer.js's identical `press(self)` call —
+       both members glow/press as one persistent element, no distinguished
+       sub-part (contrast js/sidebar.js's `press(pill)`, whose CSS keys off
+       the pill sub-part specifically because the sidebar host is NOT the
+       button). The user-FMB host IS its own button here too (enhanceUserFmb()
+       glows it as a whole, "no distinguished sub-part" — see the comment on
+       el.classList.add("aura-glow") above), so it takes the fmbHeader/self
+       shape, not sidebar's. Passing el.querySelector("button") set the
+       attribute on the WRONG element (the CSS selector never matches an
+       inner button), so the squash never rendered. */
+    if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+      Aura.fmbChoreography.press(el);
+    }
     if (pinning) {
       openUserFmbMenu(el);
     } else {
@@ -3265,22 +3513,40 @@ import "./overlay.js";
        CSS expand-state selector list already includes :focus-within (full
        ghost-fade un-suppression on focus), but the MENU itself only opened
        via a pointer-proximity computation in syncOneUserFmb, which never
-       runs for a keyboard-only interaction (no pointermove fires). Wire the
-       same openUserFmbMenu()/closeUserFmbMenuIfIdle() pair to focusin/focusout
-       so both input modalities reach the same Opened state through the same
-       two functions. focusout's relatedTarget check skips the close when
-       focus is merely moving from the button into its own (portaled) panel. */
-    el._userFmbFocusIn = function () { openUserFmbMenu(el); };
-    el._userFmbFocusOut = function (e) {
-      var next = e.relatedTarget;
-      if (next && el.contains(next)) return;
-      var trigger = userFmbTriggerFor(el);
-      var panel = trigger && panelFor(trigger);
-      if (next && panel && panel.contains(next)) return;
-      closeUserFmbMenuIfIdle(el);
+       runs for a keyboard-only interaction (no pointermove fires). Wire
+       openUserFmbMenu() to focusin so keyboard input reaches the same Opened
+       state hover does.
+
+       v3.555 ITEM-3 (sticky-open contract): the symmetric focusout handler
+       that used to live here (closing the menu the instant focus left the
+       host/panel) is gone — an Opened+unpinned member must not self-revert
+       on focus-leave. The choreography engine's own document-level
+       focusin/focusout listeners (js/fmb-choreography.js) now detect "focus
+       left both the button and the menu" as part of its leave-detection and
+       drive the return path via detach → decay → stash() (registered below),
+       so this member needs no focusout listener of its own any more.
+
+       #1086 — the focus-open must ALSO latch USER_FMB_EXPANDED_ATTR, exactly
+       like the pointer-proximity open in syncOneUserFmb() does: the engine's
+       registered isOpened() reads only EXPANDED||PINNED, so a focus-opened
+       menu that set neither was INVISIBLE to the engine — its
+       `if (pinned || !opened)` guard bailed before the focus-leave detection
+       above could ever run, and (with the member's own focusout self-close
+       removed by ITEM-3) Tab-into-and-past the avatar left the menu
+       permanently open. This is the engine's own CRITICAL registration
+       contract: isOpened() must reflect EVERY opened path. The latch is
+       sticky by design — only stash() (or a deliberate dismissal via
+       closeMenu()'s unpinUserFmbHostFor() chokepoint, which clears it on
+       Escape/outside-click/sibling-open, including every coarse-pointer
+       explicit dismissal) clears it. Skipped while pinned (Pinned already
+       covers Opened, mirrors js/sidebar.js's focusin latch). */
+    el._userFmbFocusIn = function () {
+      if (!el.hasAttribute(USER_FMB_PINNED_ATTR) && !el.hasAttribute(USER_FMB_EXPANDED_ATTR)) {
+        el.setAttribute(USER_FMB_EXPANDED_ATTR, "");
+      }
+      openUserFmbMenu(el);
     };
     el.addEventListener("focusin", el._userFmbFocusIn);
-    el.addEventListener("focusout", el._userFmbFocusOut);
 
     /* Reflect the live pin state into aria-pressed on the inner button so
        assistive tech announces the pin — DELIBERATELY aria-pressed, not
@@ -3294,13 +3560,77 @@ import "./overlay.js";
        hover-opened, unpinned state too), aria-pressed says "is this control
        HELD open regardless of pointer/focus location." A screen-reader user
        hearing "expanded, not pressed" correctly learns the menu will close
-       if they look away; "expanded, pressed" tells them it won't. */
+       if they look away; "expanded, pressed" tells them it won't.
+
+       #1108: seed the initial value HERE, at enhance time, before any
+       interaction — the MutationObserver below only reacts to a LATER
+       mutation of USER_FMB_PINNED_ATTR, it does not fire for the state
+       already present the instant observation starts. Without this, a fresh
+       page load exposed a plain button with no toggle semantics at all until
+       the first pin, a false "not a toggle button" read for assistive tech
+       that never got a chance to hear aria-pressed until it changed. Reflects
+       whatever the pin state already is (normally false, but a standalone
+       author could hand-author a pre-pinned host). */
+    if (btn) btn.setAttribute("aria-pressed", el.hasAttribute(USER_FMB_PINNED_ATTR) ? "true" : "false");
     el._userFmbPinMo = new MutationObserver(function () {
       var pinned = el.hasAttribute(USER_FMB_PINNED_ATTR);
       var b = el.querySelector("button");
       if (b) b.setAttribute("aria-pressed", pinned ? "true" : "false");
     });
     el._userFmbPinMo.observe(el, { attributes: true, attributeFilter: [USER_FMB_PINNED_ATTR] });
+
+    registerUserFmbChoreography(el);
+  }
+
+  /* v3.555 ITEM-3 — opt this member into the shared detach→decay→re-stash
+     engine (docs/design/fmb-choreography-design.md §Engine API (as-built)):
+       host   = el (the user-fmb host itself — the SAME host js/fmb-column.js
+                already discovers for the "user" slot, per register()'s host
+                contract).
+       button = el.querySelector("button") — the avatar control: the
+                EXISTING persistent, always-clickable control (never a new
+                element), reused as-is per the persistent-button
+                clarification.
+       menu   = panelFor(trigger) — the EXISTING dropdown panel this host's
+                trigger already controls (a stable, already-in-DOM element
+                found by id via aria-controls, portaled but never
+                recreated — safe to resolve once at enhance time).
+     Guarded on Aura.fmbChoreography existing (a consumer may load
+     js/nav-header.js without js/fmb-choreography.js — the engine is an
+     opt-in peer, not a hard dependency) and on trigger/button/menu all being
+     resolvable (a bare standalone host with no wired menu has nothing for
+     the engine to track — register() would itself warn-and-no-op on missing
+     elements, but skipping the call here avoids that diagnostic noise for a
+     deliberately bare host, e.g. the "does not throw for the bare (unwired)
+     standalone shape" fixture). Idempotent per element via
+     el._userFmbChoreographyUnregister (armed once by enhanceUserFmb()'s own
+     _userFmbEnhanced guard). */
+  function registerUserFmbChoreography(el) {
+    if (!Aura.fmbChoreography || typeof Aura.fmbChoreography.register !== "function") return;
+    var trigger = userFmbTriggerFor(el);
+    var btn = el.querySelector("button");
+    var menu = trigger && panelFor(trigger);
+    if (!trigger || !btn || !menu) return;
+    el._userFmbChoreographyUnregister = Aura.fmbChoreography.register({
+      host: el,
+      button: btn,
+      menu: menu,
+      isOpened: function () {
+        return el.hasAttribute(USER_FMB_EXPANDED_ATTR) || el.hasAttribute(USER_FMB_PINNED_ATTR);
+      },
+      isPinned: function () { return el.hasAttribute(USER_FMB_PINNED_ATTR); },
+      /* Reverse-morph callback: the ONLY place a passively-abandoned Opened
+         user-FMB returns to Stashed (docs/design/fmb-choreography-design.md's
+         CRITICAL contract). Clears the Opened signal AND closes the menu —
+         reusing closeUserFmbMenuIfIdle() (its own pinned/focus guards are
+         redundant but harmless here, since the engine only calls stash()
+         once it has already confirmed focus has left both button and menu). */
+      stash: function () {
+        el.removeAttribute(USER_FMB_EXPANDED_ATTR);
+        closeUserFmbMenuIfIdle(el);
+      },
+      label: "user-fmb"
+    });
   }
 
   /* Tear down everything enhanceUserFmb() armed — used both by the sugar
@@ -3318,7 +3648,14 @@ import "./overlay.js";
     if (btn && el._userFmbKeydown) btn.removeEventListener("keydown", el._userFmbKeydown);
     el._userFmbKeydown = null;
     if (el._userFmbFocusIn)  { el.removeEventListener("focusin",  el._userFmbFocusIn);  el._userFmbFocusIn  = null; }
-    if (el._userFmbFocusOut) { el.removeEventListener("focusout", el._userFmbFocusOut); el._userFmbFocusOut = null; }
+    /* v3.555 ITEM-3: unregister from the shared choreography engine last —
+       its own unregister() is idempotent and already clears any live
+       data-fmb-detached/-decaying/--aura-fmb-decay-progress on this host, so
+       ordering relative to the attribute clears below does not matter. */
+    if (el._userFmbChoreographyUnregister) {
+      el._userFmbChoreographyUnregister();
+      el._userFmbChoreographyUnregister = null;
+    }
     el.classList.remove("aura-glow");
     el.removeAttribute(USER_FMB_STASHED_ATTR);
     el.removeAttribute(USER_FMB_EXPANDED_ATTR);
@@ -4360,7 +4697,7 @@ import "./overlay.js";
       header._direction       = null;
       header._stashThreshold  = null;
       header._shrinkThreshold = null;
-      header._retainOffset    = null;
+      header._fmbSeeded       = null;   // v3.555 ITEM-3: re-mount re-seeds stash-default
       headerTeardowns.delete(header); /* consumed — a re-mount re-registers */
       for (var j = 0; j < list.length; j++) {
         try { list[j](header); } catch (e) { Aura.error("[Aura] nav-header teardown:", e); }
@@ -5793,9 +6130,11 @@ import "./overlay.js";
     document.addEventListener("pointerenter", onTooltipPointerEnter, true);
     /* Keyboard focus reveal (a11y) — pointer-agnostic, so it covers touch +
        keyboard and screen-reader users even though pointermove is skipped on
-       coarse pointers. focusin/out bubble (unlike focus/blur). */
+       coarse pointers. focusin bubbles (unlike focus); the focus-LEAVE half
+       of this contract now belongs to the choreography engine (v3.555
+       ITEM-3 — see the onFocusOut removal note above), so only focusin is
+       wired here. */
     document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
     /* Header dim flag — replaces the body-level :has(:focus-visible) (#412). */
     document.addEventListener("focusin", onDimFocusIn);
     document.addEventListener("focusout", onDimFocusOut);
@@ -5813,11 +6152,16 @@ import "./overlay.js";
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize, { passive: true });
     /* Hot-zone reveal needs a real cursor; coarse/touch pointers have none, so
-       skip the listener there (reveal-on-focus / scrolling back to the top still
-       apply, so a stash header is never stuck off-screen). Mirrors glow.js. */
-    var coarse = Aura.env && Aura.env.coarsePointer && Aura.env.coarsePointer();
-    if (!coarse) {
-      document.addEventListener("pointermove", onPointerMove, { passive: true });
-    }
+       syncHotzone() itself no-ops there (reveal-on-focus / scrolling back to
+       the top still apply, so a stash header is never stuck off-screen).
+       v3.559 #1111 (item 3): the listener is installed UNCONDITIONALLY —
+       wireDelegation() runs exactly once (the `wired` guard above), so a
+       coarse read cached here at that one moment would never see a later
+       input-modality change (a real capability change, or the test harness
+       stubbing matchMedia after this script already evaluated). The coarse
+       check now lives inside syncHotzone() itself, read live on every call,
+       matching js/fmb-choreography.js's own "checked LIVE inside the rAF
+       frame, not cached once at wire-up time" convention. */
+    document.addEventListener("pointermove", onPointerMove, { passive: true });
   }
 })();

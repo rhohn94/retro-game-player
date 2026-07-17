@@ -262,6 +262,15 @@ export declare const auraTokens: Readonly<{
   "fmbColumnRevealSize": "44px";
   "fmbColumnSize": "96px";
   "fmbColumnWidth": "96px";
+  "fmbDecayDuration": "5s";
+  "fmbDecayEasing": "cubic-bezier(0.16, 1, 0.3, 1)";
+  "fmbDecayProgress": "0";
+  "fmbGhostOpacity": "0.35";
+  "fmbMorphDuration": "200ms";
+  "fmbMorphEasing": "cubic-bezier(0.16, 1, 0.3, 1)";
+  "fmbPinnedAccent": "rgb(118, 84, 245)";
+  "fmbPressScale": "0.94";
+  "fmbProximityFadeBand": "16px";
   "footerBg": "color(srgb 1 1 1 / 0.11)";
   "footerBlur": "12px";
   "footerBorderColor": "color(srgb 1 1 1 / 0.12)";

@@ -1,6 +1,7 @@
 /* ==========================================================================
    Aura — sidebar FMB (v3.88; genuine full-height engine v3.542, #1014;
-   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049)
+   button/panel decoupling v3.550, #1047; placement variants v3.551, #1049;
+   shared choreography engine adoption v3.555 ITEM-4)
 
    Enhances every .aura-sidebar[data-aura-sidebar] element. As of v3.550 the
    host is a zero-size POSITIONING ROOT only — the actual visible geometry
@@ -12,14 +13,20 @@
        genuine full-height surface when Opened/Pinned (css/sidebar.css owns
        all of this geometry — this file only drives the state attributes).
 
-   Behavior (unchanged triggers from pre-v3.550):
+   Behavior:
      - JS proximity detection: sets data-sidebar-expanded when the cursor
        approaches within --aura-sidebar-fmb-expand-px of the PILL's edge
        (measured against the pill's own rect now, not the host's — the host
        has no box of its own to measure), mirroring the nav-header / footer
        FMB proximity mechanics. This is a PREVIEW of the same genuine
-       full-height surface (no focus trap, no background isolation) — it
-       retracts on pointer-leave.
+       full-height surface (no focus trap, no background isolation).
+       STICKY as of v3.555 (ITEM-4): syncOne() below only ever SETS this
+       attribute once the member is registered with the shared choreography
+       engine — it no longer clears it on proximity exit (pre-v3.555: it
+       retracted instantly on pointer-leave). Closing is now the engine's
+       job — see the "Shared choreography engine registration" block in
+       enhance() and docs/design/fmb-choreography-design.md "Engine API
+       (as-built)".
      - Click-to-pin: toggles data-fmb-pinned to keep the surface open with
        FULL behavior (overlay: trapFocus + isolateBackground; push: content
        offset) until the user activates the pill again, presses Escape,
@@ -28,15 +35,22 @@
        toggle: role=button, tabindex=0, aria-expanded mirrors the pinned
        state, Enter/Space activate — mirrors js/shell-nav.js's toggle
        affordance (#725 pattern) rather than relying on the host's own
-       whole-element click-to-pin alone.
+       whole-element click-to-pin alone. Both toggle paths call
+       Aura.fmbChoreography.press() for pin press-feedback (v3.555 ITEM-4).
 
    Mode dial: data-sidebar-mode="overlay" (default) | "push" — see
    docs/design/sidebar-fmb-design.md. Overlay arms Aura.dialog.trapFocus +
    isolateBackground ONLY while pinned; push never traps and instead relies
    on the CSS-only :root:has() derived --aura-sidebar-push-inline offset
    (css/sidebar.css) — no JS setProperty call needed for the offset itself.
+   Push's offset is gated on [data-fmb-pinned] only, so the v3.555 detach/
+   decay path (which only ever runs while UNPINNED) never coincides with an
+   active push reflow — see docs/design/sidebar-fmb-design.md's adoption
+   section for the full resolution.
 
-   Load order: after element-base.js, dialog.js, overlay.js, popup-overlay.js.
+   Load order: after element-base.js, dialog.js, overlay.js, popup-overlay.js,
+   fmb-choreography.js (same default bundle order, build.py's JS_ORDER —
+   registration below degrades to a harmless no-op if the engine is absent).
    ========================================================================== */
 (function () {
   "use strict";
@@ -45,6 +59,16 @@
      import the module tree without crashing on missing globals. */
   if (typeof window === "undefined" || typeof document === "undefined") return;
   var Aura = window.Aura;
+  /* #1106 (engine-hardening cluster): every sibling FMB module (js/footer.js,
+     js/nav-header.js) bails here if the core Aura namespace itself hasn't
+     loaded yet — this file was missing that guard. Aura.env.coarsePointer()
+     is called unconditionally from syncOne() below (and several other call
+     sites throughout this file), so a page that manages to load
+     js/sidebar.js before js/aura.js/element-base.js populates window.Aura
+     (a load-order mistake, but one every sibling module defends against
+     uniformly) would throw on the very first pointermove instead of no-oping
+     like the rest of the bundle. */
+  if (!Aura) return;
 
   var BEHAVIOR_ATTR = "data-aura-sidebar";
   /* JS proximity expand: set while the cursor is inside the expand-px ring. */
@@ -103,6 +127,17 @@
     /* Skip when pinned — CSS data-fmb-pinned keeps it open regardless. */
     if (el.hasAttribute(PINNED_ATTR)) return;
     if (pointerX < 0) return;
+    /* pointer: coarse (v3.555 ITEM-4, docs/design/fmb-choreography-design.md
+       §Reduced motion and pointer: coarse): no cursor exists to approach
+       with under a coarse pointer, so the Approach movement this function
+       drives does not apply at all (fmb-design.md §2's own exemption).
+       Checked LIVE, not cached at module-eval time, so a matchMedia stub
+       installed by a test (or a genuine hybrid-pointer capability change)
+       takes effect on the very next sync pass — this module's `instances`
+       are populated by enhance() calls that can run long after this file
+       first evaluates, the same reasoning js/fmb-choreography.js's own
+       banner comment gives for checking live rather than caching once. */
+    if (Aura.env.coarsePointer()) return;
 
     /* v3.550 (button/panel decoupling, #1047): the HOST is now a zero-size
        positioning root — el.getBoundingClientRect() would report a
@@ -137,7 +172,17 @@
 
     if (inProximity) {
       if (!el.hasAttribute(EXPANDED_ATTR)) el.setAttribute(EXPANDED_ATTR, "");
-    } else {
+    } else if (!el._fmbUnregister) {
+      /* Sticky open (v3.555 ITEM-4, docs/design/fmb-choreography-design.md
+         "Engine API (as-built)" — the CRITICAL contract): once registered
+         with the shared choreography engine (below, in enhance()), this
+         function must NEVER clear EXPANDED_ATTR on proximity exit — the
+         engine's stash() callback owns closing via the detach->decay return
+         path; isOpened() must keep reporting true until stash() runs, or
+         detach/decay never starts at all. Only fall back to the pre-v3.555
+         instant-collapse behavior when no engine registration exists (e.g.
+         js/sidebar.js used standalone, outside the default bundle, where
+         nothing else would ever clear this attribute). */
       if (el.hasAttribute(EXPANDED_ATTR)) el.removeAttribute(EXPANDED_ATTR);
     }
   }
@@ -205,6 +250,29 @@
     return el.querySelector('[data-sidebar-zone="mark"]');
   }
 
+  /* Resolve the panel — the full-height content zone — used as THE MENU the
+     shared choreography engine measures detach/decay distance against
+     (v3.555 ITEM-4; docs/design/fmb-choreography-design.md's persistent-
+     button clarification: the EXISTING panel, never a new element). */
+  function panelOf(el) {
+    return el.querySelector('[data-sidebar-zone="content"]');
+  }
+
+  /* #1108: the ONE predicate for "is this member's panel visibly open" —
+     Opened (hover/proximity/keyboard-latched, EXPANDED_ATTR) OR Pinned
+     (PINNED_ATTR); css/sidebar.css's own open-state selector list
+     (:hover, :focus-within, [data-sidebar-expanded], [data-fmb-pinned])
+     already treats these two attributes as equally "open" for the panel's
+     own visibility — aria-expanded and the choreography engine's isOpened()
+     callback below both need that SAME definition, so it lives here once
+     and both call sites reuse it, rather than each re-deriving its own
+     (previously divergent: syncPillExpanded() below checked PINNED_ATTR
+     only, under-reporting a merely-hovered/proximity-opened panel as
+     collapsed to assistive tech). */
+  function isVisiblyOpen(el) {
+    return el.hasAttribute(EXPANDED_ATTR) || el.hasAttribute(PINNED_ATTR);
+  }
+
   function setPinned(el, pinned) {
     if (pinned) {
       if (!el.hasAttribute(PINNED_ATTR)) el.setAttribute(PINNED_ATTR, "");
@@ -213,16 +281,41 @@
     }
   }
 
+  /* Explicit dismissal of the Opened (expanded, unpinned) tier (#1083,
+     fmb-design.md's coarse-pointer contract): clears EXPANDED_ATTR directly.
+     This is a REAL user action (pill tap, outside tap, Escape), not the
+     passive hover/focus-leave the engine's CRITICAL sticky-open contract
+     forbids members from acting on — the engine itself no-ops entirely on
+     coarse pointers ("a touch-opened member stays open until the member's
+     OWN explicit dismissal", js/fmb-choreography.js processMember), so this
+     member-side path is the only close a touch user has. */
+  function closeOpenedTier(el) {
+    if (el.hasAttribute(EXPANDED_ATTR)) el.removeAttribute(EXPANDED_ATTR);
+    /* On a coarse pointer the tap leaves focus wherever it landed (usually
+       the tabindex=0 pill), and css/sidebar.css's open-state selector list
+       includes :focus-within — clearing the attribute alone would leave the
+       panel visually open with no cursor whose departure could ever close
+       it. Blur focus out of the member so the panel genuinely closes. */
+    if (Aura.env.coarsePointer()) {
+      var active = document.activeElement;
+      if (active && el.contains(active) && typeof active.blur === "function") active.blur();
+    }
+  }
+
   /* Arm full pinned behavior: overlay mode gets a focus trap + background
      isolation (inert/aria-hidden, NO visual scrim — chrome-over-content glass
      tier, unlike the mobile shell drawer); push mode gets neither, relying on
-     the CSS-only offset instead. Both modes get dismissal (Escape + outside-
-     pointer via Aura.popupOverlay.createDismisser), with push disabling the
-     dismisser's scroll/resize auto-dismiss (a push-mode surface living
-     alongside normal page scroll should not vanish on ordinary scrolling —
-     Escape / outside-pointer / pill re-toggle remain the dismiss paths).
-     Mirrors js/shell-nav.js's open()/close() arm-on-open/release-on-close
-     pattern (#725). */
+     the CSS-only offset instead. Dismissal splits by mode (#1087): overlay
+     arms the shared Aura.popupOverlay.createDismisser (outside-pointer +
+     scroll/resize/blur); push mode NEVER arms it — the shared dismisser's
+     scroll/resize/blur listeners are unconditional, and a push-mode surface
+     living alongside normal page scroll must not vanish on ordinary
+     scrolling/resize/blur (sidebar-fmb-design.md §Push mode). Push dismissal
+     is Escape (the member's own host-scoped keydown while focus is still
+     inside, PLUS a document-level fallback for once it isn't — #1098, see
+     the keydown wiring in enhance()) + outside-pointer via armPushDismissal
+     + pill re-toggle, nothing else. Mirrors js/shell-nav.js's open()/close()
+     arm-on-open/release-on-close pattern (#725). */
   function armPinned(el) {
     var pill = pillOf(el);
     if (Aura && Aura.dialog) {
@@ -231,17 +324,27 @@
         if (Aura.dialog.trapFocus) el._sidebarUntrap = Aura.dialog.trapFocus(el);
       }
     }
-    if (Aura && Aura.popupOverlay && typeof Aura.popupOverlay.createDismisser === "function") {
+    /* #1087 — the shared dismisser is OVERLAY-MODE ONLY. It attaches its
+       scroll/resize/blur listeners unconditionally (js/overlay.js
+       createDismisser.arm() — `pointer:false` only ever omitted the
+       outside-pointer gesture), so arming it in push mode auto-unpinned the
+       sidebar on the first page scroll, window resize, or window blur —
+       exactly the dismissals sidebar-fmb-design.md §Push mode requires
+       DISABLED ("would make it unusable" alongside normal page scroll).
+       Push mode gets NOTHING from the dismisser it actually wants: its
+       outside-pointer path is armPushDismissal below, and Escape is handled
+       by the member's own host-scoped keydown handler while focus is still
+       inside it, plus a document-level fallback for once focus has moved
+       into the pushed page content (#1098 — that handler never fired once
+       focus left; see the keydown wiring in enhance()). Skip createDismisser
+       entirely here rather than growing per-gesture opt-outs. Overlay mode
+       is unchanged: full gesture set (outside-pointer + scroll + resize +
+       blur). */
+    if (!isPushMode(el) && Aura && Aura.popupOverlay && typeof Aura.popupOverlay.createDismisser === "function") {
       el._sidebarDismisser = Aura.popupOverlay.createDismisser({
         onDismiss: function () { setPinned(el, false); },
         isInside: function (t) { return el.contains(t); },
-        isOnOpener: function (t) { return !!pill && pill.contains(t); },
-        /* Push mode: scroll/resize/blur must not auto-dismiss a surface that
-           coexists with normal page scroll — only Escape / outside-pointer /
-           re-toggle should close it. createDismisser has no per-gesture
-           opt-out beyond `pointer`, so push mode arms a minimal direct-
-           delegation fallback instead (see armPushDismissal below). */
-        pointer: !isPushMode(el)
+        isOnOpener: function (t) { return !!pill && pill.contains(t); }
       });
       el._sidebarDismisser.arm();
     }
@@ -250,13 +353,16 @@
     if (first) first.focus({ preventScroll: true });
   }
 
-  /* Push mode's own outside-pointer + Escape delegation — createDismisser's
-     `pointer:false` above already omits its outside-pointer listener; this
-     supplies just that one gesture directly (scroll/resize/blur stay OFF,
-     per the acceptance criteria) so push-mode dismissal still has an
-     outside-pointer path without inheriting the auto-dismiss-on-scroll
-     behavior that would make a push-mode surface unusable while reading a
-     long page. */
+  /* Push mode's own outside-pointer delegation — the shared createDismisser
+     is never armed in push mode at all (#1087: its scroll/resize/blur
+     listeners are unconditional and would auto-unpin on ordinary page
+     scroll/resize/blur), so this supplies the one global gesture push mode
+     DOES want, directly: pointerdown outside the member and its pill unpins.
+     scroll/resize/blur stay OFF per sidebar-fmb-design.md §Push mode; Escape
+     is handled by the member's own host-scoped keydown handler while focus
+     is inside it, plus a document-level fallback (#1098, wired in enhance())
+     for once focus has moved into the pushed page content — push mode never
+     traps focus, so that is the normal reading flow, not an edge case. */
   function armPushDismissal(el, pill) {
     function onPointerDown(e) {
       var t = e.target;
@@ -281,13 +387,35 @@
     }
     if (skipFocusReturn) return;
     var pill = pillOf(el);
-    if (pill) pill.focus({ preventScroll: true });
+    if (!pill) return;
+    /* #1083 — coarse pointers: do NOT return focus to the pill. There is no
+       keyboard context to preserve on a plain touch unpin, and focusing the
+       pill would hold the panel open via css/sidebar.css's :focus-within
+       open-state selector with no cursor whose departure could ever close it
+       (the engine no-ops on coarse). Blur any focus the tap left inside the
+       member instead, so unpin genuinely closes the surface. */
+    if (Aura.env.coarsePointer()) {
+      var active = document.activeElement;
+      if (active && el.contains(active) && typeof active.blur === "function") active.blur();
+      return;
+    }
+    /* #1083 — the focus return is PROGRAMMATIC, not a user opening gesture:
+       suppress the keyboard-open focusin latch for the synchronous focusin
+       this dispatches, so an unpin/close path can never re-latch
+       EXPANDED_ATTR by side effect (focus events fire synchronously inside
+       focus(), so the flag window covers exactly this one dispatch). */
+    el._sidebarSuppressFocusLatch = true;
+    pill.focus({ preventScroll: true });
+    el._sidebarSuppressFocusLatch = false;
   }
 
-  /* Reflect aria-expanded on the pill from the live PINNED_ATTR state. */
+  /* Reflect aria-expanded on the pill from the live visibly-open state
+     (#1108: Opened OR Pinned — see isVisiblyOpen() above. Previously checked
+     PINNED_ATTR only, so a hover-opened-but-not-pinned panel announced
+     aria-expanded="false" to assistive tech while visibly open on screen). */
   function syncPillExpanded(el) {
     var pill = pillOf(el);
-    if (pill) pill.setAttribute("aria-expanded", el.hasAttribute(PINNED_ATTR) ? "true" : "false");
+    if (pill) pill.setAttribute("aria-expanded", isVisiblyOpen(el) ? "true" : "false");
   }
 
   /* ---- Per-element enhance / teardown ----------------------------------- */
@@ -304,6 +432,29 @@
        missing pill. */
     var pill = pillOf(el);
     el._fmbPill = pill;
+    /* Resolved once alongside the pill — the panel is THE MENU the shared
+       choreography engine measures detach/decay distance against (v3.555
+       ITEM-4, registered further below, gated to FMB mode). */
+    var panel = panelOf(el);
+    el._fmbPanel = panel;
+    /* Cached once so the click/keydown handlers below (some of which run
+       even for a non-FMB drawer sidebar, per the historical any-value gate
+       further down) can gate their engine calls without re-reading the
+       attribute on every activation. */
+    var isFmbMode = el.getAttribute(BEHAVIOR_ATTR) === "reveal";
+    /* Pin press-feedback (v3.555 ITEM-4, docs/design/fmb-choreography-
+       design.md's Aura.fmbChoreography.press() JSDoc): the pill is a
+       role="button" <span>, not a native <button> — its two input-modality
+       toggle paths (click-to-pin below, and the Enter/Space keydown handler
+       further down) do NOT already funnel through one unified click event
+       the way the engine's own JSDoc describes for a real <button> member,
+       so both call sites invoke this helper explicitly. No-ops outside FMB
+       mode or without a pill/engine present. */
+    function pressPill() {
+      if (pill && isFmbMode && Aura && Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+        Aura.fmbChoreography.press(pill);
+      }
+    }
     /* Cache the FMB geometry tokens once at enhance time — these design-system
        constants don't change at runtime, so probing them on every rAF tick is
        unnecessary. Cached on the element so teardown can clear them. */
@@ -335,7 +486,21 @@
        always had. */
     el._sidebarPinClick = function (e) {
       if (e.target.closest("a, button, input, select, textarea")) return;
+      /* #1083 — coarse-pointer explicit dismissal of the Opened tier: a tap
+         on the pill while the panel is Opened (expanded) but unpinned CLOSES
+         it rather than pinning — per fmb-design.md's coarse-pointer contract
+         the engine never auto-decays on touch, so without this the tap
+         escalated an already-open panel to Pinned and the Opened tier had no
+         pill-side exit at all. Fine pointers keep the historical toggle (the
+         engine's detach→decay path owns the Opened tier's close there). */
+      if (isFmbMode && Aura.env.coarsePointer() &&
+          !el.hasAttribute(PINNED_ATTR) && el.hasAttribute(EXPANDED_ATTR) &&
+          pill && pill.contains(e.target)) {
+        closeOpenedTier(el);
+        return;
+      }
       el.toggleAttribute(PINNED_ATTR);
+      pressPill();
     };
     el.addEventListener("click", el._sidebarPinClick);
 
@@ -350,7 +515,105 @@
        the drawer. Everything above this line (proximity, stash mirror,
        glow, geometry caches, click-to-pin) keeps its historical any-value
        behavior. */
-    if (el.getAttribute(BEHAVIOR_ATTR) !== "reveal") return;
+    if (!isFmbMode) return;
+
+    /* ---- Shared choreography engine registration (v3.555 ITEM-4) --------
+       docs/design/fmb-choreography-design.md "Engine API (as-built)":
+       register the EXISTING pill (button) + EXISTING content zone (menu)
+       pair — no new element is introduced, per the persistent-button
+       clarification. host MUST be the SAME element js/fmb-column.js
+       discovers for this member ([data-aura-sidebar], the LEGACY_MEMBERS
+       "sidebar" slot selector) — see the engine's own JSDoc.
+
+       CRITICAL (the engine's own callout, docs/design/fmb-choreography-
+       design.md): once Opened+unpinned this member must NOT self-revert on
+       hover/focus-out. EXPANDED_ATTR (data-sidebar-expanded) is therefore
+       STICKY as of this item — syncOne() above only ever SETS it once
+       registered here, never clears it; isOpened() keeps reporting it true
+       until stash() below runs. Before this item the sidebar reverted
+       instantly the moment :hover/:focus-within/[data-sidebar-expanded]
+       all dropped (the pure-CSS ghost-rim-suppression :not() selector
+       above is unrelated to this, but was the same shape of "all triggers
+       dropped -> revert" logic this item replaces for the OPEN state) —
+       that reversion is now delegated entirely to the engine's
+       detach->decay->stash() return path.
+
+       Gate on BOTH pill and panel (#1097): the engine's own validateMember()
+       rejects a call whose `button` isn't an Element (pill-less markup) and
+       hands back a harmless-looking no-op unregister function — genuinely
+       indistinguishable from a real disposer by type alone. Calling
+       register() anyway on pill-less markup let that no-op get stored as a
+       TRUTHY el._fmbUnregister below, which silently disabled syncOne()'s
+       "no engine -> instant-clear" fallback for a member the engine was
+       never actually driving in the first place (it cannot compute a
+       button-relative distance without a button element to measure). Gating
+       here — matching what syncOne() itself already requires via
+       el._fmbPill — keeps el._fmbUnregister genuinely unset (falsy) whenever
+       registration didn't really take, so the fallback stays live. */
+    if (pill && panel && Aura && Aura.fmbChoreography && typeof Aura.fmbChoreography.register === "function") {
+      el._fmbUnregister = Aura.fmbChoreography.register({
+        host: el,
+        button: pill,
+        menu: panel,
+        /* #1108: reuse the SAME "visibly open" predicate aria-expanded now
+           reads (isVisiblyOpen() above) rather than re-deriving an identical
+           boolean expression here — one definition of "open" for both. */
+        isOpened: function () { return isVisiblyOpen(el); },
+        isPinned: function () { return el.hasAttribute(PINNED_ATTR); },
+        stash: function () { el.removeAttribute(EXPANDED_ATTR); },
+        label: "sidebar"
+      });
+
+      /* Keyboard-driven open (Tab onto the pill or a link inside the
+         content zone, no mouse ever involved) must ALSO latch EXPANDED_ATTR
+         — :focus-within already opens the panel visually via CSS regardless
+         (the combined open-state selector in css/sidebar.css), but without
+         this the engine's isOpened() would never see a keyboard-only open
+         as tracked, leaving it on the old instant-close-on-blur path
+         instead of the detach->decay return path. Mirrors syncOne()'s own
+         "set, never clear" rule — focusout is intentionally NOT handled
+         here; only stash() clears it. Scoped to the engine-registered case
+         only (mirrors syncOne()'s own fallback): with no engine to
+         eventually stash() it, latching this permanently would leave the
+         sidebar stuck open with nothing to close it. */
+      el._sidebarFmbFocusIn = function () {
+        if (el.hasAttribute(PINNED_ATTR)) return;
+        /* #1083 — a PROGRAMMATIC focus return (releasePinned's pill.focus()
+           after unpin/Escape/outside-click) is not a user opening gesture:
+           re-latching here made every unpin path immediately re-open the
+           member. The flag is set synchronously around exactly that one
+           focus() dispatch. */
+        if (el._sidebarSuppressFocusLatch) return;
+        /* #1083 — coarse pointers: never latch. The latch exists so the
+           ENGINE can track a keyboard-opened member and close it via its
+           focus-leave → detach → decay path — but the engine no-ops entirely
+           on coarse pointers, so a latched attribute there is permanent:
+           nothing would ever clear it and the panel became unclosable until
+           reload. On touch the pin toggle owns open/close; a hardware-
+           keyboard user on a touch device still gets the :focus-within CSS
+           preview, which retracts by itself when focus moves on. Checked
+           LIVE (same reasoning as syncOne above). */
+        if (Aura.env.coarsePointer()) return;
+        if (!el.hasAttribute(EXPANDED_ATTR)) el.setAttribute(EXPANDED_ATTR, "");
+      };
+      el.addEventListener("focusin", el._sidebarFmbFocusIn);
+    }
+
+    /* #1083 — coarse-pointer outside-tap dismissal for the Opened tier
+       (fmb-design.md's coarse contract: "explicit dismissal — tap the
+       button, tap outside, or Escape"). The pinned tier already has the
+       armPinned() dismisser; the Opened (expanded, unpinned) tier had NO
+       outside exit on touch, where the engine deliberately never runs.
+       Fine pointers are untouched — there the engine's detach→decay return
+       path owns the Opened tier. Capture-phase, mirroring armPushDismissal. */
+    el._sidebarOpenedOutsideDismiss = function (e) {
+      if (!Aura.env.coarsePointer()) return;
+      if (el.hasAttribute(PINNED_ATTR) || !el.hasAttribute(EXPANDED_ATTR)) return;
+      var t = e.target;
+      if (t && el.contains(t)) return;
+      closeOpenedTier(el);
+    };
+    document.addEventListener("pointerdown", el._sidebarOpenedOutsideDismiss, true);
 
     /* Pill toggle affordance (v3.542, #1014): the [data-sidebar-zone="mark"]
        circle icon becomes an explicit toggle — role=button, tabindex=0,
@@ -379,27 +642,96 @@
       el._sidebarPillKeydown = function (e) {
         if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
         e.preventDefault();
+        /* #1083 — mirror the click path's coarse-pointer Opened-tier close
+           (the pill's two activation modalities must agree). */
+        if (Aura.env.coarsePointer() &&
+            !el.hasAttribute(PINNED_ATTR) && el.hasAttribute(EXPANDED_ATTR)) {
+          closeOpenedTier(el);
+          return;
+        }
         el.toggleAttribute(PINNED_ATTR);
+        pressPill();
       };
       pill.addEventListener("keydown", el._sidebarPillKeydown);
     }
 
     /* Escape closes a pinned surface and returns focus to the pill —
        delegated per-instance since the pinned/unpinned lifecycle is scoped
-       to this element (mirrors js/shell-nav.js's keydown Escape handling). */
+       to this element (mirrors js/shell-nav.js's keydown Escape handling).
+       Host-scoped: this only fires while focus is still somewhere inside
+       `el` (or the event otherwise bubbles through it). Overlay mode's focus
+       trap guarantees that's always true while pinned, but push mode never
+       traps (line ~43 above), so el._sidebarDocKeydown below covers push
+       mode once focus has moved elsewhere (#1098). */
     el._sidebarKeydown = function (e) {
       if (e.key !== "Escape") return;
+      if (el.hasAttribute(PINNED_ATTR)) {
+        e.preventDefault();
+        el.removeAttribute(PINNED_ATTR);
+        return;
+      }
+      /* #1083 — Escape also dismisses the Opened (expanded, unpinned) tier:
+         part of fmb-design.md's explicit-dismissal vocabulary, and on coarse
+         pointers the ONLY keyboard exit (the engine never runs there). An
+         explicit Escape is a real action, not the passive leave the engine's
+         sticky-open contract reserves for itself, so clearing EXPANDED_ATTR
+         here does not violate the register() contract. */
+      if (el.hasAttribute(EXPANDED_ATTR)) {
+        e.preventDefault();
+        closeOpenedTier(el);
+      }
+    };
+    el.addEventListener("keydown", el._sidebarKeydown);
+
+    /* Document-level Escape fallback for push mode (#1098): push mode never
+       traps focus, so once focus moves from the sidebar into the pushed
+       article content — the normal push-mode reading flow, not an edge
+       case — el._sidebarKeydown above never fires again; nothing was
+       listening at the document level, so Escape stopped unpinning the
+       sidebar entirely. Overlay mode doesn't need this: its focus trap keeps
+       focus inside `el`, so el._sidebarKeydown alone still catches every
+       Escape press there. Mirrors js/nav-header.js's own document-level
+       Escape handling for its FMB circle's Pinned exit (#1068), including
+       its scoping discipline: dialog.js's focus-trap keydown listener and
+       overlay.js's popup dismissal both unconditionally call
+       e.preventDefault() on an Escape they own (dialog.js whenever any
+       dialog is open, overlay.js whenever a popup is active) BEFORE this
+       listener runs (both load earlier in build.py's JS_ORDER, and
+       overlay.js's is capture-phase so it runs first regardless) — checking
+       e.defaultPrevented here means an Escape meant for a dialog/popup on
+       top is never also swallowed/re-acted-on by the sidebar. Wired
+       unconditionally in enhance()/removed in teardown() like
+       el._sidebarKeydown above; gated internally to push mode + actually
+       pinned so a non-pinned, non-push, or non-FMB sidebar never reacts. */
+    el._sidebarDocKeydown = function (e) {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      if (!isPushMode(el)) return;
       if (!el.hasAttribute(PINNED_ATTR)) return;
       e.preventDefault();
       el.removeAttribute(PINNED_ATTR);
     };
-    el.addEventListener("keydown", el._sidebarKeydown);
+    document.addEventListener("keydown", el._sidebarDocKeydown);
 
     /* Arm/release full pinned behavior (trap + isolation + dismissal) exactly
        when data-fmb-pinned transitions, and keep aria-expanded in sync —
        MutationObserver-driven so every path that flips the attribute (pill
        click, host click, Enter/Space, programmatic API) is covered from one
-       place, mirroring the stash mirror above. */
+       place, mirroring the stash mirror above.
+
+       #1108: EXPANDED_ATTR joins the filter too — aria-expanded now mirrors
+       isVisiblyOpen() (Opened OR Pinned, see above), so every path that flips
+       EITHER attribute must re-sync it: syncOne()'s proximity latch,
+       closeOpenedTier()'s explicit dismissal, the keyboard focusin latch, and
+       the choreography engine's own stash() callback all set/clear
+       EXPANDED_ATTR directly and none of them called syncPillExpanded()
+       themselves — before this fix a hover/proximity-opened (Opened,
+       unpinned) panel kept announcing aria-expanded="false" for its entire
+       visibly-open lifetime, only ever flipping to "true" once actually
+       Pinned. The arm/release pinned-behavior branch below is unaffected —
+       it only ever keys off PINNED_ATTR regardless of why this callback
+       fired, so an EXPANDED_ATTR-only mutation harmlessly re-checks a pinned
+       state that hasn't changed. */
     el._pinMo = new MutationObserver(function () {
       syncPillExpanded(el);
       var pinned = el.hasAttribute(PINNED_ATTR);
@@ -411,7 +743,7 @@
         releasePinned(el);
       }
     });
-    el._pinMo.observe(el, { attributes: true, attributeFilter: [PINNED_ATTR] });
+    el._pinMo.observe(el, { attributes: true, attributeFilter: [PINNED_ATTR, EXPANDED_ATTR] });
   }
 
   function teardown(el) {
@@ -422,6 +754,22 @@
        attributes cannot re-add the mirror attribute after teardown (#1019). */
     if (el._stashMirrorMo) { el._stashMirrorMo.disconnect(); el._stashMirrorMo = null; }
     if (el._pinMo) { el._pinMo.disconnect(); el._pinMo = null; }
+    /* Unregister from the shared choreography engine (v3.555 ITEM-4) —
+       idempotent, clears any live data-fmb-detached/-decaying/
+       --aura-fmb-decay-progress on the host and drops the registry entry,
+       mirroring every other Aura registration API's disposer-return
+       convention. */
+    if (el._fmbUnregister) { el._fmbUnregister(); el._fmbUnregister = null; }
+    if (el._sidebarFmbFocusIn) {
+      el.removeEventListener("focusin", el._sidebarFmbFocusIn);
+      el._sidebarFmbFocusIn = null;
+    }
+    /* #1083 — remove the coarse-pointer Opened-tier outside-tap dismisser. */
+    if (el._sidebarOpenedOutsideDismiss) {
+      document.removeEventListener("pointerdown", el._sidebarOpenedOutsideDismiss, true);
+      el._sidebarOpenedOutsideDismiss = null;
+    }
+    el._sidebarSuppressFocusLatch = false;
     /* Release trap/isolation/dismissal BEFORE clearing the pinned attribute —
        releasePinned() reads the live pill; removeAttribute below would still
        leave a correct final DOM state either way, but releasing first avoids
@@ -438,6 +786,11 @@
       el.removeEventListener("keydown", el._sidebarKeydown);
       el._sidebarKeydown = null;
     }
+    /* #1098 — remove the document-level push-mode Escape fallback. */
+    if (el._sidebarDocKeydown) {
+      document.removeEventListener("keydown", el._sidebarDocKeydown);
+      el._sidebarDocKeydown = null;
+    }
     var pill = pillOf(el);
     if (pill) {
       if (el._sidebarPillKeydown) pill.removeEventListener("keydown", el._sidebarPillKeydown);
@@ -447,6 +800,7 @@
     }
     el._sidebarPillKeydown = null;
     el._fmbPill = null;
+    el._fmbPanel = null;
     el._fmbRadius = el._fmbExpand = 0;
     el._sidebarEnhanced = false;
   }

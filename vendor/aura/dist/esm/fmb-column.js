@@ -57,7 +57,22 @@
    ITEM-13 (v3.554, #1080): the reveal <button> is a document.body child,
    not a DOM descendant of <aura-fmb-column> — see _ensureRevealControl()'s
    doc comment for the aura-app isolation-boundary/stacking-context fix this
-   corrects (mirrors js/footer.js's ensureFooterPanel() escape). */
+   corrects (mirrors js/footer.js's ensureFooterPanel() escape).
+
+   v3.555 ITEM-2 (docs/design/fmb-choreography-design.md §Seam contract): this
+   file gained a narrow seam for the new js/fmb-choreography.js engine, which
+   drives the Detach → Decay → re-stash return path (fmb-design.md §State-
+   transition choreography, movement 5) — NO choreography logic lives here.
+   Three additions: (1) Aura.fmbColumn.members(), a module-level read
+   accessor exposing the SAME member discovery this file already does, so the
+   choreography engine (or any future consumer) never needs a second
+   LEGACY_MEMBERS-shaped dispatch; (2) isStashed() now returns false for a
+   host carrying data-fmb-decaying — a mid-decay member has not yet actually
+   returned to Stashed, so it must not count toward stack activation while
+   still keeping its slot cell (isEligible() is unchanged and still governs
+   cell reservation); (3) the MutationObserver attributeFilter now watches
+   data-fmb-detached/-decaying too, so a sync re-runs the moment the
+   choreography engine flips either one. */
 
 (function () {
   "use strict";
@@ -142,6 +157,16 @@
      unified-contract note reused from the pre-v3.549 user-FMB template). */
   function isStashed(entry) {
     var host = entry.host;
+    /* v3.555 ITEM-2 seam (fmb-choreography-design.md §Seam contract point 2):
+       a member mid-decay (Opened+unpinned, js/fmb-choreography.js's timed
+       auto-fade running) has NOT yet returned to Stashed — the reverse-morph
+       hasn't completed — so it must not count as Stashed here, regardless of
+       slot name. This mirrors hasVisibleContent()'s box-model-stability
+       precedent below, one attribute over: a decaying member still keeps its
+       slot cell (isEligible() below is what governs cell reservation, and is
+       untouched by decay state), it just doesn't count toward
+       eligibleStashedCount / stack activation while still visibly fading. */
+    if (host.hasAttribute("data-fmb-decaying")) return false;
     switch (entry.slotName) {
       case "nav":
         return host.hasAttribute("data-stashed");
@@ -185,6 +210,77 @@
         return true;
     }
   }
+
+  /* Migration default (v3.549 ITEM-2), extracted to a free function (v3.555
+     ITEM-2 seam) — tag each present legacy host with its default
+     data-fmb-column/data-fmb-anchor/data-fmb-slot triplet, UNLESS the host
+     already authors its own data-fmb-column (an explicit author override
+     always wins). Idempotent: checks hasAttribute before writing so re-
+     running this on every discovery pass never clobbers a value a consumer
+     or a prior run already set. Never depended on `this` — it always just
+     scanned `document` — so it is now a standalone function the
+     AuraFmbColumn.prototype._autoTagLegacyMembers() method below delegates
+     to, and the module-level discoverMembers() (also below) reuses directly. */
+  function autoTagLegacyMembers() {
+    for (var i = 0; i < LEGACY_MEMBERS.length; i++) {
+      var def = LEGACY_MEMBERS[i];
+      var hosts = document.querySelectorAll(def.selector);
+      for (var h = 0; h < hosts.length; h++) {
+        var host = hosts[h];
+        if (!host.hasAttribute("data-fmb-column")) host.setAttribute("data-fmb-column", def.column);
+        if (!host.hasAttribute("data-fmb-anchor"))  host.setAttribute("data-fmb-anchor", def.anchor);
+        if (!host.hasAttribute("data-fmb-slot"))    host.setAttribute("data-fmb-slot", def.slot);
+      }
+    }
+  }
+
+  /* Re-discover every registered member in the document (v3.555 ITEM-2 seam:
+     the SAME logic AuraFmbColumn.prototype._discoverMembers() below uses,
+     extracted to a free function so it needs no <aura-fmb-column> instance).
+     Any element carrying BOTH data-fmb-column and data-fmb-anchor (after
+     autoTagLegacyMembers() has run) is a registered member, EXCEPT this
+     file's own internal stack containers (_ensureStacks() also gives those
+     the same two attributes as positioning markers, not member hosts) —
+     detected via host.closest("aura-fmb-column") rather than a `parentElement
+     === this` instance check, which is equivalent for the single-instance-
+     per-page model this file already assumes (file banner comment) but
+     instance-independent, which is what makes this function extractable as
+     the module-level read accessor Aura.fmbColumn.members() exposes just
+     below: js/fmb-choreography.js (or any future consumer) reads the SAME
+     discovered member list instead of re-implementing the
+     LEGACY_MEMBERS-shaped dispatch a second time (fmb-choreography-design.md
+     §Seam contract point 1). Registration order = DOM (document) order.
+     Returns plain {host, column, anchor, slotName} records — not
+     MemberEntry instances, which are this file's own internal type; the
+     public accessor stays dependency-free of it. */
+  function discoverMembers() {
+    autoTagLegacyMembers();
+    var hosts = document.querySelectorAll("[data-fmb-column][data-fmb-anchor]");
+    var members = [];
+    for (var i = 0; i < hosts.length; i++) {
+      var host = hosts[i];
+      if (host.closest && host.closest("aura-fmb-column")) continue; // our own stack container, not a member
+      var column = host.getAttribute("data-fmb-column");
+      var anchor = host.getAttribute("data-fmb-anchor");
+      if (COLUMNS.indexOf(column) === -1 || ANCHORS.indexOf(anchor) === -1) continue;
+      var slotName = host.getAttribute("data-fmb-slot") || null;
+      members.push({ host: host, column: column, anchor: anchor, slotName: slotName });
+    }
+    return members;
+  }
+
+  /* Public read accessor (v3.555 ITEM-2 seam, fmb-choreography-design.md
+     §Seam contract point 1): the current FMB member list, freshly discovered
+     from the live DOM on every call — mirrors this file's own back-compat
+     getters' "always correct for the CURRENT DOM state" convention (see
+     AuraFmbColumn.prototype's _navEl-shaped getters below) rather than a
+     cached snapshot that could go stale between calls. Namespace-level, not
+     tied to any <aura-fmb-column> instance, because member discovery is a
+     page-wide DOM query, not per-element state. */
+  Aura.fmbColumn = Aura.fmbColumn || {};
+  Aura.fmbColumn.members = function () {
+    return discoverMembers();
+  };
 
   /* Content-occupancy predicate (#1074 fix). isStashed()/isEligible() answer
      from MEMBER STATE alone (attributes) — neither one ever asks whether the
@@ -432,7 +528,13 @@
         attributeFilter: [
           "data-stashed", "data-aura-revealed", "data-aura-sidebar", "data-aura-footer",
           "data-aura-stashed", "data-aura-user-fmb", "data-fmb-pinned",
-          "data-fmb-column", "data-fmb-anchor"
+          "data-fmb-column", "data-fmb-anchor",
+          /* v3.555 ITEM-2 seam (fmb-choreography-design.md §Seam contract
+             point 3): js/fmb-choreography.js flips these on a member host
+             while it's Opened+unpinned — a sync must re-run the moment it
+             does, or the column's own slot/eligibility bookkeeping (the
+             isStashed() decaying-member rule above) goes stale mid-decay. */
+          "data-fmb-detached", "data-fmb-decaying"
         ]
       });
 
@@ -613,18 +715,14 @@
        four names, it only supplies defaults for them). Idempotent: checks
        hasAttribute before writing so re-running this on every _sync() (via
        the childList-driven presence re-discovery) never clobbers a value a
-       consumer or a prior run already set. */
+       consumer or a prior run already set.
+
+       v3.555 ITEM-2 seam: the actual scan/tag logic is now the module-level
+       autoTagLegacyMembers() function above (it never depended on `this`) —
+       this instance method is kept as a thin delegate so every existing call
+       site below is unchanged. */
     _autoTagLegacyMembers() {
-      for (var i = 0; i < LEGACY_MEMBERS.length; i++) {
-        var def = LEGACY_MEMBERS[i];
-        var hosts = document.querySelectorAll(def.selector);
-        for (var h = 0; h < hosts.length; h++) {
-          var host = hosts[h];
-          if (!host.hasAttribute("data-fmb-column")) host.setAttribute("data-fmb-column", def.column);
-          if (!host.hasAttribute("data-fmb-anchor"))  host.setAttribute("data-fmb-anchor", def.anchor);
-          if (!host.hasAttribute("data-fmb-slot"))    host.setAttribute("data-fmb-slot", def.slot);
-        }
-      }
+      autoTagLegacyMembers();
     }
 
     /* Re-discover every registered member in the document: any element
@@ -632,23 +730,17 @@
        _autoTagLegacyMembers() has run, so the four legacy hosts are
        included). Registration order = DOM (document) order, which
        _sync()/_layoutStack() preserve into each stack's slot order —
-       satisfying "stacking order within an anchor... registration order". */
+       satisfying "stacking order within an anchor... registration order".
+
+       v3.555 ITEM-2 seam: delegates to the module-level discoverMembers()
+       function above (the same one Aura.fmbColumn.members() exposes
+       publicly), wrapping its plain {host, column, anchor, slotName} records
+       into this file's internal MemberEntry type — a single discovery
+       implementation, not two. */
     _discoverMembers() {
-      this._autoTagLegacyMembers();
-      var hosts = document.querySelectorAll("[data-fmb-column][data-fmb-anchor]");
-      var members = [];
-      for (var i = 0; i < hosts.length; i++) {
-        var host = hosts[i];
-        /* Skip our OWN stack containers (they also carry these attributes as
-           positioning markers, not member hosts). */
-        if (host.parentElement === this) continue;
-        var column = host.getAttribute("data-fmb-column");
-        var anchor = host.getAttribute("data-fmb-anchor");
-        if (COLUMNS.indexOf(column) === -1 || ANCHORS.indexOf(anchor) === -1) continue;
-        var slotName = host.getAttribute("data-fmb-slot") || null;
-        members.push(new MemberEntry(host, column, anchor, slotName));
-      }
-      return members;
+      return discoverMembers().map(function (m) {
+        return new MemberEntry(m.host, m.column, m.anchor, m.slotName);
+      });
     }
 
     _sync() {

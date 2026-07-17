@@ -28,11 +28,11 @@ schema_version = 1
 [deps.aura]
 repo = "rhohn94/design-language"   # GitHub owner/repo of the producer
 channel = "stable"                 # stable | beta (the producer's release channel)
-version = "3.554.0"
-artifact = "aura-v3.554.0.tar.gz"
+version = "3.559.0"
+artifact = "aura-v3.559.0.tar.gz"
 dest = "vendor/aura"               # repo-relative vendored destination
 kind = "asset-bundle"              # asset-bundle | vendored-crate | app-binary
-strip_components = 1               # tarball prefixes an aura-v3.541.0/ component
+strip_components = 1               # tarball prefixes an aura-v3.559.0/ component
 
 # Example release-vendored dependency (commented out — copy, uncomment, edit):
 #

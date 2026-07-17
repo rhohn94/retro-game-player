@@ -116,7 +116,15 @@
      accidental collision with consumer code or other Aura attributes. */
   var REVEALED_ATTR = "data-aura-revealed";
   /* Attribute that marks the footer as being keyboard-focused (for focus-within
-     reveal, #766 #804). */
+     reveal, #766 #804). #1109: also folded into the FMB choreography engine's
+     isOpened() check (see the register() call in _enhance()) — a sticky
+     signal, set the instant focus reaches the host or panel and cleared ONLY
+     by the engine's stash() callback (mirrors EXPANDED_ATTR's own "sticky
+     open" contract, docs/design/fmb-choreography-design.md §Engine API
+     (as-built)), so a keyboard-driven open funnels through the SAME
+     detach → decay → stash() return path a proximity-driven open already
+     does, instead of closing instantly via _onFocusOut's REVEALED_ATTR
+     removal below with no engine involvement at all. */
   var FOCUSED_ATTR = "data-aura-footer-focused";
   /* Attribute set by JS proximity detection to temporarily expand the FMB circle
      before the cursor physically touches the element edge (mirrors the nav-header
@@ -179,8 +187,15 @@
   /* Host attributes that (in addition to :hover/:focus-within, tracked via
      real listeners below) determine whether the panel should be open.
      data-aura-footer-layout is mirrored too, unconditionally, so the split
-     layout API still reaches the panel's own layout rule. */
-  var PANEL_OPEN_ATTRS = [REVEALED_ATTR, EXPANDED_ATTR, PINNED_ATTR];
+     layout API still reaches the panel's own layout rule. FOCUSED_ATTR
+     (#1109) is included here — not just checked directly by isOpened() in
+     _enhance() — so the panel STAYS visually open (data-footer-panel-open)
+     for the entire sticky-focus window, exactly like EXPANDED_ATTR keeps it
+     open through a proximity-driven detach/decay: if FOCUSED_ATTR were
+     sticky but absent from this list, the panel would still slam shut the
+     instant _onFocusOut's real-time _footerFocused flag flips false, even
+     though the engine correctly kept polling. */
+  var PANEL_OPEN_ATTRS = [REVEALED_ATTR, EXPANDED_ATTR, PINNED_ATTR, FOCUSED_ATTR];
   var PANEL_LAYOUT_ATTR = 'data-aura-footer-layout';
   /* The single computed attribute CSS keys the panel's visibility off —
      set on the panel itself (not the host) since the panel is body-level,
@@ -192,6 +207,35 @@
   /* #755 initial-load snap marker class, mirrored onto the panel for the
      same DOM-descendant reason as PANEL_OPEN_ATTR above. */
   var NO_TRANSITION_CLASS = 'aura-footer--no-transition';
+
+  /* v3.555 ITEM-5 — FMB choreography detach/decay mirror
+     (docs/design/fmb-choreography-design.md §Engine API (as-built)):
+     js/fmb-choreography.js (the shared engine) writes data-fmb-detached /
+     data-fmb-decaying onto the HOST (the circle — the same host
+     js/fmb-column.js discovers for this member, per the engine's register()
+     contract) as an unpinned Opened menu returns to Stashed (fmb-design.md
+     §5 Detach -> Decay -> re-stash). The circle picks up the matching
+     opacity/filter fade for free from css/fmb-column.css's member-agnostic
+     base [data-fmb-detached]/[data-fmb-decaying] rules (bare attribute
+     selectors, unscoped — they match ANY element bearing the attribute).
+     The PANEL does not: it is a document.body sibling, not a descendant
+     those selectors' own host can reach, AND it never receives the engine's
+     live --aura-fmb-decay-progress custom property (a plain inline-style
+     write on the HOST, not inherited across DOM siblings) those base rules
+     read. Mirror the two booleans onto the panel under PANEL-OWNED names —
+     never the bare data-fmb-* spelling, which would let css/fmb-column.css's
+     UNSCOPED rule match the panel too and (reading the never-mirrored live
+     progress as its 0 fallback, then WINNING regardless of specificity
+     because the fmb-column layer sits AFTER footer's in css/aura.css's
+     @layer order) force opacity straight back to 1, defeating the fade —
+     so css/footer.css can drive the panel's own fade with a plain CSS
+     transition timed off --aura-fmb-decay-duration / --aura-fmb-morph-
+     duration instead of a second per-frame JS mirror (see css/footer.css's
+     [data-footer-panel-detached]/[data-footer-panel-decaying] rules). */
+  var CHOREO_DETACHED_ATTR = 'data-fmb-detached';
+  var CHOREO_DECAYING_ATTR = 'data-fmb-decaying';
+  var PANEL_DETACHED_ATTR = 'data-footer-panel-detached';
+  var PANEL_DECAYING_ATTR = 'data-footer-panel-decaying';
 
   /* ---- Button/panel decoupling (v3.550, #1047) --------------------------
      ensureFooterPanel(): creates the single floating-panel wrapper (idempotent
@@ -238,6 +282,32 @@
     return panel;
   }
 
+  /* v3.555 ITEM-5 — Open-morph geometry (fmb-choreography-design.md §The
+     persistent-button clarification; fmb-design.md §3 Open). The panel is a
+     document.body sibling, not a descendant of the circle (ensureFooterPanel()'s
+     containing-block doc comment above), so its morph origin cannot be a
+     static authored percentage the way an in-place-expanding element's could
+     — it must be resolved from the circle's REAL on-screen rect, translated
+     into the panel's OWN box-relative coordinate space. Both are
+     position:fixed, so both getBoundingClientRect() calls already share the
+     same viewport-relative coordinate system; the only translation needed is
+     subtracting the panel's own top-left so the origin is expressed relative
+     to the panel's box — the coordinate space css/footer.css's clip-path
+     circle(... at x y) argument resolves against. Published as two px-valued
+     custom properties (css/footer.css reads them) — this is the "translate
+     the button rect into the panel's fixed-position coordinate space" the
+     release plan calls for. Cheap (two rect reads) and only ever called from
+     a discrete state change (syncPanelStateMirror, below), never per-frame. */
+  function updateMorphOrigin(self) {
+    if (!self._panel) return;
+    var circleRect = self.getBoundingClientRect();
+    var panelRect = self._panel.getBoundingClientRect();
+    var originX = (circleRect.left + circleRect.width / 2) - panelRect.left;
+    var originY = (circleRect.top + circleRect.height / 2) - panelRect.top;
+    self._panel.style.setProperty('--aura-footer-panel-morph-origin-x', originX + 'px');
+    self._panel.style.setProperty('--aura-footer-panel-morph-origin-y', originY + 'px');
+  }
+
   /* Recomputes PANEL_OPEN_ATTR on the body-level panel from the host's
      current state: any of the attribute-driven signals (data-aura-revealed,
      data-footer-expanded, data-fmb-pinned) OR the live :hover/:focus-within
@@ -249,7 +319,14 @@
      so the panel's own split-layout and no-transition rules stay in sync —
      both are DOM state on the host that the panel, no longer a DOM
      descendant, cannot reach via a CSS combinator. Idempotent — only touches
-     an attribute/class when its value actually differs. */
+     an attribute/class when its value actually differs.
+
+     v3.555 ITEM-5: also recomputes the morph origin whenever the panel is
+     opening (updateMorphOrigin, above — so a resize between one open cycle
+     and the next is picked up), and mirrors the engine's detach/decay
+     booleans onto the panel under their own PANEL_DETACHED_ATTR/
+     PANEL_DECAYING_ATTR names (see the doc comment on those constants for
+     why the mirror does not reuse the bare data-fmb-* spelling). */
   function syncPanelStateMirror(self) {
     if (!self._panel) return;
     var open = !!self._footerHovered || !!self._footerFocused;
@@ -260,6 +337,15 @@
     }
     if (open !== self._panel.hasAttribute(PANEL_OPEN_ATTR)) {
       self._panel.toggleAttribute(PANEL_OPEN_ATTR, open);
+    }
+    if (open) updateMorphOrigin(self);
+    var detached = self.hasAttribute(CHOREO_DETACHED_ATTR);
+    if (detached !== self._panel.hasAttribute(PANEL_DETACHED_ATTR)) {
+      self._panel.toggleAttribute(PANEL_DETACHED_ATTR, detached);
+    }
+    var decaying = self.hasAttribute(CHOREO_DECAYING_ATTR);
+    if (decaying !== self._panel.hasAttribute(PANEL_DECAYING_ATTR)) {
+      self._panel.toggleAttribute(PANEL_DECAYING_ATTR, decaying);
     }
     if (self.hasAttribute(PANEL_LAYOUT_ATTR)) {
       if (self._panel.getAttribute(PANEL_LAYOUT_ATTR) !== self.getAttribute(PANEL_LAYOUT_ATTR)) {
@@ -312,7 +398,12 @@
     var disposers = [];
     if (typeof MutationObserver !== "undefined") {
       var mo = new MutationObserver(function () { syncPanelStateMirror(self); });
-      mo.observe(self, { attributes: true, attributeFilter: PANEL_OPEN_ATTRS.concat([PANEL_LAYOUT_ATTR, 'class']) });
+      /* v3.555 ITEM-5: also watch data-fmb-detached/data-fmb-decaying — the
+         two attributes js/fmb-choreography.js flips on this host during the
+         unpinned Detach -> Decay return path — so the panel's own mirrored
+         copies (PANEL_DETACHED_ATTR/PANEL_DECAYING_ATTR) stay in sync the
+         moment the engine sets or clears them. */
+      mo.observe(self, { attributes: true, attributeFilter: PANEL_OPEN_ATTRS.concat([PANEL_LAYOUT_ATTR, 'class', CHOREO_DETACHED_ATTR, CHOREO_DECAYING_ATTR]) });
       disposers.push(function () { mo.disconnect(); });
     }
     var onEnter = function () { self._footerHovered = true; syncPanelStateMirror(self); };
@@ -394,6 +485,21 @@
     /* Click-pinned: CSS handles expand state; skip proximity compute. */
     if (self.hasAttribute(PINNED_ATTR)) return;
     if (fmbPointerX < 0) return;
+    /* pointer: coarse (#1085, docs/design/fmb-choreography-design.md
+       §Reduced motion and pointer: coarse): no cursor exists to approach
+       with under a coarse pointer, so the proximity Approach this function
+       drives does not apply at all (fmb-design.md §2's own exemption —
+       js/sidebar.js's syncOne() and js/nav-header.js already gate the same
+       way). Without this, a tap near the corner on a touch device ≥640px
+       emitted a pointermove that proximity-opened the body-level panel —
+       and nothing could then close it: the engine deliberately no-ops on
+       coarse (explicit dismissal only) and unpinning does not clear
+       EXPANDED_ATTR. Checked LIVE (not cached at listener-install time,
+       contrast nav-header's install-time gate) so a matchMedia stub in a
+       test — or a genuine hybrid-pointer capability change — takes effect
+       on the very next sync pass, matching the engine's own per-frame
+       reads. */
+    if (Aura.env.coarsePointer()) return;
 
     /* Mobile convergence (v3.552, #1051): below --aura-bp-mobile the circle
        is hidden (visibility:hidden; pointer-events:none) by
@@ -438,10 +544,24 @@
     var dy = fmbPointerY - cy;
     var inProximity = (dx * dx + dy * dy) <= (r + expand) * (r + expand);
 
+    /* v3.555 ITEM-5 — sticky open (docs/design/fmb-choreography-design.md
+       §Engine API (as-built), the CRITICAL register() contract): this used
+       to ALSO clear EXPANDED_ATTR the instant proximity was lost
+       (`else if (!inProximity) { self.removeAttribute(EXPANDED_ATTR); }`) —
+       the exact self-revert-on-hover-out behaviour the engine's own JSDoc
+       calls out by name as the thing that silently kills detach/decay: if
+       EXPANDED_ATTR (isOpened()'s own signal, see the register() call in
+       _enhance() below) flips false the instant the cursor leaves, the
+       engine's `if (pinned || !opened)` guard bails before the return-path
+       choreography ever starts. Once set, EXPANDED_ATTR now stays set for
+       as long as proximity is lost — the engine's stash() callback (wired
+       below) is the ONLY place that clears it again, once the unpinned
+       Detach -> Decay path completes (fmb-design.md §5). Re-entering
+       proximity is unaffected: the branch below still (re-)sets it
+       immediately, and the engine's own "over" phase cancels any in-flight
+       detach/decay the moment distance reads back to ~0. */
     if (inProximity && !hasOpenPanel(self)) {
       if (!self.hasAttribute(EXPANDED_ATTR)) self.setAttribute(EXPANDED_ATTR, '');
-    } else if (!inProximity) {
-      if (self.hasAttribute(EXPANDED_ATTR)) self.removeAttribute(EXPANDED_ATTR);
     }
   }
 
@@ -562,16 +682,201 @@
          _reflectTactile() pattern. Scoped to reveal mode (this branch only runs
          when _isReveal() is true) so a static footer stays matte. */
       this.classList.add("aura-glow");
+      var self = this;
+      /* v3.555 ITEM-5 — FMB choreography engine registration
+         (docs/design/fmb-choreography-design.md §Engine API (as-built)).
+         host and button are the SAME element — the circle IS the existing
+         persistent pin-button (§The persistent-button clarification: no
+         duplicate node is ever introduced); menu is the existing body-level
+         .aura-footer__panel. isOpened() reads the THREE sticky signals the
+         sticky-open fix (EXPANDED_ATTR/PINNED_ATTR) and #1109's own fix
+         (FOCUSED_ATTR — see that constant's doc comment for why a focus-held
+         open needed folding in here too) leave untouched on hover-out/
+         focus-out/click-pin — CRITICAL: stash() is the ONLY place any of
+         them is cleared once this member is Opened+unpinned (see
+         syncOneFmb()'s doc comment above for why the old self-revert branch
+         was removed). Guarded: js/fmb-choreography.js is a separate,
+         optional module a consumer could omit when hand-picking individual
+         files instead of the full dist bundle — footer.js must keep working
+         (just without auto-decay) if it is absent, mirroring
+         js/sidebar.js's `if (Aura && Aura.dialog)` guard for its own
+         optional-subsystem dependency. */
+      if (Aura.fmbChoreography && typeof Aura.fmbChoreography.register === "function") {
+        this._unregisterChoreography = Aura.fmbChoreography.register({
+          host: this,
+          button: this,
+          menu: this._panel,
+          isOpened: function () { return self.hasAttribute(EXPANDED_ATTR) || self.hasAttribute(PINNED_ATTR) || self.hasAttribute(FOCUSED_ATTR); },
+          isPinned: function () { return self.hasAttribute(PINNED_ATTR); },
+          /* #1089 — menu is .aura-footer__panel, but a portaled popup the
+             panel hosts (e.g. the demo's <aura-theme-select>'s inner
+             <aura-select> dropdown — see hasOpenPanel()'s own doc comment
+             above for the "check both locations" reasoning) can extend
+             beyond the panel's own rect. Without this hook, browsing into
+             that popup reads as "pointer left both button and menu,"
+             wrongly starting detach/decay/stash while the popup is still
+             open. hasOpenPanel() already answers exactly that question for
+             the pre-existing proximity-glow guard at line ~548 above — reuse
+             it as the engine's isHeld hook instead of re-deriving the same
+             query. */
+          isHeld: function () { return hasOpenPanel(self); },
+          /* #1109: clears BOTH sticky open-source attributes this member can
+             set — a focus-driven open (FOCUSED_ATTR) must close through the
+             exact same funnel a proximity-driven open (EXPANDED_ATTR) does,
+             so stash() is the one place that ends either. */
+          stash: function () { self.removeAttribute(EXPANDED_ATTR); self.removeAttribute(FOCUSED_ATTR); },
+          label: 'footer'
+        });
+      }
       /* Click-to-pin: toggling data-fmb-pinned keeps the FMB expanded until
          the user clicks again. Ignore clicks on interactive descendants (links,
          buttons, inputs) so they still work normally when the footer is open. */
-      var self = this;
       this._onFmbPinClick = function (e) {
         if (self.hasAttribute(REVEALED_ATTR)) return;
         if (e.target.closest("a, button, input, select, textarea")) return;
-        self.toggleAttribute(PINNED_ATTR);
+        var pinning = !self.hasAttribute(PINNED_ATTR);
+        self.toggleAttribute(PINNED_ATTR, pinning);
+        /* #1085 — coarse pointers: an unpin tap must genuinely CLOSE.
+           EXPANDED_ATTR is a fine-pointer proximity signal, but it can be
+           carried into a coarse context (a hybrid device switching pointer
+           capability mid-session, or state set before this fix's proximity
+           gate landed) — and on coarse the engine never runs, so nothing
+           else would ever clear it: the panel would survive the unpin with
+           no exit. Explicit dismissal is the member's own job on touch
+           (fmb-choreography-design.md §Reduced motion and pointer: coarse),
+           and a deliberate unpin tap is exactly that — not the passive
+           hover-leave the engine's sticky-open contract forbids acting on.
+           Fine pointers are untouched: there the engine's detach → decay →
+           stash() owns clearing EXPANDED_ATTR. */
+        if (!pinning && self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+        /* Pin press-feedback (v3.555 ITEM-5, fmb-design.md §4 Pin): this
+           click handler is already the single call site for a pin toggle,
+           so one press() call here is the whole wiring — the visual
+           (transform: scale(--aura-fmb-press-scale)) is css/footer.css's
+           own [data-fmb-press] rule. Guarded for the same optional-module
+           reason as register() above. */
+        if (Aura.fmbChoreography && typeof Aura.fmbChoreography.press === "function") {
+          Aura.fmbChoreography.press(self);
+        }
       };
       this.addEventListener("click", this._onFmbPinClick);
+
+      /* #1104 — keyboard operability: this host IS the pin-button (host and
+         button are the SAME element, per the click handler above and the
+         choreography register() call's `button: this`), so it must be
+         independently focusable and operable without a mouse — today it has
+         no tabindex, no role="button", no accessible name, and no Enter/
+         Space handling, so pinning is mouse-only.
+
+         role="button" REPLACES the landmark role connectedCallback set
+         (role="contentinfo", or an author override — this._fmbSavedRole
+         stashes whatever was there so _teardown() can restore it exactly,
+         mirroring js/nav-header.js's _applyFmbSemantics() saving the logo's
+         href before overwriting it). A single element can only expose one
+         role at a time, and the circle's functional identity while enhanced
+         for reveal mode really is "a toggle button that reveals the footer"
+         — the actual footer CONTENT already lives in the separate
+         .aura-footer__panel (button/panel decoupling, v3.550 #1047), not on
+         this host — matching every other FMB member's own pin control
+         (js/nav-header.js's user-fmb avatar button, js/sidebar.js's pill)
+         exposing role=button, not a landmark role, on the element users
+         actually press. */
+      this._fmbSavedRole = this.getAttribute("role");
+      this.setAttribute("role", "button");
+      this._fmbAddedTabindex = !this.hasAttribute("tabindex");
+      if (this._fmbAddedTabindex) this.setAttribute("tabindex", "0");
+      this._fmbAddedAriaLabel = !this.hasAttribute("aria-label") && !this.hasAttribute("aria-labelledby");
+      if (this._fmbAddedAriaLabel) this.setAttribute("aria-label", "Toggle footer pin");
+      /* aria-pressed (not aria-expanded): mirrors js/nav-header.js's
+         onUserFmbKeydown/el._userFmbPinMo convention for its own host===button
+         FMB avatar — DELIBERATELY aria-pressed, since PINNED_ATTR's own
+         meaning ("held open regardless of where the pointer/focus wanders")
+         is exactly what aria-pressed communicates, and there is no separate
+         menu-visibility toggle here for aria-expanded to describe (contrast
+         a real disclosure button with its own aria-controls target). Synced
+         via a dedicated MutationObserver so every path that can flip
+         PINNED_ATTR — this click handler, the #1084 Escape/outside-pointerdown
+         handlers below, or a consumer/test setting the attribute directly —
+         is covered from one place. */
+      this.setAttribute("aria-pressed", this.hasAttribute(PINNED_ATTR) ? "true" : "false");
+      this._fmbPinAriaMo = new MutationObserver(function () {
+        self.setAttribute("aria-pressed", self.hasAttribute(PINNED_ATTR) ? "true" : "false");
+      });
+      this._fmbPinAriaMo.observe(this, { attributes: true, attributeFilter: [PINNED_ATTR] });
+      this._fmbButtonSemanticsApplied = true;
+
+      /* Enter/Space activate the toggle. Unlike js/nav-header.js's logo
+         anchor (a real <a>, which fires click on Enter for free from the
+         browser and only needs an explicit Space handler), this host is a
+         plain custom element with no native interactive behavior — NEITHER
+         key fires a click automatically, so both need an explicit handler.
+         Delegates to self.click() (which the existing _onFmbPinClick click
+         listener above handles) rather than re-implementing the pin-toggle/
+         press-feedback/coarse-pointer-cleanup logic a second time, so every
+         activation modality (pointer click, Enter, Space) shares one code
+         path. Guarded the same way _onFmbPinClick itself is guarded against
+         interactive descendants, in case a future author nests one directly
+         in the (still host-resident) mark zone. */
+      this._onFmbKeydown = function (e) {
+        if (e.target.closest("a, button, input, select, textarea")) return;
+        var key = e.key;
+        if (key === "Enter" || key === " " || key === "Spacebar" || e.keyCode === 13 || e.keyCode === 32) {
+          e.preventDefault();
+          self.click();
+        }
+      };
+      this.addEventListener("keydown", this._onFmbKeydown);
+
+      /* #1084 — outside pointerdown unpins the pinned panel, matching every
+         other FMB member's dismissal contract (fmb-design.md). Exclusion
+         list: the circle itself (self), the floating panel (self._panel —
+         body-level, not a DOM descendant of self, so a bare self.contains()
+         would miss it — same reason hasOpenPanel()/containsAcrossHostAndPanel()
+         above check both locations), and any currently-open portaled popup
+         (e.g. the demo's <aura-theme-select>'s inner <aura-select> dropdown,
+         which js/menu.js's detachToBody() moves to a document.body SIBLING of
+         the panel — outside BOTH self and self._panel's own subtrees, so
+         needs its own check). Capture phase mirrors js/sidebar.js's
+         armPushDismissal and js/nav-header.js's onPointerDown so the outside
+         check runs even if an intervening handler stops propagation. */
+      this._onFmbOutsidePointerDown = function (e) {
+        if (!self.hasAttribute(PINNED_ATTR)) return;
+        var t = e.target;
+        if (!t || !t.closest) return;
+        if (self.contains(t)) return;
+        if (self._panel && self._panel.contains(t)) return;
+        if (t.closest("aura-menu")) return;
+        self.removeAttribute(PINNED_ATTR);
+        /* #1085 parity: an outside tap on a coarse pointer must genuinely
+           close, mirroring the identical cleanup in _onFmbPinClick above. */
+        if (self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+      };
+      document.addEventListener("pointerdown", this._onFmbOutsidePointerDown, true);
+
+      /* #1084 — Escape unpins + closes the pinned panel regardless of where
+         focus currently is: document-level, mirroring js/nav-header.js's FMB
+         circle Pinned-exit branch in onKeyDown (a page-visible pin latch is
+         dismissed by Escape from anywhere, not only while focus happens to be
+         inside the member — js/sidebar.js's own per-element Escape listener
+         is scoped to its element because the sidebar's pinned CONTENT lives
+         inside that same element; the footer's pinned content lives in the
+         body-level panel instead, so scoping to `this` would miss Escape
+         presses from inside the panel entirely). */
+      this._onFmbEscape = function (e) {
+        if (e.key !== "Escape") return;
+        if (!self.hasAttribute(PINNED_ATTR)) return;
+        e.preventDefault();
+        self.removeAttribute(PINNED_ATTR);
+        if (self.hasAttribute(EXPANDED_ATTR) && Aura.env.coarsePointer()) {
+          self.removeAttribute(EXPANDED_ATTR);
+        }
+      };
+      document.addEventListener("keydown", this._onFmbEscape);
+
       /* Unified stash-state mirror (#1019): data-aura-stashed is present exactly
          while data-aura-revealed is absent. MutationObserver-driven so every
          reveal/conceal path (IO, focus-within, short-content, re-root, consumer
@@ -697,8 +1002,19 @@
          should cause it to reveal even before the sentinel intersects. Listen for
          focusin (bubbles from any descendant); on focusout only remove the revealed
          state if focus actually left the footer AND the sentinel is not intersecting.
-         The FOCUSED_ATTR is a JS-only internal marker; CSS relies only on
-         data-aura-revealed (set below).
+
+         #1109 — FOCUSED_ATTR is ALSO set here now (sticky, per that
+         constant's own doc comment): a keyboard user tabbing in is exactly
+         the "focus-held open" this issue's fix funnels through the shared
+         choreography engine, alongside REVEALED_ATTR's pre-existing
+         "force-visible for a11y" behaviour. The two are deliberately
+         independent: REVEALED_ATTR is still cleared eagerly below on
+         focus-out (untouched by this fix — that a11y contract is orthogonal
+         to FMB choreography), while FOCUSED_ATTR stays set — PANEL_OPEN_ATTRS
+         (above) already includes it, so the panel keeps rendering visually
+         open even after REVEALED_ATTR clears — until the engine's own
+         stash() callback clears it once the resulting detach/decay
+         completes (or instantly, under reduced motion).
 
          Dual-location (v3.550 reviewer fix, same root cause as
          armPanelStateMirror above): focusin bubbles, but ONLY from
@@ -713,6 +1029,21 @@
          instead of a plain self.contains() check. */
       this._onFocusIn = function () {
         self.setAttribute(REVEALED_ATTR, '');
+        /* #1109: only set the sticky FOCUSED_ATTR when the choreography
+           engine actually registered (self._unregisterChoreography is the
+           SAME truthy-guard _enhance() used around the register() call
+           above) — this attribute is ONLY ever cleared by the engine's own
+           stash() callback (see register()'s stash above), so setting it
+           with no engine present to eventually clear it would leave the
+           footer permanently in the "focus-opened" panel state after the
+           very first Tab-in, for the lifetime of the page. Without the
+           engine, focus-driven reveal keeps working exactly as it always
+           has (REVEALED_ATTR alone, cleared on focus-out below) — "just
+           without auto-decay," the same accepted trade-off already
+           documented for EXPANDED_ATTR when this optional module is absent. */
+        if (self._unregisterChoreography && !self.hasAttribute(FOCUSED_ATTR)) {
+          self.setAttribute(FOCUSED_ATTR, '');
+        }
         updateScrollPadding(self, true);
         if (self._liveRegion) self._liveRegion.textContent = 'Footer content available';
       };
@@ -972,6 +1303,14 @@
     }
 
     _teardown() {
+      /* v3.555 ITEM-5: unregister from the choreography engine FIRST — before
+         anything else below — so any live decay timer for this host is
+         cancelled and its data-fmb-detached/-decaying/--aura-fmb-decay-progress
+         lifecycle state is cleared immediately (Aura.fmbChoreography.register()'s
+         own idempotent-disposer contract), rather than left dangling across an
+         HTMX swap that discards this node. Guarded the same way the register()
+         call itself is guarded (the module may be absent). */
+      if (this._unregisterChoreography) { this._unregisterChoreography(); this._unregisterChoreography = null; }
       /* Button/panel decoupling (v3.550, #1047): disconnect the re-home
          observer and unwrap the panel FIRST — before any other teardown step
          — so a reveal→static attribute switch (attributeChangedCallback calls
@@ -1010,6 +1349,11 @@
       var idx = fmbInstances.indexOf(this);
       if (idx >= 0) fmbInstances.splice(idx, 1);
       this.removeAttribute(EXPANDED_ATTR);
+      /* #1109: FOCUSED_ATTR is the same kind of sticky, engine-owned open
+         signal as EXPANDED_ATTR above — clear it too so a disconnect mid-
+         decay never leaves it behind (e.g. an HTMX swap discarding this
+         node before the engine's own unregister()-triggered resetPhase runs). */
+      this.removeAttribute(FOCUSED_ATTR);
       if (this._io) { this._io.disconnect(); this._io = null; }
       if (this._shellObserver) { this._shellObserver.disconnect(); this._shellObserver = null; }
       /* ResizeObserver on documentElement (#783 #759 #767). */
@@ -1035,6 +1379,26 @@
       this._lastScrollRoot = null;
       /* Remove FMB pin-click handler. */
       if (this._onFmbPinClick) { this.removeEventListener("click", this._onFmbPinClick); this._onFmbPinClick = null; }
+      /* #1104 — undo the keyboard-operability wiring, restoring whatever role
+         was present before _enhance() replaced it with "button" (guarded by
+         _fmbButtonSemanticsApplied so a footer that was NEVER enhanced for
+         reveal mode — e.g. a static footer running through this same
+         teardown on disconnect — never has its role/tabindex touched at
+         all). */
+      if (this._fmbButtonSemanticsApplied) {
+        if (this._fmbSavedRole != null) this.setAttribute("role", this._fmbSavedRole);
+        else this.removeAttribute("role");
+        this._fmbSavedRole = null;
+        if (this._fmbAddedTabindex) { this.removeAttribute("tabindex"); this._fmbAddedTabindex = false; }
+        if (this._fmbAddedAriaLabel) { this.removeAttribute("aria-label"); this._fmbAddedAriaLabel = false; }
+        this.removeAttribute("aria-pressed");
+        this._fmbButtonSemanticsApplied = false;
+      }
+      if (this._fmbPinAriaMo) { this._fmbPinAriaMo.disconnect(); this._fmbPinAriaMo = null; }
+      if (this._onFmbKeydown) { this.removeEventListener("keydown", this._onFmbKeydown); this._onFmbKeydown = null; }
+      /* #1084 — remove the document-level Escape/outside-pointerdown listeners. */
+      if (this._onFmbOutsidePointerDown) { document.removeEventListener("pointerdown", this._onFmbOutsidePointerDown, true); this._onFmbOutsidePointerDown = null; }
+      if (this._onFmbEscape) { document.removeEventListener("keydown", this._onFmbEscape); this._onFmbEscape = null; }
       this.removeAttribute(PINNED_ATTR);
       this._fmbRadius = this._fmbExpand = 0;
       /* Mirror the _enhance() glow add — unconditional, like the other FMB
