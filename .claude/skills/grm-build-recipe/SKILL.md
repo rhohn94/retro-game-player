@@ -1,6 +1,6 @@
 ---
 name: grm-build-recipe
-description: Shared named-target interface for driving any Grimoire project's build/run/data operations under stable names, regardless of stack — a skill or agent calls the dispatcher `recipe.py <target>` (build / server / stop / test / seed / migrate / lint / clean) and the correct project command runs. The per-project implementation lives in `.claude/recipes.json`. Use when running a recipe target or generating the recipe file.
+description: Shared named-target interface for driving any Grimoire project's build/run/data operations under stable names, regardless of stack — call the dispatcher `recipe.py <target>` (build / server / stop / test / unit-test / seed / migrate / lint / clean) and the correct project command runs. Use when running a recipe target or generating the recipe file.
 ---
 
 # Build-recipe interface (BR1)
@@ -35,20 +35,22 @@ The canonical target vocabulary lives in `recipe.py` (`INTERFACE`,
 
 | Target | Does | Standard params |
 |---|---|---|
-| `build` | compile / assemble | — |
+| `build` | compile / assemble | `--env` |
 | `server` (justfile `run`) | start the app server | `--port` (defaults to `$GRIMOIRE_APP_PORT`, #77), `--env` |
-| `test` | run the test suite | `--filter`, `--watch` |
+| `test` | run the test suite (full — unit + integration/e2e/slow) | `--filter`, `--watch` |
+| `unit-test` | run only fast, isolated unit tests, excludes integration/e2e/slow marks (v8) | `--filter`, `--watch` |
 | `seed` | populate a local data store | `--fixture`, `--env` |
 | `migrate` | run pending migrations | `--env` |
 | `lint` | static analysis / formatting | — |
 | `clean` | remove build artifacts | — |
 | `package` | assemble a versioned, deployable release bundle (v2) | `--version`, `--target` |
 | `deploy` | install / self-update a deployed instance from a bundle (v2) | `--env` (defaults `prod`) |
-| `grm-sync-deps` | reconcile / vendor first-party deps from a release channel (v3) | `--mode` (`--check`/`--update`/`--offline`) |
+| `sync-deps` | reconcile / vendor first-party deps from a release channel (v3) | `--mode` (`--check`/`--update`/`--offline`) |
 | `vendor-check` | dependency-channel conformance gate, exit 0/nonzero (v3) | `--full` (whole-vendor audit) |
 | `smoke` | Boot app and verify entry page + critical assets return 2xx with correct content-type. Exit 2 when unimplemented. (v4) | `--port` (defaults to `$GRIMOIRE_APP_PORT`) |
 | `release` | changelog-derived release ceremony (bump/test/build/tag + milestone reconciliation) (v5) | — (no args) |
 | `stop` | kill running instance(s) of this project's process (v6) | `--port` (defaults to `$GRIMOIRE_APP_PORT`) |
+| `gui-test` | GUI feature test (web: agent-driven; desktop: baseline diff). GUI-only | `--baseline` |
 
 > **`run` ↔ `server` (RSS-3, #321).** `run` is the canonical **justfile** recipe
 > name; `server` is the versioned INTERFACE target, kept as a permanent
@@ -57,7 +59,14 @@ The canonical target vocabulary lives in `recipe.py` (`INTERFACE`,
 > A pure alias: **no new target, `INTERFACE_VERSION` unchanged**;
 > `.claude/recipes.json` keeps the historical `server` key.
 
-**Interface version (`INTERFACE_VERSION`) is `6`** — v6 added `stop` (kill running
+**Interface version (`INTERFACE_VERSION`) is `9`** — v9 added `gui-test` (#362);
+v8 added `unit-test` (#360:
+the fast, isolated subset of `test` — excludes integration/e2e/slow marks so
+the post-commit gate, the Verifier, and phase-merge can trigger "just the fast
+tests" without per-stack knowledge; per-stack mapping and the full contract:
+`docs/coding-standards.md` §`unit-test` + `docs/grimoire/design/runtime-verification-design.md`
+§Unit test vs. full test run); v7 added an `env` param to `build` (#442, param
+only); v6 added `stop` (kill running
 instance(s) of this project's process, RSS-4 #322); v5 added the changelog-derived
 `release` ceremony (recipe layer phase 2, issue #201 §4); v4 added the runtime
 verification gate `smoke` (boot app + curl entry page + critical assets, assert
@@ -79,15 +88,16 @@ reference implementation is `scripts/release.sh`. `stop` kills the process
 `run` started — resolution order `--port` → `$GRIMOIRE_APP_PORT` → the pidfile
 `run` wrote (`$GRIMOIRE_RUN_PIDFILE`) → a declared process pattern
 (`$GRIMOIRE_APP_PATTERN`); idempotent, only kills identified processes; ref
-impl `scripts/stop.sh` (generic, like `grm-sync-deps`/`vendor-check`); full spec:
+impl `scripts/stop.sh` (generic, like `sync-deps`/`vendor-check`); full spec:
 `docs/design/justfile-standard-design.md` §2.3. The bump is **extend-only**:
 `grm-sync-from-upstream` adds new targets as **stubs** to existing projects and
 never overwrites an implemented target. `grm-sync-deps`/`vendor-check` are universal
 (every stack); `release` is too as of v3.90 (every stack preset pre-fills
 `just release` — a repo with no release ceremony never reaches the clean
 dev==main boundary that keeps syncs autonomous-safe, and install-doctor WARNs
-on a missing one); `package`/`deploy`/`smoke`/`stop` are runnable-app-shape
-(cli/library stub them).
+on a missing one); `unit-test` is universal too, like `test` (every stack
+preset pre-fills it routing to `just unit-test`); `package`/`deploy`/`smoke`/
+`stop` are runnable-app-shape (cli/library stub them).
 Like every target, they **fail loud (exit 2)** when a project calls them without
 implementing them — never a silent no-op.
 
@@ -152,6 +162,15 @@ real command and flips `implemented: true`. Generation runs at
   `recipe test` instead of constructing stack-specific commands.
 - **CLAUDE.md commands table:** `grm-workflow-bootstrap` writes
   `recipe <target>` invocations there instead of raw project strings.
+- **Post-commit test gate (#361):** `post_commit_gate.py` (this skill dir)
+  runs `recipe unit-test` from a REAL git `post-commit`/`pre-commit` hook pair
+  (`.claude/hooks/`, activated via `git config core.hooksPath .claude/hooks`)
+  plus a project-declared `.claude/recipes.json` `extras.coverage` command —
+  the same informational-`extras` idiom `smoke-visual` uses, never a versioned
+  INTERFACE target. Full contract: `docs/coding-standards.md` §Post-commit
+  test + coverage gate; design:
+  `docs/grimoire/design/runtime-verification-design.md` §Post-commit test +
+  coverage gate.
 
 ## Constraints
 

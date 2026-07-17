@@ -99,7 +99,7 @@ through to an arbitrary inherited command is left as a follow-up manual
 refinement; this tool's job is making every target addressable under one name,
 not perfecting each one's argument plumbing.
 
-**Out of scope:** `grm-sync-deps` / `vendor-check` — the two "universal
+**Out of scope:** `sync-deps` / `vendor-check` — the two "universal
 (delegates)" recipes that always route to the same two framework scripts
 regardless of project (justfile-standard-design.md §2). There is never an
 existing project entry point to migrate for them; wire them by hand or via

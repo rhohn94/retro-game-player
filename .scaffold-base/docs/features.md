@@ -190,7 +190,7 @@ tags). Destructive push flags (`--force`, `--delete`) are always denied.
 **What it checks:** the remote ref(s) in a `git push` invocation.  
 **Blocked operations:** pushes to any ref not on the allowlist; any push with
 destructive flags; any push from a non-master worktree.  
-**Allowed refs:** `main`, `dev`, and `refs/tags/vX.Y`.
+**Allowed refs:** `main`, `dev`, and `refs/tags/vX.Y[.Z]` (three-part vX.Y.Z is the fleet-wide recommended format; two-part vX.Y remains fully supported).
 
 ### `worktree-guard.sh`
 
@@ -240,7 +240,7 @@ dials are introduced. Current schema version: `4`.
 | `issue-tracker.trackers` | array | Named issue-tracker configs (`roadmap` / `github` / `grimoire` provider). See `grm-issue-tracker-switch`. |
 
 Additional optional blocks (`code-quality`, `stealth-mode`, `autonomous-push`,
-`grm-project-manager`, `grm-github-pr`, `qa`, `worktree-ports`, `grm-iterate`, `mcp`,
+`project-manager`, `github-pr`, `qa`, `worktree-ports`, `iterate`, `mcp`,
 `doc-hierarchy`, and others as the framework grows) are additive and default
 sensibly when absent — each is documented by the skill that reads it rather
 than restated here, so this list doesn't go stale as new dials land.

@@ -8,6 +8,7 @@ fi
 printf 'error: %s requires python3. Re-run as: python3 %s %s\n' "$0" "$0" "$*" >&2
 exit 1
 ":"""
+# HOOK_CONTRACT: v1 capabilities=[bundled-sync-commit-block]
 """Bundled-sync-commit guard (issue #126, BMI-3 mechanical enforcement).
 
 PreToolUse(Bash) hook that fires on `git commit`. It denies (fail-closed,
@@ -37,7 +38,7 @@ Grimoire repository for that rationale — and docs/grimoire/integration-workflo
 
 Scope note: this hook does NOT duplicate BMI-3 Rules 3a/3b (branch +
 release-boundary refusal), which live in the sync SCRIPTS themselves
-(`sync-from-upstream.sh`, `grm-design-language-adapt`'s Step 0 preflight) because
+(`sync-from-upstream.sh`, `design-language-adapt`'s Step 0 preflight) because
 those checks need branch/boundary context the two skills already compute.
 This hook only adds the mechanical "not in the SAME commit" check, which
 neither skill's own preflight can catch (each skill only knows its own

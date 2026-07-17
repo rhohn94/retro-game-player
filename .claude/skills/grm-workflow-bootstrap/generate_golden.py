@@ -185,7 +185,7 @@ class GoldenGenerator:
     def _find_stale_bare_skill_names(self) -> frozenset[str]:
         """Bare (pre-namespacing) skill dir names that coexist with a
         grm-<name> sibling under the same skills/ parent -- e.g.
-        skills/grm-architecture-audit/ beside skills/grm-architecture-audit/. This
+        skills/architecture-audit/ beside skills/grm-architecture-audit/. This
         is the exact post-sync/pre-namespacing-migration overlap
         grm_namespacing.py's discover_skill_names() detects and then
         archives+removes; mirrored here (read-only) so golden never bakes in a
@@ -585,13 +585,13 @@ def _self_test() -> int:
         (transitional / ".claude/skills/grm-build-recipe/SKILL.md").write_text("recipe")
         # Post-sync, pre-namespacing-migration overlap.
         (transitional / ".claude/skills/architecture-audit").mkdir(parents=True)
-        (transitional / ".claude/skills/grm-architecture-audit/SKILL.md").write_text("old")
+        (transitional / ".claude/skills/architecture-audit/SKILL.md").write_text("old")
         (transitional / ".claude/skills/grm-architecture-audit").mkdir(parents=True)
         (transitional / ".claude/skills/grm-architecture-audit/SKILL.md").write_text("new")
         # A bare-name skill with NO grm- sibling yet is a legitimate pre-v3.42
         # install, not a migration overlap -- must still be included.
         (transitional / ".claude/skills/scout").mkdir(parents=True)
-        (transitional / ".claude/skills/grm-agent-scout/SKILL.md").write_text("unmigrated")
+        (transitional / ".claude/skills/scout/SKILL.md").write_text("unmigrated")
         # Post-sync, pre-clean-room-docs-migration overlap.
         (transitional / "docs/grimoire").mkdir(parents=True)
         (transitional / "docs/integration-workflow.md").write_text("old")
@@ -600,11 +600,11 @@ def _self_test() -> int:
 
         tgen = GoldenGenerator(transitional, seed)
         tplan = set(tgen.plan())
-        check("skills/grm-architecture-audit/SKILL.md" not in tplan,
+        check("skills/architecture-audit/SKILL.md" not in tplan,
               "#313: stale bare-name skill dir leaked into golden")
         check("skills/grm-architecture-audit/SKILL.md" in tplan,
               "#313: migrated grm- skill dir missing from golden")
-        check("skills/grm-agent-scout/SKILL.md" in tplan,
+        check("skills/scout/SKILL.md" in tplan,
               "#313: unmigrated bare-name skill (no grm- sibling) wrongly excluded")
         check("docs/integration-workflow.md" not in tplan,
               "#313: stale top-level clean-room doc leaked into golden")

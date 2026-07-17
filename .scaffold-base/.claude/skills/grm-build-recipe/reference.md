@@ -75,7 +75,7 @@ deploy-layer targets to the *whole* vocabulary), so `recipe.py <target>` and
    `just <recipe> …` routed stub (`implemented: false`); a project fills the
    justfile recipe body and flips `implemented: true`.
 
-`grm-sync-deps` / `vendor-check` delegate directly to the framework's own scripts
+`sync-deps` / `vendor-check` delegate directly to the framework's own scripts
 (`grm-sync-deps/sync_deps.py`, `grm-dependency-audit/dependency_channel_conformance.py`)
 rather than a project `scripts/` file.
 
